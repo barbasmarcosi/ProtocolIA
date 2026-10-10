@@ -17,18 +17,34 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","action-preview","action-run"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
+    parser.add_argument("--policy",type=Path)
+    parser.add_argument("--environment",type=str)
     args=parser.parse_args()
     if args.command=="diff" and args.candidate is None:
         parser.error("diff requires old and candidate contract paths")
     if args.command!="diff" and args.candidate is not None:
         parser.error("unexpected candidate path")
+    if args.command in {"action-preview","action-run"} and args.policy is None:
+        parser.error("action commands require host-owned --policy")
+    if args.command=="action-run" and not args.environment:
+        parser.error("action-run requires --environment (trusted host identifier)")
+    if args.command not in {"action-preview","action-run"} and (args.policy or args.environment):
+        parser.error("--policy and --environment are reserved for action commands")
     try:
         contract=json.loads(args.contract.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
-        if args.command=="validate":
+        if args.command in {"action-preview","action-run"}:
+            from .action_runtime import dry_run, execute
+            policy=json.loads(args.policy.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            if args.command=="action-preview":
+                result=dry_run(contract,policy)
+            else:
+                result=execute(contract,policy,args.out,environment=args.environment)
+            print(json.dumps(result,sort_keys=True,indent=2))
+        elif args.command=="validate":
             normalized=validate(contract)
             print(f"VALID {normalized['namespace']} ({len(normalized['operations'])} operations)")
         elif args.command=="diff":

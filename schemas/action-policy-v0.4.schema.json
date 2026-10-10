@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/barbasmarcosi/ProtocolIA/blob/main/schemas/action-policy-v0.4.schema.json",
+  "title": "Host-owned P3 demonstration policy shape — not an authorization credential",
+  "type": "object",
+  "required": [
+    "grants",
+    "max_actions",
+    "max_writes",
+    "max_duration_ms",
+    "max_evidence_age_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "grants": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compute.literal": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "compute.sha256": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "compute.assert": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "kv.read": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/key"
+          }
+        },
+        "kv.write": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/key"
+          }
+        }
+      }
+    },
+    "max_actions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 64
+    },
+    "max_writes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 64
+    },
+    "max_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60000
+    },
+    "max_evidence_age_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400000
+    }
+  },
+  "$defs": {
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*){0,7}$(?![\\s\\S])"
+    }
+  }
+}

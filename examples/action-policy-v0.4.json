@@ -1,0 +1,20 @@
+{
+  "grants": {
+    "compute.literal": [
+      "*"
+    ],
+    "compute.assert": [
+      "*"
+    ],
+    "kv.write": [
+      "inventory/widget"
+    ],
+    "kv.read": [
+      "inventory/widget"
+    ]
+  },
+  "max_actions": 6,
+  "max_writes": 1,
+  "max_duration_ms": 5000,
+  "max_evidence_age_ms": 600000
+}

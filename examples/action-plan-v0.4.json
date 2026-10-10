@@ -1,0 +1,73 @@
+{
+  "version": "0.4",
+  "plan_id": "inventory-check-demo",
+  "actions": [
+    {
+      "id": "seed",
+      "tool": "literal",
+      "args": {
+        "value": "two"
+      },
+      "depends_on": [],
+      "capability": "compute.literal",
+      "effects": [],
+      "timeout_ms": 1000,
+      "output_type": "string"
+    },
+    {
+      "id": "write",
+      "tool": "kv.put",
+      "args": {
+        "key": "inventory/widget",
+        "value": {
+          "from": "seed"
+        }
+      },
+      "depends_on": [
+        "seed"
+      ],
+      "capability": "kv.write",
+      "effects": [
+        "write"
+      ],
+      "timeout_ms": 1000,
+      "output_type": "string"
+    },
+    {
+      "id": "read",
+      "tool": "kv.read",
+      "args": {
+        "key": "inventory/widget"
+      },
+      "depends_on": [
+        "write"
+      ],
+      "capability": "kv.read",
+      "effects": [
+        "read"
+      ],
+      "timeout_ms": 1000,
+      "output_type": "string"
+    },
+    {
+      "id": "verify",
+      "tool": "assert.eq",
+      "args": {
+        "left": {
+          "from": "seed"
+        },
+        "right": {
+          "from": "read"
+        }
+      },
+      "depends_on": [
+        "seed",
+        "read"
+      ],
+      "capability": "compute.assert",
+      "effects": [],
+      "timeout_ms": 1000,
+      "output_type": "boolean"
+    }
+  ]
+}
