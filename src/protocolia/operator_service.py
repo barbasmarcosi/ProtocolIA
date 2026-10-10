@@ -65,6 +65,9 @@ def load_config(file: Path) -> dict:
         if type(config[name]) is not str:
             _deny("invalid trusted directory")
         _trusted_dir(Path(config[name]))
+    space = os.stat(config["workspace"])
+    if space.st_uid != os.geteuid() or (space.st_mode & 0o077) != 0:
+        _deny("service workspace must be host-owned and private")
     for name in ("registry_file", "service_key_file", "host_policy_file",
                  "docker_policy_file"):
         if type(config[name]) is not str:
@@ -215,3 +218,20 @@ def client(socket_file: Path, payload: dict, *, timeout: float = 20.0) -> dict:
         return result["result"]
     finally:
         sock.close()
+
+
+def main() -> int:
+    """Start under a dedicated trusted OS user, never within an agent process."""
+    import argparse
+    parser = argparse.ArgumentParser(prog="protocolia-approval-service")
+    parser.add_argument("--config", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        serve(args.config)
+    except (ExecutionDenied, OSError) as exc:
+        parser.exit(1, "approval-service failed to start: " + type(exc).__name__ + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
