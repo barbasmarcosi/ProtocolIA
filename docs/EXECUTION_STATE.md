@@ -1,6 +1,6 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker are MERGED and independently verified. P3 as a whole remains open.
+Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway are MERGED and independently verified. P3 as a whole remains open.
 
 ## Merged baseline
 
@@ -17,7 +17,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 | P0 | COMPLETE | Provider-free Python compiler, deterministic artifacts, protected regeneration and external format validation |
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
-| P3 | IN PROGRESS: P3-A + P3-B1 + P3-B2.1 VERIFIED | Typed v0.5 plan now invokes exactly one approved isolated Docker read and pure postconditions. Plan+policy bound grant and independent live Docker tests; human authentication, paid/writable effects and cost accounting remain unimplemented. |
+| P3 | IN PROGRESS: P3-A + B1 + B2.1 + B2.2 VERIFIED | Typed v0.5 read-only Docker broker now requires cryptographic Ed25519 operator key possession in a new gateway; signed scoped intents, operator revocation/rotation and protected host signing keys verified. No deployed human enrollment/MFA, paid/writable external effects or cost settlement. |
 | P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
@@ -85,8 +85,24 @@ See [P3-B1 threat model](P3-DOCKER-ADAPTER.md).
 - Still P3 overall OPEN: real operator authentication and signer-key custody/rotation, writable/paid effect outbox and compensation, cost reservation/settlement with unknown-cost hard block, independent hostile daemon/container escape study.
 
 See docs/P3-B2-READONLY-BROKER.md.
+## P3-B2.2: cryptographically verified operator key possession
+
+**Merged:** ProtocolIA PR #22 at main commit d9829212e2fa20508272e068ce8104a946d01180; independent ProtocolIA-Test PR #10 at main commit 667356a48141e40c79234ec6cbd6403ffe433b63.
+
+**Exact code SHAs and independent results:** ProtocolIA implementation SHA 2e0a71b57a0a1b28ab04dda27314852436cb9039: [full quality CI](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38093049959) SUCCESS, [Ed25519 Python 3.11/3.13 + real Docker](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38093049873) SUCCESS; latest PR rechecks at same SHA passed. Independent ProtocolIA-Test SHA f24e674e47716076c40513a365986355e299c25d: [real Docker offline-key consumer](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38093119886) SUCCESS, [consumer regressions](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38093119848) SUCCESS.
+
+**Implemented, supported scope:**
+- Optional cryptography-based Ed25519 signature verifies operator possession of a key registered by a separately trusted host, along with exact approved resource scope. The old direct subject parameter is still present in host-internal building blocks, but the *new gateway* refuses unsigned/declarative approvals.
+- A domain-separated canonical signed consent binds plan hash, host and Docker policy hashes, external request ID, logical resource, image content ID, immutable tool fingerprint, input content hash, host environment, operator/key ID, protected registry digest, nonce and expiry (max 5 minutes).
+- Offline CLI can create a private 0600 key on the operator's device and sign only after independently supplied plan hash and resource match. Only the public key is enrolled in host registry; the model never receives any private key or host HMAC service key.
+- Trusted host gateway checks private 0600-equivalent local registry and HMAC-key files with ownership, symlink/hardlink and size checks; reserves single-use nonce durably before creating HMAC grant. Revalidates signed key grant on each execution/replay and after Docker returns, denying old grants on revocation, key rotation, stale registry or plan, expired consent and forged signer.
+- ProtocolIA-Test independently generated operator keys with a subprocess signing flow, signed a separate binary receipt plan, exercised actual Docker, wrong signer, mismatch review, stale file, public-key revocation and rotation into a new approved plan.
+
+**Not yet proven:** This verifies possession of an enrolled private key, NOT real-world human identity, OIDC/SSO, authenticator MFA, approval web interface, identity enrollment/recovery, tamper-proof hardware key, privileged host isolation against root, provider billing or external writes. The protected gateway MUST run under a restricted identity and keep lower-level unverified APIs unreachable to any model. P3 issue #4 remains OPEN.
+
+See [operator authentication design](P3-B2-OPERATOR-AUTH.md).
 ## Next
 
-P3-B2 continuation: the v0.5 read-only typed broker is implemented; next enforce actual authenticated operator approvals and key custody, then transactional/outbox recovery and fail-closed cost accounting for writable or paid tools. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3-B2 continuation: Ed25519 operator key-possession and host key custody are verified; next deploy independently authenticated human enrollment/approval service, then implement durable outbox/recovery and fail-closed cost reservations for writable/paid tools. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.

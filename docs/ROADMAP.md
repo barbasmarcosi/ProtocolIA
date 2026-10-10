@@ -114,7 +114,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P3 — Auditable action plans (v0.4; issue #4)
 
-**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B1 restricted Docker isolation/approval is verified; P3-B2.1 typed read-only broker is verified; general privileged, writable or paid effects and real operator authentication remain unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
+**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B1 restricted Docker isolation/approval is verified; P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 operator key-possession gateway are verified; deployed human enrollment/MFA, writable/paid tools and cost recovery remain unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
 
 **P3-A verified:**
 - [x] Separate typed action IR 0.4, with input/output references, effect typing, typed equality postconditions, DAG validation, per-action cooperative timeouts and deterministic serial ordering.
@@ -140,8 +140,14 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] Existing isolated Docker read operates only after explicit HMAC host approval; stale plan/policy/bytes, revocation and forged capabilities denied. Known-zero paid-provider cost only.
 - [x] Live Docker integration and independent ProtocolIA-Test own binary fixture with concurrent callers, idempotency, negative access and postcondition checks. PR #20 and consumer PR #9 merged.
 
+**P3-B2.2 implemented and independently verified: cryptographic operator key possession**
+- [x] Operator-held Ed25519 private key signs a domain-separated canonical intent; trusted host has only a protected public-key registry. Declared subject alone no longer suffices for new gateway approval.
+- [x] Consent binds entire plan, exact logical resource, tool, immutable image ID, host and Docker policies, input hash, tool fingerprint, environment, key ID, registry digest, nonce and bounded expiry.
+- [x] Operator CLI generates 0600 raw private keys locally and refuses signing without exact plan SHA and resource confirmation. Private key never enters the trusted executor or container.
+- [x] Protected 0600-equivalent host HMAC key and registry, UID and symlink/hardlink checks; durable single-use nonce before issuing host HMAC grant; signer-key revocation and rotation invalidate old replays.
+- [x] Python 3.11/3.13 cryptographic adversarial CI, actual Docker integration and independent ProtocolIA-Test consumer with its own operator keys, binary file and key-rotation exercise; PR #22 and independent PR #10 merge-tested.
 **Remaining P3-B2 before issue #4 closure:**
-- [ ] Authenticate real operators independently and protect approval signing keys, rotation and revocation; host-declared subject is not a verified person.
+- [ ] Deploy trusted actual-human identity enrollment and account recovery (OIDC/WebAuthn/MFA or equivalent), trusted authenticated approval UI/service, provisioning and signing-key custody/rotation at scale. Current Ed25519 proof verifies possession of an enrolled private key, NOT an independent real-world identity.
 - [ ] Add a durable outbox and recoverable/compensatable effects before enabling any external writes or paid tools; handle crash, cancellation, partial commit and bounded retries.
 - [ ] Reserve and reconcile provider/tool costs with independently verified usage and unknown-cost hard blocking; currently no paid provider is permitted.
 - [ ] Independently test hostile container/daemon escapes and host sandbox boundaries, including seccomp/user namespaces, races and resource leak behavior.
