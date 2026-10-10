@@ -19,15 +19,15 @@ Updated: **2026-10-10**, planning checkpoint; no implementation change claimed h
 | Gate | Status | Evidence / explicit blocker | Next action |
 | --- | --- | --- | --- |
 | P0 baseline grammar/compiler | VERIFIED on baseline SHA | PR #1, 14 reported local tests, green quality workflow | Preserve behavior |
-| P0 installed CLI smoke | NOT VERIFIED | CI currently invokes `PYTHONPATH=src` directly | Test clean wheel/install and CLI entry point |
+| P0 installed CLI smoke ([#6](https://github.com/barbasmarcosi/ProtocolIA/issues/6)) | NOT VERIFIED | CI currently invokes `PYTHONPATH=src` directly | Test clean wheel/install and CLI entry point |
 | P0 external format conformance | NOT VERIFIED | Emission is not equivalent to external tool validation | OpenAPI 3.1 validator and TS compiler |
 | P0 golden/adversarial corpus | INCOMPLETE | Unit tests exist; comprehensive fixtures not yet evidenced | Fixtures + negative cases |
 | P1 formal contract semantics | NOT STARTED | Issue #2 | JSON Schema and matching negative corpus |
 | P2 generated running service | NOT STARTED | Issue #3 | One bounded FastAPI vertical slice |
 | P3 safe plan runtime | NOT STARTED | Issue #4 | Separate action IR and capability model |
 | P4 independent benchmark | NOT STARTED | Issue #5 | Preregister tasks and event ledger early |
-| P5 real project consumers | NOT STARTED | No integration evidence | Read-only TrueMaestro/GastroApp pilots |
-| P6 v1/no-go decision | NOT STARTED | Requires all previous evidence | Independent assessment |
+| P5 real project consumers ([#7](https://github.com/barbasmarcosi/ProtocolIA/issues/7)) | NOT STARTED | No integration evidence | Read-only TrueMaestro/GastroApp pilots |
+| P6 v1/no-go decision ([#8](https://github.com/barbasmarcosi/ProtocolIA/issues/8)) | NOT STARTED | Requires all previous evidence | Independent assessment |
 
 ## Immediate next slice
 
