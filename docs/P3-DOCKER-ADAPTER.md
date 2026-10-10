@@ -4,9 +4,9 @@
 
 This adapter proves one bounded external operation: computing SHA-256 for an explicitly approved input file. It is provider-free and does **not** expose arbitrary shell, Python, network tools, repository writes or user-supplied Docker flags.
 
-The host supplies an absolute trusted input directory, a policy with an exact allowlist and zero USD spending, an already-pulled image pinned by local sha256 image ID, a separate pre-existing ledger directory, an authenticated subject and environment, plus a private 32+ byte approval secret. The plan controls only a versioned tool name, request ID and logical resource key.
+The host supplies an absolute trusted input directory, a policy with an exact allowlist and zero USD spending, an already-pulled image pinned by local sha256 image ID, a separate pre-existing ledger directory, a host-declared subject (whose actual authentication must be performed by the host) and environment, plus a private 32+ byte approval secret. The plan controls only a versioned tool name, request ID and logical resource key.
 
-A preview computes the input fingerprint without opening the approval ledger. Approval is explicitly issued by the host and HMAC-seals the request hash, policy hash, input hash, subject, environment and expiration. Revocation blocks results and replays. Never expose the approval secret or Docker daemon socket to any agent/model. **A real operator-authentication system is NOT implemented**: deployment must enforce that control outside this library.
+A preview computes the input fingerprint without opening the approval ledger. Approval is explicitly issued by the host and HMAC-seals the request hash, policy hash, input hash, subject, environment, expiration and tool implementation fingerprint. Revocation verifies the same signing secret before modifying approval state. Revocation blocks results and replays. Never expose the approval secret or Docker daemon socket to any agent/model. **A real operator-authentication system is NOT implemented**: deployment must enforce that control outside this library.
 
 ## Boundaries
 

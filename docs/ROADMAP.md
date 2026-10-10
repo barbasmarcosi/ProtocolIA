@@ -114,7 +114,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P3 — Auditable action plans (v0.4; issue #4)
 
-**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B external sandbox/approval boundary remains unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
+**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B1 restricted Docker isolation/approval is verified; P3-B2 general privileged broker and cost-safe external effects remain unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
 
 **P3-A verified:**
 - [x] Separate typed action IR 0.4, with input/output references, effect typing, typed equality postconditions, DAG validation, per-action cooperative timeouts and deterministic serial ordering.
@@ -126,16 +126,24 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] ProtocolIA-Test independent Python 3.11 and 3.13 tests for forged grant, forbidden shell, traversal, timeout/cancellation, concurrent replay, TTL expiry and modified evidence.
 - [x] P0/P1/P2 regression CI remains green for the exact P3 implementation commit.
 
-**P3-B NOT yet satisfied:**
-- [ ] Actually isolated out-of-process tool adapter with OS-level sandbox and deny-by-default network/filesystem/process, tested against hostile paths, symlink races and escape attempts.
-- [ ] Human approval and revocation mechanism bound to privileged tool effects, policy hash and immutable resource identifiers.
-- [ ] External side-effect cancellation/timeouts/recovery with idempotency, compensation and bounded retry; no silent duplicate paid calls.
-- [ ] Provider/tool usage accounting and reservation that handles unknown cost as a hard block before a paid operation, if and when paid tools are supported.
-- [ ] Independent sandbox/privilege adversarial evaluation without leaking credentials or touching production.
+**P3-B1 verified: restricted, read-only isolated external adapter (not general tool execution):**
+- [x] One fixed file.sha256 operation executes as an unprivileged Docker process, pinned to a local image SHA-256 ID, with network none, read-only root and bind-mounted byte snapshot, ALL capabilities dropped and resource limits; actual Docker CI probes demonstrate no egress, host socket access or writable mounts.
+- [x] Trusted host resource allowlist, O_NOFOLLOW input traversal, size limit and zero-dollar known-cost policy are checked before creating any external attempt.
+- [x] Explicit host-issued HMAC approval bound to exact input, request, policy, environment, declared subject, expiration and fixed tool fingerprint; revocation validates the signer secret, so an arbitrary key cannot revoke.
+- [x] One durable attempt per immutable request ID, no ambiguous automatic retry, successful exact replay, timeout quarantine and best-effort container cleanup, results re-verified and rejected after revocation.
+- [x] A separate ProtocolIA-Test fixture exercises actual Docker, approval/revocation, stale input and TTL, forged revocation, concurrent clients, traversal/symlink and forbidden paid/shell operations.
+- [x] P3-B1 and independent CI passed on pinned exact commits, and code merged to both main branches.
+
+**P3-B2 NOT implemented, blocks closing the full P3 issue:**
+- [ ] Integrate the external adapter into the typed P3 action DAG through a trusted capability broker; the P3-B1 Docker adapter is standalone, not a general new plan action.
+- [ ] Real operator authentication and approvals/revocation service with isolation of signing keys from model/runtime credentials. The host-declared subject is NOT a verified human identity.
+- [ ] Writable and/or paid external tools with a durable outbox, verified compensation/recovery semantics, hard cancellation and bounded retries; reject uncertain settlement and unknown costs.
+- [ ] Provider/token/resource reservations and settlement with independent evidence and ceilings before any priced operation. P3-B1 supports ONLY known local zero-cost read-only hashing.
+- [ ] Independent hostile-image/daemon trust and sandbox escape assessment, including user namespace/seccomp provenance; Docker CLI hardening alone is not a production sandbox certification.
 
 **Exit for P3-A:** a provider-free, fully audited local DAG operates against only its allowed SQLite resources; no OS sandbox or external privileges claimed.
 
-**Exit for full P3:** external effects must be constrained and denied by the kernel/isolated runtime (not only Python conventions), recovery must remain verifiable and approval/cost limits must actually be enforced. Keep issue #4 OPEN until these evidence gates pass.
+**Exit for full P3:** trusted plan integration, authenticated and revocable privileged grants, genuine writable/paid effect recovery and cost reservations, and independent adversarial sandbox verification are all required. This is NOT established by read-only Docker P3-B1. Keep issue #4 OPEN until these evidence gates pass.
 
 ### P4 — Optional AI adapters and preregistered A/B/C evaluation (v0.5; issue #5)
 
