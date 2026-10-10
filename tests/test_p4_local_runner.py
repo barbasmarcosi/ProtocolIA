@@ -78,6 +78,7 @@ class LocalRunnerTests(unittest.TestCase):
         command.write_text(
             "#!"+sys.executable+"\n"
             "import json,sys\n"
+            "if '--version' in sys.argv: print('fake-cli-v1');sys.exit(0)\n"
             "assert sys.stdin.read()\n"
             "print("+repr(stream)+")\n")
         command.chmod(0o700)
