@@ -35,8 +35,8 @@ def annotation(spec: dict) -> str:
         anns.append("@jakarta.validation.constraints.NotNull")
     if base not in TYPES:
         anns.append("@jakarta.validation.Valid")
-    if "minLength" in constraints or "maxLength" in constraints:
-        arguments=[k+"="+str(constraints[k]) for k in ("minLength","maxLength") if k in constraints]
+    if base == "string":
+        arguments=["min="+str(constraints.get("minLength",0)), "max="+str(constraints.get("maxLength",4096))]
         arguments=[x.replace("minLength","min").replace("maxLength","max") for x in arguments]
         anns.append("@jakarta.validation.constraints.Size("+", ".join(arguments)+")")
     if "pattern" in constraints:
@@ -51,6 +51,7 @@ def record(name: str,fields: dict) -> str:
     parts=[]
     for field, spec in fields.items():
         if field in BAD: _fail("unsupported Java field name: "+field)
+        if not spec["required"]: _fail("java-spring: optional/null semantics not yet supported for "+name+"."+field)
         parts.append("    "+annotation(spec)+" "+jt(spec["type"])+" "+field)
     return "package "+PKG+";\npublic record "+name+"(\n"+",\n".join(parts)+"\n) {}\n"
 

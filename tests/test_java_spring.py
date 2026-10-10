@@ -12,6 +12,8 @@ class JavaTargetTest(unittest.TestCase):
     def setUp(self):
         self.c=json.loads(EXAMPLE.read_text())
         del self.c["models"]["SaleRequest"]["sale_state"]["constraints"]
+        for fields in self.c["models"].values():
+            for spec in fields.values(): spec["required"]=True
     def test_generates_deterministic_java(self):
         a=generate_java(self.c)
         self.assertEqual(a,generate_java(self.c))
@@ -29,3 +31,7 @@ class JavaTargetTest(unittest.TestCase):
             write_java(out,Path(tmp));write_java(out,Path(tmp))
             (Path(tmp)/"pom.xml").write_text("custom")
             with self.assertRaises(ContractError): write_java(out,Path(tmp))
+
+    def test_optional_field_requires_proven_null_absence_semantics(self):
+        self.c["models"]["SaleRequest"]["sku"]["required"]=False
+        with self.assertRaises(ContractError): generate_java(self.c)

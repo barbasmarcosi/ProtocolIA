@@ -32,6 +32,8 @@ jobs:
           from pathlib import Path
           s=json.loads(Path("examples/sales-v0.2.json").read_text())
           del s["models"]["SaleRequest"]["sale_state"]["constraints"]
+          for fields in s["models"].values():
+            for spec in fields.values(): spec["required"]=True
           Path("/tmp/protocolia-java-contract.json").write_text(json.dumps(s))
           PY
           protocolia generate-java /tmp/protocolia-java-contract.json --out /tmp/protocolia-java
