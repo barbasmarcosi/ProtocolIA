@@ -1,0 +1,52 @@
+{
+  "version": "0.5",
+  "plan_id": "warehouse-hash-check",
+  "actions": [
+    {
+      "id": "read",
+      "tool": "file.sha256",
+      "args": {
+        "resource": "warehouse/stock"
+      },
+      "depends_on": [],
+      "capability": "file.sha256",
+      "effects": [
+        "read"
+      ],
+      "timeout_ms": 10000,
+      "output_type": "string"
+    },
+    {
+      "id": "expected",
+      "tool": "literal",
+      "args": {
+        "value": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "depends_on": [],
+      "capability": "compute.literal",
+      "effects": [],
+      "timeout_ms": 1000,
+      "output_type": "string"
+    },
+    {
+      "id": "verify",
+      "tool": "assert.eq",
+      "args": {
+        "left": {
+          "from": "read"
+        },
+        "right": {
+          "from": "expected"
+        }
+      },
+      "depends_on": [
+        "read",
+        "expected"
+      ],
+      "capability": "compute.assert",
+      "effects": [],
+      "timeout_ms": 1000,
+      "output_type": "boolean"
+    }
+  ]
+}
