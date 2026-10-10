@@ -19,6 +19,7 @@ from protocolia.p4_benchmark import BenchmarkError, lock, create
 from protocolia.p4_local_runner import (
     FORBIDDEN_AUTH_ENV, _cli_argv, prepare, execute,
 )
+from protocolia.p4_trial_finalize import finalize
 
 
 class LocalRunnerTests(unittest.TestCase):
@@ -36,6 +37,19 @@ class LocalRunnerTests(unittest.TestCase):
         task_dir.mkdir(parents=True)
         source=task_dir/"catalog-crud.json"
         source.write_text(json.dumps(spec)+"\n")
+        verifier_tools=self.fixture/"tools"
+        verifier_tools.mkdir()
+        grader=verifier_tools/"p4_verify.py"
+        grader.write_text(
+            "import argparse,json\n"
+            "from pathlib import Path\n"
+            "p=argparse.ArgumentParser()\n"
+            "p.add_argument('--task');p.add_argument('--base-url');p.add_argument('--verifier-commit');p.add_argument('--out')\n"
+            "a=p.parse_args()\n"
+            "ok=a.base_url.endswith('8765')\n"
+            "e={'verifier_commit':a.verifier_commit,'tests_passed':ok,'security_passed':ok,'independent':True,'evidence_sha256':'a'*64}\n"
+            "Path(a.out).write_text(json.dumps(e))\n"
+            "raise SystemExit(0 if ok else 1)\n")
         subprocess.run(["git","init","-q"],cwd=self.fixture,check=True)
         subprocess.run(["git","add","."],cwd=self.fixture,check=True)
         subprocess.run(["git","-c","user.name=Test","-c","user.email=test@example.invalid",
@@ -66,6 +80,8 @@ class LocalRunnerTests(unittest.TestCase):
         self.work.mkdir()
         self.private=self.root/"private"
         self.private.mkdir(mode=0o700)
+        self.results=self.root/"results"
+        self.results.mkdir(mode=0o700)
         self.runid="codex-catalog-crud-r01-direct"
         self.safeenv=os.environ.copy()
         for key in FORBIDDEN_AUTH_ENV:self.safeenv.pop(key,None)
@@ -155,7 +171,7 @@ class LocalRunnerTests(unittest.TestCase):
         stub=self.fake_cli('{"type":"result","usage":{"input_tokens":13,"output_tokens":7},"total_cost_usd":4.5}')
         with patch.dict(os.environ,self.safeenv,clear=True),patch(
                 "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
-            result=execute(self.work,self.private,self.lock,ident,allow_real_cli=True)
+            result=execute(self.work,self.private,self.lock,ident,allow_real_cli=True,model="sonnet")
         self.assertEqual(result["exit_code"],0)
         info=json.loads((self.private/ident/"run.json").read_text())
         self.assertEqual(info["tokens"]["output_tokens"],7)
@@ -169,9 +185,73 @@ class LocalRunnerTests(unittest.TestCase):
         with patch.dict(os.environ,self.safeenv,clear=True),patch(
                 "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
             info=execute(self.work,self.private,self.lock,self.runid,
-                         allow_real_cli=True,timeout_seconds=1)
+                         allow_real_cli=True,timeout_seconds=1,model="pinned-codex")
         self.assertTrue(info["timed_out"])
         self.assertNotEqual(info["exit_code"],0)
         self.assertTrue((self.private/self.runid/"run.json").exists())
+
+
+    def test_postrun_frozen_independent_verifier_and_publish_immutable_result(self):
+        self.prep()
+        stub=self.fake_cli('{"type":"turn.completed","usage":{"input_tokens":18,"output_tokens":6,"cached_input_tokens":0}}')
+        with patch.dict(os.environ,self.safeenv,clear=True),patch(
+                "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
+            execute(self.work,self.private,self.lock,self.runid,
+                    allow_real_cli=True,model="pinned-model")
+        result=finalize(
+            self.lock,self.runid,self.work,self.private,self.results,self.fixture,
+            base_url="http://127.0.0.1:8765",interventions=0,repairs=0)
+        self.assertTrue(result["verified_success"])
+        published=json.loads((self.results/(self.runid+".json")).read_text())
+        self.assertEqual(published["usage"]["observed_tokens"]["input_tokens"],18)
+        self.assertEqual(published["repairs"],0)
+        self.assertIsNone(published["usage"]["actual_subscription_usd"])
+        with self.assertRaisesRegex(BenchmarkError,"already attempted"):
+            finalize(self.lock,self.runid,self.work,self.private,self.results,self.fixture,
+                     base_url="http://127.0.0.1:8765",interventions=0,repairs=0)
+
+    def test_failing_external_grader_still_records_failure_not_cherrypicked(self):
+        self.prep()
+        stub=self.fake_cli('{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}')
+        with patch.dict(os.environ,self.safeenv,clear=True),patch(
+                "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
+            execute(self.work,self.private,self.lock,self.runid,
+                    allow_real_cli=True,model="pinned-model")
+        summary=finalize(self.lock,self.runid,self.work,self.private,self.results,self.fixture,
+                         base_url="http://127.0.0.1:8766",interventions=0,repairs=0)
+        self.assertFalse(summary["verified_success"])
+        self.assertTrue((self.results/(self.runid+".json")).exists())
+
+    def test_dirty_verifier_or_tampered_trace_denied_before_provenance(self):
+        self.prep()
+        stub=self.fake_cli('{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":9}}')
+        with patch.dict(os.environ,self.safeenv,clear=True),patch(
+                "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
+            execute(self.work,self.private,self.lock,self.runid,
+                    allow_real_cli=True,model="pinned-model")
+        grader=self.fixture/"tools/p4_verify.py"
+        grader.write_text("raise SystemExit(0)\n")
+        with self.assertRaisesRegex(BenchmarkError,"modified"):
+            finalize(self.lock,self.runid,self.work,self.private,self.results,self.fixture,
+                     base_url="http://127.0.0.1:8765",interventions=0,repairs=0)
+        subprocess.run(["git","checkout","--","tools/p4_verify.py"],cwd=self.fixture,check=True)
+        trace=self.private/self.runid/"cli-trace.private"
+        trace.write_text("manipulated")
+        with self.assertRaisesRegex(BenchmarkError,"trace modified"):
+            finalize(self.lock,self.runid,self.work,self.private,self.results,self.fixture,
+                     base_url="http://127.0.0.1:8765",interventions=0,repairs=0)
+
+    def test_model_must_be_pinned_and_prompt_cannot_be_tampered(self):
+        self.prep()
+        stub=self.fake_cli('{"type":"turn.completed"}')
+        with patch.dict(os.environ,self.safeenv,clear=True),patch(
+                "protocolia.p4_local_runner.shutil.which",return_value=str(stub)):
+            with self.assertRaisesRegex(BenchmarkError,"model must be explicitly"):
+                execute(self.work,self.private,self.lock,self.runid,allow_real_cli=True)
+            (self.private/self.runid/"prompt.txt").write_text("malicious replacement")
+            with self.assertRaisesRegex(BenchmarkError,"frozen task or prompt"):
+                execute(self.work,self.private,self.lock,self.runid,
+                        allow_real_cli=True,model="pinned-model")
+        self.assertFalse((self.private/self.runid/"started.json").exists())
 
 if __name__=="__main__":unittest.main()
