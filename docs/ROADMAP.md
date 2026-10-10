@@ -91,25 +91,26 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 **Exit gate:** only supported constraints compile into standards-compatible artifacts AND have reference runtime verification; backward compatibility is explicit; independent consumers and pinned CI pass. See [P1 v0.2 contract](P1-V02-CONTRACT.md), [ADR-001](ADR-001-MODELING-STANDARDS.md) and [execution state](EXECUTION_STATE.md).
 
-### P2 — Executable vertical slice: inventory and sale (v0.3; issue #3)
+### P2 — Executable Java Spring Boot inventory-sale vertical slice (v0.3; issue #3)
 
-**Platform choice:** Java backend proposal; keep generator interface language-independent so other targets can be added only after P4 proves meaningful value. Target decision is tracked in [ADR-002](ADR-002-JAVA-BACKEND.md).
+**Status: COMPLETE within the explicitly supported profile**, merged via ProtocolIA PR #13 (generator/runtime) and PR #12 (Java ADR); independent ProtocolIA-Test PR #5 also merged.
 
-**Purpose:** prove a contract produces more than DTOs and routes.
+**Stack:** Java 21, Spring Boot 4.0.2, Maven, Spring MVC/Security, Jakarta validation, PostgreSQL 16, Spring JDBC, Flyway migrations default-disabled and JUnit 5/Testcontainers.
 
-**First stack (proposed P2 target change):** Java 21 + Spring Boot 4.x + Maven + PostgreSQL. Pin exact patch versions when implementing, and verify runtime/toolchain compatibility in CI. The ProtocolIA compiler remains Python/provider-free; Java is a generated backend, not a replacement compiler implementation. Use JUnit 5, Spring MVC/Bean Validation and Testcontainers PostgreSQL for independent HTTP, database and concurrency checks. Do **not** rely on in-memory-only SQLite/H2 for evidence of transactional correctness. Before inventing Java scaffolding, compare the outcome against OpenAPI Generator's maintained `spring` server generator with its Boot 4 configuration.
+- [x] Provider-free deterministic Java DTO/record, MVC and supported constraint generation. Unimplemented generic business endpoints explicitly return 501.
+- [x] Named fail-closed inventory-sale contract translates into actual JDBC business transactions; arbitrary business predicates are NOT generally synthesized.
+- [x] Atomic guarded stock decrement, PostgreSQL CHECK and UNIQUE constraints, transactional rollback and idempotency under concurrent requests.
+- [x] HTTP 200/400/401/403/404/409, unknown-field rejection, real Spring method-level authorization, viewer write denial, invalid data rejection.
+- [x] JUnit5/Testcontainers PostgreSQL concurrency, rollback and replay tests; generated service builds under Maven clean package.
+- [x] Independent ProtocolIA-Test contract generates/runs its own service and confirms HTTP semantics with ephemeral PostgreSQL.
+- [x] Safe regeneration refuses modified/unmanaged source; Flyway defaults off; no production migration or privileged filesystem guarantee.
+- [x] OpenAPI Generator Spring Boot 4 conventional baseline generated from the same OpenAPI. This is a scaffold comparison, not an economic benchmark.
 
-**Deliverables**
-- [ ] Generate Java records/DTOs, Spring MVC controller interfaces, request/response validation, OpenAPI, TypeScript client types and independent contract tests. Generated endpoints must fail explicitly for unimplemented business logic.
-- [ ] Generate only explicitly supported JPA/persistence boundaries and Flyway migration previews; never execute DDL or destructive migrations on unreviewed contracts.
-- [ ] Implement a **named executable template/rule** for atomic inventory decrement; define preconditions, postconditions and DB transaction boundaries. A contract label alone is insufficient.
-- [ ] Protect duplicate sale submission with idempotency-key scope, replay behavior and race tests; specify failure and timeout semantics.
-- [ ] Map contract capabilities to an actual Spring Security request/method enforcement policy in the generated sample runtime; independently prove unauthenticated and unauthorized requests are rejected.
-- [ ] Golden fixture demo: `product → register sale → stock movement`; happy path, stock shortage, concurrent purchase, duplicate request, transaction rollback and malicious input.
-- [ ] Deterministic regeneration that preserves custom application code; no unsafe migration by default.
-- [ ] Clean checkout runs Maven compile/test and starts generated Spring Boot service; independently compare actual HTTP behavior against OpenAPI and ProtocolIA constraints. Include an A/B comparator against unmodified OpenAPI Generator Spring server scaffolding.
+**Exact evidence:** ProtocolIA implementation SHA 5b4f16733acd1dc6f14b1dec51aa22cd2d48ece7; successful java-inventory run https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38088656004, java-target https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38088655993, quality https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38088655983, baseline https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38088652081. Independent consumer SHA 2c78ca2167dab7ab33dd043dca8d82272dbca963, successful https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38088760781.
 
-**Exit:** reproducible generated demo can be executed and negative/integration/concurrency tests pass on **the stated target DB and framework**. Unsupported guarantees remain visibly unimplemented, not implicitly trusted.
+**Limits:** no arbitrary business program synthesis, no production identity provider or TLS hardening, unsupported enum and optional/null Java semantics are rejected, no general migration approval engine, no safe concurrent hostile filesystem writes, no measured cost/token savings. P4 must measure that independently.
+
+**Exit:** The concrete generated inventory-sale service builds, executes and passes negative/concurrency/rollback tests on real PostgreSQL, independently consumed. P2's bounded gate is satisfied; wider generator claims require separate gates.
 
 ### P3 — Auditable agent execution engine (v0.4; issue #4)
 
