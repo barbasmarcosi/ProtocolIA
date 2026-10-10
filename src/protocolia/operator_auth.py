@@ -173,6 +173,9 @@ def create_intent(plan: Any, host_policy: Any, docker_policy: Any,
         "environment": environment,
         "request_id": preview["external_request"]["request_id"],
         "request_hash": snapshot["request_hash"],
+        "tool": preview["external_request"]["tool"],
+        "resource": preview["external_request"]["resource"],
+        "container_image": docker_policy["container_image"],
         "plan_sha256": preview["plan_sha256"],
         "host_policy_sha256": preview["host_policy_sha256"],
         "docker_policy_sha256": snapshot["policy_hash"],
@@ -190,7 +193,7 @@ def _verified_signed_intent(envelope: Any, plan: Any, host_policy: Any,
     intent = envelope["intent"]
     if type(intent) is not dict or set(intent) != {
         "version", "subject", "key_id", "environment", "request_id",
-        "request_hash", "plan_sha256", "host_policy_sha256", "docker_policy_sha256",
+        "request_hash", "tool", "resource", "container_image", "plan_sha256", "host_policy_sha256", "docker_policy_sha256",
         "input_sha256", "tool_fingerprint", "registry_sha256", "issued_at",
         "expires_at", "nonce"
     }:
