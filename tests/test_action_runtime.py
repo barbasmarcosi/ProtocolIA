@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import closing
 from protocolia.action_runtime import ExecutionDenied, validate_plan, dry_run, execute
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -27,7 +28,7 @@ class P3RuntimeTest(unittest.TestCase):
         second=self.execute()
         self.assertEqual(second["status"],"replayed")
         self.assertEqual(first["evidence_sha256"],second["evidence_sha256"])
-        with sqlite3.connect(self.workspace/"protocolia-action.sqlite3") as db:
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0],4)
             self.assertEqual(db.execute("SELECT value FROM kv WHERE key='inventory/widget'").fetchone()[0],"two")
     def test_dry_run_does_not_open_storage(self):
@@ -69,7 +70,7 @@ class P3RuntimeTest(unittest.TestCase):
         with self.assertRaises(ExecutionDenied):dry_run(c,self.policy)
     def test_inconsistent_evidence_and_stale_replay_denied(self):
         self.execute()
-        with sqlite3.connect(self.workspace/"protocolia-action.sqlite3") as db:
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             db.execute("UPDATE kv SET value='tampered' WHERE key='inventory/widget'")
         with self.assertRaisesRegex(ExecutionDenied,"stale external state"):self.execute()
     def test_plan_or_policy_or_environment_change_invalidates(self):
@@ -85,7 +86,7 @@ class P3RuntimeTest(unittest.TestCase):
             execute(self.plan,self.policy,self.workspace,environment="test-env/2")
     def test_forged_event_detected(self):
         self.execute()
-        with sqlite3.connect(self.workspace/"protocolia-action.sqlite3") as db:
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             db.execute("UPDATE events SET event_json='{}' WHERE seq=0")
         with self.assertRaisesRegex(ExecutionDenied,"inconsistent action"):self.execute()
     def test_cancel_and_postcondition_roll_back_atomic_write(self):
@@ -94,13 +95,19 @@ class P3RuntimeTest(unittest.TestCase):
             calls[0]+=1
             return calls[0]>=5
         with self.assertRaisesRegex(ExecutionDenied,"cancelled"):self.execute(cancelled=cancel)
-        with sqlite3.connect(self.workspace/"protocolia-action.sqlite3") as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM kv").fetchone()[0],0)
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM executions").fetchone()[0],0)
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
+            # First-time DDL also rolls back when the effect transaction fails.
+            tables={name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "kv" in tables:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM kv").fetchone()[0],0)
+            if "executions" in tables:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM executions").fetchone()[0],0)
         self.plan["actions"][3]["args"]["right"]="wrong"
         with self.assertRaisesRegex(ExecutionDenied,"postcondition failed"):self.execute()
-        with sqlite3.connect(self.workspace/"protocolia-action.sqlite3") as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM kv").fetchone()[0],0)
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
+            tables={name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "kv" in tables:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM kv").fetchone()[0],0)
     def test_clock_timeout_denies_and_rolls_back(self):
         ticks=[0]
         def clock():
