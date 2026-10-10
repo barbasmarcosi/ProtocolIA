@@ -17,6 +17,7 @@ from .action_runtime import ExecutionDenied, _deny, _identifier, _key, _json, _d
 
 IMAGE=re.compile(r"^sha256:[0-9a-f]{64}$")
 TOOL="file.sha256"
+VERSION="protocolia/docker-readonly/0.5.0"
 SCRIPT=("import hashlib,json,pathlib;"
         "b=pathlib.Path('/input').read_bytes();"
         "print(json.dumps({'sha256':hashlib.sha256(b).hexdigest(),'bytes':len(b)}))")
@@ -95,7 +96,8 @@ def preview(request: Any,policy: Any,inputs: Path)->dict:
     data=_bytes(Path(inputs),req["resource"],pol["max_bytes"])
     return {"request_hash":_digest(req),"policy_hash":_digest(pol),
             "input_sha256":hashlib.sha256(data).hexdigest(),
-            "input_bytes":len(data),"estimated_cost_usd":0}
+            "input_bytes":len(data),"estimated_cost_usd":0,
+            "tool_fingerprint":hashlib.sha256((VERSION+"\0"+SCRIPT).encode()).hexdigest()}
 
 
 def _ledger(workspace: Path, required: bool)->Path:
@@ -134,7 +136,8 @@ def approve(request: Any,policy: Any,inputs: Path,workspace: Path,*,
     snapshot=preview(req,pol,inputs)
     ticket={"request_id":req["request_id"],"request_hash":snapshot["request_hash"],
             "policy_hash":snapshot["policy_hash"],"input_sha256":snapshot["input_sha256"],
-            "subject":subject,"environment":environment,"expires_at":now()+ttl,
+            "subject":subject,"environment":environment,
+            "tool_fingerprint":snapshot["tool_fingerprint"],"expires_at":now()+ttl,
             "nonce":uuid4().hex}
     data=_json(ticket)
     sig=hmac.new(secret,data.encode(),hashlib.sha256).hexdigest()
@@ -154,8 +157,17 @@ def revoke(request_id: str,workspace: Path,*,secret: bytes)->None:
     _identifier(request_id,"request id")
     with sqlite3.connect(_ledger(workspace,True),timeout=5) as db:
         _tables(db)
-        if db.execute("UPDATE approvals SET revoked=1 WHERE request_id=?",(request_id,)).rowcount!=1:
+        record=db.execute("SELECT payload,sig,revoked FROM approvals WHERE request_id=?",
+                          (request_id,)).fetchone()
+        if record is None:
             _deny("unknown approval")
+        signed=hmac.new(secret,record[0].encode(),hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(record[1],signed):
+            _deny("invalid host revocation secret")
+        if record[2]:
+            _deny("approval already revoked")
+        db.execute("UPDATE approvals SET revoked=1 WHERE request_id=? AND revoked=0",
+                   (request_id,))
 
 
 def _ticket(db:sqlite3.Connection,req:dict,snapshot:dict,subject:str,environment:str,
@@ -168,9 +180,9 @@ def _ticket(db:sqlite3.Connection,req:dict,snapshot:dict,subject:str,environment
     try: ticket=json.loads(row[0])
     except ValueError:_deny("invalid approval payload")
     if type(ticket) is not dict or set(ticket)!={"request_id","request_hash","policy_hash",
-                        "input_sha256","subject","environment","expires_at","nonce"}:
+                        "input_sha256","subject","environment","expires_at","nonce","tool_fingerprint"}:
         _deny("unknown approval fields")
-    if any(ticket[k]!=snapshot[k] for k in ("request_hash","policy_hash","input_sha256")):
+    if any(ticket[k]!=snapshot[k] for k in ("request_hash","policy_hash","input_sha256","tool_fingerprint")):
         _deny("stale host policy, input or request")
     if (ticket["request_id"],ticket["subject"],ticket["environment"])!=(
             req["request_id"],subject,environment):

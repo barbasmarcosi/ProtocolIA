@@ -50,6 +50,7 @@ class BoundedDockerAdapterTest(unittest.TestCase):
     def test_preview_is_read_only_and_approval_replay_once(self):
         p=preview(self.req,self.policy,self.inputs)
         self.assertEqual(p["estimated_cost_usd"],0)
+        self.assertEqual(len(p["tool_fingerprint"]),64)
         self.assertFalse(any(self.ledger.iterdir()))
         self.approve()
         self.assertEqual(self.invoke()["status"],"executed")
@@ -66,6 +67,11 @@ class BoundedDockerAdapterTest(unittest.TestCase):
         self.approve()
         revoke(self.req["request_id"],self.ledger,secret=SECRET)
         with self.assertRaisesRegex(ExecutionDenied,"revoked"):self.invoke()
+    def test_revocation_requires_same_approval_secret(self):
+        self.approve()
+        with self.assertRaisesRegex(ExecutionDenied,"invalid host revocation secret"):
+            revoke(self.req["request_id"],self.ledger,secret=b"forged-authenticator-of-thirty-two-bytes")
+        self.assertEqual(self.invoke()["status"],"executed")
     def test_changed_host_policy_input_or_subject_denies(self):
         self.approve()
         (self.inputs/"warehouse"/"inventory").write_bytes(b"changed")
