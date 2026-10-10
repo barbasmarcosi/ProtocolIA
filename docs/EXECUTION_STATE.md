@@ -1,6 +1,6 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway are MERGED and independently verified. P3 as a whole remains open.
+Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
 
 ## Merged baseline
 
@@ -17,7 +17,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 | P0 | COMPLETE | Provider-free Python compiler, deterministic artifacts, protected regeneration and external format validation |
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
-| P3 | IN PROGRESS: P3-A + B1 + B2.1 + B2.2 VERIFIED | Typed v0.5 read-only Docker broker now requires cryptographic Ed25519 operator key possession in a new gateway; signed scoped intents, operator revocation/rotation and protected host signing keys verified. No deployed human enrollment/MFA, paid/writable external effects or cost settlement. |
+| P3 | IN PROGRESS: P3-A/B1/B2.1/B2.2/B3/B4 VERIFIED (BOUNDED) | Signed operator gateway, real Linux Unix host-process security boundary, one isolated Docker read and provider-neutral signed micro-USD atomic budget/usage ledger. No deployed human SSO/MFA, live paid-tool accounting, writable external-effect recovery or hostile-kernel escape certification. |
 | P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
@@ -101,8 +101,20 @@ See docs/P3-B2-READONLY-BROKER.md.
 **Not yet proven:** This verifies possession of an enrolled private key, NOT real-world human identity, OIDC/SSO, authenticator MFA, approval web interface, identity enrollment/recovery, tamper-proof hardware key, privileged host isolation against root, provider billing or external writes. The protected gateway MUST run under a restricted identity and keep lower-level unverified APIs unreachable to any model. P3 issue #4 remains OPEN.
 
 See [operator authentication design](P3-B2-OPERATOR-AUTH.md).
+## P3-B3/B4 — verified security gateway and provider-neutral budgets
+
+- **Merge provenance:** ProtocolIA PR #24 merge SHA 781963a3291ff7e6e670660c666087508d7428a2. ProtocolIA-Test PR #11 merge SHA 75f77015b0d607424d64cc854d6dcff0214b96eb.
+- **Exact ProtocolIA implementation SHA** 2be1cb4a800d492b774d67ad44cdf91e84dec468: [host-service+real-Docker CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38094132923), [full quality SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38094132748), [merged main quality SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38094220678).
+- **Exact independent consumer SHA** 413b472369d2cb747d45a7434a2956068b5ede81: [host-service+Docker+cost CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38094179770), [consumer regression SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38094179809). Both used a distinct operator key, data and grants.
+- P3-B3 Linux-only process separation: a dedicated socket host service with SO_PEERCRED allowlisted peer OS UIDs, private 0700 workspace, 0600 bound socket and protected host policy/registry/HMAC keys. Rejects privileged client overrides, ambiguous JSON and forged consent. Dedicated daemon and independent offline signer subprocess drive actual read-only Docker. Deployment MUST use a separate trusted OS UID from the model; a same-UID model can access host-owned files and is not isolated.
+- P3-B4 provider-neutral cost controls: signed worst-case quote and actual receipt using protected HMAC key, integer micro-USD, SQLite BEGIN IMMEDIATE budget reservations, immutable scope ceiling, persist started BEFORE provider effect and never auto-release ambiguous started cost; signed settlement refunds unused reservation safely. Budget races, replay, falsified/unknown usage, over-reservation and missing trusted authority denied.
+- IMPORTANT: No actual paid provider has been called and no real external spending/usage receipt was reconciled. Signed usage in CI is a test-only host fixture. The ledger API MUST be integrated with a provider-specific independent metering adapter before any billable call.
+
+**Remaining P3 global acceptance blockers:** deployed real operator identity enrollment and MFA, separately secured approval frontend/host credentials in a real environment, safe resumable/compensatable mutable external effects and multi-effect plans, real-provider price reservation and usage billing evidence, independently assessed Docker/daemon/kernel escape resistance. Do not mark P3 complete or close issue #4.
+
+See P3-HOST-AND-COST.md and the exact GitHub CI results above.
 ## Next
 
-P3-B2 continuation: Ed25519 operator key-possession and host key custody are verified; next deploy independently authenticated human enrollment/approval service, then implement durable outbox/recovery and fail-closed cost reservations for writable/paid tools. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.
