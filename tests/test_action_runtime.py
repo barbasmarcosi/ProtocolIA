@@ -129,6 +129,21 @@ class P3RuntimeTest(unittest.TestCase):
             return ticks[0]*0.5
         self.policy["max_duration_ms"]=1000
         with self.assertRaisesRegex(ExecutionDenied,"deadline exceeded"):self.execute(clock=clock)
+    def test_evidence_expiry_denies_replay_without_duplicate_effects(self):
+        first=self.execute(wall_clock=lambda: 1000.0)
+        self.assertEqual(first["status"],"executed")
+        same=self.execute(wall_clock=lambda: 1000.5)
+        self.assertEqual(same["status"],"replayed")
+        with self.assertRaisesRegex(ExecutionDenied,"expired or future-dated"):
+            self.execute(wall_clock=lambda: 1601.0)
+        with self.assertRaisesRegex(ExecutionDenied,"expired or future-dated"):
+            self.execute(wall_clock=lambda: 999.0)
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM executions").fetchone()[0],1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0],4)
+    def test_zero_freshness_window_denied_by_policy(self):
+        self.policy["max_evidence_age_ms"]=0
+        with self.assertRaises(ExecutionDenied):dry_run(self.plan,self.policy)
     def test_existing_symlink_workspace_denied(self):
         alias=self.workspace/"shortcut"
         alias.symlink_to(self.workspace,target_is_directory=True)

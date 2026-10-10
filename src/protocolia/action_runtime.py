@@ -152,7 +152,7 @@ def validate_plan(raw: Any) -> dict:
 
 
 def _policy(policy: Any) -> dict:
-    p = _exact(policy, {"grants", "max_actions", "max_writes", "max_duration_ms"}, "policy")
+    p = _exact(policy, {"grants", "max_actions", "max_writes", "max_duration_ms", "max_evidence_age_ms"}, "policy")
     if type(p["grants"]) is not dict or set(p["grants"]) - {spec[0] for spec in TOOLS.values()}:
         _deny("unknown capability grant")
     for capability, resources in p["grants"].items():
@@ -164,9 +164,9 @@ def _policy(policy: Any) -> dict:
                     _deny("compute grants require explicit '*'")
             else:
                 _key(resource)
-    for key, maximum in (("max_actions", 64), ("max_writes", 64), ("max_duration_ms", 60000)):
+    for key, maximum in (("max_actions", 64), ("max_writes", 64), ("max_duration_ms", 60000), ("max_evidence_age_ms", 86400000)):
         value = p[key]
-        if type(value) is not int or not 0 <= value <= maximum:
+        if type(value) is not int or not 0 <= value <= maximum or (key=="max_evidence_age_ms" and value==0):
             _deny("invalid policy budget " + key)
     return p
 
@@ -216,7 +216,8 @@ def _resolve(arg: Any, outputs: dict) -> str:
 
 def execute(plan: Any, policy: Any, workspace: Path, *, environment: str,
             cancelled: Callable[[], bool] | None = None,
-            clock: Callable[[], float] = time.monotonic) -> dict:
+            clock: Callable[[], float] = time.monotonic,
+            wall_clock: Callable[[], float] = time.time) -> dict:
     """Execute all actions transactionally; replay exact matching evidence only.
 
     Trust boundary: workspace path, runtime policy, clock, cancellation and
@@ -245,17 +246,20 @@ def execute(plan: Any, policy: Any, workspace: Path, *, environment: str,
             plan_id TEXT PRIMARY KEY, plan_hash TEXT NOT NULL,
             policy_hash TEXT NOT NULL, env_hash TEXT NOT NULL,
             result_json TEXT NOT NULL, result_sha TEXT NOT NULL,
-            state_json TEXT NOT NULL)""")
+            state_json TEXT NOT NULL, issued_at REAL NOT NULL)""")
         connection.execute("""CREATE TABLE IF NOT EXISTS events (
             plan_id TEXT NOT NULL, seq INTEGER NOT NULL, event_json TEXT NOT NULL,
             digest TEXT NOT NULL, PRIMARY KEY(plan_id,seq))""")
         prior = connection.execute(
-            "SELECT plan_hash, policy_hash, env_hash, result_json, result_sha, state_json "
+            "SELECT plan_hash, policy_hash, env_hash, result_json, result_sha, state_json, issued_at "
             "FROM executions WHERE plan_id=?", (ir["plan_id"],)).fetchone()
         if prior:
-            p_hash, policy_hash, old_env, results_json, results_sha, state_json = prior
+            p_hash, policy_hash, old_env, results_json, results_sha, state_json, issued_at = prior
             if (p_hash, policy_hash, old_env) != (approved["plan_hash"], approved["policy_hash"], env_hash):
                 _deny("stale plan/policy/environment evidence; refuse replay")
+            age_ms = (wall_clock() - issued_at) * 1000
+            if not 0 <= age_ms <= policy["max_evidence_age_ms"]:
+                _deny("expired or future-dated evidence; refuse replay")
             if hashlib.sha256(results_json.encode()).hexdigest() != results_sha:
                 _deny("forged result evidence")
             old_events = connection.execute("SELECT event_json,digest FROM events WHERE plan_id=? ORDER BY seq",
@@ -314,9 +318,9 @@ def execute(plan: Any, policy: Any, workspace: Path, *, environment: str,
         results_json = _json(outputs)
         results_sha = hashlib.sha256(results_json.encode()).hexdigest()
         gate(deadline)
-        connection.execute("INSERT INTO executions VALUES (?,?,?,?,?,?,?)",
+        connection.execute("INSERT INTO executions VALUES (?,?,?,?,?,?,?,?)",
                            (ir["plan_id"], approved["plan_hash"], approved["policy_hash"],
-                            env_hash, results_json, results_sha, _json(state)))
+                            env_hash, results_json, results_sha, _json(state), wall_clock()))
         connection.execute("COMMIT")
         return {"status":"executed", "plan_id":ir["plan_id"], "outputs":outputs,
                 "evidence_sha256":results_sha, **approved}
