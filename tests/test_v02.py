@@ -97,6 +97,24 @@ class V02Tests(unittest.TestCase):
         x=copy.deepcopy(self.c);x['operations']['readSale']['params']={'sale_id':'boolean'}
         with self.assertRaises(ContractError):validate(x)
 
+    def test_regex_rejects_trailing_newline_consistently(self):
+        val=dict(self.value,sku='SKU-1\n')
+        self.assertFalse(validate_payload(self.c,'SaleRequest',val))
+        payload_schema=json.loads(compile_contract(self.c)['payload.schema.json'])
+        payload_schema['$ref']='#/$defs/SaleRequest'
+        self.assertFalse(Draft202012Validator(payload_schema).is_valid(val))
+
+    def test_uuid_and_datetime_formats_are_canonical(self):
+        self.assertFalse(validate_payload(self.c,'SaleRequest',dict(self.value,product_id='550e8400e29b41d4a716446655440000')))
+        self.assertTrue(validate_payload(self.c,'SaleRequest',self.value))
+        self.c['models']['Clock']={'when':{'type':'datetime','required':True}}
+        self.assertTrue(validate_payload(self.c,'Clock',{'when':'2026-10-10T17:44:00Z'}))
+        self.assertFalse(validate_payload(self.c,'Clock',{'when':'2026-10-10 17:44:00'}))
+
+    def test_numeric_enum_json_equality_duplicates(self):
+        self.c['models']['SaleRequest']['quantity']['constraints']={'enum':[1,1.0]}
+        with self.assertRaises(ContractError):validate(self.c)
+
     def test_runtime_parity_external_json_schema(self):
         a=compile_contract(self.c)
         schema=json.loads(a['payload.schema.json'])

@@ -13,6 +13,9 @@ import re
 from typing import Any
 from uuid import UUID
 
+UUID_CANON = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+RFC3339_DATE_TIME = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$')
+
 from . import core
 
 # Entirely bounded pattern language: anchored ASCII character classes with '+' or
@@ -36,8 +39,12 @@ def _check_type(value: Any, primitive: str) -> bool:
             return False
         try:
             if primitive == 'uuid':
+                if not UUID_CANON.fullmatch(value):
+                    return False
                 UUID(value)
             else:
+                if not RFC3339_DATE_TIME.fullmatch(value):
+                    return False
                 datetime.fromisoformat(value.replace('Z', '+00:00'))
             return True
         except (ValueError, OverflowError):
@@ -78,7 +85,7 @@ def _check_constraints(spec: dict[str, Any], where: str) -> None:
         elif key == 'enum':
             if not isinstance(value, list) or not value or len(value) > 128 or any(not _check_type(v, base) for v in value):
                 core._fail(f'{where}.enum: nonempty <=128 scalar items required')
-            if len({(type(v).__name__, v) for v in value}) != len(value):
+            if len({('numeric', float(v)) if type(v) in (int, float) else (type(v).__name__, v) for v in value}) != len(value):
                 core._fail(f'{where}.enum: duplicate values')
     if 'minimum' in limits and 'maximum' in limits and limits['minimum'] > limits['maximum']:
         core._fail(f'{where}: minimum exceeds maximum')
@@ -173,6 +180,9 @@ def _wire_schema(type_name: str, models: dict[str, Any], constraints: dict[str, 
         result = {'type': 'array', 'items': result}
     if constraints:
         result = {**result, **constraints}
+        if 'pattern' in constraints:
+            # ECMA/Python '$' may match before a final newline; force true EOF.
+            result['pattern'] = constraints['pattern'] + r'(?![\s\S])'
     return result
 
 
