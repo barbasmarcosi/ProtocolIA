@@ -72,6 +72,7 @@ class P3RuntimeTest(unittest.TestCase):
         self.execute()
         with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             db.execute("UPDATE kv SET value='tampered' WHERE key='inventory/widget'")
+            db.commit()
         with self.assertRaisesRegex(ExecutionDenied,"stale external state"):self.execute()
     def test_plan_or_policy_or_environment_change_invalidates(self):
         self.execute()
@@ -88,6 +89,7 @@ class P3RuntimeTest(unittest.TestCase):
         self.execute()
         with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             db.execute("UPDATE events SET event_json='{}' WHERE seq=0")
+            db.commit()
         with self.assertRaisesRegex(ExecutionDenied,"inconsistent action"):self.execute()
     def test_cancel_and_postcondition_roll_back_atomic_write(self):
         calls=[0]
