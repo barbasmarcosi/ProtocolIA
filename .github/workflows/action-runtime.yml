@@ -1,0 +1,50 @@
+name: action-runtime-conformance
+on:
+  push:
+    branches: [feat/p3-safe-action-runtime]
+  pull_request:
+    paths:
+      - 'src/protocolia/action_runtime.py'
+      - 'src/protocolia/__main__.py'
+      - 'schemas/action-plan-v0.4.schema.json'
+      - 'schemas/action-policy-v0.4.schema.json'
+      - 'tests/test_action_runtime.py'
+      - 'tests/test_action_schema.py'
+      - '.github/workflows/action-runtime.yml'
+permissions:
+  contents: read
+jobs:
+  action-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: \${{ matrix.python-version }}
+      - name: Install provider-free executor and test-only validator
+        run: |
+          python -m pip install .
+          python -m pip install jsonschema==4.25.1
+      - name: Strict schema and runtime rejection checks
+        run: python -m unittest discover -s tests -p 'test_action*.py' -v
+      - name: Host-authorized dry run does not open journal
+        run: |
+          protocolia action-preview examples/action-plan-v0.4.json --policy examples/action-policy-v0.4.json > "$RUNNER_TEMP/p3-preview.json"
+          python -c 'import json,sys; d=json.load(open(sys.argv[1]));assert d["writes"]==1 and len(d["order"])==4' "$RUNNER_TEMP/p3-preview.json"
+          test ! -f "$RUNNER_TEMP/protocolia-action.sqlite3"
+      - name: Atomic effect then evidence-based replay
+        run: |
+          protocolia action-run examples/action-plan-v0.4.json --policy examples/action-policy-v0.4.json --out "$RUNNER_TEMP" --environment "ci-p3-demo-1" > "$RUNNER_TEMP/first.json"
+          protocolia action-run examples/action-plan-v0.4.json --policy examples/action-policy-v0.4.json --out "$RUNNER_TEMP" --environment "ci-p3-demo-1" > "$RUNNER_TEMP/second.json"
+          python -c 'import json,sys; a,b=map(lambda f:json.load(open(f)),sys.argv[1:]); assert a["status"]=="executed" and b["status"]=="replayed"; assert a["evidence_sha256"]==b["evidence_sha256"]' "$RUNNER_TEMP/first.json" "$RUNNER_TEMP/second.json"
+      - name: Changed environment must never replay the side effect
+        run: |
+          if protocolia action-run examples/action-plan-v0.4.json --policy examples/action-policy-v0.4.json --out "$RUNNER_TEMP" --environment "ci-p3-demo-changed"; then
+            echo "SECURITY REGRESSION: stale evidence replayed"
+            exit 1
+          fi
