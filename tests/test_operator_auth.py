@@ -77,20 +77,20 @@ class SignedOperatorTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--pull")+1],"never")
         return SimpleNamespace(returncode=0,stdout=json.dumps({
             "sha256":hashlib.sha256(b"abc").hexdigest(),"bytes":3}))
-    def run(self,envelope=None):
+    def execute_signed(self,envelope=None):
         return run_signed(envelope if envelope is not None else self.envelope,
             self.plan,self.host,self.docker,self.inputs,self.workspace,
             runner=self.fake_runner,**self.kwargs())
     def test_signed_approval_then_exactly_one_external_read_and_replay(self):
-        with self.assertRaises(ExecutionDenied):self.run()
+        with self.assertRaises(ExecutionDenied):self.execute_signed()
         a=self.approve()
         self.assertEqual(a["status"],"approved-operator")
-        first=self.run()
+        first=self.execute_signed()
         self.assertEqual(first["operator"],"alice")
         self.assertEqual(first["operator_key_id"],"laptop1")
         self.assertEqual(first["status"],"executed")
         self.assertEqual(first["outputs"]["verify"],True)
-        second=self.run()
+        second=self.execute_signed()
         self.assertEqual(second["status"],"replayed")
         self.assertEqual(self.calls,1)
         with sqlite3.connect(self.workspace/"protocolia-sandbox.sqlite3") as db:
@@ -117,10 +117,10 @@ class SignedOperatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ExecutionDenied,"not authorized"):self.approve()
     def test_key_revocation_blocks_even_existing_completed_replay(self):
         self.approve()
-        self.assertEqual(self.run()["status"],"executed")
+        self.assertEqual(self.execute_signed()["status"],"executed")
         self.registry["operators"]["alice"]["keys"]["laptop1"]["revoked"]=True
         self.write_registry()
-        with self.assertRaises(ExecutionDenied):self.run()
+        with self.assertRaises(ExecutionDenied):self.execute_signed()
         self.assertEqual(self.calls,1)
     def test_disabled_user_blocks_approval(self):
         self.registry["operators"]["alice"]["enabled"]=False
@@ -172,7 +172,7 @@ class SignedOperatorTests(unittest.TestCase):
                           self.workspace,**self.kwargs())
         revoke_signed(self.envelope,self.plan,self.host,self.docker,self.inputs,
                       self.workspace,**self.kwargs())
-        with self.assertRaisesRegex(ExecutionDenied,"revoked"):self.run()
+        with self.assertRaisesRegex(ExecutionDenied,"revoked"):self.execute_signed()
     def test_rotation_changes_registry_binding_and_blocks_old_key(self):
         self.approve()
         new=self.other.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)
@@ -180,10 +180,10 @@ class SignedOperatorTests(unittest.TestCase):
             "ed25519_public_b64":base64.b64encode(new).decode(),"revoked":False}
         self.write_registry()
         with self.assertRaisesRegex(ExecutionDenied,"stale"):
-            self.run()
+            self.execute_signed()
         self.assertEqual(self.calls,0)
     def test_signed_replay_does_not_accept_tampered_envelope(self):
         self.approve()
         bad=copy.deepcopy(self.envelope)
         bad["intent"]["expires_at"]-=1
-        with self.assertRaises(ExecutionDenied):self.run(bad)
+        with self.assertRaises(ExecutionDenied):self.execute_signed(bad)
