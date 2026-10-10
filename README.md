@@ -17,14 +17,21 @@ LLMs are powerful at ambiguity, design, and novel problems. They should not have
 
 **Not yet implemented:** runtime business invariants, server implementations, database migrations, tests for generated services, agent scheduler/executor, model integration, caching, latency/token claims, semantic compatibility verification. An OpenAPI schema is **not** proof that an implementation is secure or correct.
 
+## P0 installation and independent verification
+
+A published console entry point is provided by `pip install .` (Python 3.11+). GitHub CI validates the generated OpenAPI 3.1 with `openapi-spec-validator==0.7.2` and checks emitted wire types with TypeScript 5.8.3. These are **test-only dependencies**: ProtocolIA itself still has no runtime external packages or model API dependency.
+
+The independent [ProtocolIA-Test](https://github.com/barbasmarcosi/ProtocolIA-Test/pull/1) repository pins the upstream compiler to a verified commit and runs separate inventory fixtures. See [execution state](docs/EXECUTION_STATE.md) and [benchmark registration](benchmarks/README.md). **No server, domain invariant or runtime authorization is generated or verified yet.**
+
 ## Try it
 
 Requires Python >=3.11. From the repository root:
 
 ```sh
-PYTHONPATH=src python -m protocolia validate examples/sales.json
-PYTHONPATH=src python -m protocolia compile examples/sales.json --out generated
-PYTHONPATH=src python -m unittest discover -s tests -v
+python -m pip install .
+protocolia validate examples/sales.json
+protocolia compile examples/sales.json --out generated
+python -m unittest discover -s tests -v
 ```
 
 Inspect `generated/openapi.json`, `generated/types.ts`, `generated/ir.json`, and `generated/manifest.json`. Output is ignored by Git. Changing a contract regenerates its outputs; manually editing a generated file instead causes a fail-closed error. Delete a generated output folder consciously if you need to discard local edits.

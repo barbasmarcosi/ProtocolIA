@@ -64,11 +64,11 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] Strict JSON v0.1 parser, semantic reference checks, reject duplicate routes and invalid effects, stable acyclic ordering.
 - [x] Canonical IR, OpenAPI 3.1, TypeScript types and SHA-256 manifest; regeneration protection.
 - [x] Provider-free CLI, focused unit tests and GitHub quality workflow at cited SHA.
-- [ ] Clean install from an isolated environment; package entry point smoke test on supported Python versions.
-- [ ] Golden fixtures for deterministic output, failure diagnostics, and hash stability across environments.
-- [ ] External OpenAPI validation and TypeScript compiler checking of generated outputs.
-- [ ] CI test for accidental network/provider requirements; negative fixtures for hostile output paths and regeneration.
-- [ ] Register reproducible task corpus and machine-readable run/evidence format before any optimization claims.
+- [x] Installed package CLI smoke on Python 3.11 and 3.13 in CI (clean isolated installation).
+- [x] Frozen golden hash fixtures, adversarial failures and reproducible output verified across CI Python jobs.
+- [x] Independent OpenAPI 3.1 validation and TypeScript 5.8.3 typecheck of generated output.
+- [x] Provider-free import, negative fixtures for hostile outputs/regeneration and independent consumer compilation. (No network outage simulation or race-free filesystem claim.)
+- [x] Register P0 smoke-task catalog and machine-readable run evidence schema; **P4 held-out tasks/measurements remain unregistered and unmeasured**.
 
 **Exit:** fresh checkout → installation → validation → generation → re-generation → independent output checks pass; generated hashes stable; no unsupported feature represented as safe.
 
