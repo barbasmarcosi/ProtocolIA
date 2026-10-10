@@ -11,6 +11,9 @@ license = "MIT"
 authors = [{name = "ProtocolIA contributors"}]
 dependencies = []
 
+[project.optional-dependencies]
+operator-auth = ["cryptography>=44,<47"]
+
 [project.scripts]
 protocolia = "protocolia.__main__:main"
 
