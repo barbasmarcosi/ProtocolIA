@@ -31,7 +31,7 @@ def _check_type(value: Any, primitive: str) -> bool:
     if primitive == 'integer':
         return type(value) is int
     if primitive == 'number':
-        return type(value) in (int, float) and math.isfinite(value)
+        return type(value) is int or (type(value) is float and math.isfinite(value))
     if primitive == 'boolean':
         return type(value) is bool
     if primitive in {'uuid', 'datetime'}:
@@ -85,7 +85,9 @@ def _check_constraints(spec: dict[str, Any], where: str) -> None:
         elif key == 'enum':
             if not isinstance(value, list) or not value or len(value) > 128 or any(not _check_type(v, base) for v in value):
                 core._fail(f'{where}.enum: nonempty <=128 scalar items required')
-            if len({('numeric', float(v)) if type(v) in (int, float) else (type(v).__name__, v) for v in value}) != len(value):
+            if any(type(a) in (int, float) and type(b) in (int, float) and a == b or
+                   type(a) is type(b) and a == b
+                   for i,a in enumerate(value) for b in value[:i]):
                 core._fail(f'{where}.enum: duplicate values')
     if 'minimum' in limits and 'maximum' in limits and limits['minimum'] > limits['maximum']:
         core._fail(f'{where}: minimum exceeds maximum')
@@ -113,7 +115,8 @@ def _value_matches(value: Any, base: str, limits: dict[str, Any]) -> bool:
         return False
     if 'maximum' in limits and value > limits['maximum']:
         return False
-    if 'enum' in limits and (type(value).__name__, value) not in {(type(v).__name__, v) for v in limits['enum']}:
+    if 'enum' in limits and not any((type(value) is type(v) and value == v) or
+        (type(value) in (int, float) and type(v) in (int, float) and value == v) for v in limits['enum']):
         return False
     return True
 

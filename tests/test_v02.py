@@ -111,6 +111,15 @@ class V02Tests(unittest.TestCase):
         self.assertTrue(validate_payload(self.c,'Clock',{'when':'2026-10-10T17:44:00Z'}))
         self.assertFalse(validate_payload(self.c,'Clock',{'when':'2026-10-10 17:44:00'}))
 
+    def test_number_enum_matches_json_schema_numeric_equality(self):
+        self.c['models']['SaleRequest']['quantity']={'type':'number','required':True,'constraints':{'enum':[1.0,2.5]}}
+        art=json.loads(compile_contract(self.c)['payload.schema.json'])
+        art['$ref']='#/$defs/SaleRequest'
+        checker=Draft202012Validator(art)
+        for qty in (1,1.0,2.5,2,True,3,10**350):
+            data=dict(self.value,quantity=qty)
+            self.assertEqual(validate_payload(self.c,'SaleRequest',data),checker.is_valid(data),qty)
+
     def test_numeric_enum_json_equality_duplicates(self):
         self.c['models']['SaleRequest']['quantity']['constraints']={'enum':[1,1.0]}
         with self.assertRaises(ContractError):validate(self.c)
