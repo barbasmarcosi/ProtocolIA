@@ -1,0 +1,48 @@
+name: p3b2-operator-signed-approval
+on:
+  push:
+    branches: [feat/p3b2-operator-ed25519-gate]
+  pull_request:
+    paths:
+      - 'src/protocolia/operator_auth.py'
+      - 'tests/test_operator_auth.py'
+      - 'tests/test_operator_signer.py'
+      - 'src/protocolia/operator_signer.py'
+      - 'tools/check_operator_docker.py'
+      - '.github/workflows/p3b2-operator-auth.yml'
+      - 'pyproject.toml'
+permissions:
+  contents: read
+jobs:
+  auth-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install '.[operator-auth]'
+      - name: Invalid signatures, key custody, revocation and stale approval
+        run: |
+          python -m unittest discover -s tests -p 'test_operator_auth.py' -v
+          python -m unittest discover -s tests -p 'test_operator_signer.py' -v
+  live-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install '.[operator-auth]'
+      - name: Pin local Docker image by immutable digest
+        run: |
+          docker pull python:3.13-alpine
+          echo "P3B2_IMAGE_ID=$(docker image inspect python:3.13-alpine --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Real Docker execution with signed operator consent
+        run: python tools/check_operator_docker.py
