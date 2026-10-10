@@ -112,7 +112,7 @@ See [operator authentication design](P3-B2-OPERATOR-AUTH.md).
 
 **Remaining P3 global acceptance blockers:** deployed real operator identity enrollment and MFA, separately secured approval frontend/host credentials in a real environment, safe resumable/compensatable mutable external effects and multi-effect plans, real-provider price reservation and usage billing evidence, independently assessed Docker/daemon/kernel escape resistance. Do not mark P3 complete or close issue #4.
 
-See P3-HOST-AND-COST.md, P3-HOST-SERVICE.md and the exact GitHub CI results above.
+See P3-HOST-AND-COST.md and the exact GitHub CI results above.
 ## Next
 
 P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
