@@ -1,0 +1,69 @@
+{
+  "version": "p4-1",
+  "study": "p4-codex-pilot-2026",
+  "rounds": 3,
+  "engines": [
+    "codex"
+  ],
+  "arms": [
+    "direct",
+    "conventional",
+    "protocolia"
+  ],
+  "tasks": [
+    {
+      "id": "catalog-crud",
+      "stratum": "greenfield",
+      "spec_sha256": "07f8169f0d5d22fdfe7f1a2578ce0ad4eacf453eb4a896f89aa679426b09d963",
+      "description": "Java 21 Spring Boot catalog CRUD with validation, uniqueness and 4xx negative cases",
+      "source_repo": "barbasmarcosi/ProtocolIA-Test",
+      "source_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c"
+    },
+    {
+      "id": "quota-idempotency",
+      "stratum": "domain-invariants",
+      "spec_sha256": "f0c4b394683c4e8104a3a7e7c7ccc51163e85d43af48528b7279f9671a3a96fb",
+      "description": "Java 21 Spring Boot concurrent quota reservation with idempotency and atomic limits",
+      "source_repo": "barbasmarcosi/ProtocolIA-Test",
+      "source_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c"
+    },
+    {
+      "id": "contract-evolution",
+      "stratum": "contract-evolution",
+      "spec_sha256": "25406927e0d66f4ad42145a10ea37a0e682ec0558e0f36431c82f287ac671669",
+      "description": "Java 21 Spring Boot backward-compatible v1 and v2 order endpoint evolution",
+      "source_repo": "barbasmarcosi/ProtocolIA-Test",
+      "source_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c"
+    },
+    {
+      "id": "hostile-payloads",
+      "stratum": "adversarial-validation",
+      "spec_sha256": "180ea3591d47a4433303f0d991b2e1c12e26d3194905fbb93bc12c6127f9f2d8",
+      "description": "Java 21 Spring Boot hostile document contents and strict JSON input handling",
+      "source_repo": "barbasmarcosi/ProtocolIA-Test",
+      "source_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c"
+    }
+  ],
+  "budget": {
+    "max_seconds": 2400,
+    "max_interventions": 2,
+    "max_repairs": 2
+  },
+  "verification": {
+    "repo": "barbasmarcosi/ProtocolIA-Test",
+    "commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+    "contract": "tools/p4_verify.py external HTTP judge; hidden from agent worktree"
+  },
+  "analysis": {
+    "primary": "verified_success_rate",
+    "secondary": [
+      "wall_seconds_per_verified_success",
+      "observed_cli_tokens"
+    ],
+    "decision": "No winner on missing or incomplete trials; if USD unavailable, no dollar cost claim."
+  },
+  "tools": {
+    "protocolia_commit": "1e4a0370c3902b08b5f3a855d8adc3b0466cab0a",
+    "conventional_generator": "OpenAPI Generator 7.20.0 Spring Boot 4 baseline"
+  }
+}

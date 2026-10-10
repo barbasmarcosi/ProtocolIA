@@ -1,0 +1,59 @@
+name: p4-subscription-preregister
+on:
+  push:
+    branches: [feat/p4-subscription-cli-benchmark]
+  pull_request:
+    paths:
+      - 'src/protocolia/p4_benchmark.py'
+      - 'tests/test_p4_benchmark.py'
+      - 'benchmarks/p4/studies/**'
+      - '.github/workflows/p4-preregister.yml'
+permissions:
+  contents: read
+jobs:
+  provider-free-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install provider-free package (no model or key)
+        run: python -m pip install .
+      - name: Benchmark conformance and honesty tests
+        run: python -m unittest discover -s tests -p 'test_p4_benchmark.py' -v
+      - name: Verify frozen external task specs against pinned immutable consumer
+        run: |
+          python - <<'PY'
+          import hashlib,json,urllib.request
+          from pathlib import Path
+          for engine in ("codex","claude"):
+              study=json.loads(Path(f"benchmarks/p4/studies/{engine}-pilot.json").read_text())
+              for task in study["tasks"]:
+                  url=("https://raw.githubusercontent.com/"+task["source_repo"]+
+                       "/"+task["source_commit"]+
+                       "/benchmarks/p4/tasks/"+task["id"]+".json")
+                  with urllib.request.urlopen(url,timeout=20) as response:
+                      data=response.read()
+                  observed=hashlib.sha256(data).hexdigest()
+                  assert observed==task["spec_sha256"],(engine,task["id"],observed)
+                  print("PINNED TASK:",engine,task["id"],observed)
+          PY
+      - name: Freeze one Codex and one Claude study; no sessions or results
+        run: |
+          mkdir -p "$RUNNER_TEMP/p4-results"
+          python -m protocolia.p4_benchmark freeze benchmarks/p4/studies/codex-pilot.json "$RUNNER_TEMP/codex.lock.json"
+          python -m protocolia.p4_benchmark freeze benchmarks/p4/studies/claude-pilot.json "$RUNNER_TEMP/claude.lock.json"
+          python -m protocolia.p4_benchmark report "$RUNNER_TEMP/codex.lock.json" "$RUNNER_TEMP/p4-results" > "$RUNNER_TEMP/codex-report.json"
+          python -m protocolia.p4_benchmark report "$RUNNER_TEMP/claude.lock.json" "$RUNNER_TEMP/p4-results" > "$RUNNER_TEMP/claude-report.json"
+          python - <<'PY'
+          import json,os,pathlib
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])
+          for engine in ("codex","claude"):
+              r=json.loads((base/f"{engine}-report.json").read_text())
+              assert r["scheduled"]==36 and r["recorded"]==0 and r["complete"] is False,r
+              assert "no winner" in r["decision"].lower(),r
+              assert r["subscription_usd_per_success"] is None,r
+          print("P4 FREEZE PASS; no agent runs, no savings claimed")
+          PY
