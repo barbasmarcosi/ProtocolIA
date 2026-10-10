@@ -24,9 +24,9 @@ Updated: 2026-10-10. **P0 and P1 are merged to main and independently verified.*
 
 ## Next gate: P2 — generated, running service
 
-1. Generate one bounded FastAPI service from a v0.2 contract: request/response models, safe route bindings, validation and clearly unimplemented business-handler boundaries.
-2. Add independent end-to-end tests in ProtocolIA-Test; compare runtime HTTP behavior to the declared OpenAPI/JSON Schema, including negative and malformed payloads.
-3. Introduce *one* supported named inventory-sale rule with explicit database transactions, PostgreSQL-backed negative/concurrency/idempotency tests, authorization enforcement, rollback evidence and a non-destructive migration preview. **Do not** equate a label such as `stock_must_not_be_negative` with an implemented rule.
+1. Generate one bounded Java 21 / Spring Boot 4.x service from a v0.2 contract: Java records/DTOs, Spring MVC route bindings, Jakarta Bean Validation (with explicit runtime parity checks), and clearly unimplemented business-handler boundaries. Maven build/test. The Python ProtocolIA compiler remains unchanged.
+2. Add independent end-to-end tests in ProtocolIA-Test with Spring Boot Test/JUnit 5 and Testcontainers PostgreSQL; compare runtime HTTP behavior to declared OpenAPI/JSON Schema, including negative and malformed payloads. Compare generated scaffolding against OpenAPI Generator's Spring generator baseline.
+3. Introduce *one* supported named inventory-sale rule with Spring @Transactional/PostgreSQL semantics, race-safe stock decrement, PostgreSQL-backed negative/concurrency/idempotency tests, Spring Security authorization enforcement, rollback evidence and non-destructive Flyway migration previews. **Do not** equate a label such as `stock_must_not_be_negative` with an implemented rule.
 4. Keep provider-free core and independent P1 regression gates; retain P4 preregistered A/B/C benchmarks as future research and never invent savings.
 
 Issues: [P2 #3](https://github.com/barbasmarcosi/ProtocolIA/issues/3), [P3 #4](https://github.com/barbasmarcosi/ProtocolIA/issues/4), [P4 #5](https://github.com/barbasmarcosi/ProtocolIA/issues/5), [P5 #7](https://github.com/barbasmarcosi/ProtocolIA/issues/7), [P6 #8](https://github.com/barbasmarcosi/ProtocolIA/issues/8).
