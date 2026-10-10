@@ -7,9 +7,12 @@ name = "protocolia"
 version = "0.1.0"
 description = "Provider-free contract compiler for agentic software development"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 authors = [{name = "ProtocolIA contributors"}]
 dependencies = []
+
+[project.scripts]
+protocolia = "protocolia.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

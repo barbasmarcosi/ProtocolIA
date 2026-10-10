@@ -3,11 +3,14 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.13']
     steps:
@@ -15,10 +18,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Unit tests
-        run: PYTHONPATH=src python -m unittest discover -s tests -v
-      - name: CLI smoke
+      - name: Install ProtocolIA as package
+        run: python -m pip install .
+      - name: Run unit, golden, and adversarial tests
+        run: python -m unittest discover -s tests -v
+      - name: Installed CLI smoke and regeneration
         run: |
-          PYTHONPATH=src python -m protocolia validate examples/sales.json
-          PYTHONPATH=src python -m protocolia compile examples/sales.json --out generated
-          PYTHONPATH=src python -m protocolia compile examples/sales.json --out generated
+          protocolia validate examples/sales.json
+          protocolia compile examples/sales.json --out generated
+          protocolia compile examples/sales.json --out generated
+          python -m compileall -q src
+  artifact-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install compiler and separate OpenAPI verifier
+        run: |
+          python -m pip install .
+          python -m pip install openapi-spec-validator==0.7.2
+      - name: Generate in isolated directory
+        run: protocolia compile examples/sales.json --out "$RUNNER_TEMP/protocolia-artifacts"
+      - name: Independently validate OpenAPI 3.1
+        run: python tools/verify_artifacts.py "$RUNNER_TEMP/protocolia-artifacts/openapi.json"
+      - name: Typecheck generated wire types with pinned TypeScript
+        run: |
+          npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.8.3
+          ./node_modules/.bin/tsc --strict --noEmit --skipLibCheck --target ES2022 "$RUNNER_TEMP/protocolia-artifacts/types.ts"

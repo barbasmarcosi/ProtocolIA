@@ -7,6 +7,16 @@ from pathlib import Path
 from .core import ContractError, compile_contract, validate, write_artifacts
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """JSON duplicate keys are ambiguous; do not silently take the last value."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ContractError(f"duplicate JSON member: {key}")
+        result[key] = value
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="protocolia")
     parser.add_argument("command", choices=["validate", "compile"])
@@ -14,7 +24,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("generated"))
     args = parser.parse_args()
     try:
-        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        contract = json.loads(args.contract.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
         if args.command == "validate":
             validated = validate(contract)
             print(f"VALID {validated['namespace']} ({len(validated['operations'])} operations)")
