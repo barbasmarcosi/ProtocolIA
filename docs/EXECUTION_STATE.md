@@ -1,6 +1,6 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter are MERGED and independently verified. P3 as a whole remains open.
+Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker are MERGED and independently verified. P3 as a whole remains open.
 
 ## Merged baseline
 
@@ -17,7 +17,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 | P0 | COMPLETE | Provider-free Python compiler, deterministic artifacts, protected regeneration and external format validation |
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
-| P3 | IN PROGRESS: P3-A + P3-B1 VERIFIED | Local v0.4 typed action DAG and atomic replay; separate host-approved Docker read-only tool with real kernel/container restrictions, no network, immutable inputs and zero-dollar policy. No privileged general executor or paid accounting. |
+| P3 | IN PROGRESS: P3-A + P3-B1 + P3-B2.1 VERIFIED | Typed v0.5 plan now invokes exactly one approved isolated Docker read and pure postconditions. Plan+policy bound grant and independent live Docker tests; human authentication, paid/writable effects and cost accounting remain unimplemented. |
 | P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
@@ -73,8 +73,20 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 
 See [P3-B1 threat model](P3-DOCKER-ADAPTER.md).
 
+## P3-B2.1: typed host-approved read-only broker — verified and merged
+
+- ProtocolIA PR #20 merge: a755d9718ded5ad34fcfc65895109b3b38decee6. ProtocolIA-Test PR #9 merge: 6acd30a0beb828948d5e5db7b8760658c6819bf2.
+- Exact ProtocolIA implementation SHA 67c87ad998936215e7a6c7d10d56645908afa21a. Live typed DAG/Docker CI SUCCESS: https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38092181727 ; quality SUCCESS: https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38092181741 ; merged-main quality SUCCESS: https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38092319311.
+- Exact independent consumer SHA 5557d74f0b686c7a7527a00ad8da1a5239ffac7f. Independent real Docker CI SUCCESS: https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38092249282 ; consumer regression SUCCESS: https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38092249230.
+- v0.5 separate typed DAG and JSON Schemas for plan and trusted host grant policy: pure literal/SHA/equality plus EXACTLY ONE external file.sha256 read. No arbitrary tool, write, process or network permission.
+- Docker request ID derives from entire normalized plan plus host policy and action identifier. HMAC host approval binds exact derived request, resource content, sandbox policy, declared subject/environment, tool fingerprint and expiry; changing plan or policy invalidates approval.
+- Host-scoped grants, strict read/action/time budgets, bounded inputs and known-zero USD policy. Independent tests exercise concurrent clients, durable single-attempt/replay, revocation and forged revocation secret, stale input/policy/plan, shell and paid denials.
+- The v0.4 SQLite runtime is NOT one transaction with Docker. Failed subsequent assertions cannot undo the previously completed read; repeated execution replays it. No paid or mutable external effects authorized.
+- Still P3 overall OPEN: real operator authentication and signer-key custody/rotation, writable/paid effect outbox and compensation, cost reservation/settlement with unknown-cost hard block, independent hostile daemon/container escape study.
+
+See docs/P3-B2-READONLY-BROKER.md.
 ## Next
 
-P3-B2: connect the restricted adapter to the action DAG through an authenticated host broker; implement audited writable/paid tool boundaries, cost reservations, compensations and independent adversarial tests. P3-B1 already proves only read-only Docker isolation. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3-B2 continuation: the v0.5 read-only typed broker is implemented; next enforce actual authenticated operator approvals and key custody, then transactional/outbox recovery and fail-closed cost accounting for writable or paid tools. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.

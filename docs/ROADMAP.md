@@ -114,7 +114,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P3 — Auditable action plans (v0.4; issue #4)
 
-**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B1 restricted Docker isolation/approval is verified; P3-B2 general privileged broker and cost-safe external effects remain unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
+**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B1 restricted Docker isolation/approval is verified; P3-B2.1 typed read-only broker is verified; general privileged, writable or paid effects and real operator authentication remain unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
 
 **P3-A verified:**
 - [x] Separate typed action IR 0.4, with input/output references, effect typing, typed equality postconditions, DAG validation, per-action cooperative timeouts and deterministic serial ordering.
@@ -134,16 +134,21 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] A separate ProtocolIA-Test fixture exercises actual Docker, approval/revocation, stale input and TTL, forged revocation, concurrent clients, traversal/symlink and forbidden paid/shell operations.
 - [x] P3-B1 and independent CI passed on pinned exact commits, and code merged to both main branches.
 
-**P3-B2 NOT implemented, blocks closing the full P3 issue:**
-- [ ] Integrate the external adapter into the typed P3 action DAG through a trusted capability broker; the P3-B1 Docker adapter is standalone, not a general new plan action.
-- [ ] Real operator authentication and approvals/revocation service with isolation of signing keys from model/runtime credentials. The host-declared subject is NOT a verified human identity.
-- [ ] Writable and/or paid external tools with a durable outbox, verified compensation/recovery semantics, hard cancellation and bounded retries; reject uncertain settlement and unknown costs.
-- [ ] Provider/token/resource reservations and settlement with independent evidence and ceilings before any priced operation. P3-B1 supports ONLY known local zero-cost read-only hashing.
-- [ ] Independent hostile-image/daemon trust and sandbox escape assessment, including user namespace/seccomp provenance; Docker CLI hardening alone is not a production sandbox certification.
+**P3-B2.1 implemented and independently verified:**
+- [x] Versioned v0.5 typed DAG integrates exactly one Docker file.sha256 read with pure typed computations and equality assertions; normative plan and host-policy JSON Schema.
+- [x] Host-owned resource permissions and time/read/action budgets, request ID bound to entire plan and host policy hashes; no model-selected process, image, host resource path, or signing key.
+- [x] Existing isolated Docker read operates only after explicit HMAC host approval; stale plan/policy/bytes, revocation and forged capabilities denied. Known-zero paid-provider cost only.
+- [x] Live Docker integration and independent ProtocolIA-Test own binary fixture with concurrent callers, idempotency, negative access and postcondition checks. PR #20 and consumer PR #9 merged.
 
+**Remaining P3-B2 before issue #4 closure:**
+- [ ] Authenticate real operators independently and protect approval signing keys, rotation and revocation; host-declared subject is not a verified person.
+- [ ] Add a durable outbox and recoverable/compensatable effects before enabling any external writes or paid tools; handle crash, cancellation, partial commit and bounded retries.
+- [ ] Reserve and reconcile provider/tool costs with independently verified usage and unknown-cost hard blocking; currently no paid provider is permitted.
+- [ ] Independently test hostile container/daemon escapes and host sandbox boundaries, including seccomp/user namespaces, races and resource leak behavior.
+- [ ] Any multi-effect plan requires proven external partial-failure semantics; v0.5 deliberately permits only one external read.
 **Exit for P3-A:** a provider-free, fully audited local DAG operates against only its allowed SQLite resources; no OS sandbox or external privileges claimed.
 
-**Exit for full P3:** trusted plan integration, authenticated and revocable privileged grants, genuine writable/paid effect recovery and cost reservations, and independent adversarial sandbox verification are all required. This is NOT established by read-only Docker P3-B1. Keep issue #4 OPEN until these evidence gates pass.
+**Exit for full P3:** trusted plan integration, authenticated and revocable privileged grants, genuine writable/paid effect recovery and cost reservations, and independent adversarial sandbox verification are all required. This is NOT established by the single read-only v0.5 Docker broker. Keep issue #4 OPEN until these evidence gates pass.
 
 ### P4 — Optional AI adapters and preregistered A/B/C evaluation (v0.5; issue #5)
 
