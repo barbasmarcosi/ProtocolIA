@@ -166,10 +166,10 @@ def generate_inventory(contract: dict) -> dict[str,str]:
 <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
 </dependencies>''')
     out["src/main/resources/application.properties"] += """
-spring.datasource.url=\${DATABASE_URL}
-spring.datasource.username=\${DATABASE_USER}
-spring.datasource.password=\${DATABASE_PASSWORD}
-spring.flyway.enabled=\${PROTOCOLIA_ENABLE_MIGRATIONS:false}
+spring.datasource.url=${DATABASE_URL}
+spring.datasource.username=${DATABASE_USER}
+spring.datasource.password=${DATABASE_PASSWORD}
+spring.flyway.enabled=${PROTOCOLIA_ENABLE_MIGRATIONS:false}
 """
     out["README.md"]="Generated bounded inventory-sale Java 21 / Spring Boot service. Never enable Flyway on production without reviewing SQL. Provide DATABASE_URL/USER/PASSWORD, PROTOCOLIA_ENABLE_MIGRATIONS=true only in a disposable database, and PROTOCOLIA_USER/PASSWORD/SCOPES. Idempotency is scoped to a UUID key. No production identity provider, no generic business-language inference.\n"
     return dict(sorted(out.items()))
