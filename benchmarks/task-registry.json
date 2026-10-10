@@ -1,0 +1,26 @@
+{
+  "registry_version": "0.1",
+  "purpose": "p0_smoke_not_p4_heldout",
+  "frozen_at": "2026-10-10",
+  "rules": "Pinned commits and compiler versions; no task is considered independently correct without an external oracle.",
+  "tasks": [
+    {
+      "id": "p0-sales",
+      "repo": "barbasmarcosi/ProtocolIA",
+      "commit": "788fe9d67cc3d6e502482a7f8e0eb766ac46a881",
+      "contract_path": "examples/sales.json",
+      "expected": "accepted",
+      "validation": "installed_cli_golden_and_external_format",
+      "heldout": false
+    },
+    {
+      "id": "p0-inventory",
+      "repo": "barbasmarcosi/ProtocolIA-Test",
+      "commit": "59dbf59210aaab25d4317d4023f0a68c24c35cf7",
+      "contract_path": "contracts/inventory.json",
+      "expected": "accepted",
+      "validation": "pinned_installed_compiler_external_format_and_consumer_checks",
+      "heldout": false
+    }
+  ]
+}
