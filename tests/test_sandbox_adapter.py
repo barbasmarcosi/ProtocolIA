@@ -50,6 +50,7 @@ class BoundedDockerAdapterTest(unittest.TestCase):
     def test_preview_is_read_only_and_approval_replay_once(self):
         p=preview(self.req,self.policy,self.inputs)
         self.assertEqual(p["estimated_cost_usd"],0)
+        self.assertEqual(len(p["tool_fingerprint"]),64)
         self.assertFalse(any(self.ledger.iterdir()))
         self.approve()
         self.assertEqual(self.invoke()["status"],"executed")
