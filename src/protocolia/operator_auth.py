@@ -93,6 +93,8 @@ def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict:
 def _operator_registry(filename: Path) -> dict:
     try:
         registry = json.loads(_protected_bytes(filename), object_pairs_hook=_no_duplicates)
+    except ExecutionDenied:
+        raise
     except (UnicodeDecodeError, ValueError, RecursionError):
         _deny("malformed trusted operator registry")
     _exact(registry, {"version", "operators"}, "registry")
