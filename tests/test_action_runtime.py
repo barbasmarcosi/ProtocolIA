@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 from protocolia.action_runtime import ExecutionDenied, validate_plan, dry_run, execute
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -31,6 +32,17 @@ class P3RuntimeTest(unittest.TestCase):
         with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0],4)
             self.assertEqual(db.execute("SELECT value FROM kv WHERE key='inventory/widget'").fetchone()[0],"two")
+    def test_two_concurrent_same_id_commits_effect_only_once(self):
+        def invoke(_):
+            return execute(self.plan,self.policy,self.workspace,environment="test-env/1")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(invoke,range(2)))
+        self.assertEqual(sorted(x["status"] for x in results),["executed","replayed"])
+        self.assertEqual(results[0]["evidence_sha256"],results[1]["evidence_sha256"])
+        with closing(sqlite3.connect(self.workspace/"protocolia-action.sqlite3")) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM executions").fetchone()[0],1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0],4)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM kv").fetchone()[0],1)
     def test_dry_run_does_not_open_storage(self):
         preview=dry_run(self.plan,self.policy)
         self.assertEqual(preview["writes"],1)
