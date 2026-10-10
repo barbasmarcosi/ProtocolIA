@@ -1,6 +1,6 @@
 # ADR-002 — First P2 target: Java / Spring Boot
 
-**Status:** Proposed for first generated backend (2026-10-10); documentation-only decision, not implemented.
+**Status:** Accepted and implemented within P2's bounded inventory profile (2026-10-10). See EXECUTION_STATE.md for exact GitHub evidence and limitations.
 
 ## Context
 
