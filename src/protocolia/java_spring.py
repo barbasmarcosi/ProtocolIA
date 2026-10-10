@@ -100,8 +100,20 @@ public class SecurityConfig {
             throw new IllegalStateException("Require PROTOCOLIA_USER, PROTOCOLIA_PASSWORD >=16 chars and PROTOCOLIA_SCOPES");
         var authorities=java.util.Arrays.stream(scopes.split(",")).map(String::trim)
             .filter(s->!s.isEmpty()).toArray(String[]::new);
+        var encoder=new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
         var details=org.springframework.security.core.userdetails.User.withUsername(user)
-            .password("{noop}"+password).authorities(authorities).build();
+            .password("{bcrypt}"+encoder.encode(password)).authorities(authorities).build();
+        String reader=System.getenv("PROTOCOLIA_VIEWER_USER");
+        String readerPassword=System.getenv("PROTOCOLIA_VIEWER_PASSWORD");
+        if ((reader==null)!=(readerPassword==null))
+            throw new IllegalStateException("Both PROTOCOLIA_VIEWER_USER and PROTOCOLIA_VIEWER_PASSWORD required");
+        if (reader!=null) {
+            if (reader.isBlank() || readerPassword.length()<16 || reader.equals(user))
+                throw new IllegalStateException("Invalid isolated read-only test identity");
+            var viewer=org.springframework.security.core.userdetails.User.withUsername(reader)
+                .password("{bcrypt}"+encoder.encode(readerPassword)).authorities("products.read").build();
+            return new org.springframework.security.provisioning.InMemoryUserDetailsManager(details,viewer);
+        }
         return new org.springframework.security.provisioning.InMemoryUserDetailsManager(details);
     }
 }

@@ -37,6 +37,8 @@ jobs:
       PROTOCOLIA_USER: test-admin
       PROTOCOLIA_PASSWORD: independent-ephemeral-credential-2026
       PROTOCOLIA_SCOPES: products.write,products.read,sales.create
+      PROTOCOLIA_VIEWER_USER: test-viewer
+      PROTOCOLIA_VIEWER_PASSWORD: readonly-ephemeral-password-2026
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

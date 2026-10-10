@@ -10,6 +10,7 @@ from uuid import uuid4
 
 BASE="http://127.0.0.1:8080"
 AUTH="Basic "+base64.b64encode(b"test-admin:independent-ephemeral-credential-2026").decode()
+VIEWER="Basic "+base64.b64encode(b"test-viewer:readonly-ephemeral-password-2026").decode()
 
 def call(method,path,body=None,auth=AUTH):
     headers={"Content-Type":"application/json"}
@@ -39,6 +40,7 @@ else:
 assert expected("GET","/health",None,200,auth=None)["status"]=="ok"
 expected("POST","/products",{"sku":"ab","quantity":1},401,auth=None)
 expected("POST","/products",{"sku":"ab","quantity":1},401,auth="Basic bad")
+expected("POST","/products",{"sku":"ab","quantity":1},403,auth=VIEWER)
 expected("POST","/products",{"sku":"ab","quantity":-1},400)
 expected("POST","/products",{"sku":"ab","quantity":"bad"},400)
 expected("POST","/products",{"quantity":2},400)
