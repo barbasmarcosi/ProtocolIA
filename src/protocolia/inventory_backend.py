@@ -74,7 +74,7 @@ public class InventoryService {
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,"duplicate sku",e);
         }
-        return new Product(id,req.sku(),req.quantity());
+        return new Product(id,req.quantity(),req.sku());
     }
 
     @Transactional(readOnly=true)
