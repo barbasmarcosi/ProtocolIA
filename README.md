@@ -8,6 +8,23 @@ ProtocolIA is a provider-independent research and engineering project for compil
 
 LLMs are powerful at ambiguity, design, and novel problems. They should not have to regenerate routine DTOs, interfaces, API schemas, and execution plans on every request. ProtocolIA tests the hypothesis that *verified contract compilation reduces model work per successful mission without reducing quality*.
 
+## P1: formal versioned contracts (v0.2)
+
+The `0.1` compiler remains supported with byte-identical golden outputs. Opt-in `0.2` contracts additionally support strict scalar bounds, limited safe anchored patterns and typed enums with executable `validate_payload`, exactly bound URI parameters, generated JSON Schema, conservative compatibility diagnostics and explicit migration.
+
+```sh
+protocolia validate examples/sales-v0.2.json
+protocolia compile examples/sales-v0.2.json --out generated-v02
+protocolia preview examples/sales-v0.2.json --out generated-v02
+protocolia migrate examples/sales.json > migrated.json
+protocolia diff migrated.json examples/sales-v0.2.json
+```
+
+Cross-version diff requires explicit migration to the same contract version; `migrate` never writes or applies database changes. Existing v0.1-owned outputs must not be reused as v0.2 output directories.
+
+See [v0.2 semantics](docs/P1-V02-CONTRACT.md), [standards/interop ADR](docs/ADR-001-MODELING-STANDARDS.md), [roadmap](docs/ROADMAP.md), and [execution evidence](docs/EXECUTION_STATE.md). `0.2` remains an experimental contract language; *no generated server, production authorization, business transaction correctness, or model-token savings are claimed.*
+
+
 ## What actually works in v0.1
 
 - Strict JSON contract validation, unknown-field rejection, reference checks, unique endpoints, typed dependencies, stable topological order, explicit capabilities and read/write effects.
@@ -15,7 +32,7 @@ LLMs are powerful at ambiguity, design, and novel problems. They should not have
 - Protected regeneration: refuses to overwrite manually modified/unmanaged output files; rejects symlinked output directories and filenames.
 - Python standard library only. No model, API key, network service, database, cloud platform, or dynamic execution required.
 
-**Not yet implemented:** runtime business invariants, server implementations, database migrations, tests for generated services, agent scheduler/executor, model integration, caching, latency/token claims, semantic compatibility verification. An OpenAPI schema is **not** proof that an implementation is secure or correct.
+**Not yet implemented:** runtime business invariants, server implementations, database migrations, tests for generated services, agent scheduler/executor, model integration, caching, latency/token claims, semantic behavioral equivalence. An OpenAPI schema is **not** proof that an implementation is secure or correct.
 
 ## P0 installation and independent verification
 

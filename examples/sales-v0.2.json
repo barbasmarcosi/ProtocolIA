@@ -1,0 +1,94 @@
+{
+  "version": "0.2",
+  "namespace": "Sales",
+  "models": {
+    "SaleRequest": {
+      "product_id": {
+        "type": "uuid",
+        "required": true
+      },
+      "quantity": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "sale_state": {
+        "type": "string",
+        "required": false,
+        "constraints": {
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        }
+      },
+      "sku": {
+        "type": "string",
+        "required": false,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "SaleResponse": {
+      "id": {
+        "type": "uuid",
+        "required": true
+      },
+      "status": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "Health": {
+      "status": {
+        "type": "string",
+        "required": true
+      }
+    }
+  },
+  "operations": {
+    "health": {
+      "method": "GET",
+      "path": "/health",
+      "response": "Health",
+      "capability": "public",
+      "effects": [],
+      "depends_on": [],
+      "params": {}
+    },
+    "registerSale": {
+      "method": "POST",
+      "path": "/sales",
+      "request": "SaleRequest",
+      "response": "SaleResponse",
+      "capability": "sales.create",
+      "effects": [
+        "read",
+        "write"
+      ],
+      "depends_on": [
+        "health"
+      ],
+      "params": {}
+    },
+    "readSale": {
+      "method": "GET",
+      "path": "/sales/{sale_id}",
+      "params": {
+        "sale_id": "uuid"
+      },
+      "response": "SaleRequest",
+      "capability": "sales.read",
+      "effects": [
+        "read"
+      ],
+      "depends_on": []
+    }
+  }
+}
