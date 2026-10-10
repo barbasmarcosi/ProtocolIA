@@ -182,7 +182,7 @@ def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
     if (prepared["assignment"] != assignment or prepared["worktree"] != str(workspace)
             or prepared["evidence"] != str(evidence)):
         deny("trial manifest is stale or tampered")
-    if workspace not in folder.parents and workspace.parent != folder:
+    if workspace.parent != folder:
         deny("incorrect worktree path")
     if any((evidence / n).exists() for n in ("started.json", "run.json")):
         deny("trial already started: no automatic retries, preserve failed attempt")
