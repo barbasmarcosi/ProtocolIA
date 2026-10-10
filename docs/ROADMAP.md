@@ -29,7 +29,7 @@ The model is an optional, untrusted **intent adapter**. It may draft contracts a
 
 ## 1. Architecture and dependency graph
 
-\`\`\`text
+```text
                     intent / external IDLs / optional LLM
                                     |
                          untrusted proposal adapter
@@ -48,7 +48,7 @@ The model is an optional, untrusted **intent adapter**. It may draft contracts a
                 P5: real-repository pilots (dry-run first)
                                     |
                     P6: stabilization / v1 decision
-\`\`\`
+```
 
 **Critical path:** P0 → P1 → P2 → P4 → P5 → P6. P3 starts with a separately typed action IR only after P1 contract semantics are stable; P3 can progress in parallel with P2 but **must be independently gated before any effects execute**. Benchmark **instrumentation and task registration begin in P0/P1**, not after observing P2 outcomes.
 
@@ -58,7 +58,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P0 — Trustworthy v0.1 baseline (release candidate v0.1)
 
-**Verified baseline:** feature branch \`feat/contract-compiler-v0\`, PR #1 open/draft, HEAD \`72ce089aba85c1d12409955e4591456a2cd0b454\`; 14 unit tests reported locally; GitHub \`quality\` workflow completed successfully for this SHA (run 38079598479). This is **not** a declaration that packaging, cross-tool conformance or application behavior are validated.
+**Verified baseline:** feature branch `feat/contract-compiler-v0`, PR #1 open/draft, HEAD `72ce089aba85c1d12409955e4591456a2cd0b454`; 14 unit tests reported locally; GitHub `quality` workflow completed successfully for this SHA (run 38079598479). This is **not** a declaration that packaging, cross-tool conformance or application behavior are validated.
 
 **Deliverables**
 - [x] Strict JSON v0.1 parser, semantic reference checks, reject duplicate routes and invalid effects, stable acyclic ordering.
@@ -100,7 +100,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [ ] Implement a **named executable template/rule** for atomic inventory decrement; define preconditions, postconditions and DB transaction boundaries. A contract label alone is insufficient.
 - [ ] Protect duplicate sale submission with idempotency-key scope, replay behavior and race tests; specify failure and timeout semantics.
 - [ ] Specify enforceable authorization mapping in the generated sample runtime; independently prove unauthenticated and unauthorized requests are rejected.
-- [ ] Golden fixture demo: \`product → register sale → stock movement\`; happy path, stock shortage, concurrent purchase, duplicate request, transaction rollback and malicious input.
+- [ ] Golden fixture demo: `product → register sale → stock movement`; happy path, stock shortage, concurrent purchase, duplicate request, transaction rollback and malicious input.
 - [ ] Deterministic regeneration that preserves custom application code; no unsafe migration by default.
 - [ ] Clean checkout test builds and runs generated service and tests; independently compare runtime HTTP behavior against contract.
 
