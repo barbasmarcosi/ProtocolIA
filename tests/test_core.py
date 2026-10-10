@@ -27,6 +27,19 @@ class CompilerTest(unittest.TestCase):
         c["models"] = dict(reversed(list(c["models"].items())))
         self.assertEqual(compile_contract(c), compile_contract(self.c))
 
+    def test_rejects_malformed_operation_values(self):
+        for key, value in [("method", []), ("response", []), ("method", None)]:
+            with self.subTest(key=key, value=value):
+                c = copy.deepcopy(self.c)
+                c["operations"]["health"][key] = value
+                with self.assertRaises(ContractError):
+                    validate(c)
+
+    def test_rejects_reserved_model_identifier(self):
+        self.c["models"]["interface"] = {"x": {"type": "string", "required": True}}
+        with self.assertRaises(ContractError):
+            validate(self.c)
+
     def test_rejects_unknown_model(self):
         self.c["operations"]["health"]["response"] = "NotReal"
         with self.assertRaises(ContractError):

@@ -8,7 +8,7 @@ All milestones require evidence, not just merged code. Items checked only after 
 - [x] Canonicalized model/operation IR with acyclic dependency order
 - [x] OpenAPI 3.1 and TypeScript wire type emitters
 - [x] Content-hash manifest, protected regeneration, no provider calls
-- [x] Python unit tests (12 focused cases run locally)
+- [x] Python unit tests (14 focused cases run locally)
 - [ ] CI green on GitHub; installation/packaging smoke verified on clean environments
 - [ ] Golden snapshots and external OpenAPI/TypeScript validation
 

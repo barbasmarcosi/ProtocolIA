@@ -17,6 +17,7 @@ IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 ROUTE = re.compile(r"^/(?:[A-Za-z0-9_-]+|\{[A-Za-z][A-Za-z0-9_]*\})(?:/(?:[A-Za-z0-9_-]+|\{[A-Za-z][A-Za-z0-9_]*\}))*$")
 PRIMITIVES = {"string", "integer", "number", "boolean", "uuid", "datetime"}
 METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+TS_RESERVED = {"any", "as", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "from", "function", "get", "if", "implements", "import", "in", "instanceof", "interface", "let", "module", "new", "null", "of", "package", "private", "protected", "public", "readonly", "return", "set", "static", "super", "switch", "this", "throw", "true", "try", "type", "typeof", "var", "void", "while", "with", "yield"}
 EFFECTS = {"read", "write"}
 
 
@@ -72,8 +73,8 @@ def validate(contract: Any) -> dict[str, Any]:
         _fail("contract exceeds 200 models or operations")
     for model, fields in models.items():
         _name(model, "model")
-        if model in PRIMITIVES:
-            _fail(f"model {model}: reserved primitive name")
+        if model in PRIMITIVES or model in TS_RESERVED:
+            _fail(f"model {model}: reserved name")
         if not isinstance(fields, dict) or not fields:
             _fail(f"model {model}: expected nonempty field map")
         for field, spec in fields.items():
@@ -86,7 +87,7 @@ def validate(contract: Any) -> dict[str, Any]:
     for name, op in ops.items():
         _name(name, "operation")
         _keys(op, {"method", "path", "response", "capability", "effects", "depends_on"}, {"request"}, name)
-        if op["method"] not in METHODS:
+        if not isinstance(op["method"], str) or op["method"] not in METHODS:
             _fail(f"{name}.method: unsupported method")
         if not isinstance(op["path"], str) or not ROUTE.fullmatch(op["path"]):
             _fail(f"{name}.path: unsupported route syntax")
@@ -96,7 +97,7 @@ def validate(contract: Any) -> dict[str, Any]:
         if route in seen_routes:
             _fail(f"{name}: duplicate method/path")
         seen_routes.add(route)
-        if op["response"] not in models or ("request" in op and op["request"] not in models):
+        if not isinstance(op["response"], str) or op["response"] not in models or ("request" in op and (not isinstance(op["request"], str) or op["request"] not in models)):
             _fail(f"{name}: unknown request/response model")
         if not isinstance(op["capability"], str) or not (op["capability"] == "public" or re.fullmatch(r"[a-z][a-z0-9_.-]{0,79}", op["capability"])):
             _fail(f"{name}.capability: invalid value")
