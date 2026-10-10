@@ -2,7 +2,7 @@
 
 **Status:** planned and gated; updated 2026-10-10  
 **Source of execution truth:** [EXECUTION_STATE.md](EXECUTION_STATE.md)  
-**Existing tracking issues:** [P1 #2](https://github.com/barbasmarcosi/ProtocolIA/issues/2), [P2 #3](https://github.com/barbasmarcosi/ProtocolIA/issues/3), [P3 #4](https://github.com/barbasmarcosi/ProtocolIA/issues/4), [P4 #5](https://github.com/barbasmarcosi/ProtocolIA/issues/5).
+**Existing tracking issues:** [P0 #6](https://github.com/barbasmarcosi/ProtocolIA/issues/6), [P5 #7](https://github.com/barbasmarcosi/ProtocolIA/issues/7), [P6 #8](https://github.com/barbasmarcosi/ProtocolIA/issues/8), [P1 #2](https://github.com/barbasmarcosi/ProtocolIA/issues/2), [P2 #3](https://github.com/barbasmarcosi/ProtocolIA/issues/3), [P3 #4](https://github.com/barbasmarcosi/ProtocolIA/issues/4), [P4 #5](https://github.com/barbasmarcosi/ProtocolIA/issues/5).
 
 > **North star:** Convert explicit, typed, versioned intent into software artifacts and auditable execution plans while minimizing *unnecessary model decisions*—without trading away correctness, security, or maintainability.
 
@@ -56,7 +56,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ## 2. Milestones with hard exit gates
 
-### P0 — Trustworthy v0.1 baseline (release candidate v0.1)
+### P0 — Trustworthy v0.1 baseline (release candidate v0.1; issue #6)
 
 **Verified baseline:** feature branch `feat/contract-compiler-v0`, PR #1 open/draft, HEAD `72ce089aba85c1d12409955e4591456a2cd0b454`; 14 unit tests reported locally; GitHub `quality` workflow completed successfully for this SHA (run 38079598479). This is **not** a declaration that packaging, cross-tool conformance or application behavior are validated.
 
@@ -144,7 +144,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 **Exit:** independently reproducible reports support a bounded claim (including task class and provider), not a generic "saves tokens" claim.
 
-### P5 — Controlled adoption and interoperability (v0.6)
+### P5 — Controlled adoption and interoperability (v0.6; issue #7)
 
 **Purpose:** validate ProtocolIA outside its own examples without coupling its core to another project.
 
@@ -158,7 +158,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 **Exit:** at least two independent consumers can evaluate ProtocolIA in dry-run without losing existing safety controls; greenfield-only success cannot justify the adoption claim.
 
-### P6 — v1 release decision and maintenance discipline
+### P6 — v1 release decision and maintenance discipline (issue #8)
 
 **Purpose:** decide whether ProtocolIA has proved a maintainable, reusable contribution.
 
