@@ -112,20 +112,30 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 **Exit:** The concrete generated inventory-sale service builds, executes and passes negative/concurrency/rollback tests on real PostgreSQL, independently consumed. P2's bounded gate is satisfied; wider generator claims require separate gates.
 
-### P3 — Auditable agent execution engine (v0.4; issue #4)
+### P3 — Auditable action plans (v0.4; issue #4)
 
-**Purpose:** remove repeated model decisions for well-defined operations, **not** turn passive capability labels into authority.
+**Status: IN PROGRESS. P3-A local reference runtime is implemented, merged and independently verified. P3-B external sandbox/approval boundary remains unimplemented.** See [execution evidence](EXECUTION_STATE.md), [P3 runtime contract](P3-ACTION-RUNTIME.md), upstream PR #15 and ProtocolIA-Test PR #6.
 
-**Deliverables**
-- [ ] Define a separate typed action IR: inputs/outputs, dependency + dataflow edges, declarative effects, preconditions, postconditions, idempotency and timeouts.
-- [ ] Build a static planner with stable ordering; parallelize only operations with proven independent dataflow **and non-conflicting effects**.
-- [ ] Create a minimal allowlisted executor with capability enforcement at action/resource scope, isolated working area, deny-by-default network/filesystem access and execution budgets.
-- [ ] Persist evidence bound to contract hash, tool/generator version, inputs, environment and results; define freshness, invalidation and replay semantics.
-- [ ] Retry only idempotent or specifically compensated operations; bound retries/cancellation and prevent double spending of reserved budgets.
-- [ ] Add dry-run plan review, operational event log, failure diagnostics and human approval boundary for privileged actions.
-- [ ] Adversarial tests: forged capability, traversal, symlink, conflicting effects, replay/double write, stale evidence, budget overflow, partial failure and cancellation.
+**P3-A verified:**
+- [x] Separate typed action IR 0.4, with input/output references, effect typing, typed equality postconditions, DAG validation, per-action cooperative timeouts and deterministic serial ordering.
+- [x] Strict positive/negative structural JSON Schemas and semantic checks; unsupported tools or effect types rejected, no arbitrary Python/shell or network action.
+- [x] Host-owned policy enforces explicit action/resource capabilities, action count, write count and time budget **before** any local effect.
+- [x] Closed SQLite local KV adapter with transactional effect/journal commit, append-only-sequenced event evidence, stable tool version + plan/policy/environment/input/output fingerprints.
+- [x] Same-mission concurrent execution commits one set of effects; matching replay returns committed evidence; stale records, environment/policy/plan drift, altered state, forged events, future/expired evidence denied.
+- [x] Dry-run without journal creation, atomic rollback on failed postcondition/cancellation/timeout, traversal and symlink rejection.
+- [x] ProtocolIA-Test independent Python 3.11 and 3.13 tests for forged grant, forbidden shell, traversal, timeout/cancellation, concurrent replay, TTL expiry and modified evidence.
+- [x] P0/P1/P2 regression CI remains green for the exact P3 implementation commit.
 
-**Exit:** provider-free demo executes a safe DAG with audited capabilities and can deny all forbidden actions; no unrestricted generated shell/script execution; recovery uses only demonstrably valid evidence.
+**P3-B NOT yet satisfied:**
+- [ ] Actually isolated out-of-process tool adapter with OS-level sandbox and deny-by-default network/filesystem/process, tested against hostile paths, symlink races and escape attempts.
+- [ ] Human approval and revocation mechanism bound to privileged tool effects, policy hash and immutable resource identifiers.
+- [ ] External side-effect cancellation/timeouts/recovery with idempotency, compensation and bounded retry; no silent duplicate paid calls.
+- [ ] Provider/tool usage accounting and reservation that handles unknown cost as a hard block before a paid operation, if and when paid tools are supported.
+- [ ] Independent sandbox/privilege adversarial evaluation without leaking credentials or touching production.
+
+**Exit for P3-A:** a provider-free, fully audited local DAG operates against only its allowed SQLite resources; no OS sandbox or external privileges claimed.
+
+**Exit for full P3:** external effects must be constrained and denied by the kernel/isolated runtime (not only Python conventions), recovery must remain verifiable and approval/cost limits must actually be enforced. Keep issue #4 OPEN until these evidence gates pass.
 
 ### P4 — Optional AI adapters and preregistered A/B/C evaluation (v0.5; issue #5)
 

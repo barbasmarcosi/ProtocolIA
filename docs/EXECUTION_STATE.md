@@ -1,6 +1,6 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1 and the bounded P2 Java/Spring service are MERGED and verified.
+Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action-execution proof are MERGED and verified. P3 as a whole remains open.
 
 ## Merged baseline
 
@@ -17,7 +17,7 @@ Updated: 2026-10-10. P0, P1 and the bounded P2 Java/Spring service are MERGED an
 | P0 | COMPLETE | Provider-free Python compiler, deterministic artifacts, protected regeneration and external format validation |
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
-| P3 | NOT STARTED | Safe typed agent action IR, runtime effects, permissions, budget/evidence/replay |
+| P3 | IN PROGRESS: P3-A VERIFIED | Provider-free v0.4 typed DAG, scoped SQLite effects, action/write/time budgets, atomic journal, replay/freshness, dry-run, deny tests. No OS sandbox or external tools. |
 | P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
@@ -33,8 +33,31 @@ Updated: 2026-10-10. P0, P1 and the bounded P2 Java/Spring service are MERGED an
 - Output hash manifest prevents common unmanaged/manual-edit overwrite patterns but is not cryptographic attestation or race-free hostile filesystem isolation.
 - Conventional OpenAPI Generator Spring Boot 4 was generated from the SAME emitted OpenAPI as a baseline scaffold. No independently matched economic superiority, model-token/USD savings or universal business-rule synthesis is claimed.
 
+## P3-A verified implementation and remaining isolation boundary
+
+**Merged:** ProtocolIA PR #15, main SHA 8886c31149dcb59198e6219970f56d7db4717164; ProtocolIA-Test PR #6, main SHA b4f408801c16247681b7883ef3dbc551f8fdc9f4.
+
+**Exact tested source SHAs**
+- ProtocolIA source ef5475e59989abb4845c1f1244810bd3c5fad9e6: [action-runtime CI](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38090575995), [quality CI](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38090575970), both success. [Main merge quality](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38090665861) success.
+- ProtocolIA-Test consumer 7ff784ceb5ccd36c85dfdba8737b619a757f75a3: [independent P3 run](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38090603119), [existing consumer regression](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38090603150), both success. Python 3.11/3.13, separate warehouse fixture and policy.
+
+**Proved**
+- Versioned action IR 0.4 independent of HTTP-operation DAG, strict structural JSON Schema plus semantic DAG/dataflow checks, deterministic serial order.
+- Only literal, sha256, assert.eq, kv.read and kv.put supported. Resource grants are injected by the host; forged capability/effects, conflicting unordered writes, shell/tools, dangerous keys and symlinks are denied.
+- Writes, results and event evidence committed in the SAME SQLite transaction, cancellation, timeout and failed equality rolls back; dry-run never opens storage.
+- Idempotent same-mission replay, including concurrent callers, with no double action/effect; changes to plan/policy/environment/events/resource snapshots or evidence TTL block reuse. Expired records are NOT implicitly re-executed.
+- Host budgets bound number of actions, number of writes, cooperative deadlines and maximum evidence age. No provider costs/claims.
+
+**P3-B remains open**
+- Create an out-of-process, genuinely isolated adapter for external tools. Deny network/filesystem/process access except explicit grants; verify effective OS-level separation and symlink/race adversarial cases.
+- Bind privileged approval to an immutable operation, identities and policy, with auditable revocation, no secret exposure or unreviewed production effects.
+- Specify external retry/compensation, cancellation and timeouts with controlled partial-failure tests; support durable reservations if a paid provider/tool is involved, fail closed on unknown cost.
+- Demonstrate sandboxed independent consumer tests before allowing any privilege-bearing tool. P4 economic studies are still unmeasured.
+
+**Security limits:** SHA-256 journal digests are not signatures against a privileged journal editor. Trusted host sets policy, environment ID, clock and workspace. The SQLite local adapter is not a Linux container, seccomp isolation or permission to run arbitrary Python/shell/network. No production or paid calls were made.
+
 ## Next
 
-P3: separate typed action DAG and constrained executor with actual budget/capability enforcement and replay/evidence validity. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3-B: safely sandbox a constrained external adapter and privileged approvals; P3-A itself is verified and merged. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.
