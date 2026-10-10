@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/barbasmarcosi/ProtocolIA/blob/main/schemas/broker-host-policy-v0.5.schema.json",
+  "title": "Trusted host v0.5 resource broker policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "grants",
+    "max_actions",
+    "max_external_reads",
+    "max_duration_ms"
+  ],
+  "properties": {
+    "version": {
+      "const": "0.5"
+    },
+    "grants": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compute.literal": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "compute.sha256": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "compute.assert": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "*"
+          }
+        },
+        "file.sha256": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/resource"
+          }
+        }
+      }
+    },
+    "max_actions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 32
+    },
+    "max_external_reads": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "max_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60000
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*){0,7}$"
+    }
+  }
+}
