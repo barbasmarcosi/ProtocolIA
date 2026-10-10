@@ -146,10 +146,21 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] Operator CLI generates 0600 raw private keys locally and refuses signing without exact plan SHA and resource confirmation. Private key never enters the trusted executor or container.
 - [x] Protected 0600-equivalent host HMAC key and registry, UID and symlink/hardlink checks; durable single-use nonce before issuing host HMAC grant; signer-key revocation and rotation invalidate old replays.
 - [x] Python 3.11/3.13 cryptographic adversarial CI, actual Docker integration and independent ProtocolIA-Test consumer with its own operator keys, binary file and key-rotation exercise; PR #22 and independent PR #10 merge-tested.
+**P3-B3 verified — local approval-service isolation (restricted, read-only):**
+- [x] Run an operator approval gateway as its own Linux Unix-socket process with kernel SO_PEERCRED allowlist, a private 0700 workspace/0600 socket, host-only policy/secret/registry files, strict bounded RPC and explicit preview/prepare/approve/execute/revoke.
+- [x] Host server enforces signed Ed25519 operator intent and current host grants without accepting key/image/policy/path overrides from the caller; no model self-granting.
+- [x] Actual out-of-process Unix service, offline operator-signer subprocess and Docker read tested; false signatures, forged privileged fields, revoked keys and unauthorized peer UIDs fail closed.
+- [x] ProtocolIA PR #24 merged with green source CI; external ProtocolIA-Test PR #11 validates its own host/process, binary file and signature independently.
+
+**P3-B4 verified — durable provider-independent budget ledger (NOT paid provider execution):**
+- [x] Integer micro-USD HMAC-authorized worst-case quote, atomic scope ceiling and concurrent reservations before tool start. No double-reserving a reused operation ID.
+- [x] Provider start is durably journaled; started/ambiguous reservations cannot auto-retry or be refunded on a guessed timeout.
+- [x] Trusted signed usage evidence settles actual amount at or below reserved budget; forgery, unknown cost, overrun, duplicate receipts and changed ceilings are denied.
+- [x] Independent consumer proves concurrent budget ceiling and deterministic signed settlement on disposable values; no actual paid provider or billing verified.
 **Remaining P3-B2 before issue #4 closure:**
-- [ ] Deploy trusted actual-human identity enrollment and account recovery (OIDC/WebAuthn/MFA or equivalent), trusted authenticated approval UI/service, provisioning and signing-key custody/rotation at scale. Current Ed25519 proof verifies possession of an enrolled private key, NOT an independent real-world identity.
+- [ ] Deploy independent actual-human enrollment/login/MFA (OIDC/WebAuthn or equivalent) and production approval UI. P3-B3 offers only local OS peer isolation plus offline operator Ed25519 key-possession proof; not a deployed human identity provider.
 - [ ] Add a durable outbox and recoverable/compensatable effects before enabling any external writes or paid tools; handle crash, cancellation, partial commit and bounded retries.
-- [ ] Reserve and reconcile provider/tool costs with independently verified usage and unknown-cost hard blocking; currently no paid provider is permitted.
+- [ ] Wire cost reservations, provider receipts and verified settlement into at least one actual paid tool adapter under a host approval boundary; P3-B4 has proven the durable ledger itself but has NOT exercised real provider usage.
 - [ ] Independently test hostile container/daemon escapes and host sandbox boundaries, including seccomp/user namespaces, races and resource leak behavior.
 - [ ] Any multi-effect plan requires proven external partial-failure semantics; v0.5 deliberately permits only one external read.
 **Exit for P3-A:** a provider-free, fully audited local DAG operates against only its allowed SQLite resources; no OS sandbox or external privileges claimed.
