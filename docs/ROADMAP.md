@@ -74,19 +74,22 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P1 — Formal contract language and compiler semantics (v0.2; issue #2)
 
-**Purpose:** turn the present prototype grammar into a credible, normative contract model.
+**Purpose:** offer a strict, versioned, provider-free language with executable supported constraints and explicit compatibility behavior.
 
-**Deliverables**
-- [x] Publish strict v0.1 JSON Schema draft 2020-12, with a 34-case structural-vs-semantic differential acceptance gate; P1-A verified in ProtocolIA and independent ProtocolIA-Test CI.
-- [ ] Separate parse/AST, reference resolution, semantic analysis, validated typed IR, and backend lowering; pin the canonical serialization.
-- [ ] Specify scalar/list/reference/optional/null semantics, identifiers, escaped paths and exact path-parameter bindings.
-- [ ] Add **executable, typed** validation primitives (bounded numeric ranges, length, regex subset, enum, cross-field constraints only when semantically implemented). Reject arbitrary string-named invariants.
-- [ ] Define cross-version migration/deprecation rules and fixtures. A conservative deterministic v0.1 breaking/additive classifier and CLI diff are implemented and independently verified (P1-B); **cross-version migration remains pending**.
-- [ ] Regeneration ownership manifest and diff/preview for all outputs. Never silently rewrite hand-authored code.
-- [ ] Compare OpenAPI 3.1/JSON Schema 2020-12, Smithy and CUE via an **import/export fidelity matrix**, then record an ADR choosing reuse vs internal grammar; avoid speculative syntax expansion.
-- [ ] External validators validate emitted OpenAPI and generated TypeScript; reject discrepancies.
+**Evidence-backed acceptance (code changes validated on 2026-10-10):**
+- [x] Normative strict v0.1 JSON Schema draft 2020-12, differential 34-case structural/semantic acceptance corpus, downstream consumer P1-A CI.
+- [x] Normative v0.2 structural JSON Schema, separately versioned normalizer; v0.1 canonical output and pinned golden SHA-256 hashes preserved.
+- [x] Supported scalar constraints: numeric minimum/maximum, string minLength/maxLength and safe anchored pattern subset, typed scalar enum; unsupported predicates rejected.
+- [x] Executable `validate_payload` with recursive nested model/array validation; independently check representative cases with JSON Schema 2020-12.
+- [x] Exact path parameter names and binding types, overlapped-route rejection, OpenAPI 3.1 parameter conformance, executable `validate_path_params`.
+- [x] Explicit v0.1→v0.2 grammar migration via CLI; conservative within-version compatibility diff via CLI and independent consumer.
+- [x] Protected output ownership manifest and no-write `preview`; v0.1→v0.2 generated-output ownership isolation.
+- [x] Independent OpenAPI 3.1 and TypeScript 5.8.3 checks for generated v0.2 outputs, Python 3.11/3.13 unit tests and external ProtocolIA-Test v0.2 consumer CI.
+- [x] Smithy/CUE/OpenAPI/JSON Schema feature-fidelity matrix with an explicit interoperability decision recorded in ADR-001; **no unimplemented importer/exporter claimed**.
 
-**Exit:** normative schema and implementation agree on positive/negative fixtures; unsupported predicates are rejected; contract compatibility decisions are reproducible; no downgrade of fail-closed properties.
+**Accepted P1 limits / tracked follow-up:** v0.2 reference semantics are validated but IR continues as canonical Python dictionaries rather than a complete immutable typed AST; optional/null remains intentionally distinct and null unsupported. No arbitrary cross-field predicates, transaction/idempotency guarantees, auth runtime, server/DB migration generator or Smithy/CUE round-trip importer. Smithy/CUE executed round-trip conformance belongs to optional interoperability work in P5 if justified. Strict external consumer-driven compatibility is required for live API upgrades; this P1 classifier is conservative syntax analysis.
+
+**Exit gate:** only supported constraints compile into standards-compatible artifacts AND have reference runtime verification; backward compatibility is explicit; independent consumers and pinned CI pass. See [P1 v0.2 contract](P1-V02-CONTRACT.md), [ADR-001](ADR-001-MODELING-STANDARDS.md) and [execution state](EXECUTION_STATE.md).
 
 ### P2 — Executable vertical slice: inventory and sale (v0.3; issue #3)
 
