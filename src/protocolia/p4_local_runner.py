@@ -123,12 +123,16 @@ def prepare(lock_file: Path, run_id: str, fixture_checkout: Path,
     workspace = folder / "workspace"
     workspace.mkdir(mode=0o700)
     evidence.mkdir(mode=0o700)
-    (workspace / "TASK.json").write_bytes(canonical(task))
-    (evidence / "prompt.txt").write_text(_prompt(frozen, run_id, task), encoding="utf-8")
+    task_bytes = canonical(task)
+    prompt_text = _prompt(frozen, run_id, task)
+    (workspace / "TASK.json").write_bytes(task_bytes)
+    (evidence / "prompt.txt").write_text(prompt_text, encoding="utf-8")
     manifest = {
         "version": "p4-local-1", "run_id": run_id,
         "assignment": chosen["assignment"],
         "task_original_sha256": chosen["task"]["spec_sha256"],
+        "workspace_task_sha256": hashlib.sha256(task_bytes).hexdigest(),
+        "prompt_sha256": hashlib.sha256(prompt_text.encode()).hexdigest(),
         "verifier_commit": frozen["protocol"]["verification"]["commit"],
         "worktree": str(workspace), "evidence": str(evidence),
     }
@@ -194,8 +198,8 @@ def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
                              text=True, timeout=12, check=False)
     if version.returncode:
         deny("could not inspect CLI version")
-    if type(model) not in (str, type(None)) or model == "":
-        deny("model must be an explicit CLI model or omitted")
+    if type(model) is not str or not model.strip() or len(model) > 100:
+        deny("model must be explicitly pinned for all comparable trials")
     allowed = frozen["protocol"]["budget"]["max_seconds"]
     if type(timeout_seconds) is not int and timeout_seconds is not None:
         deny("invalid timeout")
@@ -203,6 +207,10 @@ def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
         deny("runner timeout exceeds preregistered ceiling")
     timeout = timeout_seconds or allowed
     prompt = (evidence / "prompt.txt").read_text("utf-8")
+    if (hashlib.sha256(prompt.encode()).hexdigest()!=prepared["prompt_sha256"] or
+        hashlib.sha256((workspace / "TASK.json").read_bytes()).hexdigest()
+            != prepared["workspace_task_sha256"]):
+        deny("frozen task or prompt modified before running CLI")
     args = [binary, *_cli_argv(cli, model)[1:]]
     # No shell interpolation. The command args themselves are metadata only.
     started = {"version": "p4-started-1", "assignment": assignment,
@@ -265,7 +273,7 @@ def main(argv=None) -> int:
     go.add_argument("--run-id", required=True)
     go.add_argument("--runs-root", type=Path, required=True)
     go.add_argument("--evidence-root", type=Path, required=True)
-    go.add_argument("--model")
+    go.add_argument("--model",required=True)
     go.add_argument("--timeout-seconds", type=int)
     go.add_argument("--execute", action="store_true",
                     help="I consent to consume my authenticated CLI subscription quota")
