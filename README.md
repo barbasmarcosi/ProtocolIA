@@ -84,3 +84,7 @@ ProtocolIA generates and validates a separate agent action DAG. The provider-fre
 ## P3-B1: external read-only Docker proof
 
 A second, explicitly bounded host API and CLI now supports only immutable, allowlisted file hashing in Docker: `python -m protocolia.sandbox_cli preview/approve/run/revoke`. It requires an operator-managed HMAC secret and input/ledger directories, an immutable local image ID, zero-dollar policy and trusted Docker daemon. External plan effects **are not wired into the P3-A DAG**. The host must authenticate operators and protect its approval secret; the CLI does not provide human identity. See [sandbox threat model](docs/P3-DOCKER-ADAPTER.md) and [exact CI evidence](docs/EXECUTION_STATE.md).
+
+## P3-B2.1 — typed host-approved read-only broker
+
+The provider-free action_broker provides validate_broker_plan, preview_plan, approve_plan and run_plan for a strict v0.5 DAG: pure computations and exactly one Docker file.sha256 read. The trusted host, never the model, chooses credentials, image and resource grants and issues a signed approval tied to the entire plan and policy. The v0.4 local SQLite executor remains separate; no general external writer, human login, paid cost ledger or atomic cross-process transaction is claimed. See docs/P3-B2-READONLY-BROKER.md and docs/EXECUTION_STATE.md.
