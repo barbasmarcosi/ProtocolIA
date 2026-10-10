@@ -1,0 +1,42 @@
+name: p3-host-approval-service
+on:
+  push:
+    branches: [feat/p3b3-local-approval-service]
+  pull_request:
+    paths:
+      - 'src/protocolia/operator_service.py'
+      - 'tests/test_operator_service.py'
+      - 'tools/check_host_service_docker.py'
+      - '.github/workflows/p3-host-service.yml'
+permissions:
+  contents: read
+jobs:
+  unix-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install '.[operator-auth]'
+      - run: python -m unittest discover -s tests -p 'test_operator_service.py' -v
+  docker-host-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install '.[operator-auth]'
+      - name: Pin local sandbox image
+        run: |
+          docker pull python:3.13-alpine
+          echo "P3_SVC_DOCKER_ID=$(docker image inspect python:3.13-alpine --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Separate process signed approval over kernel Unix socket and actual Docker
+        run: python tools/check_host_service_docker.py
