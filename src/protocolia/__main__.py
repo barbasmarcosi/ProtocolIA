@@ -1,4 +1,4 @@
-"""Installed CLI for ProtocolIA contracts."""
+"""Installed CLI for ProtocolIA, including explicit Java target."""
 import argparse
 import json
 import sys
@@ -17,7 +17,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate", "compile", "diff", "migrate", "preview"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
@@ -37,11 +37,14 @@ def main() -> int:
             print(json.dumps(report,indent=2,sort_keys=True))
             return 2 if not report['compatible'] else 0
         elif args.command=="preview":
-            artifacts=compile_contract(contract)
-            print(json.dumps(preview_artifacts(artifacts,args.out),sort_keys=True,indent=2))
+            print(json.dumps(preview_artifacts(compile_contract(contract),args.out),sort_keys=True,indent=2))
         elif args.command=="migrate":
-            migrated=migrate_contract(contract)
-            print(json.dumps(migrated,sort_keys=True,indent=2,ensure_ascii=False))
+            print(json.dumps(migrate_contract(contract),sort_keys=True,indent=2,ensure_ascii=False))
+        elif args.command=="generate-java":
+            from .java_spring import generate_java,write_java
+            artifacts=generate_java(contract)
+            write_java(artifacts,args.out)
+            print(f"GENERATED Java Spring ({len(artifacts)} files) in {args.out}")
         else:
             artifacts=compile_contract(contract)
             write_artifacts(artifacts,args.out)
@@ -50,6 +53,5 @@ def main() -> int:
         print(f"protocolia: {exc}",file=sys.stderr)
         return 1
     return 0
-
 if __name__=="__main__":
     raise SystemExit(main())

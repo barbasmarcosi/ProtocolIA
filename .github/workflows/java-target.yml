@@ -1,0 +1,39 @@
+name: java-target
+on:
+  push:
+    branches: [feat/p2-java-spring-vertical]
+  pull_request:
+    paths:
+      - 'src/protocolia/java_spring.py'
+      - 'src/protocolia/__main__.py'
+      - 'tests/test_java_spring.py'
+      - '.github/workflows/java-target.yml'
+permissions:
+  contents: read
+jobs:
+  java-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: python -m pip install .
+      - run: python -m unittest discover -s tests -v
+      - name: Compile supported Java subset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path("examples/sales-v0.2.json").read_text())
+          del s["models"]["SaleRequest"]["sale_state"]["constraints"]
+          Path("/tmp/protocolia-java-contract.json").write_text(json.dumps(s))
+          PY
+          protocolia generate-java /tmp/protocolia-java-contract.json --out /tmp/protocolia-java
+          protocolia generate-java /tmp/protocolia-java-contract.json --out /tmp/protocolia-java
+          mvn -B -f /tmp/protocolia-java/pom.xml test
