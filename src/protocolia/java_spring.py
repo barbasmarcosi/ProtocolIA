@@ -139,7 +139,7 @@ def generate_java(contract: Any) -> dict[str,str]:
     ir=validate(contract)
     if ir["version"]!="0.2": _fail("Java target requires v0.2")
     outputs={"pom.xml":POM,"contract-ir.json":_json(ir),
-        "src/main/resources/application.properties":"spring.application.name=protocolia-generated\nserver.error.include-message=never\n",
+        "src/main/resources/application.properties":"spring.application.name=protocolia-generated\nserver.error.include-message=never\nspring.jackson.deserialization.fail-on-unknown-properties=true\n",
         SRC+"GeneratedApplication.java":("package "+PKG+";\n@org.springframework.boot.autoconfigure.SpringBootApplication\n"
            "public class GeneratedApplication { public static void main(String[] args) { "
            "org.springframework.boot.SpringApplication.run(GeneratedApplication.class,args); } }\n"),
