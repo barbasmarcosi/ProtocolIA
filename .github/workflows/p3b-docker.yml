@@ -1,0 +1,86 @@
+name: p3b-docker-isolation
+on:
+  push:
+    branches: [feat/p3b-locked-docker-readonly]
+  pull_request:
+    paths:
+      - 'src/protocolia/sandbox_adapter.py'
+      - 'src/protocolia/sandbox_cli.py'
+      - 'tests/test_sandbox_adapter.py'
+      - '.github/workflows/p3b-docker.yml'
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install strict provider-free adapter
+        run: python -m pip install .
+      - name: Reject forged approval and path traversal in unit tests
+        run: python -m unittest tests/test_sandbox_adapter.py -v
+      - name: Fetch runtime image and PIN locally to immutable image ID
+        run: |
+          docker pull python:3.13-alpine
+          echo "IMAGE_ID=$(docker image inspect python:3.13-alpine --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Create disposable host-owned scoped input and host policy
+        env:
+          PROTOCOLIA_SANDBOX_APPROVAL_SECRET: 'public-ci-fixture-only-not-for-production-00000001'
+        run: |
+          mkdir -p "$RUNNER_TEMP/p3-input/warehouse" "$RUNNER_TEMP/p3-ledger"
+          printf 'independent Docker byte snapshot' > "$RUNNER_TEMP/p3-input/warehouse/inventory"
+          python - <<'PY'
+          import os,json,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          req={"version":"0.5","request_id":"ci-readonly-operation","tool":"file.sha256","resource":"warehouse/inventory"}
+          policy={"version":"0.5","allow":["warehouse/inventory"],"max_bytes":256,
+                  "timeout_ms":10000,"max_spend_usd":0,"container_image":os.environ["IMAGE_ID"]}
+          (root/"request.json").write_text(json.dumps(req))
+          (root/"policy.json").write_text(json.dumps(policy))
+          PY
+          python -m protocolia.sandbox_cli preview --request "$RUNNER_TEMP/request.json" --policy "$RUNNER_TEMP/policy.json" --inputs "$RUNNER_TEMP/p3-input" > "$RUNNER_TEMP/preview.json"
+          test ! -f "$RUNNER_TEMP/p3-ledger/protocolia-sandbox.sqlite3"
+          python -m protocolia.sandbox_cli approve --request "$RUNNER_TEMP/request.json" --policy "$RUNNER_TEMP/policy.json" --inputs "$RUNNER_TEMP/p3-input" --workspace "$RUNNER_TEMP/p3-ledger" --subject operator --environment ci-host > "$RUNNER_TEMP/approval.json"
+          python -m protocolia.sandbox_cli run --request "$RUNNER_TEMP/request.json" --policy "$RUNNER_TEMP/policy.json" --inputs "$RUNNER_TEMP/p3-input" --workspace "$RUNNER_TEMP/p3-ledger" --subject operator --environment ci-host > "$RUNNER_TEMP/executed.json"
+          python -m protocolia.sandbox_cli run --request "$RUNNER_TEMP/request.json" --policy "$RUNNER_TEMP/policy.json" --inputs "$RUNNER_TEMP/p3-input" --workspace "$RUNNER_TEMP/p3-ledger" --subject operator --environment ci-host > "$RUNNER_TEMP/replayed.json"
+          python - <<'PY'
+          import json,os,hashlib,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          first=json.loads((root/"executed.json").read_text())
+          again=json.loads((root/"replayed.json").read_text())
+          b=(root/"p3-input/warehouse/inventory").read_bytes()
+          assert first["status"]=="executed" and again["status"]=="replayed",(first,again)
+          assert first["result"]=={"sha256":hashlib.sha256(b).hexdigest(),"bytes":len(b)}
+          PY
+          python -m protocolia.sandbox_cli revoke --workspace "$RUNNER_TEMP/p3-ledger" --request-id ci-readonly-operation
+          if python -m protocolia.sandbox_cli run --request "$RUNNER_TEMP/request.json" --policy "$RUNNER_TEMP/policy.json" --inputs "$RUNNER_TEMP/p3-input" --workspace "$RUNNER_TEMP/p3-ledger" --subject operator --environment ci-host; then
+            echo "SECURITY REGRESSION: revoked request accepted"; exit 1
+          fi
+      - name: Independent real Docker boundary probes
+        run: |
+          python - <<'PY'
+          import os,pathlib,subprocess
+          from protocolia.sandbox_adapter import _argv
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          path=root/"isolated-input-probe"
+          path.write_bytes(b"one permitted snapshot")
+          path.chmod(0o444)
+          argv=_argv(os.environ["IMAGE_ID"],path,"protocolia-probe-ci")
+          # This probe is owned by CI, NOT supplied through any agent operation.
+          probe="import pathlib,socket; " + \
+            "tests=[not pathlib.Path('/host-secret').exists()]; " + \
+            "tests.append(not pathlib.Path('/var/run/docker.sock').exists()); " + \
+            "tests.append(not pathlib.Path('/input').open('rb').read()==b'wrong'); " + \
+            "exec('try:\\n open(\\'/input\\',\\'wb\\')\\n tests.append(False)\\nexcept OSError:\\n tests.append(True)'); " + \
+            "exec('try:\\n open(\\'/p3-root-write-test\\',\\'wb\\')\\n tests.append(False)\\nexcept OSError:\\n tests.append(True)'); " + \
+            "exec('try:\\n socket.create_connection((\\'1.1.1.1\\',53),0.3)\\n tests.append(False)\\nexcept OSError:\\n tests.append(True)'); " + \
+            "print(tests); assert all(tests)"
+          argv[-1]=probe
+          cp=subprocess.run(argv,capture_output=True,text=True,timeout=15)
+          assert cp.returncode==0,(cp.stdout,cp.stderr)
+          print("REAL DOCKER ISOLATION: PASS read-only bind/root, no socket/host mount, no network egress")
+          PY
