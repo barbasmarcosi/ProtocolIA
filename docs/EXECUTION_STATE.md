@@ -1,6 +1,6 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action-execution proof are MERGED and verified. P3 as a whole remains open.
+Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter are MERGED and independently verified. P3 as a whole remains open.
 
 ## Merged baseline
 
@@ -17,7 +17,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action-execution proof ar
 | P0 | COMPLETE | Provider-free Python compiler, deterministic artifacts, protected regeneration and external format validation |
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
-| P3 | IN PROGRESS: P3-A VERIFIED | Provider-free v0.4 typed DAG, scoped SQLite effects, action/write/time budgets, atomic journal, replay/freshness, dry-run, deny tests. No OS sandbox or external tools. |
+| P3 | IN PROGRESS: P3-A + P3-B1 VERIFIED | Local v0.4 typed action DAG and atomic replay; separate host-approved Docker read-only tool with real kernel/container restrictions, no network, immutable inputs and zero-dollar policy. No privileged general executor or paid accounting. |
 | P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
@@ -56,8 +56,25 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action-execution proof ar
 
 **Security limits:** SHA-256 journal digests are not signatures against a privileged journal editor. Trusted host sets policy, environment ID, clock and workspace. The SQLite local adapter is not a Linux container, seccomp isolation or permission to run arbitrary Python/shell/network. No production or paid calls were made.
 
+## P3-B1 — independently verified Docker read-only tool
+
+**Implemented and merged:** ProtocolIA PR #17 at main commit e9140e92db69854ba7d49c92bba55d2706ebf195; security follow-up PR #18 at main commit 5c9aa6fe5b717ab6bc7b9160d9f8aba14b9c8cb5. ProtocolIA-Test PR #7 at bb5b9a5a917e2edb08e654be4cfd0c71e8125262 and independent forged-revocation test PR #8 at 5a47c89f03b119e930d757fc663b7cd3f2ef8f94. Both repositories' source commits were verified before merges.
+
+**Exact implementation evidence:** ProtocolIA SHA a8b31d1979980341aa4318fb1102400921b3cc8d — [actual Docker containment CI](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38091634980) and [quality](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38091634993) both SUCCESS. ProtocolIA-Test SHA 4585268d1b5078f49abb73065e98383b9556e646 — [independent real Docker CI](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38091641819) and [consumer regression](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38091641908) both SUCCESS. ProtocolIA main post-merge quality [run 38091697306](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38091697306) SUCCESS. The newest documentation commit requires a separate run; do not conflate SHAs.
+
+**Enforced subset:**
+- Trusted host chooses policy, inputs, image SHA ID, signer key and ledger; only allowlisted file.sha256 request is permitted. The model cannot choose Docker flags, host paths, process code or container image.
+- Exact bounded file bytes read via dirfd/O_NOFOLLOW then staged as an isolated read-only Docker mount. Docker network none, read-only root, unprivileged UID/GID, dropped caps, no-new-privileges, memory/PID/CPU constraints, no image pulls.
+- Host-issued HMAC approval sealed to plan request, policy, input bytes, declared host identity/environment, expiration and fixed tool version/script fingerprint; secret-authenticated revocation and stale input deny. No deployed human authentication broker.
+- Durable single-attempt ledger and ambiguous-failure quarantine; known zero-cost operation only. Timeout stops Docker client with best-effort docker rm cleanup. No automatic paid/external retries.
+- Independent consumer tested binary input, real Docker, revocation with wrong secret, concurrency, replay, expiration, traversal, symlinks, unknown-cost policy and shell/tool denial.
+
+**Critical boundaries:** This adapter is NOT integrated into the P3-A action DAG; it is separately invoked by a trusted host API/CLI. The Docker daemon itself is privileged and must be trusted, local and isolated from models. Operator subject is host-declared, not cryptographically proven human identity. No privilege-bearing mutable operation, paid provider, general external compensation, production network exception or full sandbox-escape proof exists. The P3 issue remains OPEN for P3-B2.
+
+See [P3-B1 threat model](P3-DOCKER-ADAPTER.md).
+
 ## Next
 
-P3-B: safely sandbox a constrained external adapter and privileged approvals; P3-A itself is verified and merged. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3-B2: connect the restricted adapter to the action DAG through an authenticated host broker; implement audited writable/paid tool boundaries, cost reservations, compensations and independent adversarial tests. P3-B1 already proves only read-only Docker isolation. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.

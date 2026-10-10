@@ -2,7 +2,7 @@
 
 **Contracts before code. Evidence before claims. Intelligence only where it is needed.**
 
-ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). Privileged/external agent tools are not yet supported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
+ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
 ## Why
 
@@ -80,3 +80,7 @@ MIT; see [`LICENSE`](LICENSE).
 ## P3: verified local action engine (v0.4)
 
 ProtocolIA generates and validates a separate agent action DAG. The provider-free runtime supports only closed local operations (literal, SHA-256, equality assertion, SQLite key/value access), with exact-scoped host policy, atomic event/evidence journal, replay invalidation, concurrency-safe deduplication and evidence expiry. Try `protocolia action-preview examples/action-plan-v0.4.json --policy examples/action-policy-v0.4.json`. For effectful execution, pass `action-run` with `--environment` and an existing, trusted workspace as `--out`. This is **not** an OS sandbox or autonomous shell/network executor; see [P3 boundaries](docs/P3-ACTION-RUNTIME.md) and [execution state](docs/EXECUTION_STATE.md).
+
+## P3-B1: external read-only Docker proof
+
+A second, explicitly bounded host API and CLI now supports only immutable, allowlisted file hashing in Docker: `python -m protocolia.sandbox_cli preview/approve/run/revoke`. It requires an operator-managed HMAC secret and input/ledger directories, an immutable local image ID, zero-dollar policy and trusted Docker daemon. External plan effects **are not wired into the P3-A DAG**. The host must authenticate operators and protect its approval secret; the CLI does not provide human identity. See [sandbox threat model](docs/P3-DOCKER-ADAPTER.md) and [exact CI evidence](docs/EXECUTION_STATE.md).
