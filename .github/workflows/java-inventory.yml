@@ -1,0 +1,60 @@
+name: java-inventory-integration
+on:
+  push:
+    branches: [feat/p2-java-spring-vertical]
+  pull_request:
+    paths:
+      - 'src/protocolia/inventory_backend.py'
+      - 'src/protocolia/java_spring.py'
+      - 'tools/verify_inventory_http.py'
+      - 'examples/inventory-v0.2.json'
+      - '.github/workflows/java-inventory.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: protocolia
+          POSTGRES_PASSWORD: ephemeral-test-password
+          POSTGRES_DB: protocolia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U protocolia"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DATABASE_URL: jdbc:postgresql://localhost:5432/protocolia
+      DATABASE_USER: protocolia
+      DATABASE_PASSWORD: ephemeral-test-password
+      PROTOCOLIA_ENABLE_MIGRATIONS: 'true'
+      PROTOCOLIA_USER: test-admin
+      PROTOCOLIA_PASSWORD: independent-ephemeral-credential-2026
+      PROTOCOLIA_SCOPES: products.write,products.read,sales.create
+      PROTOCOLIA_VIEWER_USER: test-viewer
+      PROTOCOLIA_VIEWER_PASSWORD: readonly-ephemeral-password-2026
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Generate, compile and run with disposable PostgreSQL
+        run: |
+          python -m pip install .
+          protocolia generate-inventory-java examples/inventory-v0.2.json --out /tmp/protocolia-inventory
+          protocolia generate-inventory-java examples/inventory-v0.2.json --out /tmp/protocolia-inventory
+          mvn -B -f /tmp/protocolia-inventory/pom.xml clean package
+          java -jar /tmp/protocolia-inventory/target/generated-service-0.3.0.jar >/tmp/protocolia-spring.log 2>&1 &
+          echo $! >/tmp/protocolia-spring.pid
+          trap 'tail -n 130 /tmp/protocolia-spring.log' EXIT
+          python tools/verify_inventory_http.py

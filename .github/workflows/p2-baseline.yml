@@ -1,0 +1,40 @@
+name: p2-conventional-spring-baseline
+on:
+  push:
+    branches: [feat/p2-java-spring-vertical]
+    paths:
+      - '.github/workflows/p2-baseline.yml'
+      - 'examples/inventory-v0.2.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  openapi-generator-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Compile the same ProtocolIA v0.2 contract to OpenAPI
+        run: |
+          python -m pip install .
+          protocolia compile examples/inventory-v0.2.json --out /tmp/inventory-oas
+      - name: Generate conventional Spring Boot 4 reference from same OpenAPI
+        run: |
+          curl -fL --retry 3 --silent --show-error \
+            https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/7.20.0/openapi-generator-cli-7.20.0.jar \
+            --output /tmp/openapi-generator-cli.jar
+          java -jar /tmp/openapi-generator-cli.jar generate \
+            -g spring -i /tmp/inventory-oas/openapi.json \
+            -o /tmp/openapi-generator-reference \
+            --additional-properties=useSpringBoot4=true,hideGenerationTimestamp=true,packageName=dev.protocolia.baseline
+          test -f /tmp/openapi-generator-reference/pom.xml
+          find /tmp/openapi-generator-reference/src/main/java -name '*.java' | head -20
+          echo "REFERENCE GENERATED: OpenAPI Generator 7.20.0 - Spring Boot 4"
+          echo "NO measured advantage claimed from boilerplate counts or scaffold existence."
