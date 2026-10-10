@@ -105,19 +105,22 @@ def _prompt(frozen: dict, run_id: str, task: dict) -> str:
 
 
 def prepare(lock_file: Path, run_id: str, fixture_checkout: Path,
-            runs_root: Path) -> dict:
+            runs_root: Path, evidence_root: Path) -> dict:
     frozen = load(lock_file)
     fixture = _real_folder(fixture_checkout, "independent fixture checkout")
     root = _real_folder(runs_root, "trial root")
+    private = _real_folder(evidence_root, "private evidence root")
     _separate(fixture, root)
+    _separate(fixture, private)
+    _separate(root, private)
     task = _task(frozen, run_id, fixture)
     chosen = packet(frozen, run_id)
     folder = root / run_id
-    if folder.exists() or folder.is_symlink():
+    evidence = private / run_id
+    if folder.exists() or folder.is_symlink() or evidence.exists() or evidence.is_symlink():
         deny("existing trial may never be overwritten or reused")
     folder.mkdir(mode=0o700)
     workspace = folder / "workspace"
-    evidence = folder / "evidence"
     workspace.mkdir(mode=0o700)
     evidence.mkdir(mode=0o700)
     (workspace / "TASK.json").write_bytes(canonical(task))
@@ -154,11 +157,11 @@ def _cli_argv(engine: str, model: str | None) -> list[str]:
         cmd = ["claude", "-p", "--output-format", "json",
                "--no-session-persistence", "--permission-mode", "acceptEdits"]
         if model: cmd += ["--model", model]
-        return cmd + ["-"]  # stdin contains prompt
+        return cmd  # Claude print mode reads the prompt on stdin
     deny("unsupported subscription engine")
 
 
-def execute(root: Path, lock_file: Path, run_id: str, *,
+def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
             model: str | None = None, timeout_seconds: int | None = None,
             allow_real_cli: bool = False) -> dict:
     if allow_real_cli is not True:
@@ -170,11 +173,14 @@ def execute(root: Path, lock_file: Path, run_id: str, *,
     if folder.is_symlink() or not folder.is_dir():
         deny("prepared trial missing")
     workspace = _real_folder(folder / "workspace", "trial workspace")
-    evidence = _real_folder(folder / "evidence", "evidence directory")
+    evidence = _real_folder(evidence_root, "private evidence root") / run_id
+    evidence = _real_folder(evidence, "private trial evidence")
+    _separate(workspace, evidence)
     frozen = load(lock_file)
     prepared = read(evidence / "prepared.json")
     assignment = packet(frozen, run_id)["assignment"]
-    if prepared["assignment"] != assignment or prepared["worktree"] != str(workspace):
+    if (prepared["assignment"] != assignment or prepared["worktree"] != str(workspace)
+            or prepared["evidence"] != str(evidence)):
         deny("trial manifest is stale or tampered")
     if workspace not in folder.parents and workspace.parent != folder:
         deny("incorrect worktree path")
@@ -253,19 +259,21 @@ def main(argv=None) -> int:
     prep.add_argument("--run-id", required=True)
     prep.add_argument("--fixtures", type=Path, required=True)
     prep.add_argument("--runs-root", type=Path, required=True)
+    prep.add_argument("--evidence-root", type=Path, required=True)
     go = sub.add_parser("run")
     go.add_argument("--lock", type=Path, required=True)
     go.add_argument("--run-id", required=True)
     go.add_argument("--runs-root", type=Path, required=True)
+    go.add_argument("--evidence-root", type=Path, required=True)
     go.add_argument("--model")
     go.add_argument("--timeout-seconds", type=int)
     go.add_argument("--execute", action="store_true",
                     help="I consent to consume my authenticated CLI subscription quota")
     a = parser.parse_args(argv)
     try:
-        result = (prepare(a.lock,a.run_id,a.fixtures,a.runs_root)
+        result = (prepare(a.lock,a.run_id,a.fixtures,a.runs_root,a.evidence_root)
                   if a.command=="prepare" else
-                  execute(a.runs_root,a.lock,a.run_id,model=a.model,
+                  execute(a.runs_root,a.evidence_root,a.lock,a.run_id,model=a.model,
                           timeout_seconds=a.timeout_seconds,allow_real_cli=a.execute))
         print(json.dumps(result,sort_keys=True,indent=2))
     except (BenchmarkError,OSError,subprocess.SubprocessError,ValueError) as exc:
