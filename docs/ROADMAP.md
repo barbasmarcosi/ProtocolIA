@@ -77,11 +77,11 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 **Purpose:** turn the present prototype grammar into a credible, normative contract model.
 
 **Deliverables**
-- [ ] Publish JSON Schema (strict and versioned), contract examples, positive/negative corpus and automated schema/parser agreement tests.
+- [x] Publish strict v0.1 JSON Schema draft 2020-12, with a 34-case structural-vs-semantic differential acceptance gate; P1-A verified in ProtocolIA and independent ProtocolIA-Test CI.
 - [ ] Separate parse/AST, reference resolution, semantic analysis, validated typed IR, and backend lowering; pin the canonical serialization.
 - [ ] Specify scalar/list/reference/optional/null semantics, identifiers, escaped paths and exact path-parameter bindings.
 - [ ] Add **executable, typed** validation primitives (bounded numeric ranges, length, regex subset, enum, cross-field constraints only when semantically implemented). Reject arbitrary string-named invariants.
-- [ ] Define contract version transitions: compatibility checker (breaking/additive), deprecation policy, explicit migrations and fixtures.
+- [ ] Define cross-version migration/deprecation rules and fixtures. A conservative deterministic v0.1 breaking/additive classifier and CLI diff are implemented and independently verified (P1-B); **cross-version migration remains pending**.
 - [ ] Regeneration ownership manifest and diff/preview for all outputs. Never silently rewrite hand-authored code.
 - [ ] Compare OpenAPI 3.1/JSON Schema 2020-12, Smithy and CUE via an **import/export fidelity matrix**, then record an ADR choosing reuse vs internal grammar; avoid speculative syntax expansion.
 - [ ] External validators validate emitted OpenAPI and generated TypeScript; reject discrepancies.
