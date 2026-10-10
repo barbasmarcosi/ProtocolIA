@@ -1,0 +1,37 @@
+name: p3b2-dag-docker-integration
+on:
+  push:
+    branches: [feat/p3b2-typed-readonly-broker]
+  pull_request:
+    paths:
+      - 'src/protocolia/action_broker.py'
+      - 'tests/test_action_broker.py'
+      - 'tests/test_broker_schema.py'
+      - 'schemas/broker-*.schema.json'
+      - '.github/workflows/p3b2-broker.yml'
+      - 'tools/check_p3b2_docker.py'
+permissions:
+  contents: read
+jobs:
+  typed-broker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install compiled package and schema validator
+        run: |
+          python -m pip install .
+          python -m pip install jsonschema==4.25.1
+      - name: Execute typed DAG and adversarial unit/schema tests
+        run: |
+          python -m unittest discover -s tests -p 'test_action_broker.py' -v
+          python -m unittest discover -s tests -p 'test_broker_schema.py' -v
+      - name: Pin unprivileged Docker image by local content ID
+        run: |
+          docker pull python:3.13-alpine
+          echo "P3B2_IMAGE_ID=$(docker image inspect python:3.13-alpine --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Live Docker plan, host approval and negative controls
+        run: python tools/check_p3b2_docker.py

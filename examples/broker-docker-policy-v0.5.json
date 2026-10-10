@@ -1,0 +1,10 @@
+{
+  "version": "0.5",
+  "allow": [
+    "warehouse/stock"
+  ],
+  "max_bytes": 128,
+  "timeout_ms": 15000,
+  "max_spend_usd": 0,
+  "container_image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

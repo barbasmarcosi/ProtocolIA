@@ -1,0 +1,17 @@
+{
+  "version": "0.5",
+  "grants": {
+    "file.sha256": [
+      "warehouse/stock"
+    ],
+    "compute.literal": [
+      "*"
+    ],
+    "compute.assert": [
+      "*"
+    ]
+  },
+  "max_actions": 3,
+  "max_external_reads": 1,
+  "max_duration_ms": 15000
+}
