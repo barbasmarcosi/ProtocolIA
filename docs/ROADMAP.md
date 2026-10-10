@@ -167,7 +167,9 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 **Exit for full P3:** trusted plan integration, authenticated and revocable privileged grants, genuine writable/paid effect recovery and cost reservations, and independent adversarial sandbox verification are all required. This is NOT established by the single read-only v0.5 Docker broker. Keep issue #4 OPEN until these evidence gates pass.
 
-### P4 — Optional AI adapters and preregistered A/B/C evaluation (v0.5; issue #5)
+### P4 — Subscription-authenticated Codex/Claude CLI A/B/C study (issue #5)
+
+**Status: IN PROGRESS — PILOT INFRASTRUCTURE VERIFIED, ZERO MODEL SESSIONS SO FAR.** All study execution must use an already-authenticated Codex or Claude Code CLI under the user's subscription, never require API keys, paid model API calls or an SDK. See [P4 CLI study runbook](P4-SUBSCRIPTION-CLI.md).
 
 **Purpose:** prove a measurable benefit over **both** direct agents and ordinary generators.
 
@@ -177,18 +179,18 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - **C:** agent proposes ProtocolIA contract → deterministic compile/generate → agent repairs only unsupported or failed work.
 
 **Deliverables**
-- [ ] Provider-independent adapter protocol: model input/output schema, uncertainty flags, structured validation feedback and bounded repair attempts. No model dependency in the core.
-- [ ] Preregister held-out tasks, evaluation scripts, seeds, model versions and resource budgets **before reviewing comparative scores**.
-- [ ] Task groups: new CRUD, domain invariants, brownfield changes, contract evolution, ambiguous/malicious instructions and non-repetitive algorithms.
-- [ ] Standard event ledger: provider/model, prompt/cache/response tokens, USD (including unknown cost), tools/runtime, test time, retries, human interventions, wall latency and quality evidence.
-- [ ] Instrument zero-provider baselines first, followed by small-budget pilots; repeat nondeterministic comparisons and attach uncertainty intervals.
+- [x] Provider-free benchmark packet/metadata interface for authenticated Codex and Claude Code CLI; no model SDK, API keys or automatic model calls, strict repair/time/intervention budgets. (No authenticated CLI sessions executed yet.)
+- [x] Freeze two separate initial Codex/Claude pilot protocols with deterministic counterbalanced A/B/C order, 3 repeats, independent task/verifier commit and SHA256-pinned external task specs before viewing any comparative scores. Model/CLI version is recorded on each actual trial; those sessions remain pending.
+- [ ] Complete full task coverage: initial frozen pilot provides CRUD, quota/domain invariants, contract evolution and hostile payloads; genuine seeded brownfield, ambiguous prompts and non-repetitive algorithms remain.
+- [x] Pilot recorder parses Codex JSONL or Claude JSON, captures observed token counters or explicit null, CLI/model version, wall time, repairs/interventions and independent verifier evidence; never stores raw transcripts in results. Subscription incremental USD stays unknown, not $0, and Claude API-equivalent cost is labeled NOT billed.
+- [x] Offline/provider-free preflight and negative grader validation with 95% Wilson intervals, missing-trial tracking and no automatic winner. [ ] Run real subscribed CLI experiments, complete paired repetitions and independently review uncertainty.
 - [ ] Independent tests/reviewers judge semantic correctness and security. Publish failures, negative results, protocol deviations and raw reproducible evidence.
 
-**Primary metric:** total spend for a cohort / independently verified successful missions in that cohort, reported **together** with completion rate and uncertainty. Secondary: latency, verifier labor, repair count, reproducibility, security-policy violations.
+**Primary metric for already-paid subscriptions:** independently verified success rate by arm, task and CLI (with Wilson uncertainty); secondary wall-clock time per success and observed CLI token counts, if available. **Do not fabricate marginal USD costs** for subscription access. The original dollar-per-verified-success objective is only evaluable for genuinely metered, independently attributable spend and must remain explicitly unavailable here. Verifier labor, repair count, reproducibility and safety remain tracked.
 
 **Decision:** prefer C only if it credibly improves cost per successful mission on selected recurring tasks **against both A and B** with no unacceptable correctness/security degradation. Use **20% improvement** as an initial *research target*, not an unconditional pass threshold. If B is indistinguishable or better, reuse B and halt ProtocolIA's extra complexity for that task class.
 
-**Exit:** independently reproducible reports support a bounded claim (including task class and provider), not a generic "saves tokens" claim.
+**Exit:** authenticated CLI tasks actually performed in each arm, independently reproducible reports and reviewed negative/positive outcomes. A frozen but empty study **does not complete P4**, and no generic token/cost saving claim is allowed.
 
 ### P5 — Controlled adoption and interoperability (v0.6; issue #7)
 

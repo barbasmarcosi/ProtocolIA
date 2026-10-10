@@ -18,7 +18,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
 | P3 | IN PROGRESS: P3-A/B1/B2.1/B2.2/B3/B4 VERIFIED (BOUNDED) | Signed operator gateway, real Linux Unix host-process security boundary, one isolated Docker read and provider-neutral signed micro-USD atomic budget/usage ledger. No deployed human SSO/MFA, live paid-tool accounting, writable external-effect recovery or hostile-kernel escape certification. |
-| P4 | NOT STARTED | Independently evaluated matched A/B/C coding-agent cost-per-verified-success |
+| P4 | IN PROGRESS: SUBSCRIPTION CLI PILOT INFRASTRUCTURE VERIFIED | Provider-free Codex/Claude A/B/C preregistration, external pinned Java/Spring tasks and HTTP judge, honest token/time record and missing-trial scorecards. ZERO Codex/Claude experiments or savings measurements yet. |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
 
@@ -113,6 +113,19 @@ See [operator authentication design](P3-B2-OPERATOR-AUTH.md).
 **Remaining P3 global acceptance blockers:** deployed real operator identity enrollment and MFA, separately secured approval frontend/host credentials in a real environment, safe resumable/compensatable mutable external effects and multi-effect plans, real-provider price reservation and usage billing evidence, independently assessed Docker/daemon/kernel escape resistance. Do not mark P3 complete or close issue #4.
 
 See P3-HOST-AND-COST.md and the exact GitHub CI results above.
+## P4 pilot — subscribed Codex/Claude experiment infrastructure, NO MODEL RESULTS
+
+**Merged implementation:** ProtocolIA PR #26, merge SHA a6e4a67b36c6b9b95374b28adcfc6f822a643d43. Exact implementation candidate SHA 426d64dfeea3732f2fecb83f019ff6113b7e67d6: [dedicated P4 preregistration CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38095255227), [quality SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38095255145), and [merged main quality SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38095310190).
+
+**Independent consumer:** ProtocolIA-Test PR #12 merged at commit 77ec9150fed3b1ae4e80c87befc052e34702af8c, owning four Java/Spring task specifications and black-box loopback HTTP verifier. [Verifier positive/negative CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38095065848), [merged main regression SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38095115354). The P4 CI fetches every consumer task from this immutable SHA and verifies its exact file SHA256.
+
+**What actually passed:** provider-free immutable study lock, 3-arm balanced deterministic trial packets, 3 paired repeats, Codex JSONL / Claude Code JSON usage extraction without raw transcript disclosure, independent-verifier result ingestion, duplicate/revision and changed-proof denial, null-vs-zero token and money honesty, missing-trial no-winner reporting, and task/verifier independence smoke checks. One frozen protocol per CLI contains **36 scheduled trials**, and CI records **ZERO model trials**.
+
+**Unverified, P4 still OPEN:** no authenticated Codex or Claude Code CLI was present in the runner; no agent attempts, token/quota savings, subscription marginal USD or correctness comparison A/B/C were measured. Need execute all paired trials on pre-authenticated user CLI without API keys, ensure fresh worktree/approval boundaries, preserve version/mode/repair counts, conduct independent grading and reviewer analysis; extend pilot to genuine brownfield, ambiguity and nonrepetitive tasks. A public repo's grader is not guaranteed secret from a network-enabled model. The independent verifier JSON is not cryptographically signed and cannot alone prove a clean test environment.
+
+**Economic interpretation:** subscription CLI user pays for access/quota; API-equivalent dollar display is not real incremental subscription billing. Always report actual_subscription_usd=null unless independently metered real charges, and never claim automatic dollar savings.
+
+Runbook: [P4-SUBSCRIPTION-CLI.md](P4-SUBSCRIPTION-CLI.md). Issue #5 remains OPEN.
 ## Next
 
 P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
