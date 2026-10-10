@@ -93,19 +93,21 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P2 — Executable vertical slice: inventory and sale (v0.3; issue #3)
 
+**Platform choice:** Java backend proposal; keep generator interface language-independent so other targets can be added only after P4 proves meaningful value. Target decision is tracked in [ADR-002](ADR-002-JAVA-BACKEND.md).
+
 **Purpose:** prove a contract produces more than DTOs and routes.
 
-**First stack:** a single FastAPI/Python target; pin exact framework and dependency versions. Local SQLite is acceptable for fast smoke tests but never evidence of portable concurrency semantics. Use a supported transactional backend (e.g. PostgreSQL in isolated integration tests) before claiming concurrency correctness.
+**First stack (proposed P2 target change):** Java 21 + Spring Boot 4.x + Maven + PostgreSQL. Pin exact patch versions when implementing, and verify runtime/toolchain compatibility in CI. The ProtocolIA compiler remains Python/provider-free; Java is a generated backend, not a replacement compiler implementation. Use JUnit 5, Spring MVC/Bean Validation and Testcontainers PostgreSQL for independent HTTP, database and concurrency checks. Do **not** rely on in-memory-only SQLite/H2 for evidence of transactional correctness. Before inventing Java scaffolding, compare the outcome against OpenAPI Generator's maintained `spring` server generator with its Boot 4 configuration.
 
 **Deliverables**
-- [ ] Generate DTOs, HTTP route bindings, request/response validation, OpenAPI, TypeScript client types and independent contract tests.
-- [ ] Generate only explicitly supported persistence models/migrations; always preview proposed schema changes and require a manual decision for destructive migration.
+- [ ] Generate Java records/DTOs, Spring MVC controller interfaces, request/response validation, OpenAPI, TypeScript client types and independent contract tests. Generated endpoints must fail explicitly for unimplemented business logic.
+- [ ] Generate only explicitly supported JPA/persistence boundaries and Flyway migration previews; never execute DDL or destructive migrations on unreviewed contracts.
 - [ ] Implement a **named executable template/rule** for atomic inventory decrement; define preconditions, postconditions and DB transaction boundaries. A contract label alone is insufficient.
 - [ ] Protect duplicate sale submission with idempotency-key scope, replay behavior and race tests; specify failure and timeout semantics.
-- [ ] Specify enforceable authorization mapping in the generated sample runtime; independently prove unauthenticated and unauthorized requests are rejected.
+- [ ] Map contract capabilities to an actual Spring Security request/method enforcement policy in the generated sample runtime; independently prove unauthenticated and unauthorized requests are rejected.
 - [ ] Golden fixture demo: `product → register sale → stock movement`; happy path, stock shortage, concurrent purchase, duplicate request, transaction rollback and malicious input.
 - [ ] Deterministic regeneration that preserves custom application code; no unsafe migration by default.
-- [ ] Clean checkout test builds and runs generated service and tests; independently compare runtime HTTP behavior against contract.
+- [ ] Clean checkout runs Maven compile/test and starts generated Spring Boot service; independently compare actual HTTP behavior against OpenAPI and ProtocolIA constraints. Include an A/B comparator against unmodified OpenAPI Generator Spring server scaffolding.
 
 **Exit:** reproducible generated demo can be executed and negative/integration/concurrency tests pass on **the stated target DB and framework**. Unsupported guarantees remain visibly unimplemented, not implicitly trusted.
 
