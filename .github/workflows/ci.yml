@@ -20,6 +20,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install ProtocolIA as package
         run: python -m pip install .
+      - name: Install pinned test-only JSON Schema validator
+        run: python -m pip install jsonschema==4.25.1
       - name: Run unit, golden, and adversarial tests
         run: python -m unittest discover -s tests -v
       - name: Installed CLI smoke and regeneration
@@ -51,6 +53,12 @@ jobs:
         run: |
           npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.8.3
           ./node_modules/.bin/tsc --strict --noEmit --skipLibCheck --target ES2022 "$RUNNER_TEMP/protocolia-artifacts/types.ts"
+      - name: Check compiled v0.2 OpenAPI/TypeScript using independent validators
+        run: |
+          protocolia validate examples/sales-v0.2.json
+          protocolia compile examples/sales-v0.2.json --out "$RUNNER_TEMP/protocolia-v02"
+          python tools/verify_artifacts.py "$RUNNER_TEMP/protocolia-v02/openapi.json"
+          ./node_modules/.bin/tsc --strict --noEmit --skipLibCheck --target ES2022 "$RUNNER_TEMP/protocolia-v02/types.ts"
   contract-schema-conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -65,3 +73,25 @@ jobs:
           python -m pip install jsonschema==4.25.1
       - name: Validate normative schema and negative/positive corpus
         run: python tools/check_contract_schema.py
+  v02-schema-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install compiler and pinned independent validator
+        run: |
+          python -m pip install .
+          python -m pip install jsonschema==4.25.1
+      - name: Assert v0.2 grammar, payload semantics, strict negative gates
+        run: |
+          python tools/check_v02_schema.py
+          python -m unittest tests.test_v02 -v
+      - name: Migration and read-only output preview smoke
+        run: |
+          protocolia migrate examples/sales.json > "$RUNNER_TEMP/sales-migrated.json"
+          protocolia validate "$RUNNER_TEMP/sales-migrated.json"
+          protocolia preview examples/sales-v0.2.json --out "$RUNNER_TEMP/pristine-output"
+          test ! -d "$RUNNER_TEMP/pristine-output"

@@ -60,6 +60,9 @@ def _parse_type(value: Any, models: dict[str, Any], where: str) -> tuple[str, bo
 
 def validate(contract: Any) -> dict[str, Any]:
     """Validate and normalize without executing user-supplied instructions."""
+    if isinstance(contract, dict) and contract.get("version") == "0.2":
+        from .v02 import validate as validate_v02
+        return validate_v02(contract)
     _keys(contract, {"version", "namespace", "models", "operations"}, set(), "contract")
     if contract["version"] != "0.1":
         _fail("contract.version: only '0.1' is supported")
@@ -153,6 +156,9 @@ def _schema(type_name: str, models: dict[str, Any]) -> dict[str, Any]:
 
 def compile_contract(contract: Any) -> dict[str, str]:
     """Compile a v0.1 contract into reproducible, non-executable artifacts."""
+    if isinstance(contract, dict) and contract.get("version") == "0.2":
+        from .v02 import compile_contract as compile_v02
+        return compile_v02(contract)
     ir = validate(contract)
     models = ir["models"]
     schemas: dict[str, Any] = {}
@@ -213,7 +219,7 @@ def write_artifacts(artifacts: dict[str, str], output: Path) -> None:
         try:
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
             known = previous["artifacts"]
-            if previous["compiler"] != "protocolia/0.1" or set(known) != expected - {"manifest.json"}:
+            if previous["compiler"] != json.loads(artifacts["manifest.json"])["compiler"] or set(known) != expected - {"manifest.json"}:
                 _fail("existing manifest is incompatible")
         except (OSError, ValueError, KeyError, TypeError):
             _fail("invalid existing manifest")
@@ -224,7 +230,7 @@ def write_artifacts(artifacts: dict[str, str], output: Path) -> None:
     elif any((output / name).exists() or (output / name).is_symlink() for name in expected):
         _fail("unmanaged files already exist; refusing overwrite")
     for name in expected:
-        if name not in {"ir.json", "openapi.json", "types.ts", "manifest.json"}:
+        if name not in {"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json"}:
             _fail("unsupported artifact name")
     # Stage every file before replacing; staged names live within the output folder.
     staged: list[tuple[Path, Path]] = []
@@ -239,3 +245,39 @@ def write_artifacts(artifacts: dict[str, str], output: Path) -> None:
     finally:
         for temporary, _ in staged:
             temporary.unlink(missing_ok=True)
+
+
+def preview_artifacts(artifacts: dict[str, str], output: Path) -> dict[str, object]:
+    """Pure, conservative regeneration preview. No directory creation or writes.
+
+    A preview is advisory, not a TOCTOU-safe commitment: write_artifacts must
+    validate ownership again before replacing anything.
+    """
+    output = Path(output)
+    expected = set(artifacts)
+    if not expected.issubset({"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json"}) or "manifest.json" not in expected:
+        _fail("unsupported artifact set")
+    for path in (output, *output.parents):
+        if path.is_symlink():
+            _fail("symlink output directory prohibited")
+    manifest = output / "manifest.json"
+    if manifest.is_symlink():
+        _fail("symlink manifest prohibited")
+    if manifest.exists():
+        try:
+            previous = json.loads(manifest.read_text(encoding="utf-8"))
+            old = previous["artifacts"]
+            if previous["compiler"] != json.loads(artifacts["manifest.json"])["compiler"] or set(old) != expected - {"manifest.json"}:
+                _fail("incompatible manifest version or artifact ownership")
+            for name, digest in old.items():
+                path = output / name
+                if path.is_symlink() or not path.is_file() or _sha(path.read_text(encoding="utf-8")) != digest:
+                    _fail(f"generated artifact modified or missing: {name}")
+        except (OSError, ValueError, KeyError, TypeError):
+            _fail("invalid existing manifest")
+    elif any((output / name).exists() or (output / name).is_symlink() for name in expected):
+        _fail("unmanaged files already exist")
+    statuses = {name: ("create" if not manifest.exists() else ("unchanged" if
+                _sha((output / name).read_text(encoding="utf-8")) == _sha(content) else "update"))
+                for name, content in sorted(artifacts.items())}
+    return {"changed": sum(x != "unchanged" for x in statuses.values()), "files": statuses, "writes_performed": 0}
