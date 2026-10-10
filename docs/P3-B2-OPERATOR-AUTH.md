@@ -21,3 +21,29 @@ Host config (operator public registry) and HMAC signing key must be existing *ab
 Unit CI on Python 3.11/3.13 checks legitimate signed approvals, attacker signatures, key mismatch, disabled key, changed policy/plan, expired intent, wrong environment, weak file permissions, symlinked HMAC key, registry rotation, duplicate nonces and operator-signed revocation. A real Docker CI uses an ephemeral operator key + private host HMAC key to prove end-to-end approval and read-only execution. ProtocolIA-Test supplies its own separate key and fixture.
 
 **Not yet supported:** production human enrollment/SSO/MFA, web UI/HTTP broker isolation, externally writable/paid tools, cost reservation or provider reconciliation, privileged daemon trust verification, secret rotation across active distributed brokers, and multi-external-effect compensation. Existing lower-level `approve_plan` remains accessible to code that already has the trusted HMAC secret; only the protected operator gateway should receive it in deployment. Keep issue #4 open.
+
+## Offline operator signing — usable key custody workflow
+
+Install the optional Ed25519 support: `pip install '.[operator-auth]'`.
+
+On the **operator's own trusted computer** (not in the agent's container, CI-generated service or model tool interface), create a 0600 Ed25519 private key in an existing private directory:
+
+```bash
+python -m protocolia.operator_signer create-key --private-key /home/OPERATOR/.config/protocolia/private.ed25519
+```
+
+Only the public key is printed. The independently authenticated host administrator enrolls that public key under a specific operator ID/key ID with an exact allowlist of resource keys in their protected registry file. No private key is registered or uploaded.
+
+The trusted host prepares an unsigned operation-specific intent with `create_intent` containing the full plan SHA, readable logical resource, immutable Docker image ID, expiry and nonce. The operator must inspect those fields. Signing requires explicitly re-entering the **expected** complete plan digest and resource; the signer refuses mismatches:
+
+```bash
+python -m protocolia.operator_signer sign \
+  --private-key /home/OPERATOR/.config/protocolia/private.ed25519 \
+  --intent /home/OPERATOR/reviewed-intent.json \
+  --confirm-plan-sha256 ACTUAL_64_CHAR_PLAN_SHA \
+  --confirm-resource warehouse/stock > signed-envelope.json
+```
+
+The signed envelope is public authentication evidence, not a secret key. The trusted host, and only the trusted host, calls `approve_signed` with that envelope and protected local registry/HMAC key. All gateway execution and replay paths use `run_signed`, which revalidates operator status and signature every time. The old lower-level `approve_plan` remains a host-internal building block, not a public API.
+
+**Important:** the CLI's review confirmations ensure explicit input matching but do not establish that a human understood the business impact. Independent user enrollment, phishing-resistant interactive MFA, key recovery, approval UI and secure network transport remain deployment tasks. In particular, anyone who obtains the operator private key can sign as that enrolled operator, so protecting the signing device is part of the trust model.
