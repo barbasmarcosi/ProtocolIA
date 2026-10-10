@@ -1,0 +1,13 @@
+{
+  "version": "0.1",
+  "namespace": "Sales",
+  "models": {
+    "SaleRequest": {"product_id": {"type": "uuid", "required": true}, "quantity": {"type": "integer", "required": true}},
+    "SaleResponse": {"id": {"type": "uuid", "required": true}, "status": {"type": "string", "required": true}},
+    "Health": {"status": {"type": "string", "required": true}}
+  },
+  "operations": {
+    "health": {"method": "GET", "path": "/health", "response": "Health", "capability": "public", "effects": [], "depends_on": []},
+    "registerSale": {"method": "POST", "path": "/sales", "request": "SaleRequest", "response": "SaleResponse", "capability": "sales.create", "effects": ["read", "write"], "depends_on": ["health"]}
+  }
+}
