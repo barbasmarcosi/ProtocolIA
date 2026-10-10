@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/barbasmarcosi/ProtocolIA/blob/main/schemas/contract-v0.1.schema.json",
+  "title": "ProtocolIA v0.1 contract input — structural grammar",
+  "description": "Strict JSON-shape grammar. Reference resolution, uniqueness of HTTP routes, DAG cycles, reserved model identifiers and write capabilities are checked by ProtocolIA's semantic validator, not by this JSON Schema. Duplicate JSON member detection is a parser concern.",
+  "type": "object",
+  "required": [
+    "version",
+    "namespace",
+    "models",
+    "operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "0.1"
+    },
+    "namespace": {
+      "$ref": "#/$defs/identifier"
+    },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 200,
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "propertyNames": {
+          "$ref": "#/$defs/identifier"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/field"
+        }
+      }
+    },
+    "operations": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 200,
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/operation"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$(?![\\s\\S])"
+    },
+    "field": {
+      "type": "object",
+      "required": [
+        "type",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(?:\\[\\])?$(?![\\s\\S])"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "method",
+        "path",
+        "response",
+        "capability",
+        "effects",
+        "depends_on"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/(?:[A-Za-z0-9_-]+)(?:/[A-Za-z0-9_-]+)*$(?![\\s\\S])"
+        },
+        "request": {
+          "$ref": "#/$defs/identifier"
+        },
+        "response": {
+          "$ref": "#/$defs/identifier"
+        },
+        "capability": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "public"
+            },
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{0,79}$(?![\\s\\S])",
+              "not": {
+                "const": "public"
+              },
+              "type": "string"
+            }
+          ]
+        },
+        "effects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "enum": [
+                  "POST",
+                  "PUT",
+                  "PATCH"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
