@@ -66,6 +66,11 @@ class BoundedDockerAdapterTest(unittest.TestCase):
         self.approve()
         revoke(self.req["request_id"],self.ledger,secret=SECRET)
         with self.assertRaisesRegex(ExecutionDenied,"revoked"):self.invoke()
+    def test_revocation_requires_same_approval_secret(self):
+        self.approve()
+        with self.assertRaisesRegex(ExecutionDenied,"invalid host revocation secret"):
+            revoke(self.req["request_id"],self.ledger,secret=b"forged-authenticator-of-thirty-two-bytes")
+        self.assertEqual(self.invoke()["status"],"executed")
     def test_changed_host_policy_input_or_subject_denies(self):
         self.approve()
         (self.inputs/"warehouse"/"inventory").write_bytes(b"changed")

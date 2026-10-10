@@ -154,8 +154,17 @@ def revoke(request_id: str,workspace: Path,*,secret: bytes)->None:
     _identifier(request_id,"request id")
     with sqlite3.connect(_ledger(workspace,True),timeout=5) as db:
         _tables(db)
-        if db.execute("UPDATE approvals SET revoked=1 WHERE request_id=?",(request_id,)).rowcount!=1:
+        record=db.execute("SELECT payload,sig,revoked FROM approvals WHERE request_id=?",
+                          (request_id,)).fetchone()
+        if record is None:
             _deny("unknown approval")
+        signed=hmac.new(secret,record[0].encode(),hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(record[1],signed):
+            _deny("invalid host revocation secret")
+        if record[2]:
+            _deny("approval already revoked")
+        db.execute("UPDATE approvals SET revoked=1 WHERE request_id=? AND revoked=0",
+                   (request_id,))
 
 
 def _ticket(db:sqlite3.Connection,req:dict,snapshot:dict,subject:str,environment:str,
