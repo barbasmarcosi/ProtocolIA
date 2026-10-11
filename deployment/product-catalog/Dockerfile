@@ -3,6 +3,9 @@ FROM python:3.13-slim AS generate
 WORKDIR /source
 COPY src/protocolia ./src/protocolia
 COPY examples/catalog-vertical ./examples/catalog-vertical
+COPY examples/sales-v0.2.json ./examples/sales-v0.2.json
+COPY tests/test_java_spring.py ./tests/test_java_spring.py
+RUN PYTHONPATH=src python -m unittest discover -s tests -p test_java_spring.py -v
 RUN sh examples/catalog-vertical/prepare.sh /out
 
 FROM maven:3.9.11-eclipse-temurin-21 AS build
