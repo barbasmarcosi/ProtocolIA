@@ -75,3 +75,7 @@ Pre-registered primary outcome: independent verified success per arm. Secondary:
 ## Current limits and no-go claims
 
 Neither Codex nor Claude is installed and authenticated in the repo's GitHub Actions: CI proves only the provider-free preregistration and scorekeeping code. The externally supplied verdict JSON has a pinned commit and evidence SHA but is NOT cryptographically signed, and the HTTP verifier tests defined behavior, NOT arbitrary JVM malware or secure Docker isolation. The completion of a coding mission will require recorded real subscription sessions and separately reviewed acceptance evidence. Keep P4 issue #5 OPEN until empirical results exist.
+
+## Empirical execution preflight — 2026-10-11
+
+36 scheduled, 3 catalog-crud workspaces prepared, **0 real sessions and 0 independent candidate verdicts**. Codex 0.159.2 reports ChatGPT login. Global approval flag placement corrected after real parser rejection. Restricted disposable agent/JVM execution remains unverified in this environment; Java 21/Maven/treatment tools also need provisioning. No empirical improvement claim. See [audit and reproduction procedure](P4-EMPIRICAL-AUDIT-20261011.md) and [machine-readable evidence](../benchmarks/p4/evidence/20261011-preflight/preflight.json). P4 remains OPEN.

@@ -53,3 +53,7 @@ The pilot schedules 36 attempts per subscribed CLI: A direct, B conventional gen
 ## Remaining P4 limitations
 
 The local runner is a thin coordinator, NOT a hard security sandbox, an automatic end-to-end JVM server launcher, a billing monitor or a tamper-proof verifier. Separate user/VM isolation and a clean grader checkout are required for credible measurements. Actual logged-in runs, their correct/incorrect outcomes and wider brownfield/nonrepetitive benchmark strata remain to be performed. P4 issue #5 stays OPEN.
+
+## Empirical execution preflight — 2026-10-11
+
+36 scheduled, 3 catalog-crud workspaces prepared, **0 real sessions and 0 independent candidate verdicts**. Codex 0.159.2 reports ChatGPT login. Global approval flag placement corrected after real parser rejection. Restricted disposable agent/JVM execution remains unverified in this environment; Java 21/Maven/treatment tools also need provisioning. No empirical improvement claim. See [audit and reproduction procedure](P4-EMPIRICAL-AUDIT-20261011.md) and [machine-readable evidence](../benchmarks/p4/evidence/20261011-preflight/preflight.json). P4 remains OPEN.

@@ -151,8 +151,8 @@ def prepare(lock_file: Path, run_id: str, fixture_checkout: Path,
 def _cli_argv(engine: str, model: str | None) -> list[str]:
     if engine == "codex":
         # Codex CLI: no --yolo, no danger-full-access, no API client.
-        cmd = ["codex", "exec", "--json", "--sandbox", "workspace-write",
-               "--ask-for-approval", "never"]
+        cmd = ["codex", "--ask-for-approval", "never", "exec", "--json",
+               "--sandbox", "workspace-write"]
         if model: cmd += ["--model", model]
         return cmd + ["-"]
     if engine == "claude":

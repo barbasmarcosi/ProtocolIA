@@ -165,6 +165,13 @@ class LocalRunnerTests(unittest.TestCase):
         self.assertNotIn("--yolo",codex)
         self.assertNotIn("-",claude)
 
+    @unittest.skipUnless(Path("/opt/codex/bin/codex").is_file(), "real CLI not installed")
+    def test_installed_codex_accepts_runner_arguments_without_model_call(self):
+        argv = _cli_argv("codex", "test-model")
+        proc = subprocess.run(["/opt/codex/bin/codex", *argv[1:-1], "--help"],
+                              capture_output=True, text=True, timeout=15)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_fake_claude_usage_and_no_subscription_dollars(self):
         ident="claude-catalog-crud-r01-direct"
         self.prep(ident)
