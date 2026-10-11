@@ -1,0 +1,15 @@
+{
+  "artifacts": {
+    "README.md": "62f83e8f9199508cd0eb63256d16f50f293f6745d67ad2fc9bb0604b14388038",
+    "contract-ir.json": "f61f9f824ad9810163a3d158bab80a21aeb308810d471ea93bc20f1866eb3a84",
+    "pom.xml": "9e0361de45593a2878286afd503da739339bc5f0c6e9302a5629942a109bb3f2",
+    "src/main/java/dev/protocolia/generated/Book.java": "874f6b411ead964dc84cf3620225e05a3c1b14d59f1cdeb917ba7eb35fe4e174",
+    "src/main/java/dev/protocolia/generated/BookRequest.java": "8b3917c49e1f40747ebbdb45043dd6776f6a60172ec54f03508eff1a9660c387",
+    "src/main/java/dev/protocolia/generated/ContractController.java": "763c6331de533d7688376b656794df66699a1c07e15b15963ba363aa57168335",
+    "src/main/java/dev/protocolia/generated/GeneratedApplication.java": "bccdccae580c2323d977f5287606369b55fad1de57bda251a5fe0e4607db3e05",
+    "src/main/java/dev/protocolia/generated/Health.java": "31f8ba5d44111f4a1c8a29caa197215fd104eda17e0a019dc5d20a29f824c683",
+    "src/main/java/dev/protocolia/generated/SecurityConfig.java": "1fb8dc3643f0cf7ccbe21a43febc4e6244f81f17d885647a513cbae4590a5301",
+    "src/main/resources/application.properties": "f9a5db6cb292cb853fcb1df2303cd9b5155d436f3cb9382ed4bc8aa3ea6bd00a"
+  },
+  "generator": "java-spring/0.3"
+}
