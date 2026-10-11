@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "kind": "out_of_study_exploratory_functional_observation",
+  "experiment": {
+    "protocol": "ProtocolIA P4",
+    "arm": "C",
+    "treatment": "protocolia",
+    "task": "catalog-crud",
+    "repetition": "r01"
+  },
+  "source": {
+    "repository": "barbasmarcosi/ProtocolIA",
+    "published_branch": "benchmarks/p4-c-catalog-crud-r01",
+    "publication_commit": "2cc3d6938c64b65f281ee10396f460d6dea13781",
+    "candidate_workspace_tree": "b08a7206ee3357eef9198f949c9c47b7d45a9489",
+    "workspace_path": "benchmarks/p4/artifacts/codex-catalog-crud-r01-protocolia/workspace",
+    "source_modified_for_evaluation": false
+  },
+  "treatment_fidelity": {
+    "pinned_generator_commit": "1e4a0370c3902b08b5f3a855d8adc3b0466cab0a",
+    "generator_commit_verified_exists": true,
+    "generator_target": "java-spring/0.3",
+    "self_reported_commands": [
+      "python3 -m protocolia validate contract.json",
+      "python3 -m protocolia generate-java contract.json --out protocolia-generated"
+    ],
+    "self_reported_generated_files": 10,
+    "generated_controller_in_runnable_maven_source_root": false,
+    "generated_controller_business_methods": "HTTP 501 placeholders",
+    "running_controller_origin": "separate manually authored code, not generated",
+    "running_main_java_file_hashes_identical_to_B": 7,
+    "running_main_java_total": 8,
+    "comparability_caveat": "Generator generated a separate skeleton, unused by the live app. Passing HTTP tests cannot establish that ProtocolIA's generated handler improves behavior or coding effort."
+  },
+  "provenance": {
+    "classification": "MANUAL_TOP_LEVEL_ARTIFACT_UNTIMED_UNVERIFIED",
+    "exact_model": null,
+    "model_version": null,
+    "reasoning_effort": null,
+    "model_elapsed_seconds": null,
+    "tokens_input": null,
+    "tokens_output": null,
+    "subscription_marginal_cost_usd": null,
+    "codex_cli_successful_turn": false,
+    "reported_repair_count": 1,
+    "reported_human_interventions": 0,
+    "preregistered_comparison_eligible": false
+  },
+  "observations": [
+    {
+      "kind": "native_build_including_tests",
+      "maven_command": "mvn -B -ntp clean verify",
+      "render_deploy": "dep-db5j3i942hec7395juig",
+      "build": "FAIL",
+      "failing_phase": "testCompile",
+      "failure": "Missing org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc for declared Spring Boot 4 dependencies",
+      "tests_executed": 0,
+      "source_modified": false,
+      "container_jdk": "21.0.9",
+      "container_maven": "3.9.11"
+    },
+    {
+      "kind": "runtime_with_tests_skipped",
+      "maven_command": "mvn -B -ntp -Dmaven.test.skip=true clean package",
+      "render_deploy": "dep-db5j40flk1mc73a6k0u0",
+      "deploy_wrapper_commit": "3ada099fb5d16c4e024a4dd79bbdb3004bf0099f",
+      "build": "PASS",
+      "tests_executed": 0,
+      "executable_jar": true,
+      "runtime": "LIVE",
+      "health_endpoint": "/actuator/health",
+      "health_response": "HTTP 200, status UP",
+      "jar_sha256": "b8035a73514b84c8df123bdf8021e489bc95779b2e919576220aa6552064eb18",
+      "candidate_git_tree_unchanged": true
+    }
+  ],
+  "independent_verification": {
+    "repository": "barbasmarcosi/ProtocolIA-Test",
+    "verifier_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+    "verifier_blob_sha": "2e61191acce8af8b6290413946ffa5a73b239553",
+    "verifier_file_sha256": "3ffe2ff7915a5b5e75bf75f42a2c13631a4b89761f899a9320925bc6117db195",
+    "runner_commit": "a38d7ed13612037234c13434fa8c874eeb1b0fa0",
+    "runner_branch": "deploy/p4-b-independent-render-judge-20261011",
+    "candidate_service_id": "srv-db5i31ad0e5s73fi66ug",
+    "judge_service_id": "srv-db5ij4p42hec7393rn2g",
+    "judge_deploy": "dep-db5j50h42hec7395p650",
+    "transport": "independent locally bound loopback proxy to C HTTPS Render target; frozen Python verifier unmodified",
+    "verifier_exit_code": 0,
+    "verdict": {
+      "verifier_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+      "tests_passed": true,
+      "security_passed": true,
+      "evidence_sha256": "e15f7f91a5d6db6c2a5abdd3d27afd09fd0b886006672cdcf4c0ae39d0cd10cd",
+      "independent": true
+    },
+    "verdict_url": "https://protocolia-p4-independent-judge-b.onrender.com/verdict",
+    "verdict_caveat": "Same evidence_sha256 as B because the frozen verifier hashes only the common PASS result fields, not a candidate identity or per-check trace. Candidate provenance comes from the judge wrapper and Render deploy IDs."
+  },
+  "interpretation": "Independent HTTP functional PASS for manually implemented C backend after skipping broken self-tests. The generated ProtocolIA controller is not included in running Maven module and returns HTTP 501 placeholders. Not matched Codex CLI empirical evidence. Neither superiority nor cost savings established. Study remains open with zero valid matched Codex CLI sessions."
+}
