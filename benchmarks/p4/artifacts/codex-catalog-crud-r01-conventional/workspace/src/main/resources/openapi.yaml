@@ -1,0 +1,56 @@
+openapi: 3.1.1
+info:
+  title: Catalog API
+  version: 1.0.0
+paths:
+  /api/books:
+    post:
+      operationId: createBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+        '400': { description: Invalid input }
+        '409': { description: Duplicate ISBN }
+  /api/books/{isbn}:
+    get:
+      operationId: getBook
+      parameters:
+        - name: isbn
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Book
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+        '404': { description: Missing book }
+components:
+  schemas:
+    BookRequest:
+      type: object
+      additionalProperties: false
+      required: [isbn, title, stock]
+      properties:
+        isbn: { type: string, minLength: 1 }
+        title: { type: string, minLength: 1 }
+        stock: { type: integer, minimum: 0 }
+    Book:
+      type: object
+      required: [isbn, title, stock]
+      properties:
+        isbn: { type: string }
+        title: { type: string }
+        stock: { type: integer }

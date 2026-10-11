@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "experiment": {
+    "protocol": "ProtocolIA P4",
+    "task_id": "catalog-crud",
+    "arm": "B",
+    "treatment": "conventional",
+    "repetition": "r01"
+  },
+  "artifact": {
+    "source_commit_sha": "7a324c153ffb1c47731cfe14b9a959871b0cbae5",
+    "source_commit_short": "7a324c1",
+    "source_workspace": "codex-catalog-crud-r01-conventional/workspace",
+    "source_files_published": 13,
+    "source_commit_is_local_only": true
+  },
+  "provenance": {
+    "execution_classification": "MANUAL_TOP_LEVEL_ARTIFACT_UNTIMED_UNVERIFIED",
+    "model": "unknown; authored in a ChatGPT Work Codex session whose host indicated a GPT-6 family; not produced by a successful Codex CLI turn",
+    "cli_version": null,
+    "reasoning_effort": null,
+    "elapsed_seconds": null,
+    "tokens_input": null,
+    "tokens_output": null,
+    "tokens_cached": null,
+    "human_interventions_after_task_prompt": 0,
+    "human_directed_repairs": 0,
+    "agent_self_repairs_during_initial_implementation": 1
+  },
+  "validation_observed_before_publication": {
+    "tests_or_checks_executed": [
+      {
+        "command": "java -version",
+        "result": "observed OpenJDK 17.0.20; not Java 21"
+      },
+      {
+        "command": "mvn test",
+        "result": "not run successfully: Maven command unavailable (exit 127)"
+      },
+      {
+        "command": "git diff --cached --check",
+        "result": "passed with no output"
+      }
+    ],
+    "not_executed": [
+      "Maven compilation",
+      "Spring test suite",
+      "OpenAPI Generator execution",
+      "HTTP smoke test",
+      "independent ProtocolIA-Test verifier",
+      "Render deployment/evaluation"
+    ],
+    "reason_not_executed": "The disposable workspace lacked Maven and Java 21. No external tooling installation or escalation was performed; this publication request also forbids new tests."
+  },
+  "result": "UNVERIFIED_CANDIDATE_ARTIFACT",
+  "published_at_utc": "2026-10-11"
+}
