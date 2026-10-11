@@ -148,3 +148,7 @@ See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the exe
 ## Empirical execution preflight — 2026-10-11
 
 36 scheduled, 3 catalog-crud workspaces prepared, **0 real sessions and 0 independent candidate verdicts**. Codex 0.159.2 reports ChatGPT login. Global approval flag placement corrected after real parser rejection. Restricted disposable agent/JVM execution remains unverified in this environment; Java 21/Maven/treatment tools also need provisioning. No empirical improvement claim. See [audit and reproduction procedure](P4-EMPIRICAL-AUDIT-20261011.md) and [machine-readable evidence](../benchmarks/p4/evidence/20261011-preflight/preflight.json). P4 remains OPEN.
+
+## P4 nested CLI reattempt — 2026-10-11
+
+`main` 2a7e1e0 was used to prepare and invoke frozen `codex-catalog-crud-r01-conventional` through `/opt/codex/bin/codex` 0.159.2 after its parser preflight passed. The nested CLI stopped in 7.587 seconds because this Work sandbox made its own `/root/.codex` state database read-only; it emitted no model event and created no candidate source. This is `INVALID_ENVIRONMENT_BEFORE_MODEL_TURN`, with zero evaluator verdicts and zero comparable A/B/C results. It is retained as provenance, excluded from arm outcomes and not retried automatically. See [nested execution record](P4-NESTED-CLI-EXECUTION-20261011.md).
