@@ -168,3 +168,16 @@ A direct `catalog-crud` source publication `46c09bbc06e29775a14ad849e43861d7f459
 ## Product-first track — real generated Java application works (2026-10-11)
 
 P4 research is **paused** rather than closed. New product work is on `feature/product-first-java-handlers`: generic `java-spring/0.4` now generates an injected `ContractHandlers` interface used by the sole generated MVC controller. A handwritten, separate service implements typed business rules. In Render `dep-db5v28ad0e5s738q8hh0` the contract validates, 11 Java artifacts generate, **7 Python unit tests PASS**, `mvn clean verify` **BUILD SUCCESS** with **1 JUnit HTTP integration test PASS (0 failures)**, normal executable JAR SHA-256 `71a824c40394ee58fb329d891e820c14aaef904a994d662bc896d7cb78957da5`, deployment **LIVE**, and independently queried public `/health` returned `{"status":"UP"}`. No shadow/manual controller. Basic auth is a local demo, not production identity; books in memory. See [product-first plan](PRODUCT_FIRST_PLAN.md). Frozen P4 trial/evidence and issue #5 remain untouched/open.
+
+## Java generic target Step 2 — manifest evolution and read-only viewer (2026-10-11)
+
+Product hardening on `feature/java-v04-regeneration-auth-hardening`, independent
+of frozen P4: generated file-set evolution safely adds/removes owned model
+artifacts, preserves custom handlers and refuses modified/unmanaged/symlink
+outputs; optional test viewer obtains only declared non-writing GET authorities.
+Render free `srv-db5v9ovlk1mc73bc45fg` verified **12 Java-generator Python
+tests**, **4 inventory-template regression tests** and **1 real Spring Boot
+HTTP integration test including read-only 200 / write-denial 403**, all PASS.
+`mvn -B -ntp clean verify` BUILD SUCCESS, no test skipping; executable JAR
+SHA-256 `ec2c9032bb1617f3298228f62458eb23b9519cbfc6b208e0e2ea9177ba2ebca5`.
+See [product-first plan](PRODUCT_FIRST_PLAN.md). P4 issue #5 unaffected.

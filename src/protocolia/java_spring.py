@@ -111,6 +111,12 @@ def controller(ops: dict) -> str:
 def security(ops: dict) -> str:
     permits="\n".join('            a.requestMatchers(org.springframework.http.HttpMethod.'+o["method"]+', "'+o["path"]+'").permitAll();'
                       for o in ops.values() if o["capability"]=="public")
+    # Optional demonstration viewer inherits *only* the declared read-only GET
+    # capabilities. Never generate permissions for write operations.
+    reader_capabilities = sorted({o["capability"] for o in ops.values()
+                                  if o["method"] == "GET" and "write" not in o["effects"]
+                                  and o["capability"] != "public"})
+    reader_values = ",".join(json.dumps(scope) for scope in reader_capabilities)
     return """package dev.protocolia.generated;
 @org.springframework.context.annotation.Configuration
 @org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
@@ -145,8 +151,11 @@ public class SecurityConfig {
         if (reader!=null) {
             if (reader.isBlank() || readerPassword.length()<16 || reader.equals(user))
                 throw new IllegalStateException("Invalid isolated read-only test identity");
+            String[] readerAuthorities = new String[]{""" + reader_values + """};
+            if (readerAuthorities.length == 0)
+                throw new IllegalStateException("No declared read-only GET capability for demonstration viewer");
             var viewer=org.springframework.security.core.userdetails.User.withUsername(reader)
-                .password("{bcrypt}"+encoder.encode(readerPassword)).authorities("products.read").build();
+                .password("{bcrypt}"+encoder.encode(readerPassword)).authorities(readerAuthorities).build();
             return new org.springframework.security.provisioning.InMemoryUserDetailsManager(details,viewer);
         }
         return new org.springframework.security.provisioning.InMemoryUserDetailsManager(details);
@@ -188,44 +197,103 @@ def generate_java(contract: Any) -> dict[str,str]:
         outputs[SRC+name+".java"]=record(name,fields)
     return dict(sorted(outputs.items()))
 
-def write_java(files: dict[str,str],out: Path) -> None:
-    out=Path(out)
-    for path in (out,*out.parents):
-        if path.is_symlink(): _fail("symlink Java output directory")
+def _java_owned_path(name: str) -> Path:
+    """Restrict manifest-owned paths, including untrusted old-manifest entries."""
+    if not isinstance(name, str):
+        _fail("invalid Java artifact path")
+    path = Path(name)
+    if (path.is_absolute() or not name or ".." in path.parts or "." in path.parts
+            or not (name in {"pom.xml", "contract-ir.json", "README.md"}
+                    or name.startswith("src/") and len(path.parts) >= 3)):
+        _fail("unsafe generated path")
+    return path
+
+
+def _check_java_output_path(out: Path, relative: Path) -> Path:
+    dest = out / relative
+    current = dest
+    while current != out:
+        if current.is_symlink():
+            _fail("symlink Java output path: " + str(relative))
+        current = current.parent
+    return dest
+
+
+def write_java(files: dict[str, str], out: Path) -> None:
+    """Regenerate owned files, including model additions/removals, without erasing custom code.
+
+    A preflight validates *all* previous generated hashes and all newly claimed paths.
+    An old or corrupt manifest fails closed. The manifest is replaced last; filesystem
+    interruption mid-commit remains a detectable inconsistency rather than a claim
+    of transactional multi-file updates.
+    """
+    out = Path(out)
+    for path in (out, *out.parents):
+        if path.is_symlink():
+            _fail("symlink Java output directory")
+    if not isinstance(files, dict) or any(not isinstance(value, str) for value in files.values()):
+        _fail("invalid Java generated artifacts")
     for name in files:
-        path=Path(name)
-        if path.is_absolute() or ".." in path.parts or not (name in {"pom.xml","contract-ir.json","README.md"} or name.startswith("src/")):
-            _fail("unsafe generated path")
-    out.mkdir(parents=True,exist_ok=True)
-    manifest=out/"protocolia-java-manifest.json"
-    if manifest.is_symlink(): _fail("manifest symlink")
+        _java_owned_path(name)
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = out / "protocolia-java-manifest.json"
+    if manifest.is_symlink():
+        _fail("manifest symlink")
+    previous: dict[str, str] = {}
     if manifest.exists():
         try:
-            old=json.loads(manifest.read_text())
-            if old["generator"]!="java-spring/0.4" or set(old["artifacts"])!=set(files):
+            old = json.loads(manifest.read_text(encoding="utf-8"))
+            if (not isinstance(old, dict) or old.get("generator") != "java-spring/0.4"
+                    or not isinstance(old.get("artifacts"), dict)):
                 _fail("Java output ownership mismatch")
-            for path,digest in old["artifacts"].items():
-                dest=out/path
-                if dest.is_symlink() or not dest.is_file() or hashlib.sha256(dest.read_bytes()).hexdigest()!=digest:
-                    _fail("modified Java output: "+path)
-        except (OSError,KeyError,ValueError,TypeError):
+            previous = old["artifacts"]
+            for name, digest in previous.items():
+                rel = _java_owned_path(name)
+                if (not isinstance(digest, str) or len(digest) != 64
+                        or any(ch not in "0123456789abcdef" for ch in digest)):
+                    _fail("invalid Java output manifest")
+                dest = _check_java_output_path(out, rel)
+                if not dest.is_file() or hashlib.sha256(dest.read_bytes()).hexdigest() != digest:
+                    _fail("modified Java output: " + name)
+        except (OSError, ValueError, TypeError, KeyError):
             _fail("invalid Java output manifest")
-    elif any((out/name).exists() or (out/name).is_symlink() for name in files):
-        _fail("unmanaged Java project files")
-    staged=[]
+
+    # Before writing anything, ensure that newly generated paths do not take
+    # ownership of handwritten files (even after adding/removing contract models).
+    for name in files:
+        dest = _check_java_output_path(out, _java_owned_path(name))
+        if name not in previous and (dest.exists() or dest.is_symlink()):
+            _fail("unmanaged Java project file: " + name)
+
+    staged: list[tuple[Path, Path]] = []
+    tmp_manifest: Path | None = None
     try:
-        for name,content in files.items():
-            dest=out/name
-            for p in dest.parents:
-                if p == out: break
-                if p.is_symlink(): _fail("nested Java output symlink")
-            dest.parent.mkdir(parents=True,exist_ok=True)
-            fd,tmp=tempfile.mkstemp(dir=dest.parent,prefix=".protocolia-java-")
-            with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as f:
-                f.write(content)
-            staged.append((Path(tmp),dest))
-        for tmp,dest in staged: os.replace(tmp,dest)
-        data={"generator":"java-spring/0.4","artifacts":{p:hashlib.sha256(v.encode()).hexdigest() for p,v in files.items()}}
-        manifest.write_text(json.dumps(data,indent=2,sort_keys=True)+"\n")
+        for name, content in files.items():
+            dest = out / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".protocolia-java-")
+            tmp_path = Path(tmp)
+            staged.append((tmp_path, dest))
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                stream.write(content)
+
+        next_manifest = {
+            "generator": "java-spring/0.4",
+            "artifacts": {name: hashlib.sha256(body.encode()).hexdigest()
+                          for name, body in files.items()},
+        }
+        fd, manifest_tmp = tempfile.mkstemp(dir=out, prefix=".protocolia-manifest-")
+        tmp_manifest = Path(manifest_tmp)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(next_manifest, indent=2, sort_keys=True) + "\n")
+
+        for tmp, dest in staged:
+            os.replace(tmp, dest)
+        for old_name in sorted(previous.keys() - files.keys()):
+            (out / old_name).unlink()
+        os.replace(tmp_manifest, manifest)
     finally:
-        for tmp,_ in staged: tmp.unlink(missing_ok=True)
+        for tmp, _ in staged:
+            tmp.unlink(missing_ok=True)
+        if tmp_manifest is not None:
+            tmp_manifest.unlink(missing_ok=True)

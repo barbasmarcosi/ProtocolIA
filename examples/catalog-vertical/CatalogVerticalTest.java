@@ -18,10 +18,22 @@ class CatalogVerticalTest {
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
     private HttpResponse<String> call(String method, String path, String json, boolean authenticated) throws Exception {
+        return callAs(method, path, json,
+                authenticated ? System.getenv("PROTOCOLIA_USER") : null,
+                authenticated ? System.getenv("PROTOCOLIA_PASSWORD") : null);
+    }
+
+    private HttpResponse<String> viewerCall(String method, String path, String json) throws Exception {
+        return callAs(method, path, json,
+                System.getenv("PROTOCOLIA_VIEWER_USER"),
+                System.getenv("PROTOCOLIA_VIEWER_PASSWORD"));
+    }
+
+    private HttpResponse<String> callAs(String method, String path, String json, String user, String password) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
                 .timeout(Duration.ofSeconds(15));
-        if (authenticated) {
-            String pair = System.getenv("PROTOCOLIA_USER") + ":" + System.getenv("PROTOCOLIA_PASSWORD");
+        if (user != null) {
+            String pair = user + ":" + password;
             request.header("Authorization", "Basic " + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8)));
         }
         if (json != null) request.header("Content-Type", "application/json");
@@ -45,6 +57,10 @@ class CatalogVerticalTest {
         var original = call("GET", "/api/books/catalog-port-1", null, true);
         assertEquals(200, original.statusCode(), original.body());
         assertTrue(original.body().contains("Generated Route"), original.body());
+        assertEquals(200, viewerCall("GET", "/api/books/catalog-port-1", null).statusCode());
+        assertEquals(403, viewerCall("POST", "/api/books",
+                "{\"isbn\":\"viewer-try\",\"title\":\"Should be denied\",\"stock\":1}").statusCode());
+        assertEquals(404, call("GET", "/api/books/viewer-try", null, true).statusCode());
         assertFalse(original.body().contains("Overwritten"), original.body());
 
         assertEquals(404, call("GET", "/api/books/missing", null, true).statusCode());

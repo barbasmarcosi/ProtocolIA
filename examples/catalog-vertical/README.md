@@ -32,3 +32,23 @@ service. Books are held in memory; do not claim persistence across restarts.
 Generated target v0.4 uses a documented convention: POST successful responses
 are 201; other successful operations 200. The v0.2 contract does not model
 success status explicitly.
+
+
+## Regenerating a changed contract
+
+Edit the contract and run the same `prepare.sh` command against the **existing**
+output directory. Generated DTO/controller/interface files are updated, and
+removed contract models remove only *previously owned, unmodified* generated
+files. The `custom/CatalogHandlers.java` class is kept; add your implementation
+of any newly generated `ContractHandlers` interface method to make Java compile.
+If a generated file was edited or a new generated name collides with handwritten
+code, regeneration stops rather than overwriting it. java-spring/0.3 output
+manifests are intentionally incompatible with this 0.4 generator: generate into
+a fresh destination and migrate handwritten code intentionally.
+
+For a local **read-only test account**, define
+`PROTOCOLIA_VIEWER_USER` and `PROTOCOLIA_VIEWER_PASSWORD` (at least 16 chars).
+The generator derives its authorities from contract-declared non-writing GET
+operations only. `mvn clean verify` with the viewer environment configured
+checks GET 200 and POST 403; without optional viewer credentials, the primary
+catalog account alone is used. These demo credentials are not production auth.
