@@ -18,7 +18,7 @@ Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B
 | P1 | COMPLETE | Normative v0.1/v0.2 contracts, executable data checks, compatibility and controlled migration |
 | P2 | COMPLETE — bounded | Generated Java 21/Spring Boot 4.0.2/Maven backend, Spring HTTP and PostgreSQL sales, JUnit 5/Testcontainers and independent downstream CI |
 | P3 | IN PROGRESS: P3-A/B1/B2.1/B2.2/B3/B4 VERIFIED (BOUNDED) | Signed operator gateway, real Linux Unix host-process security boundary, one isolated Docker read and provider-neutral signed micro-USD atomic budget/usage ledger. No deployed human SSO/MFA, live paid-tool accounting, writable external-effect recovery or hostile-kernel escape certification. |
-| P4 | IN PROGRESS: SUBSCRIPTION CLI PILOT INFRASTRUCTURE VERIFIED | Provider-free Codex/Claude A/B/C preregistration, external pinned Java/Spring tasks and HTTP judge, honest token/time record and missing-trial scorecards. ZERO Codex/Claude experiments or savings measurements yet. |
+| P4 | IN PROGRESS: FROZEN PILOT + LOCAL RUNNER VERIFIED | Codex/Claude subscription CLI preregistration, pinned Java/Spring external judge and one-shot local run/finalize pipeline; QA tested with fake CLIs and negative independent HTTP grading. ZERO real agent model sessions or measured savings yet. |
 | P5 | NOT STARTED | Controlled real-project pilots |
 | P6 | NOT STARTED | Release/no-go evidence and stability |
 
@@ -126,8 +126,21 @@ See P3-HOST-AND-COST.md and the exact GitHub CI results above.
 **Economic interpretation:** subscription CLI user pays for access/quota; API-equivalent dollar display is not real incremental subscription billing. Always report actual_subscription_usd=null unless independently metered real charges, and never claim automatic dollar savings.
 
 Runbook: [P4-SUBSCRIPTION-CLI.md](P4-SUBSCRIPTION-CLI.md). Issue #5 remains OPEN.
+## P4 local runner — one-shot agent invocation plus real independent FAIL testing
+
+**Merged:** ProtocolIA PR #28 at main commit 8905c0428e3d71dee1d47616fdc9226f711d5fa4; ProtocolIA-Test PR #13 at main commit 87e482961f29eb7c8a6c5c9bc60de2ad08a903cc.
+
+**Exact tested source:** ProtocolIA SHA 80a0129b4535a508b0ead969e53467c67ff72270, [Python 3.11/3.13 fake Codex/Claude local runner CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38096727645), [quality SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38096727642); ProtocolIA-Test SHA db6415eb514e4f7f7b4fb134a89c12275c650384, [independent consumer fake successful-CLI → actual FAIL HTTP judge CI SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38096855866), [consumer regression SUCCESS](https://github.com/barbasmarcosi/ProtocolIA-Test/actions/runs/38096855783). Each run is tied to immutable source SHA, not previous build status.
+
+**Implemented:** locally prepare a trial from SHA-locked independent task fixture in a fresh Git worktree; keep prompt and CLI traces in separate host-private evidence directory. CLI run requires explicit --execute quota consent, a named model, reject known API-key billing variables, normal Codex/Claude permission mode, deadline and process-group kill; claim attempt before invocation, never silently re-run. Independent finalize requires an unchanged pinned grader checkout and scores even failed HTTP backends, records null subscription USD and tokens if unobservable, and publishes one result per run ID.
+
+**Independently verified negative control:** a simulated Codex process exited 0 with token counters but produced NO server. The actual ProtocolIA-Test black-box HTTP verifier hit a closed loopback port and failed, so the report preserved 0 successes, 35 missing runs, UNKNOWN incremental USD and NO winner. This is an intentionally failed control, not evidence of actual Codex/Claude generation performance.
+
+**Unverified:** neither tool is installed/authenticated here; real 36-attempt A/B/C trials were not launched. No actual token savings, quality improvement or incremental subscription costs have been measured. Local workspace/evidence separation is not a kernel sandbox or true secrecy from the same OS UID. Verifier JSON is not cryptographically signed or guaranteed tied to a running candidate code digest; execute untrusted code only in an external disposable VM/container, and require independent reviewer provenance for published research.
+
+Workflow: [P4 local runner](P4-LOCAL-RUNNER.md), [frozen study](P4-SUBSCRIPTION-CLI.md). P4 issue #5 stays OPEN.
 ## Next
 
-P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: preregister held-out tasks comparing direct agent, normal generator, ProtocolIA; count all-in cost per independently verified success and correctness/security.
+P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: frozen A/B/C studies and local subscribed CLI invocation+independent grading are ready; next run real Codex/Claude Code trial sets with a separately authenticated local CLI, no API keys and faithful agent/verifier isolation, then measure quality/time/tokens. Full P4 is OPEN.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.
