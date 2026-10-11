@@ -95,6 +95,7 @@ class LocalRunnerTests(unittest.TestCase):
             "#!"+sys.executable+"\n"
             "import json,sys\n"
             "if '--version' in sys.argv: print('fake-cli-v1');sys.exit(0)\n"
+            "if '--help' in sys.argv: print('USAGE: fake codex');sys.exit(0)\n"
             "assert sys.stdin.read()\n"
             "print("+repr(stream)+")\n")
         command.chmod(0o700)
@@ -139,6 +140,46 @@ class LocalRunnerTests(unittest.TestCase):
         self.assertFalse((self.work/self.runid/"workspace"/"cli-trace.private").exists())
         with self.assertRaisesRegex(BenchmarkError,"already started"):
             execute(self.work,self.private,self.lock,self.runid,allow_real_cli=True)
+
+    def test_installed_cli_outside_path_may_be_passed_explicitly(self):
+        self.prep()
+        stub=self.fake_cli('{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}')
+        with patch.dict(os.environ,self.safeenv,clear=True),patch(
+                "protocolia.p4_local_runner.shutil.which",return_value=None):
+            result=execute(self.work,self.private,self.lock,self.runid,
+                           allow_real_cli=True,model="test-model",
+                           cli_binary=stub,timeout_seconds=10)
+        self.assertEqual(result["exit_code"],0)
+        self.assertTrue((self.private/self.runid/"started.json").is_file())
+
+    def test_codex_parser_failure_cannot_consume_quota_or_claim_attempt(self):
+        self.prep()
+        stub=self.root/"bad-cli"
+        stub.write_text("#!"+sys.executable+"\n"
+                        "import sys\n"
+                        "if '--version' in sys.argv: print('bad-test-cli');sys.exit(0)\n"
+                        "if '--help' in sys.argv: sys.exit(2)\n"
+                        "raise AssertionError('model was called unexpectedly')\n")
+        stub.chmod(0o700)
+        with patch.dict(os.environ,self.safeenv,clear=True):
+            with self.assertRaisesRegex(BenchmarkError,"rejected runner arguments"):
+                execute(self.work,self.private,self.lock,self.runid,
+                        allow_real_cli=True,model="pinned-model",
+                        cli_binary=stub,timeout_seconds=10)
+        self.assertFalse((self.private/self.runid/"started.json").exists())
+
+    def test_nonabsolute_or_nonexecutable_explicit_cli_refused(self):
+        self.prep()
+        stub=self.root/"not-executable"
+        stub.write_text("not an executable\n")
+        with patch.dict(os.environ,self.safeenv,clear=True):
+            for candidate in (Path("relative-cli"),stub):
+                with self.subTest(candidate=str(candidate)):
+                    with self.assertRaises(BenchmarkError):
+                        execute(self.work,self.private,self.lock,self.runid,
+                                allow_real_cli=True,model="pinned-model",
+                                cli_binary=candidate,timeout_seconds=10)
+        self.assertFalse((self.private/self.runid/"started.json").exists())
 
     def test_known_provider_key_env_denied_before_start(self):
         self.prep()
