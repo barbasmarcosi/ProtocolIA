@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "kind": "out_of_study_exploratory_functional_observation",
+  "trial_id": "codex-catalog-crud-r01-conventional",
+  "source": {
+    "repository": "barbasmarcosi/ProtocolIA",
+    "published_branch": "benchmarks/p4-b-catalog-crud-r01",
+    "publication_commit": "13596c5e499b918a36c8becc549d3b8b5ddb9b8b",
+    "source_workspace_tree": "85a1ea836de328fa7785ed81506f11713058717d",
+    "original_local_commit_claim": "7a324c153ffb1c47731cfe14b9a959871b0cbae5",
+    "original_local_commit_publicly_verified": false
+  },
+  "preregistered_comparison": {
+    "eligible": false,
+    "reason": "Top-level ChatGPT Work artifact; no successful authenticated Codex CLI model turn or measured model configuration, elapsed seconds and tokens. Source tool/effect equivalence to A/C not demonstrated.",
+    "model": null,
+    "model_version": null,
+    "reasoning_effort": null,
+    "elapsed_model_seconds": null,
+    "tokens_input": null,
+    "tokens_output": null,
+    "subscription_marginal_usd": null,
+    "study_p4_lock_sha256": "680037ab74cd4520243b8a8926402b317ae8cb7e2c2dbb84f5952b00cef14ab8"
+  },
+  "observations": [
+    {
+      "type": "maven_test_compile",
+      "command": "mvn -B -ntp clean verify",
+      "render_deploy": "dep-db5igh8473hc73b9v0f0",
+      "result": "FAIL",
+      "failure": "testCompile: org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc unavailable from declared Spring Boot 4 dependencies; tests never ran"
+    },
+    {
+      "type": "build_without_tests_and_standard_executable_start",
+      "command": "mvn -B -ntp -Dmaven.test.skip=true clean package && java -jar app.jar",
+      "render_deploy": "dep-db5ih62jnfac73ak6t50",
+      "build": "PASS",
+      "runtime": "FAIL",
+      "failure": "no main manifest attribute, in /app/app.jar",
+      "jar_sha256": "0cec6e70b50d2cb62ea122b836e85a2abb77929d9498a1db1908c23e8a77115e"
+    },
+    {
+      "type": "unmodified_classes_with_evaluator_runtime_classpath",
+      "command": "mvn -B -ntp -Dmaven.test.skip=true clean package && mvn -B -ntp dependency:copy-dependencies -DincludeScope=runtime ...; java -cp /app/app.jar:/app/lib/* com.protocolia.catalog.CatalogApplication",
+      "render_deploy": "dep-db5ii4o473hc73ba4geg",
+      "runtime": "LIVE",
+      "health": "PASS",
+      "source_modified": false,
+      "tests_skipped": true,
+      "jar_sha256": "290aad70784f64e61a90c9f7ff668bf0475b2bba3a164bf720fc6d3a662571dc",
+      "deployment_wrapper_commit": "b73c5ac6273622952283133f004ef244b963c5e9"
+    }
+  ],
+  "independent_verification": {
+    "verifier_repository": "barbasmarcosi/ProtocolIA-Test",
+    "pinned_verifier_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+    "verifier_git_blob": "2e61191acce8af8b6290413946ffa5a73b239553",
+    "verifier_file_sha256": "3ffe2ff7915a5b5e75bf75f42a2c13631a4b89761f899a9320925bc6117db195",
+    "independent_runner_commit": "639268ca6d3ac82829c903cd215dcbfc6c528ba8",
+    "render_verifier_service_id": "srv-db5ij4p42hec7393rn2g",
+    "render_deploy": "dep-db5ij5142hec7393rnm0",
+    "candidate_service_id": "srv-db5i31ad0e5s73fi66ug",
+    "connection": "trusted independent 127.0.0.1:8765 forwarding to candidate Render HTTPS, original loopback-only verifier unchanged",
+    "verifier_exit_code": 0,
+    "verdict": {
+      "verifier_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+      "tests_passed": true,
+      "security_passed": true,
+      "evidence_sha256": "e15f7f91a5d6db6c2a5abdd3d27afd09fd0b886006672cdcf4c0ae39d0cd10cd",
+      "independent": true
+    },
+    "verdict_url": "https://protocolia-p4-independent-judge-b.onrender.com/verdict"
+  },
+  "interpretation": "Published B candidate API passes the frozen HTTP verification only when built with test compilation skipped and launched with an evaluator-owned classpath. Candidate's native Maven test compilation and standard executable JAR start fail. No within-study B success or ProtocolIA saving claim.",
+  "render_costs": {
+    "plan": "free",
+    "paid_plan_used": false,
+    "incremental_subscription_billing_usd": null,
+    "workspace_free_instance_hours_shared": true
+  }
+}
