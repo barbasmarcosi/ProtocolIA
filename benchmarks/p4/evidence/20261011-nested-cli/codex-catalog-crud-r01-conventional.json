@@ -1,0 +1,21 @@
+{
+  "candidate_source_files_written": false,
+  "classification": "INVALID_ENVIRONMENT_BEFORE_MODEL_TURN",
+  "cli_version": "codex-cli 0.159.2",
+  "exit_code": 1,
+  "independent_verdict": "NOT_RUN_NO_CANDIDATE_PROCESS",
+  "model_requested": "gpt-6.1-sol",
+  "model_turn_observed": false,
+  "protocol_deviation": "The first frozen B process was started, but it was not a model turn. It is retained as an infrastructure observation and excluded from arm success/timing/token comparison. The one-shot run ID must not be silently reused.",
+  "reason": "Nested CLI could not initialize its app-server state because /root/.codex/state_5.sqlite was read-only in this Codex Work sandbox. The process ended before emitting a JSONL event or creating candidate source files.",
+  "run_id": "codex-catalog-crud-r01-conventional",
+  "stderr_sha256": "d9d9ab7d067c42690ee8606f2d6c626e87ff4a832945da76fb30649162ff65b7",
+  "timed_out": false,
+  "tokens": null,
+  "trace_bytes": 0,
+  "trace_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "usage_warning": "CLI output not parseable (BenchmarkError)",
+  "verifier_status": "NOT_RUN",
+  "version": "p4-cli-run-1",
+  "wall_seconds": 7.587
+}
