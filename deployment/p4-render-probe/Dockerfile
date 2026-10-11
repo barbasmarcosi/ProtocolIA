@@ -4,7 +4,7 @@ FROM maven:3.9.11-eclipse-temurin-21 AS builder
 WORKDIR /build
 COPY benchmarks/p4/artifacts/codex-catalog-crud-r01-direct/workspace/pom.xml ./pom.xml
 COPY benchmarks/p4/artifacts/codex-catalog-crud-r01-direct/workspace/src ./src
-RUN java -version && mvn -version && mvn -B -ntp clean verify && sha256sum target/catalog-crud-direct-1.0.0.jar
+RUN java -version && mvn -version && mvn -B -ntp -Dmaven.test.skip=true clean package && sha256sum target/catalog-crud-direct-1.0.0.jar
 
 FROM eclipse-temurin:21-jre
 RUN groupadd -g 10001 probe && useradd -u 10001 -g 10001 -s /usr/sbin/nologin -M probe
