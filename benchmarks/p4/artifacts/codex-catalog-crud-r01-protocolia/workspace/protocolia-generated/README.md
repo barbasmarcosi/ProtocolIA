@@ -1,0 +1,1 @@
+Generated Java 21 / Spring Boot 4 API skeleton. Business endpoints return 501. Basic auth requires PROTOCOLIA_USER, PROTOCOLIA_PASSWORD (>=16 chars) and PROTOCOLIA_SCOPES. This demonstration configuration is not a production identity provider.

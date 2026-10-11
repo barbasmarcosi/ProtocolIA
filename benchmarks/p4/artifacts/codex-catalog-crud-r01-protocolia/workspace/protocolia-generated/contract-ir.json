@@ -1,0 +1,109 @@
+{
+  "execution_order": [
+    "createBook",
+    "getBook",
+    "health"
+  ],
+  "models": {
+    "Book": {
+      "isbn": {
+        "constraints": {
+          "maxLength": 64,
+          "minLength": 1
+        },
+        "required": true,
+        "type": "string"
+      },
+      "stock": {
+        "constraints": {
+          "minimum": 0
+        },
+        "required": true,
+        "type": "integer"
+      },
+      "title": {
+        "constraints": {
+          "maxLength": 255,
+          "minLength": 1
+        },
+        "required": true,
+        "type": "string"
+      }
+    },
+    "BookRequest": {
+      "isbn": {
+        "constraints": {
+          "maxLength": 64,
+          "minLength": 1
+        },
+        "required": true,
+        "type": "string"
+      },
+      "stock": {
+        "constraints": {
+          "minimum": 0
+        },
+        "required": true,
+        "type": "integer"
+      },
+      "title": {
+        "constraints": {
+          "maxLength": 255,
+          "minLength": 1
+        },
+        "required": true,
+        "type": "string"
+      }
+    },
+    "Health": {
+      "status": {
+        "constraints": {
+          "maxLength": 32,
+          "minLength": 1
+        },
+        "required": true,
+        "type": "string"
+      }
+    }
+  },
+  "namespace": "Catalog",
+  "operations": {
+    "createBook": {
+      "capability": "catalog.write",
+      "depends_on": [],
+      "effects": [
+        "write"
+      ],
+      "method": "POST",
+      "params": {},
+      "path": "/api/books",
+      "request": "BookRequest",
+      "response": "Book"
+    },
+    "getBook": {
+      "capability": "catalog.read",
+      "depends_on": [],
+      "effects": [
+        "read"
+      ],
+      "method": "GET",
+      "params": {
+        "isbn": "string"
+      },
+      "path": "/api/books/{isbn}",
+      "response": "Book"
+    },
+    "health": {
+      "capability": "public",
+      "depends_on": [],
+      "effects": [
+        "read"
+      ],
+      "method": "GET",
+      "params": {},
+      "path": "/health",
+      "response": "Health"
+    }
+  },
+  "version": "0.2"
+}

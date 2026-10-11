@@ -1,0 +1,17 @@
+{
+  "id": "catalog-crud",
+  "language": "Java 21; Spring Boot 4",
+  "requirements": [
+    "POST /api/books accepts isbn,title,stock and returns 201 with the same fields",
+    "ISBN and title are nonblank and stock is an integer >= 0",
+    "GET /api/books/{isbn} returns 200 or 404",
+    "duplicate ISBN returns 409 without changing the original",
+    "invalid JSON and unknown properties return 4xx",
+    "GET /actuator/health or GET /health returns 200"
+  ],
+  "prohibited": [
+    "modifying the independent verifier",
+    "hardcoded test input values",
+    "OpenAPI Generator conventional"
+  ]
+}
