@@ -59,5 +59,33 @@ Regeneration preserves custom code and rejects modified generated files.
 - First Render attempt had a container-registry metadata stall; a Docker base
   digest pin resolved it. This was infra, not a failed generated application.
 
-**Next:** Step 2 — stabilize target behavior and regression boundaries; no new
-experimental agents or benchmarking until engineering work demonstrates value.
+**Stage 2 — supported regeneration and access-control hardening (2026-10-11)**
+
+- Contracts may **add or remove models and generated files** across successive
+  java-spring/0.4 generations. Preflight verifies the hashes and paths of all
+  previously owned files, rejects handwritten collisions, tampered manifests,
+  modified generated files and symlinks; stale *owned* files alone are removed.
+  Handwritten business services are never managed or deleted.
+- The optional demonstration viewer receives only non-public capabilities
+  attached to **GET operations with no write effect**. It is unable to create
+  catalog records even with valid credentials.
+- Real Render evidence (separate disposable **Free** service
+  srv-db5v9ovlk1mc73bc45fg): **12/12 Python generator tests PASS**,
+  **4/4 inventory-template regression tests PASS** and **1 Java 21/Spring Boot 4
+  end-to-end HTTP test PASS**, including a viewer read-200 / write-403 check.
+  Maven clean verify **BUILD SUCCESS** without skipping tests. Java artifact
+  SHA-256: ec2c9032bb1617f3298228f62458eb23b9519cbfc6b208e0e2ea9177ba2ebca5.
+- This is a practical **incremental milestone within Step 2**, not a claim of
+  comprehensive Java semantics. Unknown JSON properties/invalid JSON remain
+  400 in the sample; POST uses target-level HTTP 201 convention because v0.2
+  contracts do not declare per-operation success codes.
+
+Known limits: an **old java-spring/0.3 ownership manifest cannot be silently
+upgraded in place**: use a new output directory and consciously migrate custom
+code. Multi-file regeneration checks all ownership before writing and updates
+the manifest last, but cannot promise an atomic transaction against a sudden
+process/filesystem failure. Optional/null and enum model support still fail
+closed. Demo Basic authentication is not production identity.
+
+**Next:** Step 3 — reduce repeat manual setup and improve developer experience
+with the smallest useful command, while retaining honest regeneration errors.
