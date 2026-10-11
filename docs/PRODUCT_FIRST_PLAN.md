@@ -34,9 +34,30 @@ run, and representative HTTP behavior. Track failures as engineering work and
 fix them directly. Keep a single concise status here, rather than generating
 multiple master plans. No paid APIs or changes to the frozen P4 protocol.
 
-### Stage 1 state
+### Stage 1 state — COMPLETE (2026-10-11)
 
-Source integration has begun on feature/product-first-java-handlers.
-**Java compile, tests and HTTP evidence are pending until the actual
-generated project is built in a Java 21/Maven environment.** Do not mark
-the stage complete merely because the Python templates exist.
+Generated Java target `java-spring/0.4` now emits typed
+`ContractHandlers` and the one generated MVC controller delegates to the
+implementer-owned bean. A missing bean preserves HTTP 501. The catalog
+example implements domain semantics in one service class, not a second API.
+Regeneration preserves custom code and rejects modified generated files.
+
+**Observed evidence on Render Free** (no paid provider API or GitHub Actions):
+- Branch code commit `786cc15159be88d79968f263da2f2561eafd3480`.
+- Real pipeline: contract validation -> 11 generated files -> 7/7 Python
+  generator unit tests -> Java 21, Maven 3.9.11 `clean verify` **BUILD SUCCESS**.
+- JUnit/SpringBoot HTTP integration test: **1 run, 0 failures/errors**, covering
+  public health, unauthenticated 401, create 201, read 200/404, duplicate 409
+  without mutation, negative stock 400, whitespace 400, malformed JSON 400,
+  unknown-property JSON 400.
+- Executable JAR SHA-256:
+  `71a824c40394ee58fb329d891e820c14aaef904a994d662bc896d7cb78957da5`.
+- Render service `srv-db5v0tt9fdbs73e7fddg`, deploy
+  `dep-db5v28ad0e5s738q8hh0`: **LIVE**. Independently requested
+  `https://protocolia-product-catalog-dev.onrender.com/health` ->
+  `{"status":"UP"}`.
+- First Render attempt had a container-registry metadata stall; a Docker base
+  digest pin resolved it. This was infra, not a failed generated application.
+
+**Next:** Step 2 — stabilize target behavior and regression boundaries; no new
+experimental agents or benchmarking until engineering work demonstrates value.
