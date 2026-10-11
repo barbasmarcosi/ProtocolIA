@@ -167,7 +167,8 @@ def _cli_argv(engine: str, model: str | None) -> list[str]:
 
 def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
             model: str | None = None, timeout_seconds: int | None = None,
-            allow_real_cli: bool = False) -> dict:
+            allow_real_cli: bool = False,
+            cli_binary: Path | None = None) -> dict:
     if allow_real_cli is not True:
         deny("running a logged-in coding agent requires explicit --execute consent")
     # Explicit opt-in is essential because this consumes user's quota.
@@ -191,9 +192,17 @@ def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
     if any((evidence / n).exists() for n in ("started.json", "run.json")):
         deny("trial already started: no automatic retries, preserve failed attempt")
     cli = assignment["engine"]
-    binary = shutil.which(cli)
+    if cli_binary is not None:
+        candidate = Path(cli_binary)
+        if not candidate.is_absolute() or not candidate.is_file():
+            deny("explicit CLI binary must be an existing absolute executable file")
+        if not os.access(candidate, os.X_OK):
+            deny("explicit CLI binary is not executable")
+        binary = str(candidate.resolve(strict=True))
+    else:
+        binary = shutil.which(cli)
     if binary is None:
-        deny("no logged-in " + cli + " CLI installed; trial remains unstarted")
+        deny("no " + cli + " CLI in PATH; pass --cli-binary /absolute/path if installed elsewhere")
     version = subprocess.run([binary, "--version"], capture_output=True,
                              text=True, timeout=12, check=False)
     if version.returncode:
@@ -212,6 +221,12 @@ def execute(root: Path, evidence_root: Path, lock_file: Path, run_id: str, *,
             != prepared["workspace_task_sha256"]):
         deny("frozen task or prompt modified before running CLI")
     args = [binary, *_cli_argv(cli, model)[1:]]
+    # Probe Codex parser with NO model call before recording started.json.
+    if cli == "codex":
+        probe = subprocess.run([*args[:-1], "--help"], capture_output=True,
+                               text=True, timeout=15, check=False)
+        if probe.returncode != 0:
+            deny("Codex CLI rejected runner arguments before model execution")
     # No shell interpolation. The command args themselves are metadata only.
     started = {"version": "p4-started-1", "assignment": assignment,
                "engine_version": version.stdout.strip()[:200],
@@ -274,6 +289,8 @@ def main(argv=None) -> int:
     go.add_argument("--runs-root", type=Path, required=True)
     go.add_argument("--evidence-root", type=Path, required=True)
     go.add_argument("--model",required=True)
+    go.add_argument("--cli-binary",type=Path,
+                    help="absolute path of logged-in CLI when it is not on PATH")
     go.add_argument("--timeout-seconds", type=int)
     go.add_argument("--execute", action="store_true",
                     help="I consent to consume my authenticated CLI subscription quota")
@@ -282,7 +299,8 @@ def main(argv=None) -> int:
         result = (prepare(a.lock,a.run_id,a.fixtures,a.runs_root,a.evidence_root)
                   if a.command=="prepare" else
                   execute(a.runs_root,a.evidence_root,a.lock,a.run_id,model=a.model,
-                          timeout_seconds=a.timeout_seconds,allow_real_cli=a.execute))
+                          timeout_seconds=a.timeout_seconds,allow_real_cli=a.execute,
+                          cli_binary=a.cli_binary))
         print(json.dumps(result,sort_keys=True,indent=2))
     except (BenchmarkError,OSError,subprocess.SubprocessError,ValueError) as exc:
         print("P4 local runner: "+str(exc),file=sys.stderr)
