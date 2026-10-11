@@ -55,24 +55,58 @@ def record(name: str,fields: dict) -> str:
         parts.append("    "+annotation(spec)+" "+jt(spec["type"])+" "+field)
     return "package "+PKG+";\npublic record "+name+"(\n"+",\n".join(parts)+"\n) {}\n"
 
-def controller(ops: dict) -> str:
-    endpoints=[]
-    for name,op in ops.items():
-        if name in BAD: _fail("unsupported Java operation name: "+name)
-        params=[]
-        for key,typ in op["params"].items():
-            if key in BAD: _fail("unsupported Java parameter name: "+key)
-            params.append('@org.springframework.web.bind.annotation.PathVariable("'+key+'") '+jt(typ)+' '+key)
+def handler_interface(ops: dict) -> str:
+    """Typed boundary for human-written business rules; generator owns the HTTP surface."""
+    methods = []
+    for name, op in ops.items():
+        params = [jt(typ) + " " + key for key, typ in op["params"].items()]
         if "request" in op:
-            params.append("@jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody "+op["request"]+" body")
-        auth=('@org.springframework.security.access.prepost.PreAuthorize("hasAuthority('+
-              "'"+op["capability"]+"'"+')")\n    ') if op["capability"]!="public" else ""
-        endpoints.append('    '+auth+'@org.springframework.web.bind.annotation.RequestMapping(path="'+
-             op["path"]+'",method=org.springframework.web.bind.annotation.RequestMethod.'+op["method"]+')\n'+
-             '    public '+op["response"]+' '+name+'('+", ".join(params)+') {\n'+
-             '        throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_IMPLEMENTED,"business handler missing");\n    }')
-    return ("package "+PKG+";\n@org.springframework.web.bind.annotation.RestController\n"+
-            "public class ContractController {\n"+"\n\n".join(endpoints)+"\n}\n")
+            params.append(op["request"] + " body")
+        methods.append("    " + op["response"] + " " + name + "(" + ", ".join(params) + ");")
+    return ("package " + PKG + ";\npublic interface ContractHandlers {\n" +
+            "\n".join(methods) + "\n}\n")
+
+
+def controller(ops: dict) -> str:
+    endpoints = []
+    for name, op in ops.items():
+        if name in BAD:
+            _fail("unsupported Java operation name: " + name)
+        params = []
+        args = []
+        for key, typ in op["params"].items():
+            if key in BAD:
+                _fail("unsupported Java parameter name: " + key)
+            params.append('@org.springframework.web.bind.annotation.PathVariable("' + key + '") ' + jt(typ) + ' ' + key)
+            args.append(key)
+        if "request" in op:
+            params.append("@jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody " + op["request"] + " body")
+            args.append("body")
+        auth = ('@org.springframework.security.access.prepost.PreAuthorize("hasAuthority(' +
+                "'" + op["capability"] + "'" + ')")\n    ') if op["capability"] != "public" else ""
+        # Java target v0.4 convention: POST returns 201; other methods 200.
+        response = ('@org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.CREATED)\n    '
+                    if op["method"] == "POST" else "")
+        endpoints.append(
+            '    ' + auth + response +
+            '@org.springframework.web.bind.annotation.RequestMapping(path="' + op["path"] +
+            '",method=org.springframework.web.bind.annotation.RequestMethod.' + op["method"] + ')\n' +
+            '    public ' + op["response"] + ' ' + name + '(' + ", ".join(params) + ') {\n' +
+            '        ContractHandlers handler = handlers.getIfAvailable();\n' +
+            '        if (handler == null) throw new org.springframework.web.server.ResponseStatusException(' +
+            'org.springframework.http.HttpStatus.NOT_IMPLEMENTED, "business handler missing");\n' +
+            '        return handler.' + name + '(' + ", ".join(args) + ');\n' +
+            '    }')
+    return (
+        "package " + PKG + ";\n" +
+        "@org.springframework.web.bind.annotation.RestController\n" +
+        "public class ContractController {\n" +
+        "    private final org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers;\n" +
+        "    public ContractController(org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers) {\n" +
+        "        this.handlers = handlers;\n" +
+        "    }\n\n" +
+        "\n\n".join(endpoints) + "\n}\n"
+    )
 
 def security(ops: dict) -> str:
     permits="\n".join('            a.requestMatchers(org.springframework.http.HttpMethod.'+o["method"]+', "'+o["path"]+'").permitAll();'
@@ -145,8 +179,9 @@ def generate_java(contract: Any) -> dict[str,str]:
            "public class GeneratedApplication { public static void main(String[] args) { "
            "org.springframework.boot.SpringApplication.run(GeneratedApplication.class,args); } }\n"),
         SRC+"ContractController.java":controller(ir["operations"]),
+        SRC+"ContractHandlers.java":handler_interface(ir["operations"]),
         SRC+"SecurityConfig.java":security(ir["operations"]),
-        "README.md":("Generated Java 21 / Spring Boot 4 API skeleton. Business endpoints return 501. "
+        "README.md":("Generated Java 21 / Spring Boot 4 API with typed ContractHandlers business extension. Without a Spring bean implementing this port, handlers return 501. POST uses HTTP 201 by Java target convention. "
                      "Basic auth requires PROTOCOLIA_USER, PROTOCOLIA_PASSWORD (>=16 chars) and PROTOCOLIA_SCOPES. "
                      "This demonstration configuration is not a production identity provider.\n")}
     for name,fields in ir["models"].items():
@@ -167,7 +202,7 @@ def write_java(files: dict[str,str],out: Path) -> None:
     if manifest.exists():
         try:
             old=json.loads(manifest.read_text())
-            if old["generator"]!="java-spring/0.3" or set(old["artifacts"])!=set(files):
+            if old["generator"]!="java-spring/0.4" or set(old["artifacts"])!=set(files):
                 _fail("Java output ownership mismatch")
             for path,digest in old["artifacts"].items():
                 dest=out/path
@@ -190,7 +225,7 @@ def write_java(files: dict[str,str],out: Path) -> None:
                 f.write(content)
             staged.append((Path(tmp),dest))
         for tmp,dest in staged: os.replace(tmp,dest)
-        data={"generator":"java-spring/0.3","artifacts":{p:hashlib.sha256(v.encode()).hexdigest() for p,v in files.items()}}
+        data={"generator":"java-spring/0.4","artifacts":{p:hashlib.sha256(v.encode()).hexdigest() for p,v in files.items()}}
         manifest.write_text(json.dumps(data,indent=2,sort_keys=True)+"\n")
     finally:
         for tmp,_ in staged: tmp.unlink(missing_ok=True)

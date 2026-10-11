@@ -19,6 +19,27 @@ class JavaTargetTest(unittest.TestCase):
         self.assertEqual(a,generate_java(self.c))
         self.assertIn("@jakarta.validation.constraints.DecimalMin",next(v for k,v in a.items() if k.endswith("SaleRequest.java")))
         self.assertIn("business handler missing",next(v for k,v in a.items() if k.endswith("ContractController.java")))
+    def test_controller_delegates_to_a_typed_business_port(self):
+        a = generate_java(self.c)
+        port = a["src/main/java/dev/protocolia/generated/ContractHandlers.java"]
+        controller = a["src/main/java/dev/protocolia/generated/ContractController.java"]
+        self.assertIn("public interface ContractHandlers", port)
+        self.assertIn("ObjectProvider<ContractHandlers>", controller)
+        self.assertIn("return handler.registerSale(", controller)
+        self.assertIn("handler == null", controller)
+        self.assertIn("HttpStatus.CREATED", controller)
+
+    def test_regeneration_preserves_custom_handlers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            files = generate_java(self.c)
+            write_java(files, out)
+            custom = out / "src/main/java/dev/protocolia/generated/custom/CustomHandlers.java"
+            custom.parent.mkdir(parents=True)
+            custom.write_text("manual business logic")
+            write_java(files, out)
+            self.assertEqual(custom.read_text(), "manual business logic")
+
     def test_unsupported_enum_is_rejected(self):
         self.c["models"]["SaleRequest"]["sale_state"]["constraints"]={"enum":["pending","completed"]}
         with self.assertRaises(ContractError): generate_java(self.c)

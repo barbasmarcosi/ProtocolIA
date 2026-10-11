@@ -4,6 +4,10 @@
 
 ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
+## Product-first Java vertical slice
+
+The current goal is **one generated Spring Boot application with a typed implementer-owned business handler**, not parallel handwritten controllers. See [product execution plan](docs/PRODUCT_FIRST_PLAN.md) and [catalog example](examples/catalog-vertical/README.md). P4 experimental records remain separate.
+
 ## Why
 
 LLMs are powerful at ambiguity, design, and novel problems. They should not have to regenerate routine DTOs, interfaces, API schemas, and execution plans on every request. ProtocolIA tests the hypothesis that *verified contract compilation reduces model work per successful mission without reducing quality*.
