@@ -1,0 +1,58 @@
+{
+  "status": "BLOCKED_BEFORE_MODEL_EXECUTION",
+  "protocolia_main": "e694f700c0ff9e8a8d26165d27232f914d3b9e72",
+  "consumer_main": "87e482961f29eb7c8a6c5c9bc60de2ad08a903cc",
+  "verifier_commit": "77ec9150fed3b1ae4e80c87befc052e34702af8c",
+  "study_sha256": "680037ab74cd4520243b8a8926402b317ae8cb7e2c2dbb84f5952b00cef14ab8",
+  "scheduled": 36,
+  "prepared": 3,
+  "executed": 0,
+  "independently_verified": 0,
+  "cli": "codex-cli 0.159.2",
+  "authentication_status": "Logged in using ChatGPT",
+  "model_actual": null,
+  "effort_actual": null,
+  "actual_subscription_usd": null,
+  "first_assignments": [
+    {
+      "arm": "conventional",
+      "engine": "codex",
+      "order": 1,
+      "repeat": 1,
+      "run_id": "codex-catalog-crud-r01-conventional",
+      "stratum": "greenfield",
+      "study_sha256": "680037ab74cd4520243b8a8926402b317ae8cb7e2c2dbb84f5952b00cef14ab8",
+      "task_id": "catalog-crud"
+    },
+    {
+      "arm": "protocolia",
+      "engine": "codex",
+      "order": 2,
+      "repeat": 1,
+      "run_id": "codex-catalog-crud-r01-protocolia",
+      "stratum": "greenfield",
+      "study_sha256": "680037ab74cd4520243b8a8926402b317ae8cb7e2c2dbb84f5952b00cef14ab8",
+      "task_id": "catalog-crud"
+    },
+    {
+      "arm": "direct",
+      "engine": "codex",
+      "order": 3,
+      "repeat": 1,
+      "run_id": "codex-catalog-crud-r01-direct",
+      "stratum": "greenfield",
+      "study_sha256": "680037ab74cd4520243b8a8926402b317ae8cb7e2c2dbb84f5952b00cef14ab8",
+      "task_id": "catalog-crud"
+    }
+  ],
+  "blocks": [
+    "No verified nested isolation: bwrap namespace probe failed; user namespace uid_map denied; codex sandbox /bin/true timed out after 5s",
+    "Only Java 17; Maven and Docker unavailable in PATH",
+    "Pinned generator tools not provisioned; Maven Central HEAD reachable, so dependency download is not established as blocked"
+  ],
+  "prepared_manifest_hashes": {
+    "codex-catalog-crud-r01-protocolia": "727f65c7798e76168abaa692b4cc0303f54f8ff2a24185cffee2753de16aa776",
+    "codex-catalog-crud-r01-conventional": "1d38addc65a0545b9497f519dc81bfbfa93c1e1ac8c6b7f9610494190be47ff2",
+    "codex-catalog-crud-r01-direct": "f8113c695075ba08fa0fc455f1d56c9159572d15aa08aa78bc27116a142516a2"
+  }
+}

@@ -1,0 +1,82 @@
+...........................EE..........................................................EE...................................................E
+======================================================================
+ERROR: test_action_schema (unittest.loader._FailedTest.test_action_schema)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_action_schema
+Traceback (most recent call last):
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 396, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 339, in _get_module_from_name
+    __import__(name)
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/tests/test_action_schema.py", line 7, in <module>
+    from jsonschema import Draft202012Validator
+ModuleNotFoundError: No module named 'jsonschema'
+
+
+======================================================================
+ERROR: test_broker_schema (unittest.loader._FailedTest.test_broker_schema)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_broker_schema
+Traceback (most recent call last):
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 396, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 339, in _get_module_from_name
+    __import__(name)
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/tests/test_broker_schema.py", line 6, in <module>
+    from jsonschema import Draft202012Validator
+ModuleNotFoundError: No module named 'jsonschema'
+
+
+======================================================================
+ERROR: test_live_unix_socket_peer_checks_and_malformed_json (test_operator_service.HostServiceSecurityTests.test_live_unix_socket_peer_checks_and_malformed_json)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/tests/test_operator_service.py", line 141, in test_live_unix_socket_peer_checks_and_malformed_json
+    with ApprovalServer(self.config_file) as server:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/src/protocolia/operator_service.py", line 177, in __init__
+    super().__init__(str(sock), _Handler)
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/socketserver.py", line 453, in __init__
+    self.socket = socket.socket(self.address_family,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/socket.py", line 233, in __init__
+    _socket.socket.__init__(self, family, type, proto, fileno)
+PermissionError: [Errno 1] Operation not permitted
+
+======================================================================
+ERROR: test_only_approved_peer_uid_can_connect_by_config (test_operator_service.HostServiceSecurityTests.test_only_approved_peer_uid_can_connect_by_config)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/tests/test_operator_service.py", line 170, in test_only_approved_peer_uid_can_connect_by_config
+    with ApprovalServer(self.config_file) as server:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/src/protocolia/operator_service.py", line 177, in __init__
+    super().__init__(str(sock), _Handler)
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/socketserver.py", line 453, in __init__
+    self.socket = socket.socket(self.address_family,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/socket.py", line 233, in __init__
+    _socket.socket.__init__(self, family, type, proto, fileno)
+PermissionError: [Errno 1] Operation not permitted
+
+======================================================================
+ERROR: test_v02 (unittest.loader._FailedTest.test_v02)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_v02
+Traceback (most recent call last):
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 396, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 339, in _get_module_from_name
+    __import__(name)
+  File "/workspace/scratch/877fc6d11f4b/ProtocolIA/tests/test_v02.py", line 12, in <module>
+    from jsonschema import Draft202012Validator, FormatChecker
+ModuleNotFoundError: No module named 'jsonschema'
+
+
+----------------------------------------------------------------------
+Ran 141 tests in 11.980s
+
+FAILED (errors=5)

@@ -265,3 +265,7 @@ P3 and provider-backed benchmarks have the highest potential operational risk/co
 Track on every delivery: date, branch, commit, gate, checklist evidence, remaining blockers, comparison baseline and next atomic slice. Evidence should include specific test commands and artifacts, not adjectives like "ready" or "10/10". See [EXECUTION_STATE.md](EXECUTION_STATE.md).
 
 **External references for design review** (not dependencies): [OpenAPI](https://spec.openapis.org/oas/), [JSON Schema](https://json-schema.org/specification), [Smithy](https://smithy.io/2.0/spec/), [CUE](https://cuelang.org/docs/), [OpenAPI Generator](https://openapi-generator.tech/), [JHipster JDL](https://www.jhipster.tech/jdl/getting-started/), [LLMCompiler](https://github.com/SqueezeAILab/LLMCompiler), [DSPy](https://dspy.ai/).
+
+## Empirical execution preflight — 2026-10-11
+
+36 scheduled, 3 catalog-crud workspaces prepared, **0 real sessions and 0 independent candidate verdicts**. Codex 0.159.2 reports ChatGPT login. Global approval flag placement corrected after real parser rejection. Restricted disposable agent/JVM execution remains unverified in this environment; Java 21/Maven/treatment tools also need provisioning. No empirical improvement claim. See [audit and reproduction procedure](P4-EMPIRICAL-AUDIT-20261011.md) and [machine-readable evidence](../benchmarks/p4/evidence/20261011-preflight/preflight.json). P4 remains OPEN.

@@ -144,3 +144,7 @@ Workflow: [P4 local runner](P4-LOCAL-RUNNER.md), [frozen study](P4-SUBSCRIPTION-
 P3 remaining: local OS-separated approval and provider-neutral cost ledger are verified, but actual enrolled human MFA/approval UI, a paid-provider metering connector, recoverable writable/multi-effect outbox and hostile sandbox evaluation are still required. Do not confuse test signed quotes with actual provider bill settlement. P4: frozen A/B/C studies and local subscribed CLI invocation+independent grading are ready; next run real Codex/Claude Code trial sets with a separately authenticated local CLI, no API keys and faithful agent/verifier isolation, then measure quality/time/tokens. Full P4 is OPEN.
 
 See ROADMAP.md, ADR-002-JAVA-BACKEND.md and P2-BASELINE.md. This file is the execution record, not a promise of work completed beyond these gates.
+
+## Empirical execution preflight — 2026-10-11
+
+36 scheduled, 3 catalog-crud workspaces prepared, **0 real sessions and 0 independent candidate verdicts**. Codex 0.159.2 reports ChatGPT login. Global approval flag placement corrected after real parser rejection. Restricted disposable agent/JVM execution remains unverified in this environment; Java 21/Maven/treatment tools also need provisioning. No empirical improvement claim. See [audit and reproduction procedure](P4-EMPIRICAL-AUDIT-20261011.md) and [machine-readable evidence](../benchmarks/p4/evidence/20261011-preflight/preflight.json). P4 remains OPEN.
