@@ -169,7 +169,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 
 ### P4 — Subscription-authenticated Codex/Claude CLI A/B/C study (issue #5)
 
-**Status: IN PROGRESS — PILOT INFRASTRUCTURE VERIFIED, ZERO MODEL SESSIONS SO FAR.** All study execution must use an already-authenticated Codex or Claude Code CLI under the user's subscription, never require API keys, paid model API calls or an SDK. See [P4 CLI study runbook](P4-SUBSCRIPTION-CLI.md).
+**Status: IN PROGRESS — PILOT INFRASTRUCTURE VERIFIED, ZERO MODEL SESSIONS SO FAR.** All study execution must use an already-authenticated Codex or Claude Code CLI under the user's subscription, never require API keys, paid model API calls or an SDK. See [P4 CLI study runbook](P4-SUBSCRIPTION-CLI.md) and [local execution guide](P4-LOCAL-RUNNER.md).
 
 **Purpose:** prove a measurable benefit over **both** direct agents and ordinary generators.
 
@@ -183,7 +183,7 @@ Do **not** treat HTTP operation dependencies from v0.1 as executable agent sched
 - [x] Freeze two separate initial Codex/Claude pilot protocols with deterministic counterbalanced A/B/C order, 3 repeats, independent task/verifier commit and SHA256-pinned external task specs before viewing any comparative scores. Model/CLI version is recorded on each actual trial; those sessions remain pending.
 - [ ] Complete full task coverage: initial frozen pilot provides CRUD, quota/domain invariants, contract evolution and hostile payloads; genuine seeded brownfield, ambiguous prompts and non-repetitive algorithms remain.
 - [x] Pilot recorder parses Codex JSONL or Claude JSON, captures observed token counters or explicit null, CLI/model version, wall time, repairs/interventions and independent verifier evidence; never stores raw transcripts in results. Subscription incremental USD stays unknown, not $0, and Claude API-equivalent cost is labeled NOT billed.
-- [x] Offline/provider-free preflight and negative grader validation with 95% Wilson intervals, missing-trial tracking and no automatic winner. [ ] Run real subscribed CLI experiments, complete paired repetitions and independently review uncertainty.
+- [x] Offline/provider-free preflight and negative grader validation with 95% Wilson intervals, missing-trial tracking and no automatic winner. [x] One-shot local CLI runner now implements frozen task import, explicit subscription-quota consent, pinned requested model, process-group timeouts, private traces and clean independent grader invocation. [ ] Run REAL subscribed CLI experiments and review matched outcomes.
 - [ ] Independent tests/reviewers judge semantic correctness and security. Publish failures, negative results, protocol deviations and raw reproducible evidence.
 
 **Primary metric for already-paid subscriptions:** independently verified success rate by arm, task and CLI (with Wilson uncertainty); secondary wall-clock time per success and observed CLI token counts, if available. **Do not fabricate marginal USD costs** for subscription access. The original dollar-per-verified-success objective is only evaluable for genuinely metered, independently attributable spend and must remain explicitly unavailable here. Verifier labor, repair count, reproducibility and safety remain tracked.
