@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -23,6 +24,11 @@ public class CatalogController {
     @ResponseStatus(HttpStatus.CREATED)
     public Book create(@Valid @RequestBody CreateBookRequest request) {
         return books.insert(request);
+    }
+
+    @PatchMapping("/{isbn}/stock")
+    public Book adjustStock(@PathVariable String isbn, @Valid @RequestBody StockAdjustment adjustment) {
+        return books.restock(isbn, adjustment);
     }
 
     @GetMapping("/{isbn}")
