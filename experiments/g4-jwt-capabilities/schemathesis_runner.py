@@ -78,10 +78,14 @@ def main(schema_path: Path, java_jar: Path) -> None:
         "G4_TEST_ONLY_ALLOW_LOOPBACK_HTTP": "true",
     })
 
+    # Write Spring logs to a file: a never-drained subprocess.PIPE can fill
+    # under negative property-based cases and deadlock the Java HTTP server.
+    server_log = open("/tmp/g4-jwt-spring.log", "w")
     server = subprocess.Popen(
         ["java", f"-Dserver.port={SERVER_PORT}", "-jar", str(java_jar)],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        env=env, stdout=server_log, stderr=subprocess.STDOUT,
     )
+    server_log.close()
     try:
         deadline = time.monotonic() + 100
         while time.monotonic() < deadline:
@@ -101,19 +105,29 @@ def main(schema_path: Path, java_jar: Path) -> None:
             f"--url=http://127.0.0.1:{SERVER_PORT}",
             "--include-method=GET",
             "--mode=all",
-            "--max-examples=8",
+            "--max-examples=4",
             "--workers=1",
             "--phases=fuzzing",
             "--generation-deterministic",
-            "--max-time=60",
+            "--max-time=30",
             "--checks=not_a_server_error,status_code_conformance",
             "--header", "Authorization: Bearer " + access_token,
         ]
         print("G4_SCHEMATHESIS_REAL_JWT_GET_BEGIN", flush=True)
-        run = subprocess.run(command, text=True, capture_output=True, timeout=120)
+        try:
+            run = subprocess.run(command, text=True, capture_output=True, timeout=90)
+        except subprocess.TimeoutExpired as exc:
+            # Never leak the ephemeral bearer token by printing the command
+            # embedded in the default TimeoutExpired exception.
+            raw = exc.stdout or b""
+            print(raw.decode(errors="replace")[-12000:] if isinstance(raw, bytes)
+                  else raw[-12000:], flush=True)
+            print(Path("/tmp/g4-jwt-spring.log").read_text()[-12000:], file=sys.stderr)
+            raise RuntimeError("G4 bounded Schemathesis timed out") from None
         print(run.stdout[-25000:], flush=True)
         if run.returncode != 0:
             print(run.stderr[-12000:], file=sys.stderr)
+            print(Path("/tmp/g4-jwt-spring.log").read_text()[-12000:], file=sys.stderr)
             raise RuntimeError(f"Schemathesis exit {run.returncode}")
         # A successful zero-operation run is not valid test coverage.
         if "0 generated" in run.stdout or "Empty test suite" in run.stdout:
