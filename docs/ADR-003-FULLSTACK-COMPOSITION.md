@@ -1,87 +1,105 @@
-# ADR-003 — Compose ProtocolIA into a real full-stack application
+# ADR-003 — Full-stack contract composition using maintained generators
 
-**Status:** PROPOSED — initial engineering hypothesis, not final selection; deep external integration research pending.  
-**Date:** 2026-10-12.  
-**Prior decisions:** [ADR-002 (Java backend)](ADR-002-JAVA-BACKEND.md), [existing architecture](ARCHITECTURE.md).  
-**Requirements:** [Full-stack requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md).  
-**Delivery:** [Implementation plan](FULLSTACK_IMPLEMENTATION_PLAN.md).
+**Status: PROPOSED FOR PILOT (architecture selected; integrations NOT verified).**  
+**Revised:** 2026-10-12, aligned to the supplied [deep research assessment](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
+**Basis:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md), [delivery gates](FULLSTACK_IMPLEMENTATION_PLAN.md), [ADR-002](ADR-002-JAVA-BACKEND.md).
 
-## Context
+## Problem and product boundary
 
-The existing contract v0.2 and Spring target are operational, but backend HTTP behavior and exported OpenAPI are not fully aligned. In current source the OpenAPI emitter inherits a bearerAuth scheme and defaults to a 200 success response for every operation, while the Java example configures HTTP Basic and annotates POST with 201. Building a typed client or UI on contradictory API descriptions would propagate contract drift.
+ProtocolIA is NOT another generic Java, TypeScript, UI, or SQL generator. It owns a strict, versioned semantic contract, independent canonical IR, declared business capabilities/effects, and reproducible orchestration of external generators. Mature tools own commodity source generation. The resulting real software must enforce business rules, access control and persistence in handwritten application/domain code.
 
-The Java target generates controllers that delegate to an explicit user-owned ContractHandlers implementation. Real stock-change HTTP tests passed on the existing in-memory vertical, but that does not demonstrate database persistence, generic forms, typed web clients or developer-time savings.
+The existing Java 21 / Spring Boot 4 target and stock-change HTTP scenario are **verified for the bounded previous slice**, but this is not evidence that a new external backend, frontend, data store, OAuth2 or UI generator works. P4 is a separate frozen study and remains untouched.
 
-## Decision proposed for the first slice
+**Blocking known mismatch:** the existing v0.2 OpenAPI emitter inherits bearerAuth and a 200 success response; the working Java demo implements Basic authentication and POST 201. No generated client should consume a misleading specification. Fix target-specific HTTP contract parity with regression tests before introducing downstream generators. Do not silently change v0.1 golden output.
 
-**Keep ProtocolIA as the sole authority for contract semantics and effects/capabilities; use established tools for commodity client/UI/persistence work. Do not replace the working Java adapter before an independent parity spike.**
+## Decision: candidate stack and responsibilities
 
-| Concern | First-choice candidate | Ownership and reason | Status |
-| --- | --- | --- | --- |
-| Source of truth | ProtocolIA versioned JSON contract + validated IR | ProtocolIA owns operations, models, capabilities, effects; no competing handwritten OpenAPI | EXISTING |
-| API interchange | Deterministic OpenAPI 3.1 JSON with bounded x-protocolia-* extensions | Standard consumers; one canonical emission per target profile | FIX PARITY FIRST |
-| Spring server | Existing Java 21 / Spring Boot 4 typed handler adapter | Least-risk path with working product evidence; keep business rules user-owned | EXISTING |
-| TypeScript API and hooks | Orval with its TanStack Query target | Candidate established OpenAPI-to-client/hook generator; pinned CLI/config, no bespoke fetch generator | TO SPIKE |
-| Web runtime | React + TypeScript + Vite + TanStack Query | Thin functional UX and declarative asynchronous state; avoid a generated app framework up front | TO IMPLEMENT |
-| Form UI | Plain explicit React form first; assess RJSF/JSON Forms on one BookRequest | Prefer field/validation alignment; select schema-driven forms only after verifying JSON Schema compatibility and UX | EVALUATE |
-| CRUD administration | React Admin or Refine | Evaluate **later**, only if resource metadata and auth mapping can be represented without duplicate sources of truth | DEFER |
-| Database | PostgreSQL + Spring JDBC + Flyway + Testcontainers | Business transaction logic stays user-owned; migration is reviewed, not inferred from HTTP schema | SUBSEQUENT SLICE |
-| Test/contract checks | Python unit tests; Maven/JUnit; Vitest/Playwright; OpenAPI lint/diff; Schemathesis candidate | Run real builds/API tests; no passing-by-snapshot alone | PHASED |
-| Alternative Java server | OpenAPI Generator (Spring server) with delegate extension | Replace target only if feature parity, safe regeneration and complexity are no worse | REPLACEABILITY SPIKE |
+Versions below are **recommendations reported by the user-provided research dated 2026-10-12**, not dependencies installed or independently integration-tested. Every release, license and supported combination must be confirmed against upstream before pinning it in build files.
 
-Orval, RJSF, React Admin, Refine and OpenAPI Generator are **candidate integrations**, not claims of verified current-version compatibility, licensing suitability or functional integration. Deep research must validate releases, upstream maintenance, licenses, Boot 4/Jackson support, and CLI reproducibility before accepting the ADR. Exact versions belong in lockfiles and a reviewed toolchain manifest once chosen; never invent a version here.
+| Layer | Pilot selection | Status and rule |
+| --- | --- | --- |
+| Semantic source | ProtocolIA validated JSON contract, canonical IR | Only editable semantic source; existing v0.1/v0.2 compatibility protected |
+| Public HTTP projection | OpenAPI 3.1, error schemas, operationId, securitySchemes and x-protocolia-* | One emitted profile for each truthful server security configuration, never user-maintained copies |
+| Additional projections | JSON Schema 2020-12, ui-manifest.json, capability-manifest.json, generation-manifest.json | Deterministic projections of validated IR; no independently editable duplicate model |
+| HTTP server generator | OpenAPI Generator **7.26.0**, spring generator | P0/G1 replacement candidate; delegatePattern=true, useSpringBoot4=true, useJackson3=true |
+| Java runtime | Java 21, Spring Boot **4.1.1** target and manually controlled POM | Explicit app, domain, security and DB boundaries; generator owns only derived MVC/DTO interfaces |
+| HTTP client generator | Orval **8.41.0** | G2 default candidate: one TypeScript client + TanStack Query hooks |
+| Client alternate | Kubb **5.5.5** | Mandatory bounded G2 spike on the SAME fixtures, choose one; plugin extensibility may win |
+| Client state/cache | TanStack Query | Do not also add RTK Query to the pilot |
+| Forms | react-jsonschema-form (RJSF) **6.7.1** | G3 first-party pilot dependency; compile JSON Schema/form validators, preserve custom widgets |
+| Application UI | React + TypeScript + Vite, handwritten shell/list/detail | UI fields/actions derived from ui-manifest; no claim automatic premium UX |
+| Admin/framework optional | Refine Core as a *later* shell choice; API Platform Admin one PoC | Inferencer is heuristic and is NOT the deterministic compiler; do not impose both |
+| Contract quality | Spectral **6.17.0** and oasdiff **1.11.7** | G0 gates; keep ProtocolIA custom semantic/capability-breaking diff |
+| Behavioral API tests | Schemathesis **4.30.1** plus explicit JUnit/HTTP and browser E2E | G4 hard acceptance, bounded traffic on disposable instance |
+| Authentication/authorization | Spring Security 7.1.x JWT/OAuth2 Resource Server/OIDC integration | G4 target; G1 already enforces existing capability policy, with allow/deny HTTP tests |
+| Persistence | User-owned Spring JDBC/PostgreSQL/Flyway; Testcontainers | G5 or subsequent explicit pilot scope; do NOT infer SQL and auth from HTTP |
+| Deployment | Existing Render path only after validation | No deploy-as-first-compiler; no paid API; avoid unnecessary GitHub Actions minutes |
 
-### End-to-end boundary (proposed)
+**Scope exclusion:** Hasura, PostGraphile, PostgREST, Prisma/ZenStack, JHipster, Hilla, Wasp, Budibase, Appsmith, Directus, NocoBase and alternative ORM/UI stacks are reference architectures or future optional targets, not dependencies of this first Spring/React slice. Do not introduce TypeSpec as a second source of truth. Do not run Orval/Kubb/Hey API/RTK Query together as permanent dependencies.
 
-    [User/agent intent] --untrusted--> [ProtocolIA validated contract v0.2 / next version]
-                                              |
-                                  [Canonical IR + semantic policy]
-                                              |
-                                [OpenAPI 3.1 + JSON Schema]
-                                       /                 \
-                         [Java target adapter]       [Orval adapter]
-                               |                            |
-                       [Generated MVC, DTO,          [Generated TS client,
-                         validation, security]        types, query hooks]
-                               |                            |
-                       [USER-OWNED service]         [USER-OWNED React screens]
-                               |                            |
-                       [Postgres + JDBC]            [TanStack Query cache]
-                                       \                 /
-                                       [Real HTTP API]
-                                              |
-                                [Independent contract/E2E checks]
+## Architecture (target, NOT yet implemented)
 
-Generated code and manifests live in dedicated output paths; services, migrations, screens, styling and domain tests are never generator-owned. The compiler does not execute untrusted JavaScript/SQL from contracts. The IR expresses **declared** effects; enforcement belongs to server-side Security/handlers and DB constraints/transactions.
+    Human/agent proposal (untrusted)
+        |
+    ProtocolIA parser / semantic validation (versioned)
+        |
+    Canonical IR: Resource - Operation - Model - View - Capability - Effect
+        |                    |                   |
+        v                    v                   v
+    OpenAPI 3.1       JSON Schema 2020-12   ui/capability/generation manifests
+        |                    |                   |
+        +-- Spectral          +-- RJSF forms      +-- UI resource/action composition
+        +-- oasdiff
+        +-- Spring OpenAPI Generator 7.26 -> generated Java API/DTO/delegate
+        |                                        |
+        |                                  user-owned domain and Spring Security
+        |                                        |
+        |                                   user-owned persistence
+        +-- Orval OR Kubb -> generated TS client/TanStack Query hooks
+                                    |
+                             user-owned React app
+                                    |
+                 Real HTTP/E2E + Schemathesis + authorization tests
 
-### Contract and OpenAPI parity requirements
+**Generated output:** only under clearly marked disposable directories: Java target/generated-sources/openapi, web/src/generated/*, and generated manifests/schema in build output. All may be deleted/rebuilt. Avoid 'skipOverwrite' as an ownership strategy. **User-owned:** root POM, domain service/delegates, policies, reviewed DB migrations, React pages/components/styles, HTTP auth adapter and business tests. Build stage must stage new generated trees separately, validate and compile, then replace only generated paths; no silent overwrite, symlinks or unmanaged collisions.
 
-1. Define operationId, success status and **documented error schema** for each supported operation. Existing Java convention maps POST to 201, GET/PATCH to 200; provide explicit statuses only through a validated/versioned contract extension if implemented. Do not change historical v0.1 semantics implicitly.
-2. Make securitySchemes reflect the **actual configured deployment profile**. Near-term dev target is HTTP Basic; its OpenAPI must describe Basic. Longer-term bearer/OIDC requires a separately working server adapter and explicit opt-in, not relabeling Basic as Bearer.
-3. Keep capability as x-protocolia-capability and effects as x-protocolia-effects in OpenAPI. These are metadata, **not** automatic standard OpenAPI scope enforcement. No client-side authority.
-4. Validate request/response schema parity (closed objects, bounded constraints and path bindings). A generated consumer may not assume unsupported optional/nullable/enum fields work in Java.
-5. Generate a typed client against the **exact OpenAPI emitted for that running API**. Regenerated client must compile and interoperate at real HTTP level, with 401/403/4xx decoded predictably.
-6. For UI resources, choose an explicitly validated mapping between resource, list/get/create/update operationId, label fields, field order and query invalidation. Initially keep this in a versioned sidecar; later move into validated x-protocolia-ui extensions only if requirements justify a contract version change.
-7. Effects alone cannot identify client cache keys; invalidation rules must be explicit or deterministically mapped to declared resources with tested behavior.
+## Normative semantic IR boundaries
 
-### Future listing/pagination profile (not implemented)
+- **Resource:** stable ID, model, identity field, list/detail/create/action operation references, permitted relationships.
+- **Operation:** stable operationId, HTTP method and path, request/response type, query/path parameter schema, explicit success and error responses, resource role, capability requirement, declared effects.
+- **View:** resource ID, list/detail/create/custom-action kind, field order, labels, required form fields/widgets, operator-owned customizations.
+- **Capability:** business authorization name, separate from OAuth scopes and user roles; caller claim resolution comes from **trusted deployment mapping**.
+- **Effect:** read/write declarations and dependencies; these are descriptive and not a substitute for atomic application/DB enforcement.
 
-The v0.2 contract currently has path params but no general query parameter grammar or response-array shortcuts accepted by the Java generator. A scalable Books list needs an explicit response envelope such as BooksPage(items: Book[], nextCursor: string?) or an equivalent supported representation, and bounded query params, with nullability semantics decided before implementation. **Do not put an unsupported optional field in v0.2 and claim it works.** The first slice may start with a finite test dataset and a required BookList.items array, but cannot advertise scalable pagination until query support exists. Paging/filtering belongs to API design and user-owned service/DB query semantics, not automatically derived SQL.
+Examples of projections: x-protocolia-resource, x-protocolia-operation-role, x-protocolia-capability, x-protocolia-effects. Do NOT insert unsupported properties into v0.2 and silently bypass its strict validator. Add a versioned schema or validated sidecar first, then implement normalization, golden tests and compatibility rules. A UI manifest is the sole generated mapping of resource operations/fields; cache invalidation is explicit per resource/action or provably derived and tested, not guessed from PATCH paths.
 
-### Persistence and security
+### Target Books fixture
 
-PostgreSQL tables/indexes/transactions are a separate explicit design. A stock adjustment must be atomic under concurrency, with overflow prevented and repeat-key semantics specified if retries are supported. Migrations are reviewed and run against disposable DBs before any production DDL; Flyway must not auto-modify unknown environments. Use server-enforced capability checks and tests for anonymous/read-only/writer paths. Environment Basic credentials remain demo-only; production identity, TLS, token lifecycle and CSRF/session strategy require a separate ADR.
+- createBook: POST /api/books, returns **201** and Book.
+- listBooks: GET /api/books, bounded page/filter input, returns an explicit list/page envelope.
+- getBook: GET /api/books/{isbn}, returns **200** and Book or 404.
+- adjustStock: PATCH /api/books/{isbn}/stock, quantity 1..1000, returns **200** or 400/401/403/404/409.
+- health: GET /health, public.
 
-## Alternatives considered; decision gates
+The current v0.2 Java generator does not support arbitrary query-param grammar or optional/null payload semantics. Do not claim list pagination or author?/publishedAt? propagation until **versioned grammar + Java/TS/form tests** prove it. Make array envelope and bounded controls explicit. Do not replace user-owned atomic stock logic with synthesized SQL. The change-of-contract pilot should eventually add an optional field only *after* optionality is supported end to end.
 
-- **OpenAPI Generator Spring server:** strong baseline, but could duplicate or replace the existing controller templates. Execute a controlled spike with the *same* OpenAPI, same handler interface, Boot 4/Jackson compatibility and Maven/HTTP tests; prefer the alternative only if it passes equal gates with less owned code and no regeneration/security regression.
-- **openapi-typescript + openapi-fetch:** smaller, composable alternative to Orval, especially if Orval output conflicts with desired cache/runtime policy. Prefer it if the client/hook generator proves unmaintainable or semantically unreliable; cache hooks would then be explicitly maintained or generated separately.
-- **Hey API / Kubb / RTK Query Codegen:** verify current support/maintenance and compare their codegen output in research; do not stack multiple clients in the application.
-- **React Admin / Refine / JHipster / Hilla / Appsmith / Budibase / Directus / Hasura and related frameworks:** potentially useful for admin portals or model/database-driven products, but adoption now would import extra schema/authorization/runtime assumptions before the ProtocolIA-to-OpenAPI seam is trustworthy. Evaluate after a functioning minimal slice; do not promise no-code domain UX or SQL from an HTTP contract.
-- **TypeSpec as canonical IDL:** reconsider only if ProtocolIA contract versioning/type semantics become significantly harder than interoperating with TypeSpec. No dual canonical model at launch.
+## Auth and completeness (must not be faked)
 
-## Architecture decision acceptance and reversal
+- Demo target currently uses HTTP Basic; emitted OpenAPI for this target MUST declare Basic. OAuth2/OIDC JWT target needs real issuer/audience/signature/expiry checks, a capability evaluator and an independently reviewed authority mapping; do not simply relabel bearerAuth.
+- A protocol capability (e.g. catalog.books.adjust-stock) is NOT identical to OIDC scope (e.g. catalog.stock.write). Server policy maps trusted claims/roles/scopes to capabilities. Generated @PreAuthorize from raw OAuth scopes alone is insufficient to prove semantic authorization.
+- From every operationId produce a required-operation manifest. Missing/501-only business delegate is a **failed completeness gate**, not a successful runtime. Direct HTTP allow/deny test for every protected capability, including anonymous and reader/write denial.
+- Operation error schemas and status documentation must describe actual server error serialization. A syntactically valid spec does not prove behavior; independently check 400, 401, 403, 404, 409 and unexpected failures. Schemathesis supplements domain/concurrency tests, does not replace them.
 
-The ADR becomes ACCEPTED only after the ongoing source-based research records compatible, maintained, license-suitable choices **and** the first bounded spike proves actual generation, TypeScript compilation and HTTP interoperability without unsafe edits. At that point write exact tool versions/configuration to the repo. If Orval fails, use the minimal openapi-typescript + openapi-fetch route. If Spring OpenAPI Generator fails, preserve the current Java adapter and document the failed spike. If schema-driven forms do not preserve domain UX, keep user-owned React forms and test them.
+## Selected alternatives and reversal criteria
 
-Do not count the frozen P4 benchmark as evidence for this ADR and do not merge experimental artifacts into the product build.
+1. **Spring OpenAPI Generator:** build isolated G1 candidate against G0 source-derived OpenAPI. Try only API/DTO/delegate artifacts and manual root POM. Compare actual Java 21/Maven/HTTP outputs with current ProtocolIA adapter. If parity, auth, regeneration, and completeness gates are equal-or-better with less maintenance, promote OpenAPI Generator. **Fallback:** retain proven ProtocolIA Java target and record the limitation. No automatic replacement based solely on reputation.
+2. **Orval vs Kubb:** pin both *for isolated G2 spike only* and run same four operations / OpenAPI 3.1 fixtures. Inspect query hooks, error types, auth transport, generated drift, x-protocolia extensions and regeneration. Adopt ONE; if neither works use openapi-typescript + openapi-fetch, explicit TanStack Query integration.
+3. **RJSF:** generate BookRequest forms from explicit JSON Schema and test Draft 2020-12 validator, required/invalid/unknown fields and custom actions. Retain handwritten widgets/screens if schema-driven forms degrade UX. Do not adopt JSON Forms simultaneously.
+4. **Refine vs React Admin:** optional bounded PoC after UI manifest works. Refine Core may provide a shell; do not build ProtocolIA around Inferencer's sample-data heuristics or redesign contracts to appease API Platform Admin.
+5. **DB-first:** excluded from initial Spring/React profile to avoid duplicated API/auth/business policy planes. May be separately designed as alternate target if product demand proves it.
+
+## Exit gate and evidence
+
+This ADR becomes **ACCEPTED** only after the source study's upstream facts/licensing are reviewed, the G0 parity fixture passes, and the G1/G2 spikes report real compilation and HTTP comparison. Subsequent forms/OIDC/regen gates remain rollout requirements, not falsely pre-certified integrations. Measure contract-to-green time, manually maintained code, diff amplification, generated-files determinism, the number of 501 operations, and failure rates. Proposed numeric targets in the study (such as 30% time reduction or 40% fewer manual plumbing lines) are hypotheses, not observed results or grounds for exaggerated claims.
+
+P4 trials, cost accounting and frozen candidates are outside this decision. This ADR supersedes the **proposed full-stack sequencing** of its 2026-10-12 first draft; it does NOT retroactively change ADR-002 or the completed product stages.

@@ -1,77 +1,94 @@
-# Full-stack delivery plan — ProtocolIA
+# Full-stack implementation plan G0–G5 — ProtocolIA
 
-**Status:** Proposed executable backlog, pending final source-based integration research.  
-**Date:** 2026-10-12.  
-**Source docs:** [Requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md), [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md), [product evidence](PRODUCT_FIRST_PLAN.md).
+**Status:** PROPOSED / RESEARCH-ALIGNED; executable backlog, NOT implemented.  
+**Revised:** 2026-10-12. Source: [user-provided deep research and alignment notes](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
+**Contract:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md). **Architecture:** [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md).  
+**Supersedes:** the old full-stack sequence in this document; existing Stage 1–4 product evidence remains historical fact.
 
-## Execution policy
+## Invariants and workflow
 
-Build one **Books vertical** before creating a generic multi-resource platform. Every step happens on a narrow branch/PR, with an explicit rollback path. Merge only after the named acceptance checks actually run; record exact commits, commands and pass/fail results in docs/EXECUTION_STATE.md or a short per-slice result. If there are no free build minutes, use a reproducible local Docker/Render Free path and report coverage limits. Do not edit the frozen P4 study/harness or infer model-token savings.
+One Books vertical, no general-purpose app generator. Every implementation gate goes into a narrow reversible feature branch, with commit/command/toolchain version, exact fixture, negative tests, build status and observed errors recorded. Never edit frozen P4 candidates or invoke paid model APIs. Do not require GitHub Actions minutes when quota is unavailable: use equivalent local/container runs and state honestly what was not tested. Do not present "written" as "verified."
 
-## Gate G0 — fix the seam before adding downstream generators (P0, small)
+Order is a dependency DAG, not six independent deliverables:
 
-**Files likely touched:** src/protocolia/core.py, src/protocolia/v02.py, src/protocolia/java_spring.py, tests/test_v02.py, tests/test_java_spring.py, examples/catalog-vertical/contract.json, new contract-parity tests.
+    G0 Contract/IR/compatibility
+        -> G1 Backend replacement spike and real runtime
+        -> G2 Typed client: Orval vs Kubb
+        -> G3 RJSF UI and resource manifest
+        -> G4 JWT/capability + property-based/API/browser security checks
+        -> G5 Stable regeneration, contract evolution, persistence and pilot
 
-Tasks: choose a documented **dev Basic** OpenAPI target profile matching current Java HTTP Basic; align emitted success codes (POST 201; GET/PATCH 200) and stable error response descriptions/schemas with actual handler behavior; preserve v0.1 contract compatibility by using an explicit target/profile option or versioned emission where necessary. Audit Spring error dispatch for 400/401/403/404/409/501. Check unknown JSON fields, empty ISBN/title, path bindings, status and response content.
+**Auth starts in G1** (existing Basic allow/deny); G4 upgrades to real OAuth2/OIDC and full enforcement tests. Keep G1 demo Basic separate from an OIDC deployment profile. Domain test coverage continues at every gate.
 
-**Acceptance:** OpenAPI validates; generated target's auth scheme matches the real test server; automated contract-to-HTTP checks demonstrate exact status codes and representative error bodies; Java21 Maven clean verify and existing Python regressions PASS. **No-go:** documenting Bearer against Basic, changing compatibility silently, skipping tests, or claiming a missing handler is working domain logic.
+## G0 — Canonical contract, IR, parity and compatibility [P0, prerequisite]
 
-**Rollback:** leave existing Java target unchanged and block frontend codegen until an explicit per-target OpenAPI projection is available.
+**Inputs:** actual stock-change Books v0.2 fixture and Spring target behavior.
+**Likely paths:** src/protocolia/core.py, src/protocolia/v02.py, src/protocolia/java_spring.py, src/protocolia/compatibility.py, tests/test_v02.py, tests/test_java_spring.py; new fixtures/openapi31/ and docs/toolchain.
 
-## Gate G1 — first real external typed client (P0, small)
+**Tasks:** fix emitted authentication (Basic vs current bearerAuth) and documented successful responses (POST 201, GET/PATCH 200) and error schemas through explicit versioned/target profile; preserve v0.1 golden output. Define minimal typed IR extensions for resources, operation roles, views, business capabilities and effects, supported query arguments, and resource IDs without silently expanding current v0.2 grammar. Emit deterministic OpenAPI 3.1 + JSON Schema 2020-12 + ui-manifest.json, capability-manifest.json, generation-manifest.json. Add targeted fixtures for path/query params, arrays, required-vs-optional, nullable, enums, oneOf/anyOf/allOf, nested references, security, errors and vendor extensions, with intentionally unsupported cases **failing closed** instead of pretending Java support.
 
-**Files proposed:** adapters/client/orval/ (pinned config + invocation wrapper), generated/clients/books/ (disposable output), examples/books-web/ (Vite React TS app + package lock), tests/integration/ or examples/books-web/e2e/.
+**Tools from study (pin after license/upstream verification):** Spectral 6.17.0 to lint emitted OpenAPI, oasdiff 1.11.7 to compare old/new specs, and ProtocolIA's own semantic capability/effect diff. No new user-editable OpenAPI file.
 
-Tasks: check researched Orval version/license, choose one generated fetch client plus TanStack Query hooks, set stable operationIds, auth transport for demo, error decoder and generated/user-owned output separation. Keep one canonical OpenAPI output; don't maintain a second handwritten endpoint typing source.
+**Acceptance:** two compilations under pinned toolchain produce byte-identical owned output (diff zero); hostile/unsupported contract rejected without writes; real Java21/Boot4 HTTP tests prove schema + security + actual 200/201/400/401/403/404/409/501 behavior; Spectral pass; oasdiff catches prepared HTTP breaking fixtures; ProtocolIA diff catches capability/effect changes even if HTTP schema is stable. No unimplemented response counted as domain success. Generated Basic spec does not claim bearer. Existing regressions remain green.
 
-**Acceptance:** clean node install/build and TypeScript typecheck, real client create/read/adjust HTTP tests, 401 and 403 negative assertions and 400 response behavior, and no generation-time edits to handwritten UI/service files. **No-go:** client silently accepts status/schema mismatch, runtime mock server substituted for HTTP, license/update strategy unresolved.
+**No-go / fallback:** if a credible parity projection cannot be produced without breaking historic grammar or hashes, isolate a versioned target profile and block downstream codegen. No silent rewrite of v0.1 compiler semantics.
 
-**Fallback:** openapi-typescript + openapi-fetch, with explicit TanStack Query hooks; do not run two client generators indefinitely.
+## G1 — OpenAPI Generator as real Spring API boundary [P0, prerequisite]
 
-## Gate G2 — usable Books web slice (P0, medium)
+**Candidate versions from study:** Java 21, Spring Boot 4.1.1, OpenAPI Generator 7.26.0, flags delegatePattern=true, useSpringBoot4=true, useJackson3=true (reconfirm upstream support/licensing).
+**Paths:** experiments/openapi-generator-spring/ for initial spike; later examples/books-backend/ with user-owned pom.xml, src/main/java application/domain/security/delegate and target/generated-sources/openapi/.
 
-**Files proposed:** examples/books-web/src/pages/Books*, components/BookForm*, src/api/, frontend tests; extend contract in examples/stock-change/protocolia/contract.json or create a dedicated versioned Books full-stack example without changing the frozen stock-change comparison.
+**Tasks:** from exactly the G0 OpenAPI, generate *only* API interfaces/controllers/models/delegate boilerplate, using pinned CLI/config. Never make OpenAPI Generator owner of root POM or business code. Map actual user-written Book create/get/list/adjust handler and existing atomic stock logic to real generated delegates, without handwritten shadow HTTP controller. Add operationId -> delegate completeness report and fail if any operation only returns 501.
 
-Tasks: display list, detail, create and stock adjustment. Show validation, pending, errors, 401/403 and empty states. Add listBooks operation with a supported envelope; limit initial listing semantics explicitly. Define query cache keys and invalidation after successful write. If adding pagination/filters, first make a versioned query-parameter model and test Java/TS parity. Do not fake pagination by silently truncating.
+**Acceptance:** Java21 Maven clean verify, authenticated/anonymous/read-only write checks; actual HTTP request and response shape/code parity, strict unknown-field 400, ISBN missing/duplicate 404/409, stock overflow 409 and 8 parallel stock increments exact total; all required operationIds served by real delegates, no false 501 success. Regenerate twice -> same output; modified user-owned domain code byte-for-byte intact; no file ownership collision. Compare build/test/maintenance surface against the working ProtocolIA generator honestly.
 
-**Acceptance:** Playwright (or equivalent actual browser E2E) connects to running generated Spring API. Create appears in list; direct detail correct; stock change refreshes list and detail; invalid form cannot submit; server validates independently; read-only viewer cannot PATCH through direct HTTP. Test a nontrivial error state. **No-go:** screenshot-only acceptance, fake REST fixtures, stale cached stock or UI-only permission enforcement.
+**Decision:** promote upstream generator only if non-regressing and easier to maintain. **Fallback:** keep existing ProtocolIA java-spring/0.4, report failed hypotheses and continue other gates using its truthful OpenAPI. No endless generator customization.
 
-**Fallback:** manually-authored small React forms/screens with reusable generated HTTP client; schema-driven RJSF/JSON Forms spike remains optional.
+## G2 — Generated client + typed query/hooks [P1, prerequisite for UI]
 
-## Gate G3 — persistent, safe data (P1, medium/large)
+**Candidates:** Orval 8.41.0 default vs Kubb 5.5.5 short strategic spike. Do not make both permanent.
+**Paths:** adapters/client/orval/ and experiments/kubb-spike/ as temporary candidates; examples/books-web/ Vite+React+TS with pinned package manager lock; src/generated/api and src/api/http.ts user-owned.
 
-**Files proposed:** examples/books-backend/custom/ (user-owned Spring service/repository), src/main/resources/db/migration/ or equivalent separate user-owned migration path, Testcontainers integration tests and deploy config.
+**Tasks:** test both candidates on identical G0 OpenAPI 3.1 corpus: four Book endpoints plus mixed valid/invalid payloads, arrays/refs/errors/capability extensions. Verify auth transport, typed error handling, URL params, React/TanStack Query hooks, query-key stability, invalidation and diff amplification from a small compatible change. Generate one client after a documented decision.
 
-Tasks: design Books table, unique ISBN, stock bound/check, idempotency decision, atomic SQL adjustment and 409 overflow behavior. Wire PostgreSQL via JDBC, Flyway reviewed migrations, local compose/Testcontainers setup. Define transactional semantics and isolation; never infer them from CRUD paths. Maintain explicit environment staging and no production DDL by default.
+**Acceptance:** clean package install, TypeScript typecheck zero errors, tests call *real* Spring API for list/get/create/adjust (no mock-only acceptance); 400/401/403/404/409 handled predictably, create and adjust invalidate list/detail; generated code deletable/recreated, handwritten HTTP adapter untouched; select ONE generator with published reason.
 
-**Acceptance:** full end-to-end after restart; collision/no mutation; transaction rollback; concurrent adjustment exact total; negative/overflow; disposable Postgres migrations from zero; no unrestricted DB credentials. **No-go:** in-memory-only evidence marketed as persistence, SQL generated without review, overwriting a real DB.
+**Fallback:** openapi-typescript + openapi-fetch and user-owned TanStack Query glue if Orval and Kubb both fail the supported corpus. RTK Query Codegen only for a separate application already on Redux.
 
-**Fallback:** keep the in-memory vertical labeled demo and defer persistence; do not weaken domain guarantees.
+## G3 — Schema-driven Books UI and explicit resource manifest [P1]
 
-## Gate G4 — evaluate replacement of owned Spring plumbing (P1, small spike)
+**Candidates:** RJSF 6.7.1 and tested JSON Schema Draft 2020-12 validator; React/Vite/TanStack Query. Refine Core and API Platform Admin deferred optional PoCs, not core dependencies.
+**Paths:** examples/books-web/src/features/books/, src/protocolia-ui/, src/generated/schemas/; a versioned resource/UI manifest schema in ProtocolIA.
 
-**Files proposed:** experiments/openapi-generator-spring/ (or similar isolated path), docs/ADR-003-FULLSTACK-COMPOSITION.md appendix.
+**Tasks:** render a Books list and detail from declared resource identity, operation roles and field order; generate Create form from BookRequest JSON Schema with required/blank/numeric validation; render "Adjust stock" action from StockAdjustment schema; choose labels and display fields explicitly. UI owns layout/widgets/styles but not HTTP types. Preserve custom components. Report loading/empty/error/permission states, and refresh cache after successful mutations.
 
-Tasks: pin official OpenAPI Generator release and supported Spring/Java/Jackson options; generate from the exact same G0 OpenAPI; connect a handwritten business delegate without a second controller; test Java21/Boot4 compilation, validation, authorization, statuses, JSON strictness, regenerate without custom-source loss, concurrency against same domain handler. Count and inspect owned customization and update surface, not LOC alone.
+**Acceptance:** real browser E2E (Playwright or equivalent) against the G1 running app; create a book, list/detail it, adjust stock and observe list/detail refresh; invalid form and server-side invalid payload both blocked, 401/403 correctly presented; form schema consistent with server; UI generated standard fields without per-field handwritten plumbing. UI metadata cannot grant server capabilities.
 
-**Acceptance:** equal Maven + HTTP/security suites and reproducible generation. Record comparison with current ProtocolIA adapter, version, command, commits, gaps and license. **Decision:** replace only if it yields equal-or-better semantic parity, safer regeneration and lower maintenance. Otherwise retain current adapter and close spike with a documented negative result.
+**No-go:** relying on Refine Inferencer sample-data heuristics as contract compiler, mock-only screenshots, stale stock, automatic SQL/auth inferred from form or unbounded list falsely described as paginated. If RJSF cannot implement the needed UX securely, retain manually owned form and document why.
 
-## Gate G5 — generalize carefully, publish a supported profile (P2, medium)
+## G4 — Trusted capability mapping, OAuth2/OIDC and full API tests [P1]
 
-**Files proposed:** versioned resource/UI/query metadata schema, docs/API_PROFILE.md, adapter configs, golden fixtures/compatibility tests, generated/user-owned path policy.
+**Candidates:** Spring Security 7.1.x Resource Server, Schemathesis 4.30.1.
+**Paths:** backend user-owned security config and capability evaluator, manifest mapping in deployment config, explicit negative HTTP/JUnit suites and disposable Schemathesis runner.
 
-Tasks: only after Books succeeds, extract minimal validated resource-to-operation mapping and explicit cache invalidation. Evaluate RJSF/JSON Forms and one admin framework against actual UI quality. Define project version matrix, software bill of materials/licenses, update policy, compatibility diff and contract-owned metadata migration. Publish a single command that generates backend/client and a working example without requiring unreviewed hooks or silent code overrides.
+**Tasks:** keep protocol capability names separate from OAuth scopes. Validate real JWT signature, iss, aud, expiry and missing/forged tokens; implement trusted mapping (role/scope/claims -> capabilities), review @PreAuthorize enforcement with generated delegate boundary. For EVERY protected operation write positive+negative tests; ensure Basic demo profile cannot be confused with bearer production target. Run Schemathesis with bounded traffic against isolated test server; retain explicit concurrency/business invariant tests. No live production DB/write tests.
 
-**Acceptance:** a *second* deliberately chosen resource reuses the same framework without copying endpoint-specific generator internals; regenerated artifacts deterministic; handwritten domain/UI work survives changes; unsupported metadata fails closed; clean fresh-clone setup works. **No-go:** introducing generic DSL/ORM/page builders without a second working consumer.
+**Acceptance:** every declared capability has allow/deny coverage; missing or tampered JWT rejected; no UI-only enforcement; generated server cannot silently lose authorization on regen; test positive, negative, malformed and 4xx/error behaviors; Schemathesis produces reproducible result and passes supported contract (any discovered defect fixed or explicitly blocked). No default 501 for implemented operations.
 
-## Sequencing, research handoff and risks
+**Fallback:** do not claim deployed OIDC support. Keep demonstrably safe local/dev Basic only, label pilot blocked from public production.
 
-1. **Start engineering with G0 now.** It is a verified source-level mismatch independent of whether Orval or a different client generator wins the study.
-2. Incorporate the ongoing deep research into ADR-003: maintained upstream versions and release dates, licenses, Spring Boot 4 options, Orval vs Hey API/Kubb/openapi-typescript, RJSF/JSON Forms compatibility, admin framework tradeoffs, official source references. Promote PROPOSED to ACCEPTED only after this review and G1 spike.
-3. No more than one alternative to an adopted tool in a spike at a time; do not invest in frameworks before a real user story. Keep P4 frozen and separately reported.
+## G5 — Reproducible regeneration, evolution and completed pilot [P2]
 
-**Effort bands are relative, not productivity estimates:** G0 small; G1 small; G2 medium; G3 medium/large; G4 small isolated spike; G5 medium. Highest technical risks: OpenAPI/runtime security/status drift, optional/enum/null mapping, pagination contract expansion, hidden generated-file ownership collisions, authorization inferred on client, migrations/concurrency, and upstream tool version breakage. Each has an explicit gate and fallback above.
+**Paths:** adapters/toolchain manifest, generated-owned paths, fixtures/contract-evolution/, examples/books-backend/ user-owned migrations, Testcontainers E2E, docs/EXECUTION_STATE.md.
 
-## Definition of done for the initiative
+**Tasks:** staged regeneration into disposable trees -> contract lint/diff -> backend and frontend generation -> format -> Java compile/HTTP tests -> TS typecheck/browser tests -> Schemathesis -> idempotence and output ownership check -> replace generated trees only after passes. Exercise at least one added field and operation; publishedAt optional is a target *only after* optional/null wire model compatibility is implemented. Track contract change propagation to Java DTO, client hook/type, form schema/field, UI manifest and tests with zero manual-file edits. Review PostgreSQL/Flyway migrations and exercise persistence/restarts/concurrent updates in disposable DB if persistent pilot is in scope. CI uses pinned actions locally/free first; Render deploy only after equivalent green checks.
 
-A new developer starts from a pinned clean checkout, validates a Books contract, generates/rebuilds a backend and typed web client, runs the application and demonstrates CRUD subset + stock change with correct auth/error semantics; persisted form if G3 is claimed complete. E2E assertions and reversible regeneration are independently repeatable. Anything less is recorded as an incomplete gate, not as a finished application generator.
+**Acceptance:** fresh clone can generate real working backend + client + UI; 100% pilot required operations actually implemented; 0 default 501; 0 unauthorized writes; 0 changed user-owned files after regenerate; two successive generations zero diff; all intentional breaking fixtures flagged; HTTP/browser/authorization/DB tests green at the **exact SHA**; evidence includes versions, input hashes, commands, observed run IDs, failures and build costs where measured. Second small resource reuses machinery before claiming generic multi-resource support.
+
+**Fallback/no-go:** if regeneration is unstable or a generator upgrade changes semantics, pin last good tools and leave pilot incomplete. If DB or OIDC gates fail, report partial demo instead of a production-ready full-stack product. Frozen P4 untouched.
+
+## Measurement and product decision
+
+Measure contract-to-green time, manual source touched/added (exclude generated files), repair count, drift of generated output, diff amplification, successful operation coverage, security failures, human intervention, and actual runtime/tool cost if known. Deep research suggests *targets* such as 30% faster pipeline, 40% less manual plumbing, 80% automatically represented CRUD fields, and 100% operation/security coverage. **Those are proposed targets, NOT observed improvements or promises.** Favor real use, evidence and honest negative results over a large new benchmark framework.
+
+**Definition of DONE:** truthful source contract -> generated OpenAPI/JSON Schema/manifests -> actual Spring generated API with user-owned domain -> ONE typed TS client + hooks -> working RJSF Books UI -> independently tested auth/invariants -> reversible/idempotent regeneration. Persistence/production auth are DONE only when their individual G4/G5 gates pass.
