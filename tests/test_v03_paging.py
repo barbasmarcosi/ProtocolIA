@@ -76,7 +76,8 @@ class QueryPaginationV03Test(unittest.TestCase):
         java = generate_java(SOURCE)
         controller = java["src/main/java/dev/protocolia/generated/ContractController.java"]
         port = java["src/main/java/dev/protocolia/generated/ContractHandlers.java"]
-        self.assertIn("@org.springframework.validation.annotation.Validated", controller)
+        self.assertNotIn("@org.springframework.validation.annotation.Validated", controller)
+        self.assertIn("invalid query parameter", controller)
         self.assertIn('RequestParam(name="limit",required=false,defaultValue="25")', controller)
         self.assertIn('RequestParam(name="offset",required=false,defaultValue="0")', controller)
         self.assertIn("@jakarta.validation.constraints.Min(1)", controller)

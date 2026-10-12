@@ -75,6 +75,7 @@ def controller(ops: dict) -> str:
             _fail("unsupported Java operation name: " + name)
         params = []
         args = []
+        query_guards = []
         for key, typ in op["params"].items():
             if key in BAD:
                 _fail("unsupported Java parameter name: " + key)
@@ -94,6 +95,12 @@ def controller(ops: dict) -> str:
                 jt(field["type"]) + ' ' + key
             )
             args.append(key)
+            query_guards.append(
+                "        if (" + key + " == null || " + key + " < " + str(low) +
+                " || " + key + " > " + str(high) + ")\n" +
+                '            throw new org.springframework.web.server.ResponseStatusException(' +
+                'org.springframework.http.HttpStatus.BAD_REQUEST, "invalid query parameter");'
+            )
         if "request" in op:
             params.append("@jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody " + op["request"] + " body")
             args.append("body")
@@ -107,6 +114,7 @@ def controller(ops: dict) -> str:
             '@org.springframework.web.bind.annotation.RequestMapping(path="' + op["path"] +
             '",method=org.springframework.web.bind.annotation.RequestMethod.' + op["method"] + ')\n' +
             '    public ' + op["response"] + ' ' + name + '(' + ", ".join(params) + ') {\n' +
+            ('\n'.join(query_guards) + '\n' if query_guards else '') +
             '        ContractHandlers handler = handlers.getIfAvailable();\n' +
             '        if (handler == null) throw new org.springframework.web.server.ResponseStatusException(' +
             'org.springframework.http.HttpStatus.NOT_IMPLEMENTED, "business handler missing");\n' +
@@ -115,8 +123,6 @@ def controller(ops: dict) -> str:
     return (
         "package " + PKG + ";\n" +
         "@org.springframework.web.bind.annotation.RestController\n" +
-        ("@org.springframework.validation.annotation.Validated\n" if any(
-            o.get("query") for o in ops.values()) else "") +
         "public class ContractController {\n" +
         "    private final org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers;\n" +
         "    public ContractController(org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers) {\n" +

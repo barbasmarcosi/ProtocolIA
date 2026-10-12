@@ -36,7 +36,7 @@ class BooksPaginationHttpTest {
     }
 
     private int number(String body, String field) {
-        Matcher m = Pattern.compile(field + "\\s*:\\s*(\\d+)").matcher(body);
+        Matcher m = Pattern.compile(field + (char)34 + "\\s*:\\s*(\\d+)").matcher(body);
         assertTrue(m.find(), "Missing numeric field " + field + " in " + body);
         return Integer.parseInt(m.group(1));
     }
