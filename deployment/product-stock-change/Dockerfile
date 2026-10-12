@@ -15,6 +15,7 @@ COPY tests/test_java_http_profile.py ./tests/test_java_http_profile.py
 COPY tests/test_resource_bundle.py ./tests/test_resource_bundle.py
 COPY tests/test_inventory_backend.py ./tests/test_inventory_backend.py
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_java*.py' -v
+RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_resource_bundle.py' -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_inventory_backend.py' -v
 RUN sh examples/stock-change/prepare.sh /app-generated
 
