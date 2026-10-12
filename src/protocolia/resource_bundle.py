@@ -167,6 +167,10 @@ def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = 
         if "actionId" in binding:
             endpoint["x-protocolia-action-id"] = binding["actionId"]
         endpoint["tags"] = [binding["resource"]]
+    # Stable relative base URL is truthful for this root-mounted Java demo.
+    # Define resource tags at document level, so OpenAPI lint is warning-free.
+    api["servers"] = [{"url": "/"}]
+    api["tags"] = [{"name": name} for name in sorted(resource_ir["resources"])]
     artifacts["openapi.json"] = core._json(api)
     ui = {"version": BUNDLE_VERSION, "resources": resource_ir["resources"]}
     capability = {"version": BUNDLE_VERSION, "operations": {}}

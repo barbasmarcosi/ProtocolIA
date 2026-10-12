@@ -60,6 +60,8 @@ class ResourceBundleTest(unittest.TestCase):
         self.assertEqual(adjustment["x-protocolia-operation-role"], "action")
         self.assertEqual(adjustment["x-protocolia-action-id"], "restock")
         self.assertEqual(adjustment["tags"], ["books"])
+        self.assertEqual(spec["tags"], [{"name": "books"}])
+        self.assertEqual(spec["servers"], [{"url": "/"}])
         self.assertEqual(set(adjustment["responses"]), {"200", "400", "401", "403", "404", "409", "501"})
         self.assertEqual(adjustment["security"], [{"basicAuth": []}])
         self.assertNotIn("x-protocolia-resource", spec["paths"]["/health"]["get"])
