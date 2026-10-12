@@ -192,3 +192,7 @@ claim of production-ready persistence or full G0 completion. G1 remains next.
 ### G1 — Upstream Spring Boot 4.1.1 functional parity verified; default held (2026-10-12)
 
 The [G1 evidence](G1_OPENAPI_GENERATOR_EVIDENCE.md) records real **OpenAPI Generator 7.26.0** consuming the target v0.3 OpenAPI, **7/7 JUnit PASS**, Maven `BUILD SUCCESS`, generated-source diff zero, five capability bindings checked, and Render Free LIVE `/health` at SHA `1b3478059e36be79de8d9834b196a21ec0d9f88e`. The external Spring target is a working **optional pilot**, not yet the default; developer-maintained integration code actually increased in this small vertical, so no productivity advantage has been claimed. Preserve proven ProtocolIA generator, historical contracts and frozen P4.
+
+### 2026-10-12 — G2 typed Orval client and cache verified
+
+[`examples/books-web`](../examples/books-web/README.md) is now an Orval **8.41.0 only** TypeScript/TanStack Query foundation; [G2 evidence](G2_TYPESCRIPT_CLIENT_EVIDENCE.md) records selected-client `npm ci` from the committed lockfile, regenerating eight files byte-identically, checks against ProtocolIA capability/resource manifests, and **real** isolated Spring Boot HTTP tests for all Books operations and 4xx failures including multi-page/detail cache invalidation. Kubb was tested as a separate generator/typecheck candidate using actually published package versions, but excluded from the supported client. Does not count as a working G3 UI or production identity/database.

@@ -48,7 +48,7 @@ Order is a dependency DAG, not six independent deliverables:
 
 ## G2 — Generated client + typed query/hooks [P1, prerequisite for UI]
 
-**Candidates:** Orval 8.41.0 default vs Kubb 5.5.5 short strategic spike. Do not make both permanent.
+**Implemented G2:** Orval **8.41.0 SELECTED** (sole generator dependency for `examples/books-web`). Kubb was tested as an isolated alternative using *published independent package releases*: CLI 5.8.0; plugin-ts 5.0.6, plugin-fetch 5.5.7, plugin-react-query 5.2.1. Original uniform Kubb 5.5.5 was not installable. See [G2 evidence](G2_TYPESCRIPT_CLIENT_EVIDENCE.md).
 **Paths:** adapters/client/orval/ and experiments/kubb-spike/ as temporary candidates; examples/books-web/ Vite+React+TS with pinned package manager lock; src/generated/api and src/api/http.ts user-owned.
 
 **Tasks:** test both candidates on identical G0 OpenAPI 3.1 corpus: four Book endpoints plus mixed valid/invalid payloads, arrays/refs/errors/capability extensions. Verify auth transport, typed error handling, URL params, React/TanStack Query hooks, query-key stability, invalidation and diff amplification from a small compatible change. Generate one client after a documented decision.
@@ -56,6 +56,8 @@ Order is a dependency DAG, not six independent deliverables:
 **Acceptance:** clean package install, TypeScript typecheck zero errors, tests call *real* Spring API for list/get/create/adjust (no mock-only acceptance); 400/401/403/404/409 handled predictably, create and adjust invalidate list/detail; generated code deletable/recreated, handwritten HTTP adapter untouched; select ONE generator with published reason.
 
 **Fallback:** openapi-typescript + openapi-fetch and user-owned TanStack Query glue if Orval and Kubb both fail the supported corpus. RTK Query Codegen only for a separate application already on Redux.
+
+**Observed G2 acceptance (2026-10-12):** both candidates generate/typecheck on the same v0.3 OpenAPI; Orval-only `examples/books-web` builds with pinned `package-lock.json` and `npm ci`, preserves user-owned HTTP/cache files after regen, checks capability and invalidation manifests, and passes a real loopback G1 Java 21/Spring Boot 4.1.1 API test for paging, 201/400/401/403/404/409 and 8 parallel increments. **Not completed in G2:** full React/Vite browser UI (G3), comprehensive OpenAPI evolution/diff amplification, runtime equivalence of Kubb and Orval, or production identity/persistence. Exact evidence and source SHA in [G2 report](G2_TYPESCRIPT_CLIENT_EVIDENCE.md).
 
 ## G3 — Schema-driven Books UI and explicit resource manifest [P1]
 

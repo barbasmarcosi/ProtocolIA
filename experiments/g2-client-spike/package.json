@@ -1,0 +1,29 @@
+{
+  "name": "@protocolia/g2-books-client-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:orval": "orval --config orval.config.ts",
+    "generate:kubb": "kubb generate --config kubb.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test:real": "tsx tests/real-backend.test.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.90.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "orval": "8.41.0",
+    "kubb": "5.8.0",
+    "@kubb/plugin-ts": "5.0.6",
+    "@kubb/plugin-fetch": "5.5.7",
+    "@kubb/plugin-react-query": "5.2.1",
+    "typescript": "5.9.3",
+    "tsx": "4.20.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/node": "22.18.6"
+  }
+}
