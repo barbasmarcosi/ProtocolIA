@@ -11,7 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /** User-owned SQL, PostgreSQL-backed domain; no HTTP-to-SQL synthesis. */
 @Service
-public final class BookInventory {
+public class BookInventory {
     public record Entry(String isbn, String title, int stock) {}
     public record Page(List<Entry> items, int limit, int offset, int total) {}
 
