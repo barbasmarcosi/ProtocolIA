@@ -11,4 +11,10 @@ mkdir -p "$MAIN" "$TEST"
 cp examples/stock-change/protocolia/CatalogHandlers.java "$MAIN/CatalogHandlers.java"
 cp examples/catalog-vertical/CatalogVerticalTest.java "$TEST/CatalogVerticalTest.java"
 cp examples/stock-change/protocolia/StockAdjustmentContractTest.java "$TEST/StockAdjustmentContractTest.java"
+# Emit the truthful Java Basic demo OpenAPI separately from generic v0.2 output.
+PYTHONPATH=src python3 -m protocolia compile-http \
+  examples/stock-change/protocolia/contract.json \
+  --profile java-spring-basic-demo \
+  --domain-errors examples/stock-change/protocolia/http-errors.json \
+  --out "$OUT/contract-http"
 echo "READY real generated stock-change app at $OUT"

@@ -17,13 +17,19 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","action-preview","action-run"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","compile-http","action-preview","action-run"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
     parser.add_argument("--policy",type=Path)
     parser.add_argument("--environment",type=str)
+    parser.add_argument("--profile",choices=["java-spring-basic-demo"])
+    parser.add_argument("--domain-errors",type=Path)
     args=parser.parse_args()
+    if args.command=="compile-http" and args.profile!="java-spring-basic-demo":
+        parser.error("compile-http requires --profile java-spring-basic-demo")
+    if args.command!="compile-http" and (args.profile is not None or args.domain_errors is not None):
+        parser.error("--profile/--domain-errors are reserved for compile-http")
     if args.command=="diff" and args.candidate is None:
         parser.error("diff requires old and candidate contract paths")
     if args.command!="diff" and args.candidate is not None:
@@ -65,6 +71,13 @@ def main() -> int:
             else:
                 print("KEPT user-owned StarterHandlers.java unchanged; adapt it to the current ContractHandlers interface if needed")
             print(f"NEXT cd {args.out} && mvn -B -ntp clean verify")
+        elif args.command=="compile-http":
+            from .http_projection import compile_java_http
+            errors=(json.loads(args.domain_errors.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+                    if args.domain_errors is not None else None)
+            artifacts=compile_java_http(contract,errors)
+            write_artifacts(artifacts,args.out)
+            print(f"GENERATED Java Basic demo HTTP profile ({len(artifacts)} artifacts) in {args.out}")
         elif args.command=="generate-inventory-java":
             from .inventory_backend import generate_inventory
             from .java_spring import write_java
