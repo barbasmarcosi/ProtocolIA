@@ -1,0 +1,48 @@
+{
+  "version": "0.1",
+  "resources": {
+    "books": {
+      "model": "Book",
+      "identityField": "isbn",
+      "operations": {
+        "detail": "getBook",
+        "create": "createBook",
+        "actions": {
+          "restock": "adjustStock"
+        }
+      },
+      "views": {
+        "create": {
+          "fields": [
+            "isbn",
+            "title",
+            "stock"
+          ],
+          "title": "Create book"
+        },
+        "detail": {
+          "fields": [
+            "isbn",
+            "title",
+            "stock"
+          ],
+          "title": "Book details"
+        },
+        "restock": {
+          "fields": [
+            "quantity"
+          ],
+          "title": "Restock book"
+        }
+      },
+      "invalidates": {
+        "createBook": [
+          "books"
+        ],
+        "adjustStock": [
+          "books"
+        ]
+      }
+    }
+  }
+}

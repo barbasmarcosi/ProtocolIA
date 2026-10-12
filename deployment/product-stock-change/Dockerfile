@@ -12,6 +12,7 @@ COPY examples/inventory-v0.2.json ./examples/inventory-v0.2.json
 COPY tests/test_java_spring.py ./tests/test_java_spring.py
 COPY tests/test_java_project.py ./tests/test_java_project.py
 COPY tests/test_java_http_profile.py ./tests/test_java_http_profile.py
+COPY tests/test_resource_bundle.py ./tests/test_resource_bundle.py
 COPY tests/test_inventory_backend.py ./tests/test_inventory_backend.py
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_java*.py' -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_inventory_backend.py' -v

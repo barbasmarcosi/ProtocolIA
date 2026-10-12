@@ -230,7 +230,7 @@ def write_artifacts(artifacts: dict[str, str], output: Path) -> None:
     elif any((output / name).exists() or (output / name).is_symlink() for name in expected):
         _fail("unmanaged files already exist; refusing overwrite")
     for name in expected:
-        if name not in {"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json"}:
+        if name not in {"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json", "resource-ir.json", "ui-manifest.json", "capability-manifest.json", "generation-manifest.json"}:
             _fail("unsupported artifact name")
     # Stage every file before replacing; staged names live within the output folder.
     staged: list[tuple[Path, Path]] = []
@@ -255,7 +255,7 @@ def preview_artifacts(artifacts: dict[str, str], output: Path) -> dict[str, obje
     """
     output = Path(output)
     expected = set(artifacts)
-    if not expected.issubset({"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json"}) or "manifest.json" not in expected:
+    if not expected.issubset({"ir.json", "openapi.json", "types.ts", "manifest.json", "payload.schema.json", "resource-ir.json", "ui-manifest.json", "capability-manifest.json", "generation-manifest.json"}) or "manifest.json" not in expected:
         _fail("unsupported artifact set")
     for path in (output, *output.parents):
         if path.is_symlink():
