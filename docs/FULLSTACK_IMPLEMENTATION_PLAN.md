@@ -70,6 +70,14 @@ Order is a dependency DAG, not six independent deliverables:
 
 **No-go:** relying on Refine Inferencer sample-data heuristics as contract compiler, mock-only screenshots, stale stock, automatic SQL/auth inferred from form or unbounded list falsely described as paginated. If RJSF cannot implement the needed UX securely, retain manually owned form and document why.
 
+**G3 acceptance observation — 2026-10-12:** Bounded Books UI **VERIFIED**
+at source `eeff8a628ca9a3487ef6a9b50b9797425c4a4f96` with generated Orval hooks, RJSF 6.7.1/AJV2020
+simple BookRequest and StockAdjustment JSON Schema, ui-manifest-driven
+list/detail fields, strict TS/Vite, **3/3 real Chromium Playwright tests**
+against isolated Spring Boot 4.1.1, Render Free LIVE and independently
+verified public /health. See [G3 evidence](G3_BOOKS_UI_EVIDENCE.md).
+This does **not** close generic 2020-12, production auth or DB gates.
+
 ## G4 — Trusted capability mapping, OAuth2/OIDC and full API tests [P1]
 
 **Candidates:** Spring Security 7.1.x Resource Server, Schemathesis 4.30.1.

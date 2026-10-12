@@ -196,3 +196,15 @@ The [G1 evidence](G1_OPENAPI_GENERATOR_EVIDENCE.md) records real **OpenAPI Gener
 ### 2026-10-12 — G2 typed Orval client and cache verified
 
 [`examples/books-web`](../examples/books-web/README.md) is now an Orval **8.41.0 only** TypeScript/TanStack Query foundation; [G2 evidence](G2_TYPESCRIPT_CLIENT_EVIDENCE.md) records selected-client `npm ci` from the committed lockfile, regenerating eight files byte-identically, checks against ProtocolIA capability/resource manifests, and **real** isolated Spring Boot HTTP tests for all Books operations and 4xx failures including multi-page/detail cache invalidation. Kubb was tested as a separate generator/typecheck candidate using actually published package versions, but excluded from the supported client. Does not count as a working G3 UI or production identity/database.
+
+### 2026-10-12 — G3 RJSF Books UI real browser proof (bounded pilot)
+
+[Evidence](G3_BOOKS_UI_EVIDENCE.md): **3/3 Playwright Chromium tests PASS**
+against actual Spring Boot with schema-derived Create/Restock forms (RJSF
+6.7.1/AJV2020), manifest-driven Books list/detail, generated Orval Query
+hooks, live cache refreshing, bounded pagination, invalid forms and 401/403,
+plus mobile layout. `npm ci` lockfile, TypeScript/Vite build,
+idempotent regeneration, explicit public-host allowlist and public
+`/health` verified on Render Free at source `eeff8a628ca9a3487ef6a9b50b9797425c4a4f96`.
+UI shell is handwritten: **not** a generic UI generator, production auth,
+SQL engine or durable DB. G4 is still mandatory.
