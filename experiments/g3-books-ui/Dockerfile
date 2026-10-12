@@ -26,8 +26,9 @@ COPY examples/books-web/src ./src
 COPY examples/books-web/tests ./tests
 COPY --from=contract /contract-bundle ./contract-bundle
 RUN cp contract-bundle/openapi.json ./openapi.json
-RUN npm install --no-audit --no-fund
-RUN node -e 'const fs=require("node:fs");const s=fs.readFileSync("package-lock.json").toString("base64");for(let i=0;i<s.length;i+=4096)console.log("G3LOCK:"+String(i/4096).padStart(4,"0")+":"+s.slice(i,i+4096));console.log("G3LOCK_END:"+s.length);'
+# Lock file generated from actual resolved npm dependencies, committed to the repo.
+COPY examples/books-web/package-lock.json ./package-lock.json
+RUN npm ci --no-audit --no-fund
 RUN npm run generate && npm run verify:contract && npm run verify:regen \
  && npm run typecheck && npm run build
 RUN echo 'G3_RJSF_TYPESCRIPT_AND_BUILD_PASS'
