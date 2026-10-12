@@ -104,6 +104,19 @@ next-step compilation instructions and the README includes local startup
 instructions without embedding secrets. No model/API provider or scripting
 framework is needed.
 
+**Measured completion (free Render, 2026-10-11/12 UTC):** generator Python
+tests 12/12, old inventory generator regression tests 4/4, new CLI tests
+7/7. Real Java 21/Maven 3.9.11 builds of **two separate applications**
+both pass `mvn clean verify` without skipping tests: (1) newly initialized
+`StarterHandlers` app's HTTP test checks unauthenticated 401 and
+authenticated unimplemented 501, (2) the actual catalog business handler's
+integration test exercises working CRUD and viewer read/deny-write. Deployment
+`dep-db64002jnfac73cb38og` is **LIVE** in the disposable free Render service
+`srv-db63vvijnfac73cb36jg`, with an external `GET /health` returning
+`{"status":"UP"}`. The final catalog runnable JAR SHA256 is
+`210b8458bd3cc55c1777fdde5a3b2c62734b1c8f2f783d6ab648a3aa8869e588`.
+The original P4 task, verifiers, and experimental artifacts were not changed.
+
 Validation: fresh generic CLI scaffold compiles as a real Java 21/Spring Boot 4
 service and HTTP-smoke-tests unauthenticated 401/authenticated unimplemented
 501; the already implemented catalog application is separately rebuilt and
