@@ -28,6 +28,20 @@ The public endpoint `https://protocolia-g5-postgres-build-20261012.onrender.com/
 `{"status":"UP","postgresql_test_build":"VERIFIED","persistent_books_api_publicly_enabled":false}`.
 The published image contains **only a health marker**. There is no publicly running persistent Books API/database at that URL.
 
+## Final fresh acceptance on the exact test commit
+
+**Full tested source SHA:** `4273715d6127a965c63dfa04109eb67d475a543a`. Render Free deployment **`dep-db6n3vcs728c73clei60` LIVE** for service `srv-db6mvhks728c73cktj8g`. This commit changes the real two-JVM restart test, so the downstream PostgreSQL/test Docker stage ran **fresh**, rather than merely reusing the previously green cached layer. It adds a negative HTTP `PATCH` of `quantity=0`, asserts status **400**, and verifies stock remains **9** before the JVM is terminated.
+
+Observed on that source SHA:
+- `G5_GENERATED_JAVA_IDEMPOTENT`: independent disposable source generation has no Java differences.
+- `mvn -B -ntp clean verify`: **10 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**.
+- `G5_PRE_RESTART_INSERT_AND_ATOMIC_WRITE_PASS`: positive +7 and negative 400 write invariant.
+- `G5_PERSISTENCE_SURVIVES_TWO_JVM_PROCESSES_PASS`: the second Java process reads the persisted stock 9.
+- `G5_DURABLE_ROW_COUNT=9`: actual PostgreSQL SQL count after tests.
+- The publicly accessible Render instance is **health-only**; no persistent Books write API or test DB was deployed publicly.
+
+This is the latest **fresh runnable-source evidence**. Subsequent documentation-only commits do not change the code exercised and do not imply new test executions.
+
 ## Failed attempt preserved
 
 First source SHA `25ef4b7c47d97d44d9ee9c3bf90d0bba0bc82da6`: Flyway successfully applied migration v1, but Spring context creation failed because `@Transactional` uses CGLIB class proxying while `BookInventory` was `final`. The non-final user-owned service fix was committed at `a366ac3a9b133b5306ed01df75d9d778f5807b04`. Maven and HTTP suites then passed. No compensating changes were made to G1, G4 or semantic v0.3.
