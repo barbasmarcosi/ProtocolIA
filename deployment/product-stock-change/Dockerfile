@@ -37,8 +37,8 @@ WORKDIR /spec
 COPY --from=generator /app-generated/contract-bundle/openapi.json ./openapi.json
 COPY deployment/g0-oasdiff-base.json ./base.json
 COPY deployment/g0-oasdiff-removed.json ./removed.json
-RUN /go/bin/oasdiff validate ./openapi.json \
-    && /go/bin/oasdiff breaking ./openapi.json ./openapi.json
+# In v1.11.7 the CLI has no 'validate' subcommand (Spectral owns syntax).
+RUN /go/bin/oasdiff breaking ./openapi.json ./openapi.json
 RUN set +e; /go/bin/oasdiff breaking ./base.json ./removed.json > /tmp/oasdiff-breaking.txt 2>&1; \
     result=$?; cat /tmp/oasdiff-breaking.txt; test "$result" -eq 1
 
