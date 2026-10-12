@@ -109,6 +109,10 @@ coverage, and not a security audit**. G4 remains open for real-issuer rollout.
 
 **Fallback/no-go:** if regeneration is unstable or a generator upgrade changes semantics, pin last good tools and leave pilot incomplete. If DB or OIDC gates fail, report partial demo instead of a production-ready full-stack product. Frozen P4 untouched.
 
+### G5 checkpoint — 2026-10-12 (persisted Books test slice verified; other gates open)
+
+PostgreSQL 16.10 and Flyway v1 have been verified in an isolated Docker build with Java 21 / Boot 4.1.1: **10/10 JUnit PASS**, 409 domain protection, transaction rollback, concurrent restocks, consistent pagination and **book persisted across two distinct JVM launches**. The Java generator also produced zero-diff code from two independent runs. This uses reviewed user-owned migration/SQL and does not change the v0.3 wire source. [G5 evidence](G5_POSTGRESQL_PERSISTENCE_EVIDENCE.md). It is not a managed DB deployment, production readiness, full end-to-end regeneration, additive optional-field propagation or second resource. Those criteria remain OPEN.
+
 ## Measurement and product decision
 
 Measure contract-to-green time, manual source touched/added (exclude generated files), repair count, drift of generated output, diff amplification, successful operation coverage, security failures, human intervention, and actual runtime/tool cost if known. Deep research suggests *targets* such as 30% faster pipeline, 40% less manual plumbing, 80% automatically represented CRUD fields, and 100% operation/security coverage. **Those are proposed targets, NOT observed improvements or promises.** Favor real use, evidence and honest negative results over a large new benchmark framework.
