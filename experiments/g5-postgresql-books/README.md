@@ -1,6 +1,6 @@
 # G5 PostgreSQL + Flyway persistence (isolated proof)
 
-**Status: implementation candidate — pending execution.** This is the first
+**Status: VERIFIED BOUNDED PERSISTENCE PILOT (G5 remains IN PROGRESS).** This is the first
 bounded persistence experiment, not production, and not automatic completion of
 all G5 requirements.
 
@@ -18,7 +18,7 @@ docker build -f experiments/g5-postgresql-books/Dockerfile \
   -t protocolia-g5-persistence .
 ```
 
-The build starts a real PostgreSQL server on loopback `127.0.0.1:55432`,
+The verified build at SHA `a366ac3a9b133b5306ed01df75d9d778f5807b04` starts a real PostgreSQL server on loopback `127.0.0.1:55432`,
 creates one scratch database, runs real Maven/JUnit and HTTP API tests,
 validates reviewed Flyway migration and CHECK constraints, transactional
 rollback, duplicate ISBN and 32-bit stock overflow; then launches the
@@ -30,6 +30,8 @@ The row-locked `UPDATE` with overflow guard serializes concurrent restocks.
 `listBooks` uses SQL `ORDER BY isbn LIMIT ? OFFSET ?` plus consistent
 `COUNT(*)` in a PostgreSQL REPEATABLE READ transaction. This is an explicit
 JDBC backend implementation, **not inferred SQL generation**.
+
+The non-production build passed **10/10 JUnit**, **Flyway V1**, rollback/SQL constraints and a book surviving **two JVM processes**. At SHA `07dbff4e19b80394921282e284079d2569cb3ab3`, independent Java source regeneration was byte-identical. [Full evidence](../../docs/G5_POSTGRESQL_PERSISTENCE_EVIDENCE.md).
 
 No secrets, real customer data, production database, Testcontainers Docker
 socket or GitHub Actions minutes are required. P4 remains unchanged.

@@ -217,3 +217,7 @@ ephemeral RSA/JWKS issuer and audience validation, fail-closed `books:read/write
 OAuth scope to `catalog.read/write` capability mapping, and 3 GET Schemathesis
 operations with 2,263 generated cases PASS at exact tested SHA. No public JWT service, durable database, real IdP or broad POST/PATCH fuzz
 is claimed. The standalone deployment exposes only a verification marker.
+
+### G5 PostgreSQL persistence proof — accepted **slice**, not G5 completion (2026-10-12)
+
+A real disposable PostgreSQL **16.10** in Render Docker build was backed by explicit reviewed Flyway V1, Spring JDBC transactions and row-locked atomic stock adjustments; **10/10 Maven/JUnit PASS** at DB source SHA `a366ac3a9b133b5306ed01df75d9d778f5807b04`. The same DB survived two separate Spring Boot JVM processes with a book retained at stock 9, no public DB. Source SHA `07dbff4e19b80394921282e284079d2569cb3ab3` added zero-diff Java regeneration. See [G5 evidence](G5_POSTGRESQL_PERSISTENCE_EVIDENCE.md). Do not claim persistence in the public G3 UI/Render demo, production OIDC, Testcontainers support or G5 100% completion.
