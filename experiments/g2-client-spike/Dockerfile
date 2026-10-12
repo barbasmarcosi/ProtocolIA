@@ -13,7 +13,7 @@ RUN PYTHONPATH=src python -m protocolia compile-bundle \
  --domain-errors examples/books-paging-v03/http-errors.json \
  --out /contract-bundle
 
-FROM node:22-bookworm-slim AS client
+FROM node:22-bookworm-slim AS comparison
 WORKDIR /g2
 COPY experiments/g2-client-spike/package.json ./
 COPY experiments/g2-client-spike/orval.config.ts ./
@@ -29,6 +29,29 @@ RUN npm run typecheck
 RUN echo 'G2_CANDIDATE_TYPESCRIPT_PASS' \
     && test -f src/generated/orval/books.ts \
     && test -f src/generated/kubb/hooks/useListBooks.ts
+
+# The supported Books web client uses ONE generator: Orval only.
+# Kubb is confined to the independently typechecked comparison stage.
+FROM node:22-bookworm-slim AS client
+WORKDIR /g2
+COPY examples/books-web/package.json ./
+COPY examples/books-web/orval.config.ts ./
+COPY examples/books-web/tsconfig.json ./
+COPY examples/books-web/src ./src
+COPY examples/books-web/tests ./tests
+COPY examples/books-web/scripts ./scripts
+COPY --from=contract /contract-bundle ./contract-bundle
+COPY --from=comparison /g2/src/generated/kubb/hooks/useListBooks.ts /tmp/kubb-probe/useListBooks.ts
+RUN cp contract-bundle/openapi.json ./openapi.json
+RUN npm install --no-audit --no-fund
+# One-time release-candidate extraction: reconstruct the exact npm lock via
+# base64 chunks in Render build logs, commit the result, then switch to npm ci.
+RUN node -e 'const fs=require("node:fs");const s=fs.readFileSync("package-lock.json").toString("base64");for(let i=0;i<s.length;i+=4096)console.log("G2LOCK:"+String(i/4096).padStart(4,"0")+":"+s.slice(i,i+4096));console.log("G2LOCK_END:"+s.length);'
+RUN npm run generate && npm run typecheck \
+  && npm run verify:contract && npm run verify:regen
+RUN echo 'G2_SELECTED_ORVAL_ONLY_VERIFIED' \
+  && test -f src/generated/orval/books.ts \
+  && test ! -d src/generated/kubb
 
 # Run exactly the same G1 Java backend from the source and OpenAPI used in G1.
 # Regeneration is disposable and never writes to user-owned code directories.
