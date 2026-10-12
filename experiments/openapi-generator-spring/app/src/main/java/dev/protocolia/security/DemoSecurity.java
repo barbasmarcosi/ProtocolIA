@@ -1,5 +1,6 @@
 package dev.protocolia.security;
 
+import jakarta.servlet.DispatcherType;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +25,7 @@ public class DemoSecurity {
     SecurityFilterChain security(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable()) // Stateless test/demo API only
             .authorizeHttpRequests(registry -> registry
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.GET, "/health").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/books", "/api/books/*").hasAuthority("catalog.read")
                 .requestMatchers(HttpMethod.POST, "/api/books").hasAuthority("catalog.write")

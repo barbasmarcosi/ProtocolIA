@@ -24,6 +24,7 @@ if actual != expected:
     raise SystemExit(2)
 source = Path(sys.argv[2]).read_text()
 for expected_snippet in [
+    ".dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()",
     '.requestMatchers(HttpMethod.GET, "/health").permitAll()',
     '.requestMatchers(HttpMethod.GET, "/api/books", "/api/books/*").hasAuthority("catalog.read")',
     '.requestMatchers(HttpMethod.POST, "/api/books").hasAuthority("catalog.write")',
