@@ -26,6 +26,9 @@ test('real browser: schema-driven create, pagination, details and stock refresh'
  await expect.poll(()=>postCount).toBe(0);
  await create.getByLabel('ISBN').fill('  ');
  await create.getByLabel('Título').fill('No debería crearse');
+ await create.getByLabel('Existencias').fill('-1');
+ await create.getByRole('button',{name:'Crear libro'}).click();
+ await expect.poll(()=>postCount).toBe(0);
  await create.getByLabel('Existencias').fill('1');
  await create.getByRole('button',{name:'Crear libro'}).click();
  await expect(create.getByText('No puede contener solo espacios.')).toBeVisible();
@@ -39,6 +42,11 @@ test('real browser: schema-driven create, pagination, details and stock refresh'
  await expect(detail.getByText(isbn1)).toBeVisible();
 
  const restock=detail.getByRole('button',{name:'Aplicar reposición'});
+ let patchCount=0;
+ page.on('request',r=>{if(r.method()==='PATCH'&&r.url().includes('/stock'))patchCount++;});
+ await detail.getByLabel('Unidades').fill('0');
+ await restock.click();
+ await expect.poll(()=>patchCount).toBe(0);
  await detail.getByLabel('Unidades').fill('7');
  await restock.click();
  await expect(page.getByText('Stock actualizado: 9 unidades')).toBeVisible();
@@ -71,4 +79,13 @@ test('real browser: 401 visible, reader access and 403 enforced on backend',asyn
   data:{isbn:'g3-viewer-rejected',title:'No autorizado',stock:1},
  });
  expect(response.status()).toBe(403);
+});
+
+test('real mobile browser: constrained layout and reader workflow',async ({page})=>{
+ await page.setViewportSize({width:390,height:844});
+ await login(page,...VIEWER,'Lector');
+ await expect(page.getByRole('heading',{name:'Books'})).toBeVisible();
+ const overflowing=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);
+ expect(overflowing).toBe(false);
+ await expect(page.getByRole('button',{name:'Cerrar sesión'})).toBeVisible();
 });
