@@ -208,3 +208,12 @@ idempotent regeneration, explicit public-host allowlist and public
 `/health` verified on Render Free at source `eeff8a628ca9a3487ef6a9b50b9797425c4a4f96`.
 UI shell is handwritten: **not** a generic UI generator, production auth,
 SQL engine or durable DB. G4 is still mandatory.
+
+### G4 — signed JWT and scoped capability trust pilot (2026-10-12)
+
+[Evidence](G4_JWT_SCHEMATHESIS_EVIDENCE.md): trusted JWT Bearer projection
+without altering Basic G0/G1/G3, 7/7 real HTTP/method security tests with
+ephemeral RSA/JWKS issuer and audience validation, fail-closed `books:read/write`
+OAuth scope to `catalog.read/write` capability mapping, and 3 GET Schemathesis
+operations with 2,263 generated cases PASS at exact tested SHA. No public JWT service, durable database, real IdP or broad POST/PATCH fuzz
+is claimed. The standalone deployment exposes only a verification marker.

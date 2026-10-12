@@ -333,3 +333,26 @@ fixed and preserved as negative evidence. `npm ci` with committed lock.
 capability mapping and broader Schemathesis tests; PostgreSQL/persistence
 and wider JSON Schema grammar remain open. Frozen P4 untouched; no paid
 model APIs or GitHub Actions minutes used.
+
+
+## G4 — trusted JWT capabilities + Schemathesis bounded pilot (2026-10-12)
+
+PR #47 introduces isolated `experiments/g4-jwt-capabilities` with a
+**separate truthful Bearer JWT OpenAPI profile** derived from G0's immutable
+Books Basic profile, deterministic SHA provenance, five-operation
+manifest-to-policy guard, Java 21 / Spring Boot 4.1.1 OAuth2 Resource Server,
+RS256 HTTPS JWKS validation of iss/aud/exp/nbf, fail-closed scopes -> internal
+capabilities, plus HTTP and `@PreAuthorize` method-level enforcement.
+
+**Last tested code SHA `22235015dcef0fce95c974a824f9cc6887a6d0dd`:**
+Maven **BUILD SUCCESS 7/7 JUnit** for real signed JWT HTTP responses and
+direct proxied method authorization. Pinned Schemathesis 4.30.1 generated
+**2,263 cases, 3 GET operations PASS** on the exact code
+SHA `22235015dcef0fce95c974a824f9cc6887a6d0dd`, with the full JWT HTTP/method test suite rerun at the same SHA. No public POST/PATCH fuzzing or production IdP.
+Render service `srv-db6lq3s9v7es73815pd0` runs **only a public verification
+health marker**, not the JWT Books API. P4 unchanged; no Actions minutes.
+
+The full evidence is [G4 JWT + Schemathesis](G4_JWT_SCHEMATHESIS_EVIDENCE.md).
+**G4 production rollout is NOT finished**: real OIDC provider validation,
+trust-store/key rotation, operational security, broader API fuzz and G5
+persistent storage remain open. Preserve G1–G3 Basic demo separately.

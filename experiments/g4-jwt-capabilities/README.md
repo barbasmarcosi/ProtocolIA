@@ -1,31 +1,36 @@
-# G4: JWT bearer-only resource server and trusted capability mapping
+# G4 JWT trust boundary — isolated, tested profile
 
-**Initial isolated security experiment; verification pending real Maven/HTTP
-tests.** This is NOT a production-enabled OAuth/OIDC deployment.
+This is a **JWT resource-server prototype**, not a token issuer or an
+internet-facing production authentication service. The verified output is
+documented in [the G4 evidence](../../docs/G4_JWT_SCHEMATHESIS_EVIDENCE.md).
 
-Source is the exact Books v0.3 contract and target-specific OpenAPI consumed
-by G1/G2/G3; the existing Basic-auth G1 sample remains unmodified.
-OpenAPI Generator 7.26.0 generates DTOs and Spring MVC ports, while handwritten
-G4 Security configuration owns JWT validation and all operation/capability
-permissions. Java 21, Spring Boot 4.1.1 and Spring Security are the candidate
-runtime. No token-issuing endpoint or bundled secret/private key is deployed.
+Input: Books v0.3 ProtocolIA contract -> G0 Basic OpenAPI and semantic
+capability manifest -> **explicit, audited G4 Bearer JWT OpenAPI projection**
+(with hashed provenance) -> OpenAPI Generator 7.26.0 (generated Java API/DTOs
+only) + Java 21/Spring Boot 4.1.1 (user-owned JWT security/domain).
 
-Trusted configuration requires an HTTPS issuer, HTTPS JWKS endpoint, expected
-audience, and **distinct OAuth read/write scopes**. A server-reviewed scope
-mapping produces ProtocolIA `catalog.read` and `catalog.write` authorities;
-untrusted token `capabilities`/roles claims never grant privileges. A
-test-only dynamic property allows **127.0.0.1 ephemeral HTTP JWKS** for tests;
-production configuration fails closed otherwise.
+JWT policy: only configured **HTTPS JWKS** is trusted, **RS256** signatures,
+issuer, audience, nbf/expiry verification; mapping of externally-issued
+`books:read/write` OAuth scopes to internal `catalog.read/write` capability
+authorities is code owned and enforced server-side. Token fields named
+`capabilities` cannot mint privilege. Both HTTP filter and user-owned
+domain delegate's `@PreAuthorize` require the correct operation capability.
+A special opt-in to use **loopback HTTP JWKS** exists strictly for integration
+tests, with per-run ephemeral RSA signing keys and no external IdP or secrets
+in the repository. Existing Basic G1/React G3 demos are unaffected.
 
-All Books methods in the user-owned G4 delegate have `@PreAuthorize` in
-addition to the HTTP access policy. A build-time manifest guard rejects
-unreviewed method/path/capability drift and omitted server/handler checks.
-Tests will use freshly generated RSA private keys (in-memory only), a
-locally served JWKS and actual signed Bearer tokens to verify audience,
-issuer, expiry, not-before, signature, read/write role matrix, 400/401/403/
-404/409 and strict Basic/unknown-method denial.
+## Reproduction
 
-The final Render image exposes a **health marker only**, not a public JWT
-bookstore, until an independently controlled real IdP and production safety
-review exist. Schemathesis with bounded traffic is a separate upcoming
-sub-gate within G4.
+```sh
+docker build -f experiments/g4-jwt-capabilities/Dockerfile -t protocolia-g4 .
+docker run --rm -p 10000:10000 -e PORT=10000 protocolia-g4
+curl http://127.0.0.1:10000/health
+```
+
+Docker must complete all gates before producing its final image: semantic
+manifest/policy drift guard, distinct Bearer projection+SHA provenance, Maven
+real JWT HTTP+delegate tests, Schemathesis **GET-only** signed-JWT property
+checks. The final image is deliberately **only a health/verification marker**,
+not a running JWT application. No browser/production client should log in to
+it. For actual deployment an independent real HTTPS OIDC IdP configuration,
+key rotation, operations and security review are still necessary.
