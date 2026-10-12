@@ -13,6 +13,13 @@ export default defineConfig({
       httpClient: 'fetch',
       clean: true,
       override: {
+        // The user-owned fetch mutator returns JSON body on 2xx and throws
+        // ApiHttpError on non-2xx. Keep generated types faithful to that.
+        fetch: {
+          includeHttpResponseReturnType: false,
+          forceSuccessResponse: true,
+          includeHttpErrorResponse: false,
+        },
         mutator: { path: './src/api/http.ts', name: 'httpClient' },
       },
     },
