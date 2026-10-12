@@ -181,3 +181,29 @@ HTTP integration test including read-only 200 / write-denial 403**, all PASS.
 `mvn -B -ntp clean verify` BUILD SUCCESS, no test skipping; executable JAR
 SHA-256 `ec2c9032bb1617f3298228f62458eb23b9519cbfc6b208e0e2ea9177ba2ebca5`.
 See [product-first plan](PRODUCT_FIRST_PLAN.md). P4 issue #5 unaffected.
+
+## Product-first Java developer workflow — stage 3 completed (2026-10-11/12 UTC)
+
+The CLI gained `protocolia init-java CONTRACT --out DIRECTORY`. One operation
+generates the complete owned Java 21/Spring Boot 4 contract artifacts and
+bootstraps exactly one *user-owned* `StarterHandlers.java` implementation of
+`ContractHandlers` (all methods return an explicit HTTP 501 until edited).
+Rerunning initialization safely regenerates owned files and preserves the
+custom class byte-for-byte. After a contract API signature change the user
+updates the custom code intentionally; no silent replacement or shadow MVC.
+No secrets or provider APIs are inserted into starter source.
+
+In free Render deployment `dep-db64002jnfac73cb38og`, the pipeline passed
+**7 new Python CLI workflow tests**, **12 Java-generator Python tests**,
+**4 inventory Python regressions**, and two independent Java 21/Maven 3.9.11
+`clean verify` builds with real JUnit HTTP tests: fresh generic app verified
+unauthenticated 401 and authenticated unimplemented 501; fully implemented
+catalog handler verified real CRUD, validation and viewer 403. No skipped
+tests. Final deployed catalog JAR SHA256:
+`210b8458bd3cc55c1777fdde5a3b2c62734b1c8f2f783d6ab648a3aa8869e588`.
+Render service `srv-db63vvijnfac73cb36jg` **LIVE**, external `/health`
+responded `{"status":"UP"}`. See [single product plan](PRODUCT_FIRST_PLAN.md).
+
+Stage 3 is complete for this supported Java target. Next work is a *small*
+real change-workflow comparison against direct Java and standard generation,
+not a restart of P4. Research issue #5 remains open.

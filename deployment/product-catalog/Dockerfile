@@ -7,12 +7,22 @@ COPY examples/sales-v0.2.json ./examples/sales-v0.2.json
 COPY examples/inventory-v0.2.json ./examples/inventory-v0.2.json
 COPY tests/test_java_spring.py ./tests/test_java_spring.py
 COPY tests/test_inventory_backend.py ./tests/test_inventory_backend.py
+COPY tests/test_java_project.py ./tests/test_java_project.py
+RUN PYTHONPATH=src python -m unittest discover -s tests -p test_java_project.py -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_java_spring.py -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_inventory_backend.py -v
 RUN sh examples/catalog-vertical/prepare.sh /out
+RUN PYTHONPATH=src python -m protocolia init-java examples/catalog-vertical/contract.json --out /starter
+RUN mkdir -p /starter/src/test/java/dev/protocolia/generated/custom && \
+    cp examples/catalog-vertical/StarterProjectSmokeTest.java /starter/src/test/java/dev/protocolia/generated/custom/
 
 FROM maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237 AS build
 WORKDIR /app
+COPY --from=generate /starter/ /starter/
+RUN cd /starter && PROTOCOLIA_USER=integration-only \
+    PROTOCOLIA_PASSWORD=integration-only-test-password-2026 \
+    PROTOCOLIA_SCOPES=catalog.read,catalog.write \
+    mvn -B -ntp clean verify
 COPY --from=generate /out/ ./
 RUN PROTOCOLIA_USER=integration-only \
     PROTOCOLIA_PASSWORD=integration-only-test-password-2026 \

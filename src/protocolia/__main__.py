@@ -17,7 +17,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","action-preview","action-run"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","action-preview","action-run"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
@@ -56,6 +56,15 @@ def main() -> int:
             print(json.dumps(preview_artifacts(compile_contract(contract),args.out),sort_keys=True,indent=2))
         elif args.command=="migrate":
             print(json.dumps(migrate_contract(contract),sort_keys=True,indent=2,ensure_ascii=False))
+        elif args.command=="init-java":
+            from .java_project import init_java
+            created, total = init_java(contract,args.out)
+            print(f"READY Java Spring project ({total} generated files) in {args.out}")
+            if created:
+                print("EDIT src/main/java/dev/protocolia/generated/custom/StarterHandlers.java (user-owned; initial methods return 501)")
+            else:
+                print("KEPT user-owned StarterHandlers.java unchanged; adapt it to the current ContractHandlers interface if needed")
+            print(f"NEXT cd {args.out} && mvn -B -ntp clean verify")
         elif args.command=="generate-inventory-java":
             from .inventory_backend import generate_inventory
             from .java_spring import write_java

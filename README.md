@@ -4,6 +4,34 @@
 
 ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
+## Start a Java/Spring project from a contract
+
+With Python 3.11+ and a checked-out copy of ProtocolIA:
+
+```sh
+python -m pip install .
+protocolia init-java examples/catalog-vertical/contract.json --out my-service
+cd my-service
+mvn -B -ntp clean verify
+```
+
+The command generates **one runnable Spring Boot 4 / Java 21 module**, with
+typed API records, an MVC controller, validation, a demo-only authentication
+configuration and a **user-owned** `src/main/java/dev/protocolia/generated/custom/StarterHandlers.java`.
+Edit that file to implement your domain rules. Until then, authenticated business
+requests intentionally return HTTP **501**, not a fake success. To start the
+service, configure `PROTOCOLIA_USER`, `PROTOCOLIA_PASSWORD` (16+ characters) and
+`PROTOCOLIA_SCOPES` for your contract before running
+`mvn spring-boot:run` (local demonstration only; never commit credentials).
+
+After changing the contract, rerun **the same** `init-java` command with the
+same output path. ProtocolIA regenerates *owned* files but never overwrites
+your `StarterHandlers.java`. If method signatures change, fix that service
+yourself; Maven compilation will report the missing implementations. For an
+already-implemented tutorial, see [catalog vertical example](examples/catalog-vertical/README.md).
+A previous `java-spring/0.3` directory must be migrated explicitly into a new output
+directory rather than silently overwritten.
+
 ## Product-first Java vertical slice
 
 The current goal is **one generated Spring Boot application with a typed implementer-owned business handler**, not parallel handwritten controllers. See [product execution plan](docs/PRODUCT_FIRST_PLAN.md) and [catalog example](examples/catalog-vertical/README.md). P4 experimental records remain separate.
