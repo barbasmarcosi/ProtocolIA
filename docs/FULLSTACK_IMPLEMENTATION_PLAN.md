@@ -89,6 +89,16 @@ This does **not** close generic 2020-12, production auth or DB gates.
 
 **Fallback:** do not claim deployed OIDC support. Keep demonstrably safe local/dev Basic only, label pilot blocked from public production.
 
+
+**G4 bounded pilot evidence (2026-10-12):** a separate JWT/Bearer profile
+for the Books v0.3 contract builds under Java21/Boot4.1.1 and passes
+**7/7 JUnit real JWT/HTTP/method-gate tests**. A bounded provider-free
+Schemathesis 4.30.1 GET-only run reported **2,263 generated cases over 3
+operations PASS**, with exact-head verification PASS as recorded in
+[G4 evidence](G4_JWT_SCHEMATHESIS_EVIDENCE.md). This is an isolated,
+health-marker-only deployment, **not production OIDC, not mutating fuzz
+coverage, and not a security audit**. G4 remains open for real-issuer rollout.
+
 ## G5 — Reproducible regeneration, evolution and completed pilot [P2]
 
 **Paths:** adapters/toolchain manifest, generated-owned paths, fixtures/contract-evolution/, examples/books-backend/ user-owned migrations, Testcontainers E2E, docs/EXECUTION_STATE.md.
