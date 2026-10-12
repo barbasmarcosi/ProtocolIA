@@ -1,6 +1,6 @@
 # G0 semantic resource bundle — supported subset
 
-**Status: IMPLEMENTED IN FEATURE BRANCH, NOT YET VERIFIED** (update evidence after actual execution).  
+**Status: VERIFIED SUBSET of G0 on tested branch SHA; G0 itself remains IN PROGRESS.**  
 **Date:** 2026-10-12. **Source:** [G0 plan](FULLSTACK_IMPLEMENTATION_PLAN.md), [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md).
 
 ## Scope
@@ -18,10 +18,18 @@ A separate `diff-bundle` CLI compares old/new contracts plus old/new resource si
 ## Further work remaining for G0
 
 - Cross-target nullable/optional, enum, oneOf/anyOf/allOf and real query-pagination fixture support or explicit fail-closed tests.
-- Spectral 6.17.0 + oasdiff 1.11.7 pinned gate executing against validated emitted OpenAPI with documented exit codes.
+- DONE in this slice: Spectral 6.17.0 and oasdiff 1.11.7 independent gates against emitted OpenAPI; breaking-path removal fixture is enforced with the 1.11.7 `-o ERR` flag.
 - Actual API error-body serialization and auth-header parity, full UI-form JSON Schema export where needed.
 - G1 Spring upstream generator spike. RJSF/Orval/Kubb and browser UI are NOT part of this slice.
 
 ## Evidence
 
-Update with exact SHA, Docker build, Python unit test counts, Maven real HTTP results and (if run) independent linter/diff results; do not call G0 complete prematurely.
+**Tested exact source SHA:** `8bcaca892d7098811e9daed49e102b4c04e7b8ac` (all code tests and both external tools at this SHA).  
+**Render Free deployment:** service `srv-db695b8473hc73dk978g`, deploy `dep-db69e7t9fdbs73fask70` **LIVE**. Independently observed public `GET https://protocolia-g0-resource-bundle-20261012.onrender.com/health` -> `{"status":"UP"}`.
+
+- **Python:** 26/26 existing Java-target/profile tests, 8/8 new semantic-resource-bundle tests, 4/4 inventory tests: **38/38 PASS** in the remote Docker build. The CLI emitted all nine artifacts from the real Books fixture.
+- **Independent OpenAPI lint:** `@stoplight/spectral-cli@6.17.0` executed with `--fail-severity error` against the generated OpenAPI: **PASS, no errors**. The first run exposed missing global tags/server warnings; the emitter was corrected before final verification.
+- **Independent breaking diff:** `github.com/oasdiff/oasdiff@v1.11.7` compiled and ran in a Go 1.25 Docker stage. Comparing the generated spec with itself **PASS**. The intentionally deleted `GET /health` produced `api-path-removed-without-deprecation`, **ERR detected**, and `-o ERR` returned exit code **1 as expected**, successfully passing the negative build assertion.
+- **Java:** Java 21 / Spring Boot 4.0.2 `mvn -B -ntp clean verify` **BUILD SUCCESS** for generated and independently maintained direct implementations; each executed **3/3 real HTTP JUnit tests, 0 failures** (6/6 combined). This is the existing Java adapter, *not* the proposed upstream OpenAPI Generator 7.26.0 / Boot 4.1.1 experiment.
+- **Unsuccessful integration attempts preserved as lessons:** pinned oasdiff 1.11.7 lacks the current docs' `validate` subcommand; its `breaking` command prints errors but does not fail by default, so the version-correct `-o ERR` must be supplied. Those failed Docker builds preceded the verified final run.
+- **Isolation:** no GitHub Actions minutes, paid APIs, external production DB changes, or frozen P4 modifications. G0 is **not** 100%: list/query pagination and broader OpenAPI 3.1 fixtures, full error-body/header parity, and future frontend consumers are still outstanding.
