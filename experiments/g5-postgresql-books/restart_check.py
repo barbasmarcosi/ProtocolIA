@@ -79,6 +79,10 @@ def verify() -> None:
         assert status == 201, (status, created)
         status, changed = call("PATCH", f"/api/books/{TEST_ISBN}/stock", {"quantity": 7})
         assert status == 200 and changed["stock"] == 9, (status, changed)
+        invalid_status, _ = call("PATCH", f"/api/books/{TEST_ISBN}/stock", {"quantity": 0})
+        assert invalid_status == 400, ("invalid restock accepted", invalid_status)
+        after_invalid, unchanged = call("GET", f"/api/books/{TEST_ISBN}")
+        assert after_invalid == 200 and unchanged["stock"] == 9, (after_invalid, unchanged)
         print("G5_PRE_RESTART_INSERT_AND_ATOMIC_WRITE_PASS", flush=True)
     finally:
         stop_java(a)
