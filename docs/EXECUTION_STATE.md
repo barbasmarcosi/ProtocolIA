@@ -222,3 +222,26 @@ PASS for both. Marginal scope: generated **2 manual artifacts, +20 Java
 lines plus JSON contract changes**; direct **3 feature Java artifacts, +30
 Java lines**, excluding baseline parity security/test work. **No duration,
 model-cost or ROI conclusion**. Full [result](../examples/stock-change/RESULTS.md).
+
+## G0 contract-to-software: Java Basic HTTP projection — VERIFIED SUBSET (2026-10-12)
+
+New strictly opt-in `protocolia compile-http --profile java-spring-basic-demo`
+produces an HTTP OpenAPI 3.1 contract faithful to the current generated Java
+demonstration's Basic authentication and POST 201 / GET-PATCH 200 success
+codes. Domain 404/409 cases require explicit declarations; no unverified
+error body formats asserted. The historical v0.1/v0.2 default compiler and
+manifest outputs remain unchanged. **This does not complete G0.**
+
+Tested branch SHA `2ea2ecb6b8ac52833e599b06a0a11f27e591512b`,
+Render Free service `srv-db66d3qd0e5s739ige00`, deploy
+`dep-db66d42d0e5s739igfi0` **LIVE**. 26/26 Python Java-target tests
+(including 7 new projection tests), 4/4 inventory tests, Java 21 Maven
+`clean verify` **PASS** for both generated and handwritten apps, **3/3
+real HTTP JUnit tests each**. Public GET /health independently returned
+`{"status":"UP"}`. The earlier startup health request returned 503 until
+Spring finished booting. Java target here uses Boot 4.0.2, not the research
+candidate 4.1.1. [Detailed G0 state](G0_HTTP_PARITY_PROGRESS.md).
+
+Still outstanding: typed resource/view IR, manifests, OpenAPI3.1 corpus,
+Spectral/oasdiff, error schemas/headers, G1 OpenAPI Generator comparison;
+no paid providers or frozen P4 changes.

@@ -158,3 +158,12 @@ The next proposed product work is documented as [acceptance-oriented requirement
 ### 2026-10-12 — Deep-research alignment supersedes the original proposed gate order
 
 The [revised ADR-003](ADR-003-FULLSTACK-COMPOSITION.md), [full-stack requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md), [research alignment record](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md) and [revised G0-G5 plan](FULLSTACK_IMPLEMENTATION_PLAN.md) are the **current source of truth for FUTURE full-stack implementation**. The old sequence proposed on 2026-10-12 was explicitly revised: G0 IR/OpenAPI/compatibility → G1 OpenAPI Generator backend parity spike → G2 Orval vs Kubb and ONE TS client → G3 RJSF and UI manifest → G4 trusted OAuth2 capability mapping and Schemathesis → G5 safe regeneration and integrated pilot. The completed Stage 1–4 findings above are historical evidence, not invalidated by changing the future plan. Candidate versions and expected gains come from a supplied study and are **not implementations or successful integration tests**; ADR remains PROPOSED until gates pass. P4 remains untouched.
+
+### G0 implementation begins — verified Java target HTTP profile (2026-10-12)
+
+Initial partial G0 work is [documented with exact tests and Render evidence](G0_HTTP_PARITY_PROGRESS.md).
+The optional `compile-http --profile java-spring-basic-demo` projects a
+truthful demo Basic/HTTP-status contract **without changing v0.1/v0.2
+historical generic compilation**. 26/26 Python Java generator/project tests,
+4/4 inventory tests, and both Java Maven builds with 3/3 real HTTP tests each
+passed. G0 remains **IN PROGRESS** pending IR/manifests and lint/diff tooling.
