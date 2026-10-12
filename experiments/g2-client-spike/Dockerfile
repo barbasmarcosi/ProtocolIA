@@ -25,6 +25,9 @@ RUN npm run generate:orval
 RUN echo 'G2_ORVAL_GENERATED_EXPORTS' && grep -E '^(export (const|function|type|interface) |export \{)' src/generated/orval/books.ts | head -95
 RUN npm run generate:kubb
 RUN echo 'G2_KUBB_GENERATED_FILES' && find src/generated/kubb -type f | sort | head -65
+RUN npm run typecheck
+RUN echo 'G2_ORVAL_QUERY_KEY_SOURCE' && grep -A 15 'export const getListBooksQueryKey' src/generated/orval/books.ts
+RUN echo 'G2_ORVAL_ADJUST_STOCK_SOURCE' && grep -A 12 'export const adjustStock = ' src/generated/orval/books.ts
 RUN echo 'G2_GENERATOR_CANDIDATE_PROBE_DONE'
 FROM alpine:3.21
 COPY --from=client-probe /g2/openapi.json /verified-openapi.json
