@@ -188,3 +188,7 @@ Spectral/oasdiff PASS and a Render Free LIVE demo with public `/health`
 verification. The last deployment reused unchanged Maven/linter layers
 from build cache; the report distinguishes fresh and cached checks. No
 claim of production-ready persistence or full G0 completion. G1 remains next.
+
+### G1 — Upstream Spring Boot 4.1.1 functional parity verified; default held (2026-10-12)
+
+The [G1 evidence](G1_OPENAPI_GENERATOR_EVIDENCE.md) records real **OpenAPI Generator 7.26.0** consuming the target v0.3 OpenAPI, **7/7 JUnit PASS**, Maven `BUILD SUCCESS`, generated-source diff zero, five capability bindings checked, and Render Free LIVE `/health` at SHA `1b3478059e36be79de8d9834b196a21ec0d9f88e`. The external Spring target is a working **optional pilot**, not yet the default; developer-maintained integration code actually increased in this small vertical, so no productivity advantage has been claimed. Preserve proven ProtocolIA generator, historical contracts and frozen P4.

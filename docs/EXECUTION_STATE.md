@@ -292,3 +292,11 @@ First attempt failed two JUnit cases (Spring 500 vs expected 400, plus
 faulty test extractor), both repaired and explicitly reported.
 G0 remains OPEN for broader OpenAPI 3.1/error/query-runtime corpus;
 G1 replacement spike still pending. No P4 changes or paid APIs.
+
+## G1 verified upstream Spring generator parity — NOT PROMOTED (2026-10-12)
+
+G1 experiment [`experiments/openapi-generator-spring`](../experiments/openapi-generator-spring/README.md) compiles the **same v0.3 Books target OpenAPI** using pinned OpenAPI Generator **7.26.0** with Spring Boot **4.1.1** / Java 21, generated Java API/controllers/delegates/models/ApiUtil only, with user-owned root POM/domain/security. Two separate runs of codegen yielded **zero generated-source differences**, five operation-to-capability bindings passed a fail-closed check. The handwritten business delegates implement every required operation (not 501-only).
+
+**Exact tested source `1b3478059e36be79de8d9834b196a21ec0d9f88e`**, Render Free deploy `dep-db6hv5d9fdbs73aplqgg` on service `srv-db6hmh3rjlhs73eqq2bg` **LIVE**, Maven `clean verify` **BUILD SUCCESS 7/7** (5 actual HTTP/JUnit, 1 delegate completeness, 1 internal error-dispatch security), public `GET /health` independently returned `{"status":"UP"}`. JAR SHA-256 `3e3bf815fb3055b03e147f1a1a418d4206bb15309e5cf6fdd9ae929fa6e3d365`. All earlier failures were recorded and fixed: missing ApiUtil, Spring's internal ERROR dispatch causing erroneous 403 rather than 400/409. No paid model APIs or GitHub Actions minutes.
+
+**Architectural decision: hold promotion.** Upstream generator passes the bounded runtime/parity experiment, but has 174 nonblank user-maintained Java app lines vs 78 of the prior Books handwritten handler (different scopes, not a fair productivity study). Retain existing ProtocolIA Java backend and the upstream optional experiment pending broader OpenAPI 3.1/security/capability corpus. [Complete G1 evidence](G1_OPENAPI_GENERATOR_EVIDENCE.md).
