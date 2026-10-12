@@ -8,6 +8,8 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
 import dev.protocolia.domain.BooksDelegate;
+import dev.protocolia.upstream.api.BooksApiDelegate;
+import dev.protocolia.upstream.model.BookRequest;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -21,6 +23,9 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -82,6 +87,7 @@ class JwtAuthorizationHttpTest {
     static void stopJwks() { jwks.stop(0); }
 
     @LocalServerPort int port;
+    @Autowired BooksApiDelegate securedDomainPort;
 
     private String jwt(String scope, String issuer, String aud,
                        Instant from, Instant expires, Instant nbf,
@@ -197,6 +203,23 @@ class JwtAuthorizationHttpTest {
             "{\"quantity\":3}", both));
         status(400, http("PATCH", "/api/books/g4-duplicate/stock",
             "{\"quantity\":0}", both));
+    }
+
+    @Test
+    @WithMockUser(authorities = "catalog.read")
+    void methodInterceptorDeniesWriteEvenIfHttpLayerIsBypassed() {
+        assertDoesNotThrow(() -> securedDomainPort.listBooks(1, 0));
+        assertThrows(AccessDeniedException.class, () -> securedDomainPort.createBook(
+            new BookRequest().isbn("g4-direct-reader-denied").title("DENIED").stock(1)));
+    }
+
+    @Test
+    @WithMockUser(authorities = "catalog.write")
+    void methodInterceptorDeniesReadEvenIfHttpLayerIsBypassed() {
+        assertThrows(AccessDeniedException.class,
+            () -> securedDomainPort.getBook("g4-direct-missing"));
+        assertDoesNotThrow(() -> securedDomainPort.createBook(
+            new BookRequest().isbn("g4-direct-writer-allowed").title("Allowed").stock(1)));
     }
 
     @Test
