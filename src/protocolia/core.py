@@ -60,6 +60,9 @@ def _parse_type(value: Any, models: dict[str, Any], where: str) -> tuple[str, bo
 
 def validate(contract: Any) -> dict[str, Any]:
     """Validate and normalize without executing user-supplied instructions."""
+    if isinstance(contract, dict) and contract.get("version") == "0.3":
+        from .v03 import validate as validate_v03
+        return validate_v03(contract)
     if isinstance(contract, dict) and contract.get("version") == "0.2":
         from .v02 import validate as validate_v02
         return validate_v02(contract)
@@ -156,6 +159,9 @@ def _schema(type_name: str, models: dict[str, Any]) -> dict[str, Any]:
 
 def compile_contract(contract: Any) -> dict[str, str]:
     """Compile a v0.1 contract into reproducible, non-executable artifacts."""
+    if isinstance(contract, dict) and contract.get("version") == "0.3":
+        from .v03 import compile_contract as compile_v03
+        return compile_v03(contract)
     if isinstance(contract, dict) and contract.get("version") == "0.2":
         from .v02 import compile_contract as compile_v02
         return compile_v02(contract)

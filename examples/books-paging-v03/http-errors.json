@@ -1,0 +1,12 @@
+{
+  "createBook": [
+    409
+  ],
+  "getBook": [
+    404
+  ],
+  "adjustStock": [
+    404,
+    409
+  ]
+}

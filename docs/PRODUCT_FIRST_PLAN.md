@@ -176,3 +176,15 @@ with exact free Render deployment and source SHA. Resource/UI/capability/
 generation manifests are now produced deterministically from a versioned
 sidecar. G0 is not complete: broader OpenAPI 3.1 grammar, list pagination,
 error serialization and upstream Java generator parity remain outstanding.
+
+### 2026-10-12 — Bounded v0.3 Books pagination proof (G0 partial)
+
+New [G0 pagination report](G0_V03_PAGINATION_PROGRESS.md) covers real `GET
+/api/books?limit=...&offset=...` with typed query parameters, Java server
+HTTP 400 validation, stable sorted bounded pages, UI/capability manifests and
+one versioned v0.3 contract. **47/47 Python tests** at final source SHA,
+**5/5 real HTTP/JUnit tests** at the last Java-code SHA, pinned
+Spectral/oasdiff PASS and a Render Free LIVE demo with public `/health`
+verification. The last deployment reused unchanged Maven/linter layers
+from build cache; the report distinguishes fresh and cached checks. No
+claim of production-ready persistence or full G0 completion. G1 remains next.

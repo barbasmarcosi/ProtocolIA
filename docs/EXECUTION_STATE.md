@@ -269,3 +269,26 @@ Java target/basic demo contract is separately projected. G0 continues:
 unsupported query-pagination and broader 3.1 semantics, unverified error
 headers/bodies, G1 external server generator/Boot 4.1.1 and downstream
 TS/RJSF/OAuth2 remain OPEN. See [G0 resource evidence](G0_RESOURCE_BUNDLE_PROGRESS.md).
+
+## G0 v0.3 bounded query and paginated Books — verified subset (2026-10-12)
+
+PR #43 adds new opt-in contract v0.3 and bounded GET integer query arguments
+with defaults and explicit min/max, plus real `listBooks` HTTP operation,
+`BookPage` response and resource sidecar v0.2. Source and old v0.1/v0.2
+compiler outputs are preserved. Exact experiment and result in
+[G0 v0.3 pagination evidence](G0_V03_PAGINATION_PROGRESS.md).
+
+Real Java 21 / Spring Boot 4.0.2 HTTP tests **5/5 PASS** and Maven `BUILD
+SUCCESS` at source SHA `74316193b31c3508635e6667672d5b462e09d36b`.
+Final feature SHA `4f2aab816bb8082c514bc681c9733e6435d34e8c`
+added a Python test and README only; Render Free deploy
+`dep-db6h28d9fdbs73fh8780`, service `srv-db6gu7ff3r2c73c7v990`,
+**LIVE**, ran **47/47 Python tests PASS** at that SHA and used Docker
+cache for unchanged Maven/Spectral/oasdiff layers. Public `GET /health`
+returned `{"status":"UP"}`. Prior un-cached Spectral 6.17.0 and oasdiff
+1.11.7 passed, including a deliberate removed-endpoint breaking fixture.
+
+First attempt failed two JUnit cases (Spring 500 vs expected 400, plus
+faulty test extractor), both repaired and explicitly reported.
+G0 remains OPEN for broader OpenAPI 3.1/error/query-runtime corpus;
+G1 replacement spike still pending. No P4 changes or paid APIs.

@@ -11,7 +11,7 @@ from typing import Any
 
 from .core import ContractError, _fail, _json, _sha, compile_contract
 from .java_spring import generate_java
-from .v02 import validate
+from .core import validate
 
 PROFILE = "java-spring-basic-demo"
 COMPILER = "protocolia/0.2/java-spring-basic-demo-http/1"
@@ -44,8 +44,8 @@ def compile_java_http(contract: Any, domain_errors: Any = None) -> dict[str, str
     failures, and never invents response bodies that the Java app has not proved.
     """
     ir = validate(contract)
-    if ir["version"] != "0.2":
-        _fail("Java demo HTTP profile requires a v0.2 contract")
+    if ir["version"] not in {"0.2", "0.3"}:
+        _fail("Java demo HTTP profile requires a v0.2/v0.3 contract")
     # Fail closed on Java-specific unsupported field/constraint semantics.
     generate_java(contract)
     declared = _checked_domain_errors(domain_errors, ir["operations"])
@@ -66,7 +66,7 @@ def compile_java_http(contract: Any, domain_errors: Any = None) -> dict[str, str
         # These statuses are *possible*, not guaranteed for every request.
         # No mediaType/schema is advertised for default Spring/Security errors
         # until its serialization has been verified independently.
-        if op.get("request") is not None or op["params"]:
+        if op.get("request") is not None or op["params"] or op.get("query"):
             responses["400"] = {"description": "Invalid request or path argument"}
         if op["capability"] == "public":
             endpoint["security"] = []
@@ -82,7 +82,7 @@ def compile_java_http(contract: Any, domain_errors: Any = None) -> dict[str, str
         endpoint["responses"] = dict(sorted(responses.items(), key=lambda p: int(p[0])))
     artifacts["openapi.json"] = _json(api)
     artifacts["manifest.json"] = _json({
-        "compiler": COMPILER,
+        "compiler": COMPILER if ir["version"] == "0.2" else "protocolia/0.3/java-spring-basic-demo-http/1",
         "contract_sha256": _sha(artifacts["ir.json"]),
         "artifacts": {k: _sha(v) for k, v in sorted(artifacts.items()) if k != "manifest.json"},
     })
