@@ -27,6 +27,8 @@ RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
 RUN echo "G1_GENERATOR_SIGNED_OUTPUT_BEGIN" \
     && find /g1/upstream/src/main/java -type f | sort \
     && grep -R -nE 'interface .*Delegate|class .*Controller|public (default )?(ResponseEntity<|BookPage|Book|Health|void)|default .*\(' /g1/upstream/src/main/java/dev/protocolia/upstream/api || true \
+    && for f in /g1/upstream/src/main/java/dev/protocolia/upstream/api/*Delegate.java; do echo "G1_DELEGATE_FILE $f"; sed -n '1,160p' "$f"; done \
+    && for f in /g1/upstream/src/main/java/dev/protocolia/upstream/model/{Book,BookPage,BookRequest,Health,StockAdjustment}.java; do echo "G1_MODEL_FILE $f"; sed -n '1,105p' "$f"; done \
     && echo "G1_GENERATOR_SIGNED_OUTPUT_END"
 
 # This probe is intentionally not an HTTP server. Final app is introduced
