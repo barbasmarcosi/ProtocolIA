@@ -207,3 +207,18 @@ responded `{"status":"UP"}`. See [single product plan](PRODUCT_FIRST_PLAN.md).
 Stage 3 is complete for this supported Java target. Next work is a *small*
 real change-workflow comparison against direct Java and standard generation,
 not a restart of P4. Research issue #5 remains open.
+
+## Product value check — stock PATCH, comparable HTTP behavior (2026-10-11/12 UTC)
+
+Stage 4 is a **non-P4 exploratory product** change. Added
+`PATCH /api/books/{isbn}/stock` to generated Java catalog and an isolated
+editable direct A copy; original study branches are untouched. Both passed
+`mvn clean verify` (3/3 real HTTP JUnit tests, including read/write auth,
+atomic concurrency, invalid input, 404 and 409); 23/23 Python generator tests
+also passed. The direct copy needed a targeted repair because initial 409
+overflow surfaced as 403 (Spring security error dispatch); first Render build
+`dep-db64dhjbc2fs73aovuvg` FAIL, second `dep-db64e8dckfvc73c3h0t0`
+PASS for both. Marginal scope: generated **2 manual artifacts, +20 Java
+lines plus JSON contract changes**; direct **3 feature Java artifacts, +30
+Java lines**, excluding baseline parity security/test work. **No duration,
+model-cost or ROI conclusion**. Full [result](../examples/stock-change/RESULTS.md).
