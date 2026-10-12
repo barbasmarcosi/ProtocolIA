@@ -150,3 +150,7 @@ times; no statistical winner. See [short result](../examples/stock-change/RESULT
 and [both code paths](../examples/stock-change/README.md). Keep the scope
 small and pursue only usability or contract coverage gaps justified by real
 stories. P4 remains frozen/open.
+
+## Full-stack direction — proposed, 2026-10-12
+
+The next proposed product work is documented as [acceptance-oriented requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md), [ADR-003 (full-stack composition, PROPOSED pending deep research)](ADR-003-FULLSTACK-COMPOSITION.md), and [G0–G5 delivery gates](FULLSTACK_IMPLEMENTATION_PLAN.md). Start with OpenAPI/runtime HTTP parity, then prove a real external typed client and working React Books slice before generalizing. This extends the completed Stage 1–4 product engineering evidence; **it does not reopen or alter the frozen P4 study**. The research may revise tool selection, but not silently erase recorded acceptance criteria.
