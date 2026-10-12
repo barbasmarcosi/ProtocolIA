@@ -39,7 +39,7 @@ COPY deployment/g0-oasdiff-base.json ./base.json
 COPY deployment/g0-oasdiff-removed.json ./removed.json
 # In v1.11.7 the CLI has no 'validate' subcommand (Spectral owns syntax).
 RUN /go/bin/oasdiff breaking ./openapi.json ./openapi.json
-RUN set +e; /go/bin/oasdiff breaking ./base.json ./removed.json > /tmp/oasdiff-breaking.txt 2>&1; \
+RUN set +e; /go/bin/oasdiff breaking -o ERR ./base.json ./removed.json > /tmp/oasdiff-breaking.txt 2>&1; \
     result=$?; cat /tmp/oasdiff-breaking.txt; test "$result" -eq 1
 
 FROM maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237 AS build
