@@ -1,7 +1,28 @@
-# G2 — bounded client generator comparison
+# G2 — historical Orval vs Kubb bounded comparison
 
-Orval **8.41.0** vs Kubb **5.5.5** are run on the **same generated Books v0.3 target-specific OpenAPI 3.1**, never on a manually edited specification. Run in disposable `src/generated/orval` and `src/generated/kubb` folders. HTTP `src/api/http.ts` and cache invalidation rules are **user-owned**.
+This directory is an **isolated experiment, not a production dependency**.
+It compiles **the same generated Books v0.3 OpenAPI 3.1** using both code
+generators, and runs strict TypeScript typechecking. The sole supported client
+lives in [`examples/books-web`](../../examples/books-web/README.md).
 
-Intended decision: choose ONE generator after measured exact behavior and TS typecheck. The custom fetch adapter injects runtime authorization from the application, not from code generation. Tests will start the G1 Java application locally and exercise real 200/201/400/401/403/404/409 outcomes.
+| Candidate | Exact tested versions | Bounded observed result |
+| --- | --- | --- |
+| Orval | `orval@8.41.0` | Generated Book API/query hooks, TS PASS; selected client passes independent real backend HTTP/cache tests |
+| Kubb | `kubb@5.8.0`, `@kubb/plugin-ts@5.0.6`, `@kubb/plugin-fetch@5.5.7`, `@kubb/plugin-react-query@5.2.1` | Generated Book types/clients/query hooks, TS PASS; real Kubb HTTP tests not run |
 
-This initial change is a candidate-generation probe; **do not report runtime parity until actual HTTP integration tests have passed**. No P4 benchmark touches or productivity claims.
+The research's proposed uniform `5.5.5` version **did not resolve**:
+`@kubb/plugin-react-query@5.5.5` was unavailable in npm. Using latest
+compatible published releases was documented and pinned rather than hidden.
+This experiment demonstrates compatibility with the initial Books corpus,
+not a fair feature-by-feature performance benchmark or productivity benefit.
+
+Decision: **Orval** for the supported Books client (fewer separate generator
+dependencies, generated query key factories and mutation hooks, and working
+error-aware transport/caching evidenced by real HTTP tests). Kubb remains
+a candidate only if later requirements justify its additional plugin surface.
+
+The test Dockerfile runs the independent comparison, then builds the
+**Orval-only** client from `examples/books-web` with `npm ci` and a pinned
+lockfile. It tests against an *isolated local* Spring Boot API and never sends
+state-changing checks to the public deployment. Evidence and limitations:
+[`docs/G2_TYPESCRIPT_CLIENT_EVIDENCE.md`](../../docs/G2_TYPESCRIPT_CLIENT_EVIDENCE.md).
