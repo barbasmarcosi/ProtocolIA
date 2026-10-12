@@ -28,10 +28,25 @@ COPY deployment/g0-spectral.yaml ./.spectral.yaml
 RUN npm install -g --no-audit --no-fund @stoplight/spectral-cli@6.17.0 \
     && spectral lint --ruleset .spectral.yaml --fail-severity error ./openapi.json
 
+# Verify OpenAPI 3.1 with a second independent implementation, and prove
+# a deliberately removed endpoint is classified as a breaking change.
+# oasdiff v1.11.7 declares Go >=1.24 in its tagged go.mod.
+FROM golang:1.25-alpine AS oasdiff-check
+RUN CGO_ENABLED=0 go install github.com/oasdiff/oasdiff@v1.11.7
+WORKDIR /spec
+COPY --from=generator /app-generated/contract-bundle/openapi.json ./openapi.json
+COPY deployment/g0-oasdiff-base.json ./base.json
+COPY deployment/g0-oasdiff-removed.json ./removed.json
+RUN /go/bin/oasdiff validate ./openapi.json \
+    && /go/bin/oasdiff breaking ./openapi.json ./openapi.json
+RUN set +e; /go/bin/oasdiff breaking ./base.json ./removed.json > /tmp/oasdiff-breaking.txt 2>&1; \
+    result=$?; cat /tmp/oasdiff-breaking.txt; test "$result" -eq 1
+
 FROM maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237 AS build
 WORKDIR /work
 COPY --from=generator /app-generated ./generated
 COPY --from=spectral-check /spec/openapi.json ./verified-contract-openapi.json
+COPY --from=oasdiff-check /spec/openapi.json ./oasdiff-checked-openapi.json
 COPY examples/stock-change/direct ./direct
 
 RUN cd /work/generated && \
