@@ -19,9 +19,19 @@ RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_resource_bundle
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_inventory_backend.py' -v
 RUN sh examples/stock-change/prepare.sh /app-generated
 
+# Independent OpenAPI 3.1 lint. A failed Spectral gate prevents the Java build.
+# Pin the upstream linter rather than using npx @latest.
+FROM node:22-alpine AS spectral-check
+WORKDIR /spec
+COPY --from=generator /app-generated/contract-bundle/openapi.json ./openapi.json
+COPY deployment/g0-spectral.yaml ./.spectral.yaml
+RUN npm install -g --no-audit --no-fund @stoplight/spectral-cli@6.17.0 \
+    && spectral lint --ruleset .spectral.yaml --fail-severity error ./openapi.json
+
 FROM maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237 AS build
 WORKDIR /work
 COPY --from=generator /app-generated ./generated
+COPY --from=spectral-check /spec/openapi.json ./verified-contract-openapi.json
 COPY examples/stock-change/direct ./direct
 
 RUN cd /work/generated && \
