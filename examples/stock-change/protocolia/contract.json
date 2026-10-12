@@ -1,0 +1,129 @@
+{
+  "version": "0.2",
+  "namespace": "Catalog",
+  "models": {
+    "BookRequest": {
+      "isbn": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "title": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "stock": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      }
+    },
+    "Book": {
+      "isbn": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "title": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "stock": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      }
+    },
+    "Health": {
+      "status": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 32
+        }
+      }
+    },
+    "StockAdjustment": {
+      "quantity": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    }
+  },
+  "operations": {
+    "createBook": {
+      "method": "POST",
+      "path": "/api/books",
+      "request": "BookRequest",
+      "response": "Book",
+      "capability": "catalog.write",
+      "effects": [
+        "write"
+      ],
+      "depends_on": [],
+      "params": {}
+    },
+    "getBook": {
+      "method": "GET",
+      "path": "/api/books/{isbn}",
+      "response": "Book",
+      "capability": "catalog.read",
+      "effects": [
+        "read"
+      ],
+      "depends_on": [],
+      "params": {
+        "isbn": "string"
+      }
+    },
+    "health": {
+      "method": "GET",
+      "path": "/health",
+      "response": "Health",
+      "capability": "public",
+      "effects": [
+        "read"
+      ],
+      "depends_on": [],
+      "params": {}
+    },
+    "adjustStock": {
+      "method": "PATCH",
+      "path": "/api/books/{isbn}/stock",
+      "params": {
+        "isbn": "string"
+      },
+      "request": "StockAdjustment",
+      "response": "Book",
+      "capability": "catalog.write",
+      "effects": [
+        "read",
+        "write"
+      ],
+      "depends_on": []
+    }
+  }
+}
