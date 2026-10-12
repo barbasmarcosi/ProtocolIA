@@ -19,12 +19,6 @@ COPY experiments/g2-client-spike/kubb.config.ts ./
 COPY experiments/g2-client-spike/tsconfig.json ./
 COPY experiments/g2-client-spike/src ./src
 COPY --from=contract /contract-bundle/openapi.json ./openapi.json
-RUN echo 'G2_CHECK_KUBB_REGISTRY_VERSIONS' && \
- npm view kubb version && \
- npm view @kubb/plugin-ts version && \
- npm view @kubb/plugin-fetch version && \
- npm view @kubb/plugin-react-query version && \
- npm view @kubb/plugin-react-query versions --json | tail -35
 RUN npm install --no-audit --no-fund
 RUN npm ls --depth=0
 RUN npm run generate:orval
