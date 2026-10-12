@@ -20,6 +20,15 @@ RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
     -g spring -i /gen/openapi.json -o /gen/upstream \
     --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream \
     --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
+# Repeat upstream generation in an independent disposable tree. User-owned
+# JDBC, Spring security, migrations and POM are never written by this tool.
+RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
+    -g spring -i /gen/openapi.json -o /gen/upstream-again \
+    --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream \
+    --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
+RUN diff -rq /gen/upstream/src/main/java /gen/upstream-again/src/main/java \
+    && echo G5_GENERATED_JAVA_IDEMPOTENT
+
 RUN echo G5_PINNED_OPENAPI_7_26_0_GENERATED
 
 # Packaging Maven + JDK into a PostgreSQL image permits real database tests
