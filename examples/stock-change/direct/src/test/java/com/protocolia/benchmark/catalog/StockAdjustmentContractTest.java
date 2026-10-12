@@ -27,7 +27,8 @@ class StockAdjustmentContractTest {
                 .timeout(Duration.ofSeconds(20));
         if (account != null) {
             String user = System.getenv("PROTOCOLIA_" + account + (account.equals("VIEWER") ? "_USER" : ""));
-            String password = System.getenv("PROTOCOLIA_" + account + "_PASSWORD");
+            String password = System.getenv(account.equals("VIEWER")
+                    ? "PROTOCOLIA_VIEWER_PASSWORD" : "PROTOCOLIA_PASSWORD");
             if (account.equals("USER")) user = System.getenv("PROTOCOLIA_USER");
             String value = user + ":" + password;
             request.header("Authorization", "Basic " +
