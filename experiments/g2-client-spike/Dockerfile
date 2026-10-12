@@ -43,10 +43,8 @@ COPY examples/books-web/scripts ./scripts
 COPY --from=contract /contract-bundle ./contract-bundle
 COPY --from=comparison /g2/src/generated/kubb/hooks/useListBooks.ts /tmp/kubb-probe/useListBooks.ts
 RUN cp contract-bundle/openapi.json ./openapi.json
-RUN npm install --no-audit --no-fund
-# One-time release-candidate extraction: reconstruct the exact npm lock via
-# base64 chunks in Render build logs, commit the result, then switch to npm ci.
-RUN node -e 'const fs=require("node:fs");const s=fs.readFileSync("package-lock.json").toString("base64");for(let i=0;i<s.length;i+=4096)console.log("G2LOCK:"+String(i/4096).padStart(4,"0")+":"+s.slice(i,i+4096));console.log("G2LOCK_END:"+s.length);'
+COPY examples/books-web/package-lock.json ./package-lock.json
+RUN npm ci --no-audit --no-fund
 RUN npm run generate && npm run typecheck \
   && npm run verify:contract && npm run verify:regen
 RUN echo 'G2_SELECTED_ORVAL_ONLY_VERIFIED' \
