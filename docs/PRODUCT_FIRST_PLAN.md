@@ -128,3 +128,25 @@ not P4 benchmark comparisons.
 time and edited code required with plain Spring Boot and an existing generator.
 Keep the comparison deliberately small and measurable; if this workflow adds
 no development benefit, rethink the product rather than enlarge the harness.
+
+### Stage 4 — one genuine maintenance task (2026-10-11/12 UTC)
+
+**COMPLETED, narrowly scoped.** Added atomic, authenticated stock restocking
+(`PATCH /api/books/{isbn}/stock`) using both ProtocolIA and a separate
+direct Spring Boot app. Same HTTP tests passed for both (3/3 JUnit tests,
+`mvn clean verify` PASS; 23/23 Python generator regressions PASS).
+ProtocolIA required editing **one contract and one custom Java handler**,
+adding **20 handwritten Java lines**; direct required editing a controller,
+repository and request DTO, adding **30 handwritten feature Java lines**.
+Generated route/DTO/validation/auth reduced boilerplate, but contract-edit
+effort is not captured by Java LOC. Direct seed required **separate baseline
+normalization** of security and incompatible pre-existing tests, excluded
+from the feature delta. Its first run masked a 409 overflow error as 403;
+fixed that specific direct-app error and verified both again.
+
+**Decision:** modest maintenance-boilerplate reduction, not a measured
+developer-speed/cost saving. No matched model sessions or reliable coding
+times; no statistical winner. See [short result](../examples/stock-change/RESULTS.md)
+and [both code paths](../examples/stock-change/README.md). Keep the scope
+small and pursue only usability or contract coverage gaps justified by real
+stories. P4 remains frozen/open.
