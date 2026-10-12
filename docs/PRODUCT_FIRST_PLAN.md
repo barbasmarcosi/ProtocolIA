@@ -87,5 +87,31 @@ the manifest last, but cannot promise an atomic transaction against a sudden
 process/filesystem failure. Optional/null and enum model support still fail
 closed. Demo Basic authentication is not production identity.
 
-**Next:** Step 3 — reduce repeat manual setup and improve developer experience
-with the smallest useful command, while retaining honest regeneration errors.
+### Stage 3 — one-command Java project initialization (2026-10-11)
+
+The new CLI `protocolia init-java CONTRACT --out DIRECTORY` composes
+contract validation, deterministic generated Spring artifacts, protected
+regeneration, and **one user-owned starter service** in a single command. The
+starter implements the generated typed `ContractHandlers` interface
+and explicitly returns 501 for every unimplemented method. There is **no
+shadow controller** and no simulated business success.
+
+On repeated initialization ProtocolIA retains modified user code byte-for-byte,
+regenerates only owned files, and reports that the developer may need to
+update interface methods after a contract change. Unsafe symlinks and custom
+path collisions fail before generated output is modified. The CLI prints
+next-step compilation instructions and the README includes local startup
+instructions without embedding secrets. No model/API provider or scripting
+framework is needed.
+
+Validation: fresh generic CLI scaffold compiles as a real Java 21/Spring Boot 4
+service and HTTP-smoke-tests unauthenticated 401/authenticated unimplemented
+501; the already implemented catalog application is separately rebuilt and
+its real HTTP domain tests run. Unit tests cover CLI invocation, idempotent
+regeneration, changed contracts and path safety. These are *product tests*,
+not P4 benchmark comparisons.
+
+**Stage 4 next:** on an actual subsequent feature/change request, compare the
+time and edited code required with plain Spring Boot and an existing generator.
+Keep the comparison deliberately small and measurable; if this workflow adds
+no development benefit, rethink the product rather than enlarge the harness.

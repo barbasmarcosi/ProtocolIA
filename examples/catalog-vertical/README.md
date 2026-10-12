@@ -52,3 +52,21 @@ The generator derives its authorities from contract-declared non-writing GET
 operations only. `mvn clean verify` with the viewer environment configured
 checks GET 200 and POST 403; without optional viewer credentials, the primary
 catalog account alone is used. These demo credentials are not production auth.
+
+
+## Starting from a new contract instead of the worked example
+
+The more general developer entry point is:
+
+```sh
+protocolia init-java examples/catalog-vertical/contract.json --out my-catalog
+```
+
+This creates an editable starter in
+`my-catalog/src/main/java/dev/protocolia/generated/custom/StarterHandlers.java`.
+Implement its typed methods, then run `mvn clean verify`. The existing
+`prepare.sh` in this tutorial merely inserts the **already implemented**
+`CatalogHandlers.java` and its integration tests; do not combine that service
+with the generated `StarterHandlers` bean, as two implementations of
+`ContractHandlers` would be ambiguous. Re-running `init-java` does
+not overwrite handwritten logic or automatically implement new domain rules.
