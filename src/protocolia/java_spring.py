@@ -6,8 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any
-from .core import ContractError, _fail, _json
-from .v02 import validate
+from .core import ContractError, _fail, _json, validate
 
 PKG = "dev.protocolia.generated"
 SRC = "src/main/java/dev/protocolia/generated/"
@@ -60,6 +59,8 @@ def handler_interface(ops: dict) -> str:
     methods = []
     for name, op in ops.items():
         params = [jt(typ) + " " + key for key, typ in op["params"].items()]
+        for key, field in op.get("query", {}).items():
+            params.append(jt(field["type"]) + " " + key)
         if "request" in op:
             params.append(op["request"] + " body")
         methods.append("    " + op["response"] + " " + name + "(" + ", ".join(params) + ");")
@@ -78,6 +79,20 @@ def controller(ops: dict) -> str:
             if key in BAD:
                 _fail("unsupported Java parameter name: " + key)
             params.append('@org.springframework.web.bind.annotation.PathVariable("' + key + '") ' + jt(typ) + ' ' + key)
+            args.append(key)
+        for key, field in op.get("query", {}).items():
+            if key in BAD:
+                _fail("unsupported Java query name: " + key)
+            low = field["constraints"]["minimum"]
+            high = field["constraints"]["maximum"]
+            default = field["default"]
+            params.append(
+                '@org.springframework.web.bind.annotation.RequestParam(name="' + key +
+                '",required=false,defaultValue="' + str(default) + '") ' +
+                '@jakarta.validation.constraints.Min(' + str(low) + ') ' +
+                '@jakarta.validation.constraints.Max(' + str(high) + ') ' +
+                jt(field["type"]) + ' ' + key
+            )
             args.append(key)
         if "request" in op:
             params.append("@jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody " + op["request"] + " body")
@@ -100,6 +115,8 @@ def controller(ops: dict) -> str:
     return (
         "package " + PKG + ";\n" +
         "@org.springframework.web.bind.annotation.RestController\n" +
+        ("@org.springframework.validation.annotation.Validated\n" if any(
+            o.get("query") for o in ops.values()) else "") +
         "public class ContractController {\n" +
         "    private final org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers;\n" +
         "    public ContractController(org.springframework.beans.factory.ObjectProvider<ContractHandlers> handlers) {\n" +
@@ -181,7 +198,7 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 
 def generate_java(contract: Any) -> dict[str,str]:
     ir=validate(contract)
-    if ir["version"]!="0.2": _fail("Java target requires v0.2")
+    if ir["version"] not in {"0.2", "0.3"}: _fail("Java target requires v0.2 or v0.3")
     outputs={"pom.xml":POM,"contract-ir.json":_json(ir),
         "src/main/resources/application.properties":"spring.application.name=protocolia-generated\nserver.error.include-message=never\nspring.jackson.deserialization.fail-on-unknown-properties=true\n",
         SRC+"GeneratedApplication.java":("package "+PKG+";\n@org.springframework.boot.autoconfigure.SpringBootApplication\n"

@@ -13,7 +13,7 @@ from typing import Any
 from . import core
 from .compatibility import compare_contracts
 from .http_projection import PROFILE, compile_java_http
-from .v02 import validate as validate_v02
+from .core import validate as validate_contract
 
 BUNDLE_VERSION = "0.1"
 BUNDLE_COMPILER = "protocolia/0.2/java-spring-basic-demo-resource-bundle/1"
@@ -51,9 +51,16 @@ def _validate_views(views: Any, bindings: dict, models: dict, where: str) -> dic
 
 def validate_resource_sidecar(contract: Any, description: Any) -> dict:
     """Return canonical bounded Resource-Operation-View IR or reject ambiguity."""
-    ir = validate_v02(contract)
+    ir = validate_contract(contract)
     core._keys(description, {"version", "resources"}, set(), "resource sidecar")
-    if description["version"] != BUNDLE_VERSION:
+    sidecar_version = description["version"]
+    if sidecar_version == BUNDLE_VERSION:
+        if ir["version"] != "0.2":
+            core._fail("resource sidecar 0.1 requires contract 0.2")
+    elif sidecar_version == "0.2":
+        if ir["version"] != "0.3":
+            core._fail("resource sidecar 0.2 requires query-aware contract 0.3")
+    else:
         core._fail("unsupported resource sidecar version")
     resources = description["resources"]
     if not isinstance(resources, dict) or not 1 <= len(resources) <= 50:
@@ -76,11 +83,16 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
         if (not ident["required"] or ident["type"] not in {"string", "integer", "uuid"}):
             core._fail(f"{where}.identityField: must be a required scalar identity")
         ops = obj["operations"]
-        core._keys(ops, {"detail", "create", "actions"}, set(), f"{where}.operations")
+        required_roles = {"detail", "create", "actions"}
+        if sidecar_version == "0.2":
+            required_roles.add("list")
+        core._keys(ops, required_roles, set(), f"{where}.operations")
         actions = ops["actions"]
         if not isinstance(actions, dict) or len(actions) > 25:
             core._fail(f"{where}.operations.actions: expected bounded action map")
         roles = {"detail": ops["detail"], "create": ops["create"]}
+        if sidecar_version == "0.2":
+            roles["list"] = ops["list"]
         for action_id, op_name in actions.items():
             core._name(action_id, f"{where}.actions")
             if action_id in roles:
@@ -95,7 +107,19 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
             if name in all_op_roles:
                 core._fail(f"{where}.{role}: operation already bound to resource/role")
             op = ir["operations"][name]
-            if role == "detail":
+            if role == "list":
+                page_model = op["response"]
+                page = ir["models"].get(page_model)
+                good = (op["method"] == "GET" and not op["params"] and
+                        "request" not in op and "read" in op["effects"] and
+                        "write" not in op["effects"] and op["capability"] != "public" and
+                        isinstance(page, dict) and "items" in page and
+                        page["items"]["type"] == model + "[]" and
+                        page["items"]["required"] and
+                        set(op.get("query", {})) == {"limit", "offset"} and
+                        op["query"]["limit"]["constraints"]["minimum"] >= 1 and
+                        op["query"]["offset"]["constraints"]["minimum"] == 0)
+            elif role == "detail":
                 good = (op["method"] == "GET" and op["response"] == model and
                         key in op["params"] and len(op["params"]) == 1 and
                         op["params"][key] == ident["type"] and
@@ -114,18 +138,19 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
                 core._fail(f"{where}.{role}: operation does not satisfy resource role")
             if role == "detail" and "write" in op["effects"]:
                 core._fail(f"{where}.{role}: read operation cannot write")
-            view_model = op.get("request", op["response"]) if role != "detail" else model
-            bindings[role] = {"operationId": name, "role": ("action" if role not in {"create","detail"} else role),
+            view_model = (model if role in {"detail", "list"} else
+                          op.get("request", op["response"]))
+            bindings[role] = {"operationId": name, "role": ("action" if role not in {"create","detail","list"} else role),
                               "viewModel": view_model}
             all_op_roles[name] = {"resource": resource_id,
                                   "role": bindings[role]["role"],
-                                  **({"actionId": role} if role not in {"create", "detail"} else {})}
+                                  **({"actionId": role} if role not in {"create", "detail", "list"} else {})}
         views = _validate_views(obj["views"], bindings, ir["models"], where)
 
         invalidation = obj["invalidates"]
         if not isinstance(invalidation, dict):
             core._fail(f"{where}.invalidates: expected mapping")
-        expected_writes = {v["operationId"] for k, v in bindings.items() if k != "detail"}
+        expected_writes = {v["operationId"] for k, v in bindings.items() if k not in {"detail", "list"}}
         if set(invalidation) != expected_writes:
             core._fail(f"{where}.invalidates: explicitly list every write operation")
         invalidate = {}
@@ -135,12 +160,15 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
                 core._fail(f"{where}.invalidates.{name}: empty targets")
             core._strlist(targets, f"{where}.invalidates.{name}")
             invalidate[name] = sorted(targets)
+        normalized_ops = {
+            "detail": ops["detail"], "create": ops["create"],
+            "actions": {a: actions[a] for a in sorted(actions)},
+        }
+        if sidecar_version == "0.2":
+            normalized_ops["list"] = ops["list"]
         normalized[resource_id] = {
             "model": model, "identityField": key,
-            "operations": {
-                "detail": ops["detail"], "create": ops["create"],
-                "actions": {a: actions[a] for a in sorted(actions)},
-            },
+            "operations": normalized_ops,
             "views": views,
             "invalidates": invalidate,
         }
@@ -148,7 +176,7 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
         for targets in obj["invalidates"].values():
             if any(t not in normalized for t in targets) or resource_id not in targets:
                 core._fail(f"resources.{resource_id}: invalidation must include own known resource")
-    return {"version": BUNDLE_VERSION, "contractVersion": ir["version"],
+    return {"version": sidecar_version, "contractVersion": ir["version"],
             "namespace": ir["namespace"], "resources": normalized,
             "operationBindings": {key: all_op_roles[key] for key in sorted(all_op_roles)}}
 
@@ -156,7 +184,7 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
 def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = None) -> dict[str, str]:
     """Emit deterministic HTTP, validated semantic IR and three derived manifests."""
     resource_ir = validate_resource_sidecar(contract, resources)
-    ir = validate_v02(contract)
+    ir = validate_contract(contract)
     artifacts = compile_java_http(contract, domain_errors)
     api = json.loads(artifacts["openapi.json"])
     for name, binding in resource_ir["operationBindings"].items():
@@ -172,8 +200,8 @@ def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = 
     api["servers"] = [{"url": "/"}]
     api["tags"] = [{"name": name} for name in sorted(resource_ir["resources"])]
     artifacts["openapi.json"] = core._json(api)
-    ui = {"version": BUNDLE_VERSION, "resources": resource_ir["resources"]}
-    capability = {"version": BUNDLE_VERSION, "operations": {}}
+    ui = {"version": resource_ir["version"], "resources": resource_ir["resources"]}
+    capability = {"version": resource_ir["version"], "operations": {}}
     for name, op in ir["operations"].items():
         capability["operations"][name] = {
             "capability": op["capability"], "effects": sorted(op["effects"]),
@@ -185,15 +213,17 @@ def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = 
     artifacts["capability-manifest.json"] = core._json(capability)
     artifact_digests = {name: core._sha(content) for name, content in sorted(artifacts.items())
                         if name != "manifest.json"}
+    compiler = (BUNDLE_COMPILER if resource_ir["version"] == BUNDLE_VERSION
+                else "protocolia/0.3/java-spring-basic-demo-resource-bundle/2")
     artifacts["generation-manifest.json"] = core._json({
-        "compiler": BUNDLE_COMPILER, "profile": PROFILE,
+        "compiler": compiler, "profile": PROFILE,
         "contractSha256": core._sha(artifacts["ir.json"]),
         "resourceSha256": core._sha(artifacts["resource-ir.json"]),
         "httpProfileSha256": core._sha(artifacts["openapi.json"]),
         "artifacts": artifact_digests,
     })
     artifacts["manifest.json"] = core._json({
-        "compiler": BUNDLE_COMPILER, "contract_sha256": core._sha(artifacts["ir.json"]),
+        "compiler": compiler, "contract_sha256": core._sha(artifacts["ir.json"]),
         "artifacts": {name: core._sha(body) for name, body in sorted(artifacts.items())
                       if name != "manifest.json"},
     })

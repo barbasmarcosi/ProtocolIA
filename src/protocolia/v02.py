@@ -258,14 +258,14 @@ def _model_validate(value:Any,model:str,models:dict[str,Any],depth:int)->bool:
 
 def validate_payload(contract:Any, model:str, payload:Any)->bool:
     """Executable strict reference validator for supported v0.2 wire model payloads."""
-    ir=validate(contract)
+    ir=core.validate(contract)
     if model not in ir['models']:
         core._fail(f'unknown model {model}')
     return _model_validate(payload,model,ir['models'],0)
 
 
 def validate_path_params(contract:Any, operation:str, values:Any)->bool:
-    ir=validate(contract)
+    ir=core.validate(contract)
     if operation not in ir['operations']:
         core._fail(f'unknown operation {operation}')
     defs=ir['operations'][operation]['params']
