@@ -75,6 +75,10 @@ COPY --from=browser-e2e /g3/verified.txt ./verified.txt
 COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
 COPY --from=backend-build /work/app/target/upstream-books-0.1.0.jar ./backend.jar
 COPY experiments/g3-books-ui/start-demo.mjs ./start-demo.mjs
+# Vite preview transpiles vite.config.ts to node_modules/.vite-temp at startup.
+# Grant ONLY this scratch directory to the non-root runtime, never all node_modules.
+RUN install -d -o node -g node /app/node_modules/.vite-temp
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=50 -XX:ActiveProcessorCount=2"
 USER node
 EXPOSE 10000
 CMD ["node","start-demo.mjs"]
