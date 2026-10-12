@@ -26,17 +26,18 @@ RUN java -jar /tools/openapi-generator-cli-7.26.0.jar version
 RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
     -g spring -i /g1/openapi.json -o /g1/upstream \
     --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream \
-    --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=false
+    --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
 RUN echo "G1_GENERATED_API_AND_MODELS" && find /g1/upstream/src/main/java -type f | sort \
     && test -f /g1/upstream/src/main/java/dev/protocolia/upstream/api/BooksApiDelegate.java \
     && test -f /g1/upstream/src/main/java/dev/protocolia/upstream/api/DefaultApiDelegate.java \
-    && test -f /g1/upstream/src/main/java/dev/protocolia/upstream/model/BookPage.java
+    && test -f /g1/upstream/src/main/java/dev/protocolia/upstream/model/BookPage.java \
+    && test -f /g1/upstream/src/main/java/dev/protocolia/upstream/api/ApiUtil.java
 # Regenerate the source into a *different directory* and verify deterministic
 # output. Never write into the user-owned application tree.
 RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
     -g spring -i /g1/openapi.json -o /g1/regenerated \
     --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream \
-    --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=false
+    --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
 RUN diff -rq /g1/upstream/src/main/java /g1/regenerated/src/main/java \
     && echo "G1_GENERATED_JAVA_IDEMPOTENT"
 
