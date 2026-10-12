@@ -10,13 +10,13 @@ import sys
 import tempfile
 import unittest
 
-from protocolia import ContractError, compile_contract, validate, write_artifacts
+from protocolia import ContractError, compile_contract, validate, validate_payload, write_artifacts
 from protocolia.compatibility import compare_contracts
 from protocolia.http_projection import compile_java_http
 from protocolia.java_spring import generate_java
 from protocolia.resource_bundle import compile_resource_bundle, compare_resource_bundles
 from protocolia.v02 import compile_contract as compile_v02
-from protocolia.v03 import validate as validate_v03
+from protocolia.v03 import validate as validate_v03, validate_query_params
 
 ROOT = Path(__file__).resolve().parents[1]
 DIR = ROOT / "examples/books-paging-v03"
@@ -156,6 +156,24 @@ class QueryPaginationV03Test(unittest.TestCase):
         self.assertNotIn("@org.springframework.validation.annotation.Validated",
                          old_java["src/main/java/dev/protocolia/generated/ContractController.java"])
         self.assertIn("http.httpBasic", old_java["src/main/java/dev/protocolia/generated/SecurityConfig.java"])
+
+    def test_query_reference_values_and_page_payload(self):
+        self.assertTrue(validate_query_params(SOURCE, "listBooks", {}))
+        self.assertTrue(validate_query_params(SOURCE, "listBooks",
+                                               {"limit": 50, "offset": 1000000}))
+        for value in (
+            {"limit": 0}, {"limit": 51}, {"offset": -1},
+            {"offset": 1000001}, {"offset": True}, {"limit": "10"},
+            {"limit": 1.0}, {"extra": 1}, ["limit", 1],
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(validate_query_params(SOURCE, "listBooks", value))
+        with self.assertRaises(ContractError):
+            validate_query_params(SOURCE, "missingOperation", {})
+        page = {"items": [], "total": 0, "limit": 25, "offset": 0}
+        self.assertTrue(validate_payload(SOURCE, "BookPage", page))
+        del page["total"]
+        self.assertFalse(validate_payload(SOURCE, "BookPage", page))
 
     def test_cli_compile_profile_bundle_and_reject_collisions(self):
         with tempfile.TemporaryDirectory() as d:
