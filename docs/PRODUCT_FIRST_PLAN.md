@@ -167,3 +167,12 @@ truthful demo Basic/HTTP-status contract **without changing v0.1/v0.2
 historical generic compilation**. 26/26 Python Java generator/project tests,
 4/4 inventory tests, and both Java Maven builds with 3/3 real HTTP tests each
 passed. G0 remains **IN PROGRESS** pending IR/manifests and lint/diff tooling.
+
+### G0 verified semantic manifests and external lint/diff (2026-10-12)
+
+The [G0 resource bundle evidence](G0_RESOURCE_BUNDLE_PROGRESS.md) records
+**38/38 Python tests, 6/6 real Java HTTP tests, Spectral + oasdiff PASS**,
+with exact free Render deployment and source SHA. Resource/UI/capability/
+generation manifests are now produced deterministically from a versioned
+sidecar. G0 is not complete: broader OpenAPI 3.1 grammar, list pagination,
+error serialization and upstream Java generator parity remain outstanding.

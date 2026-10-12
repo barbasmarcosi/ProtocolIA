@@ -245,3 +245,27 @@ candidate 4.1.1. [Detailed G0 state](G0_HTTP_PARITY_PROGRESS.md).
 Still outstanding: typed resource/view IR, manifests, OpenAPI3.1 corpus,
 Spectral/oasdiff, error schemas/headers, G1 OpenAPI Generator comparison;
 no paid providers or frozen P4 changes.
+
+## G0 semantic resource bundle + independent contract gates — VERIFIED SUBSET (2026-10-12)
+
+PR #42 on branch `feature/g0-semantic-resource-bundle` expands the
+Java-target HTTP projection into validated, versioned resource/view semantics.
+New `compile-bundle` and `diff-bundle` commands emit four derived artifacts:
+`resource-ir.json`, `ui-manifest.json`, `capability-manifest.json`,
+`generation-manifest.json`, alongside existing four compilation artifacts and
+ownership manifest. These sidecar bindings only link **existing** operations;
+they cannot authorize a caller, create a list endpoint, or infer persistence.
+
+**Verified source SHA `8bcaca892d7098811e9daed49e102b4c04e7b8ac`**, Render Free deploy
+`dep-db69e7t9fdbs73fask70` for service `srv-db695b8473hc73dk978g`
+**LIVE**. **Python 38/38** (26 Java/profile, 8 semantic, 4 inventory);
+**Spectral 6.17.0 PASS**, **oasdiff 1.11.7 PASS** (intentionally removed
+endpoint detected as ERR and denied with `-o ERR`); Java21/Boot4.0.2 Maven
+**BUILD SUCCESS** on both generated and direct programs, **3/3 real HTTP
+JUnit tests each**. Public GET /health returned `{"status":"UP"}`.
+
+Historical v0.1/v0.2 default compiled artifacts remain unchanged; the
+Java target/basic demo contract is separately projected. G0 continues:
+unsupported query-pagination and broader 3.1 semantics, unverified error
+headers/bodies, G1 external server generator/Boot 4.1.1 and downstream
+TS/RJSF/OAuth2 remain OPEN. See [G0 resource evidence](G0_RESOURCE_BUNDLE_PROGRESS.md).

@@ -1,0 +1,10 @@
+extends:
+  - spectral:oas
+
+# Semantic capabilities and effects are validated in ProtocolIA's IR,
+# not inferred by this general-purpose OpenAPI linter.
+rules:
+  operation-description: off
+  info-contact: off
+  info-description: off
+  operation-tags: off

@@ -12,14 +12,41 @@ COPY examples/inventory-v0.2.json ./examples/inventory-v0.2.json
 COPY tests/test_java_spring.py ./tests/test_java_spring.py
 COPY tests/test_java_project.py ./tests/test_java_project.py
 COPY tests/test_java_http_profile.py ./tests/test_java_http_profile.py
+COPY tests/test_resource_bundle.py ./tests/test_resource_bundle.py
 COPY tests/test_inventory_backend.py ./tests/test_inventory_backend.py
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_java*.py' -v
+RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_resource_bundle.py' -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p 'test_inventory_backend.py' -v
 RUN sh examples/stock-change/prepare.sh /app-generated
+
+# Independent OpenAPI 3.1 lint. A failed Spectral gate prevents the Java build.
+# Pin the upstream linter rather than using npx @latest.
+FROM node:22-alpine AS spectral-check
+WORKDIR /spec
+COPY --from=generator /app-generated/contract-bundle/openapi.json ./openapi.json
+COPY deployment/g0-spectral.yaml ./.spectral.yaml
+RUN npm install -g --no-audit --no-fund @stoplight/spectral-cli@6.17.0 \
+    && spectral lint --ruleset .spectral.yaml --fail-severity error ./openapi.json
+
+# Verify OpenAPI 3.1 with a second independent implementation, and prove
+# a deliberately removed endpoint is classified as a breaking change.
+# oasdiff v1.11.7 declares Go >=1.24 in its tagged go.mod.
+FROM golang:1.25-alpine AS oasdiff-check
+RUN CGO_ENABLED=0 go install github.com/oasdiff/oasdiff@v1.11.7
+WORKDIR /spec
+COPY --from=generator /app-generated/contract-bundle/openapi.json ./openapi.json
+COPY deployment/g0-oasdiff-base.json ./base.json
+COPY deployment/g0-oasdiff-removed.json ./removed.json
+# In v1.11.7 the CLI has no 'validate' subcommand (Spectral owns syntax).
+RUN /go/bin/oasdiff breaking ./openapi.json ./openapi.json
+RUN set +e; /go/bin/oasdiff breaking -o ERR ./base.json ./removed.json > /tmp/oasdiff-breaking.txt 2>&1; \
+    result=$?; cat /tmp/oasdiff-breaking.txt; test "$result" -eq 1
 
 FROM maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237 AS build
 WORKDIR /work
 COPY --from=generator /app-generated ./generated
+COPY --from=spectral-check /spec/openapi.json ./verified-contract-openapi.json
+COPY --from=oasdiff-check /spec/openapi.json ./oasdiff-checked-openapi.json
 COPY examples/stock-change/direct ./direct
 
 RUN cd /work/generated && \

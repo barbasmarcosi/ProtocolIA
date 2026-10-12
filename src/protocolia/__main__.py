@@ -17,7 +17,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","compile-http","action-preview","action-run"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","compile-http","compile-bundle","diff-bundle","action-preview","action-run"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
@@ -25,14 +25,24 @@ def main() -> int:
     parser.add_argument("--environment",type=str)
     parser.add_argument("--profile",choices=["java-spring-basic-demo"])
     parser.add_argument("--domain-errors",type=Path)
+    parser.add_argument("--resources",type=Path)
+    parser.add_argument("--candidate-resources",type=Path)
     args=parser.parse_args()
-    if args.command=="compile-http" and args.profile!="java-spring-basic-demo":
-        parser.error("compile-http requires --profile java-spring-basic-demo")
-    if args.command!="compile-http" and (args.profile is not None or args.domain_errors is not None):
-        parser.error("--profile/--domain-errors are reserved for compile-http")
-    if args.command=="diff" and args.candidate is None:
+    if args.command in {"compile-http", "compile-bundle"} and args.profile!="java-spring-basic-demo":
+        parser.error("target compilation requires --profile java-spring-basic-demo")
+    if args.command not in {"compile-http", "compile-bundle"} and (args.profile is not None or args.domain_errors is not None):
+        parser.error("--profile/--domain-errors reserved for target compilation")
+    if args.command in {"compile-bundle", "diff-bundle"} and args.resources is None:
+        parser.error("resource bundle commands require --resources")
+    if args.command=="diff-bundle" and args.candidate_resources is None:
+        parser.error("diff-bundle requires --candidate-resources")
+    if args.command not in {"compile-bundle", "diff-bundle"} and args.resources is not None:
+        parser.error("--resources reserved for bundle commands")
+    if args.command!="diff-bundle" and args.candidate_resources is not None:
+        parser.error("--candidate-resources reserved for diff-bundle")
+    if args.command in {"diff", "diff-bundle"} and args.candidate is None:
         parser.error("diff requires old and candidate contract paths")
-    if args.command!="diff" and args.candidate is not None:
+    if args.command not in {"diff", "diff-bundle"} and args.candidate is not None:
         parser.error("unexpected candidate path")
     if args.command in {"action-preview","action-run"} and args.policy is None:
         parser.error("action commands require host-owned --policy")
@@ -58,6 +68,14 @@ def main() -> int:
             report=compare_contracts(contract,candidate)
             print(json.dumps(report,indent=2,sort_keys=True))
             return 2 if not report['compatible'] else 0
+        elif args.command=="diff-bundle":
+            from .resource_bundle import compare_resource_bundles
+            candidate=json.loads(args.candidate.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            original_resources=json.loads(args.resources.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            next_resources=json.loads(args.candidate_resources.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            report=compare_resource_bundles(contract,original_resources,candidate,next_resources)
+            print(json.dumps(report,sort_keys=True,indent=2))
+            return 2 if not report["compatible"] else 0
         elif args.command=="preview":
             print(json.dumps(preview_artifacts(compile_contract(contract),args.out),sort_keys=True,indent=2))
         elif args.command=="migrate":
@@ -78,6 +96,14 @@ def main() -> int:
             artifacts=compile_java_http(contract,errors)
             write_artifacts(artifacts,args.out)
             print(f"GENERATED Java Basic demo HTTP profile ({len(artifacts)} artifacts) in {args.out}")
+        elif args.command=="compile-bundle":
+            from .resource_bundle import compile_resource_bundle
+            description=json.loads(args.resources.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            errors=(json.loads(args.domain_errors.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+                    if args.domain_errors is not None else None)
+            artifacts=compile_resource_bundle(contract,description,errors)
+            write_artifacts(artifacts,args.out)
+            print(f"GENERATED validated Java resource bundle ({len(artifacts)} artifacts) in {args.out}")
         elif args.command=="generate-inventory-java":
             from .inventory_backend import generate_inventory
             from .java_spring import write_java
