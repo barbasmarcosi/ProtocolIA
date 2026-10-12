@@ -8,6 +8,7 @@ COPY examples/books-paging-v03/contract.json ./examples/books-paging-v03/contrac
 COPY examples/books-paging-v03/resources.json ./examples/books-paging-v03/resources.json
 COPY examples/books-paging-v03/http-errors.json ./examples/books-paging-v03/http-errors.json
 COPY experiments/g4-jwt-capabilities/verify_capabilities.py ./verify_capabilities.py
+COPY experiments/g4-jwt-capabilities/jwt_projection.py ./jwt_projection.py
 COPY experiments/g4-jwt-capabilities/app/src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java ./JwtCapabilitySecurity.java
 COPY experiments/g4-jwt-capabilities/app/src/main/java/dev/protocolia/domain/BooksDelegate.java ./BooksDelegate.java
 RUN PYTHONPATH=src python -m protocolia compile-bundle \
@@ -18,10 +19,12 @@ RUN PYTHONPATH=src python -m protocolia compile-bundle \
     --out /contract-bundle
 RUN python verify_capabilities.py /contract-bundle/capability-manifest.json \
     JwtCapabilitySecurity.java BooksDelegate.java
+RUN python jwt_projection.py /contract-bundle/openapi.json \
+    /contract-bundle/capability-manifest.json /contract-bundle/openapi.g4-jwt.json
 
 FROM maven:3.9.11-eclipse-temurin-21 AS api-generator
 WORKDIR /gen
-COPY --from=contract /contract-bundle/openapi.json ./openapi.json
+COPY --from=contract /contract-bundle/openapi.g4-jwt.json ./openapi.json
 RUN mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:copy \
     -Dartifact=org.openapitools:openapi-generator-cli:7.26.0:jar \
     -DoutputDirectory=/tools
@@ -49,7 +52,7 @@ RUN mvn -B -ntp clean verify \
 FROM python:3.13-bookworm AS schemathesis
 WORKDIR /g4
 RUN python -m pip install --no-cache-dir 'schemathesis==4.30.1' 'PyJWT[crypto]==2.10.1'
-COPY --from=contract /contract-bundle/openapi.json ./openapi.json
+COPY --from=contract /contract-bundle/openapi.g4-jwt.json ./openapi.json
 COPY --from=test /work/app/target/g4-jwt-books-0.1.0.jar ./g4.jar
 COPY --from=eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5 /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
