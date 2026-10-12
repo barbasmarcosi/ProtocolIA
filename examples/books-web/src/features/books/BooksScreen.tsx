@@ -37,7 +37,7 @@ export function BooksScreen({mode,onLogout}:Props){
  async function create(data:Record<string,unknown>){
   setMutationError('');
   try{
-   const book=await creating.mutateAsync({data:data as BookRequest});
+   const book=await creating.mutateAsync({data:data as unknown as BookRequest});
    setNotice('Libro creado: '+book.isbn);
    setIsbn(book.isbn);
    setOffset(0);
@@ -47,7 +47,7 @@ export function BooksScreen({mode,onLogout}:Props){
   if(!isbn)throw new Error('Elegí un libro primero.');
   setMutationError('');
   try{
-   const book=await adjusting.mutateAsync({isbn,data:data as StockAdjustment});
+   const book=await adjusting.mutateAsync({isbn,data:data as unknown as StockAdjustment});
    setNotice('Stock actualizado: '+book.stock+' unidades');
   }catch(e){setMutationError(errorText(e));throw e;}
  }
