@@ -306,3 +306,30 @@ G1 experiment [`experiments/openapi-generator-spring`](../experiments/openapi-ge
 Orval **8.41.0** selected as the **single** supported TypeScript client generator in `examples/books-web` using pinned npm lock + `npm ci`. Kubb CLI 5.8.0 and plugins ts 5.0.6/fetch 5.5.7/react-query 5.2.1 compiled and typechecked against the same G0 target HTTP OpenAPI, but no Kubb real HTTP parity is asserted; the original plan's `plugin-react-query@5.5.5` does not exist on npm. React Query cache invalidation is explicit, reviewed, and cross-checked against ProtocolIA manifests; backend remains server authority.
 
 **Verified build source `58703e141d5f8d3f3c1749d761883447ee52c25f`**, Render Free deploy `dep-db6jemdg1s2s739ihh1g` / service `srv-db6j4o8473hc73dihj00`; candidate and selected TypeScript builds, manifest and regeneration gates PASS, and **real Java backend HTTP integration PASS** for list/get/create/adjust, 201/400/401/403/404/409, cached list-page/detail invalidation and eight concurrent restocks exactly 24. Runtime publication is tracked separately; local integration never mutated public service. Full [G2 source and test evidence](G2_TYPESCRIPT_CLIENT_EVIDENCE.md). GitHub Actions/P4 untouched, no paid API. Browser UI and advanced form generation stay G3.
+
+## G3 verified Books schema-driven UI + Chromium browser E2E — PILOT DONE (2026-10-12)
+
+[Verified G3 evidence](G3_BOOKS_UI_EVIDENCE.md) establishes a **React 19 /
+Vite 7.1.9 / RJSF 6.7.1** frontend on the existing G2 Orval SDK.
+`ui-manifest.json` provides field lists/order, view roles and actions;
+`payload.schema.json` draft 2020-12 via Ajv2020 provides Create and
+Restock form validation. UI shell/layout is handwritten. Spring remains
+sole authority on capabilities; reader/writer selection only changes the
+display, never server privileges. G2 generated API remains disposable.
+
+**Exact tested source SHA `eeff8a628ca9a3487ef6a9b50b9797425c4a4f96`**; Render Free service
+`srv-db6l6stg1s2s739pr5m0` deploy `dep-db6lbbd9fdbs73fqr6h0`
+**LIVE**. Real TypeScript/Vite and Orval regen checks PASS, and a built
+Vite preview using explicit Render allowedHost passed unknown-host denial
+and same-origin health proxy. **Playwright Chromium 3/3 PASS** against a
+local real Spring Boot 4.1.1 server: create/list/get/restock, 2020-12
+invalid numeric/blank validation, cache freshness, pagination, 401/403,
+and a mobile 390 px layout. Independently verified external React page
+and `/health -> {"status":"UP"}` *after* Free JVM cold start. First
+runtime failures (non-root Vite temp EACCES, Render host HTTP 403) were
+fixed and preserved as negative evidence. `npm ci` with committed lock.
+
+**Next G4, not automatic production deployment:** JWT/OIDC trusted
+capability mapping and broader Schemathesis tests; PostgreSQL/persistence
+and wider JSON Schema grammar remain open. Frozen P4 untouched; no paid
+model APIs or GitHub Actions minutes used.

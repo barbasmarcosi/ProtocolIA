@@ -3,7 +3,7 @@
 **Generator selected: Orval 8.41.0.** This directory is the single supported
 TypeScript / TanStack Query client foundation. The **Kubb** comparison lives
 separately in `experiments/g2-client-spike/`, not in the application's npm
-dependencies. G3 adds the actual React list/details/forms.
+dependencies. G3 now provides verified React list/details/RJSF forms.
 
 `src/generated/orval` is disposable and built from **ProtocolIA v0.3**
 `examples/books-paging-v03/contract.json` through the verified Java Basic
@@ -43,3 +43,27 @@ invalidation. See `docs/G2_TYPESCRIPT_CLIENT_EVIDENCE.md` for outcomes.
 
 **Not included:** generated UI, RJSF, production OIDC, SQL/persistence, or a
 claim of developer-time savings.
+
+
+## G3 — Verified React/RJSF Books UI (2026-10-12)
+
+The G2 Orval SDK is now consumed by a **running schema-driven React frontend**.
+From the repository root, generate the canonical bundle with
+`sh examples/books-web/prepare.sh`; then `cd examples/books-web` and run
+`npm ci && npm run generate && npm run verify:contract && npm run verify:regen && npm run typecheck && npm run build`.
+The **source-of-truth** remains the Books v0.3 contract and versioned resources sidecar. The UI uses `ui-manifest.json` for visible fields and operation roles, and `payload.schema.json` for actual RJSF form validation with AJV2020.
+
+For local development, run an isolated, correctly configured G1 Java backend on
+`127.0.0.1:10111`, then `npm run dev`. For a clean full local E2E,
+`docker build -f experiments/g3-books-ui/Dockerfile -t protocolia-g3 .`
+runs the exact Playwright Chromium tests against an isolated real Java process
+during the image build. A demo runtime also needs explicit `PORT` and
+`PROTOCOLIA_USER`/`PROTOCOLIA_PASSWORD`/`PROTOCOLIA_SCOPES` environment
+variables; never embed credentials into the frontend bundle.
+
+**Verified 2026-10-12:** 3/3 browser tests, strict TypeScript/Vite,
+`npm ci`, explicit Render host allowlist and unknown-host denial, plus
+a publicly reachable React screen and `/health -> {"status":"UP"}`.
+See [G3 evidence](../../docs/G3_BOOKS_UI_EVIDENCE.md).
+
+**This is a development-only Basic-auth demo, not production OAuth/OIDC or a generic automatically generated UX.** G4/G5 remain open.
