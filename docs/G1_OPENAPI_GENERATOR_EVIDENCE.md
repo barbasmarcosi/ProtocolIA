@@ -12,20 +12,21 @@ Manual **Java 21 / Spring Boot 4.1.1** root POM, `Application`, `DemoSecurity`, 
 
 ## Actual verification
 
-**Last complete Maven/API-tested source SHA:** `7c6111e138a6d4573b89ca497c1b977fa53bac26`; **Render Free service:** `srv-db6hmh3rjlhs73eqq2bg`; deploy `dep-db6hsfvf3r2c73cc41q0` reached **LIVE**. The public endpoint `GET https://protocolia-g1-openapi-generator-spike.onrender.com/health` independently returned `{"status":"UP"}`.
+**Last complete Maven/API-tested source SHA:** `1b3478059e36be79de8d9834b196a21ec0d9f88e`; **Render Free service:** `srv-db6hmh3rjlhs73eqq2bg`; deploy `dep-db6hv5d9fdbs73aplqgg` reached **LIVE**. Earlier six-test functional acceptance was at `7c6111e138a6d4573b89ca497c1b977fa53bac26`. The public endpoint `GET https://protocolia-g1-openapi-generator-spike.onrender.com/health` independently returned `{"status":"UP"}`.
 
 - OpenAPI Generator **7.26.0** fetched through pinned Maven Central artifact, generated actual Books/Default controllers, delegate interfaces, typed Java models and `ApiUtil`.
 - **Repeat generation:** two independent output trees had a zero-difference comparison across all generated Java sources (`G1_GENERATED_JAVA_IDEMPOTENT`).
 - Manifest-to-source demo HTTP policy check `G1_CAPABILITY_MAPPING_VERIFIED`: **5/5 operations** declared/mapped; no unknown capability.
-- `mvn -B -ntp clean verify` (Java 21, Boot 4.1.1): **BUILD SUCCESS**, **5/5 real HTTP tests** (catalog, BookPage pagination, authenticated and anonymous GET/POST/PATCH, reader-write denial, malformed/unrecognized JSON 400, missing 404, duplicate ISBN 409, stock overflow 409 and eight concurrent adjustments), plus **1/1 delegate completeness test**, 0 failures/errors/skips. It is NOT a mocked HTTP test suite.
-- Additional user-owned error-dispatch regression is **not yet verified** and must be run before final PR merge.
+- `mvn -B -ntp clean verify` (Java 21, Boot 4.1.1): **BUILD SUCCESS**, **5/5 real HTTP tests** (catalog, BookPage pagination, authenticated and anonymous GET/POST/PATCH, reader-write denial, malformed/unrecognized JSON 400, missing 404, duplicate ISBN 409, stock overflow 409 and eight concurrent adjustments), plus **1/1 delegate completeness test** and **1/1 error-dispatch security regression**, total **7/7 PASS**, 0 failures/errors/skips. The additional test proves direct `GET /error` (normal request) remains HTTP 403 while internal validation errors return HTTP 400. It is NOT a mocked HTTP test suite.
+- Additional user-owned error-dispatch regression **PASS at exact SHA `1b3478059e36be79de8d9834b196a21ec0d9f88e`**, along with the prior five HTTP tests and the delegate-completeness gate.
 
 ## Failed attempts, no concealed regressions
 
 1. Initial scaffolding runs were intentionally inspection-only; one failed due a `/bin/sh` glob brace expansion, not a product behavior assertion.
 2. First real compile (`09e5f511aafa595322d38dee4e21c453de682a02`) failed: `BooksApiDelegate` and `DefaultApiDelegate` refer to `ApiUtil`; selecting `supportingFiles=false` excluded that required generated class. Fixed by generating **only** `ApiUtil.java`, without surrendering the root POM.
 3. Subsequent Maven build (`56815df2f9269b135190e9293eeca5deb91c4437`) compiled but reported **3 failing HTTP tests**: intended 400/409 errors turned into 403 because Spring's internal `DispatcherType.ERROR` request was denied by the demo's `anyRequest().denyAll()`. Fixed by allowing **ERROR dispatcher type only**, while retaining deny-all for ordinary unknown requests.
-4. Final functional build at `7c6111e138a6d4573b89ca497c1b977fa53bac26` passed all original HTTP tests and generated Java determinism gates; public health was confirmed after startup.
+4. Functional build at `7c6111e138a6d4573b89ca497c1b977fa53bac26` passed all original HTTP tests and generated Java determinism gates.
+5. Final checked code SHA `1b3478059e36be79de8d9834b196a21ec0d9f88e` added a regression ensuring direct `/error` is still forbidden to ordinary requests, then passed **7/7 JUnit and Maven `BUILD SUCCESS`**; generated Java remained deterministic. Public `/health` was independently observed as `{"status":"UP"}` after the deployment became LIVE.
 
 ## Maintenance and rollout decision
 
@@ -42,3 +43,5 @@ ProtocolIA's Java adapter. No developer-time/token/USD saving has been proven.
 The next practical step after documenting the result is **G2: Orval versus Kubb** on the same emitted OpenAPI, one chosen typed client and cache invalidation verified against the deployed real Books service.
 
 **Not part of this spike:** JWT/OIDC production security, persistent PostgreSQL, premium generated UI, general SQL synthesis, arbitrary API capabilities, Schemathesis or new P4 model-cost claims.
+
+**Final executable JAR SHA-256:** `3e3bf815fb3055b03e147f1a1a418d4206bb15309e5cf6fdd9ae929fa6e3d365` from the same `mvn clean verify` build. This identifies the Maven-packaged candidate, not an external release artifact. The configured release is OpenAPI Generator **7.26.0**, Spring Boot **4.1.1**, Java 21. No GitHub Actions minutes or paid APIs were used.

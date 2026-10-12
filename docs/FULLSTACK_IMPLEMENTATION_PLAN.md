@@ -44,6 +44,8 @@ Order is a dependency DAG, not six independent deliverables:
 
 **Decision:** promote upstream generator only if non-regressing and easier to maintain. **Fallback:** keep existing ProtocolIA java-spring/0.4, report failed hypotheses and continue other gates using its truthful OpenAPI. No endless generator customization.
 
+**G1 observed 2026-10-12:** bounded v0.3 Books experiment **VERIFIED** with OpenAPI Generator 7.26.0, Java 21 / Spring Boot 4.1.1, 7/7 JUnit incl 5 real HTTP tests, deterministic regeneration, manifest/auth parity and Render Free LIVE. **Default promotion intentionally HELD**: user-maintained integration code increased and broader corpus/ROI remains unproven. See [G1 evidence](G1_OPENAPI_GENERATOR_EVIDENCE.md).
+
 ## G2 — Generated client + typed query/hooks [P1, prerequisite for UI]
 
 **Candidates:** Orval 8.41.0 default vs Kubb 5.5.5 short strategic spike. Do not make both permanent.
