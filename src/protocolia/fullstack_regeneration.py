@@ -99,6 +99,17 @@ def _run(args: list[str], cwd: Path, timeout: int = 480) -> None:
 
 
 def _java(spec: Path, jar: Path, root: Path) -> dict[str, bytes]:
+    # The generator is a replaceable external tool, but the executed release
+    # must match the exact version accepted by this adapter.
+    try:
+        version = subprocess.run(
+            ["java", "-jar", str(jar), "version"], cwd=root, check=True,
+            capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired) as exc:
+        core._fail("unable to verify pinned Java generator: " + str(exc))
+    if version != "7.26.0":
+        core._fail("unsupported OpenAPI Generator version: " + repr(version))
     def generate(target: Path) -> dict[str, bytes]:
         _run(["java", "-jar", str(jar), "generate", "-g", "spring",
               "-i", str(spec), "-o", str(target),
