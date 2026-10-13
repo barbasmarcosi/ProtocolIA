@@ -61,6 +61,6 @@ test("unsupported operations and unsafe SQL field names fail before writing",()=
   extra.operations.push({...extra.operations[0],name:"unsafe",behavior:{kind:"arbitrarySql"}});
   assert.throws(()=>generate(extra,spec,scratch()),/Unsupported operation/);
   const unsafe=structuredClone(ir);
-  unsafe.entities[0].fields[0].name="serial; DROP TABLE";
+  unsafe.entities[0].fields[1].name="label; DROP TABLE";
   assert.throws(()=>generate(unsafe,spec,scratch()),/Unsafe identifier/);
 });
