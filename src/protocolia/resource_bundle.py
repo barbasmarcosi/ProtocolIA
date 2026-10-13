@@ -255,37 +255,54 @@ def compare_resource_bundles(before_contract: Any, before_resources: Any,
                     continue
                 severity = "breaking"
                 kind = "semantic_binding_changed"
-                if field == "views":
-                    # A view may append already-validated optional contract
-                    # fields without changing roles, paths, labels or order.
-                    # Removed/reordered existing fields remain breaking.
+                if field == "operations":
+                    old_ops = b[resource]["operations"]
+                    next_ops = a[resource]["operations"]
+                    old_actions = old_ops["actions"]
+                    next_actions = next_ops["actions"]
+                    if (all(old_ops[key] == next_ops[key]
+                            for key in old_ops if key != "actions") and
+                        all(next_actions.get(k) == v for k, v in old_actions.items()) and
+                        len(next_actions) > len(old_actions)):
+                        severity = "additive"
+                        kind = "resource_action_added"
+                elif field == "invalidates":
+                    before_keys = b[resource]["invalidates"]
+                    after_keys = a[resource]["invalidates"]
+                    added_actions = set(a[resource]["operations"]["actions"].values()) - set(
+                        b[resource]["operations"]["actions"].values())
+                    if (all(after_keys.get(k) == v for k, v in before_keys.items())
+                            and set(after_keys) - set(before_keys) == added_actions
+                            and added_actions):
+                        severity = "additive"
+                        kind = "new_action_invalidation_added"
+                elif field == "views":
+                    # Validated metadata can append optional model fields or
+                    # introduce a new view for a newly declared resource action.
+                    # Existing fields, bindings, labels and order cannot change.
                     old_views = b[resource]["views"]
                     new_views = a[resource]["views"]
-                    if set(old_views) == set(new_views) and all(
-                        set(old_views[name]) == set(new_views[name]) and
-                        all(old_views[name][k] == new_views[name][k]
-                            for k in old_views[name] if k != "fields") and
-                        new_views[name]["fields"][:len(old_views[name]["fields"])]
-                            == old_views[name]["fields"]
-                        for name in old_views
-                    ):
-                        added = [
-                            key for name in old_views for key in
+                    added_actions = set(a[resource]["operations"]["actions"]) - set(
+                        b[resource]["operations"]["actions"])
+                    extra_views = set(new_views) - set(old_views)
+                    if (set(old_views).issubset(new_views) and
+                        extra_views == added_actions and
+                        all(set(old_views[name]) == set(new_views[name]) and
+                            all(old_views[name][k] == new_views[name][k]
+                                for k in old_views[name] if k != "fields") and
+                            new_views[name]["fields"][:len(old_views[name]["fields"])]
+                                == old_views[name]["fields"]
+                            for name in old_views)):
+                        new_fields = [
+                            (new_views[name]["model"], key)
+                            for name in old_views for key in
                             new_views[name]["fields"][len(old_views[name]["fields"]):]
                         ]
-                        model_names = {
-                            name: new_views[name]["model"] for name in new_views
-                        }
-                        # Only optional fields may be added to views without
-                        # changing the original user interaction contract.
-                        contract_ir = validate_contract(after_contract)
-                        if all(
-                            not contract_ir["models"][model_names[name]][item]["required"]
-                            for name in old_views
-                            for item in new_views[name]["fields"][len(old_views[name]["fields"]):]
-                        ) and added:
+                        if all(not validate_contract(after_contract)["models"][model][key]["required"]
+                               for model, key in new_fields) and (new_fields or added_actions):
                             severity = "additive"
-                            kind = "optional_view_fields_appended"
+                            kind = ("resource_action_view_added" if added_actions else
+                                    "optional_view_fields_appended")
                 changes.append({"path": f"{path}.{field}", "severity": severity,
                                 "kind": kind})
     breaking = contract["breaking"] + sum(c["severity"] == "breaking" for c in changes)
