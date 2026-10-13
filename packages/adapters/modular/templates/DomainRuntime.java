@@ -61,7 +61,7 @@ public class DomainRuntime {
         (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(authorized.capability())))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
-    Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(matched.entity())).findFirst()
+    Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(authorized.entity())).findFirst()
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
