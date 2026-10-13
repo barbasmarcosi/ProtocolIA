@@ -19,7 +19,15 @@ function normalizePayload(fields,values){
   }
   return result;
 }
-function FormField({field,value,onChange}){
+function FormField({field,value,onChange,choices}){
+  if(field.reference)return <label className="field">
+    <span>{label(field)} — {field.reference.target}{field.required?" *":""}</span>
+    <select required={field.required} value={value??""}
+      onChange={event=>onChange(field.name,event.target.value)}>
+      <option value="">Seleccionar {field.reference.target}</option>
+      {(choices??[]).map(item=><option key={item.key} value={item.key}>{item.label}</option>)}
+    </select>
+  </label>;
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
     <input type={field.type==="int32"?"number":"text"} required={field.required}
@@ -30,6 +38,8 @@ function FormField({field,value,onChange}){
 }
 export default function App(){
   const [config,setConfig]=useState(null);
+  const [resourceIndex,setResourceIndex]=useState(0);
+  const [referenceOptions,setReferenceOptions]=useState({});
   const [startupError,setStartupError]=useState("");
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
@@ -52,7 +62,8 @@ export default function App(){
     if(!r.ok)throw Error("Missing generated UI manifest");
     return r.json();
   }).then(c=>{setConfig(c);setForm(createEmpty(c.entity.fields));}).catch(e=>setStartupError(e.message));},[]);
-  const operations=useMemo(()=>config?.operations??{},[config]);
+  const active=config?.resources?.[resourceIndex]??config;
+  const operations=useMemo(()=>active?.operations??{},[active]);
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
 
   async function request(kind,{body,code,query}={}){
@@ -87,7 +98,43 @@ export default function App(){
       setItems(data.items);setTotal(data.total);
     }catch(e){setError(e.message);}finally{setLoading(false);}
   }
-  useEffect(()=>{if(config&&auth)refresh();},[config,auth,offset]);
+  useEffect(()=>{
+    if(!active)return;
+    setForm(createEmpty(active.entity.fields));
+    setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});
+  },[active?.entity.name]);
+  useEffect(()=>{if(active&&auth)refresh();},[active?.entity.name,auth,offset]);
+  useEffect(()=>{
+    if(!config||!active||!auth)return;
+    let valid=true;
+    async function loadReferences(){
+      const found={};
+      for(const field of active.entity.fields.filter(f=>f.reference)){
+        const target=config.resources?.find(r=>r.entity.name===field.reference.target);
+        if(!target||!capabilities.includes(target.operations.listPage?.capability)){
+          setError("No tenés permiso de lectura sobre "+field.reference.target);
+          continue;
+        }
+        const response=await fetch(target.operations.listPage.path+"?limit=50&offset=0",{
+          headers:{Authorization:"Basic "+auth}
+        });
+        if(!response.ok){setError("No se pudo consultar "+field.reference.target);continue;}
+        const result=await response.json();
+        if(!Array.isArray(result.items)||result.total>result.items.length){
+          setError("La selección de "+field.reference.target+" requiere búsqueda paginada (fuera del perfil actual)");
+          continue;
+        }
+        found[field.name]=result.items.map(item=>({
+          key:item[target.entity.publicIdentity],
+          label:String(item[target.entity.publicIdentity])+
+            (item.name?" — "+item.name:"")
+        }));
+      }
+      if(valid)setReferenceOptions(found);
+    }
+    loadReferences().catch(e=>{if(valid)setError(e.message);});
+    return ()=>{valid=false;};
+  },[active?.entity.name,auth,capabilities.join("|")]);
   async function logIn(event){
     event.preventDefault();
     setLoginBusy(true);setLoginError("");setError("");setNotice("");
@@ -113,7 +160,7 @@ export default function App(){
     try{
       const data=await request(kind,params);
       if(kind==="delete")setSelected(null);
-      else if(data?.[config.entity.publicIdentity])setSelected(data);
+      else if(data?.[active.entity.publicIdentity])setSelected(data);
       setNotice("Operación confirmada: "+kind);
       const listing=await request("listPage",{query:{limit,offset}});
       setItems(listing.items);setTotal(listing.total);
@@ -123,7 +170,7 @@ export default function App(){
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main><p>Cargando contrato…</p></main>;
   return <main className="shell">
-    <header><div><small>ProtocolIA · generado desde contrato</small><h1>{config.view||config.entity.name}</h1></div>
+    <header><div><small>ProtocolIA · generado desde contrato</small><h1>{active.view||config.entity.name}</h1></div>
       {auth&&<button className="ghost" onClick={logOut}>Salir</button>}</header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
@@ -131,6 +178,12 @@ export default function App(){
       <label className="field"><span>Contraseña</span><input data-testid="password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
       <button type="submit" disabled={loginBusy}>{loginBusy?"Verificando…":"Entrar"}</button></form></section>:
       <>
+      {(config.resources?.length??0)>1&&<nav className="resource-nav" aria-label="Recursos">
+        {config.resources.map((r,i)=><button key={r.entity.name}
+          className={resourceIndex===i?"":"ghost"}
+          aria-current={resourceIndex===i?"page":undefined}
+          onClick={()=>setResourceIndex(i)}>{r.view||r.entity.name}</button>)}
+      </nav>}
       {error&&<p className="message error" role="alert">{error}</p>}
       {notice&&<p className="message" role="status">{notice}</p>}
       <section className="panel">
@@ -139,7 +192,7 @@ export default function App(){
         <div className="scroll"><table><thead><tr>{config.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[config.entity.publicIdentity]}>
           {config.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" onClick={()=>{setSelected(item);setRename(String(item[operations.patchFields.behavior.field]??""));}}>Detalle</button></td>
+          <td><button className="ghost" onClick={()=>{setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
@@ -150,7 +203,7 @@ export default function App(){
         <form onSubmit={async event=>{event.preventDefault();
           const data=await act("create",{body:normalizePayload(config.entity.fields,form)});
           if(data)setForm(createEmpty(config.entity.fields));
-        }}><div className="fields">{config.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]}
+        }}><div className="fields">{config.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <button type="submit" disabled={loading}>Crear</button></form>
       </section>}
