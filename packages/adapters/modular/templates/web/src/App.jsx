@@ -103,7 +103,8 @@ export default function App(){
     setError("");setNotice("");setLoading(true);
     try{
       const data=await request(kind,params);
-      if(data?.[config.entity.publicIdentity])setSelected(data);
+      if(kind==="delete")setSelected(null);
+      else if(data?.[config.entity.publicIdentity])setSelected(data);
       setNotice("Operación confirmada: "+kind);
       const listing=await request("listPage",{query:{limit,offset}});
       setItems(listing.items);setTotal(listing.total);
