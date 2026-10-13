@@ -37,5 +37,6 @@ if [ "$ready" != 1 ]; then
 fi
 echo "A0_MODULAR_HEALTH_200"
 node scripts/vnext/probe-modular-http.mjs || { tail -n 90 /tmp/a0-modular-spring.log; exit 1; }
+node scripts/vnext/probe-modular-browser.mjs || { tail -n 90 /tmp/a0-modular-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_modular -t -c 'SELECT code,name,quantity FROM tool ORDER BY code;'
 echo "A0_MODULAR_REAL_POSTGRES_CONFORMANCE_PASS"

@@ -31,7 +31,7 @@ const scratch=()=>mkdtempSync(join(tmpdir(),"protocolia-modular-fixture-"));
 test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=>{
   const root=scratch();
   const result=generate(ir,spec,root);
-  assert.equal(result.files.length,8);
+  assert.equal(result.files.length,15);
   const sql=readFileSync(join(root,"src/main/resources/schema.sql"),"utf8");
   const java=readFileSync(join(root,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8");
   assert.match(sql,/CREATE TABLE IF NOT EXISTS gauge/);
@@ -42,6 +42,10 @@ test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=
   assert.doesNotMatch(java,/Tool|Book|Inventory/);
   assert.match(java,/gauges\.read/);
   assert.match(java,/gauges\.write/);
+  const ui=JSON.parse(readFileSync(join(root,"src/main/resources/static/protocolia-ui.json"),"utf8"));
+  assert.equal(ui.entity.publicIdentity,"serial");
+  assert.equal(ui.operations.atomicIncrement.behavior.input,"delta");
+  assert.equal(ui.operations.listPage.path,"/api/gauges");
 });
 test("same contract and official OpenAPI produce identical managed files in two fresh trees",()=>{
   const first=scratch(),second=scratch();

@@ -17,6 +17,9 @@ RUN node packages/adapters/modular/generate.mjs \
   examples/vnext/taller/tsp-output/@protocolia/compiler/ir.json \
   examples/vnext/taller/tsp-output/@typespec/openapi3/openapi.json \
   /work/dist/modular
+RUN cd /work/dist/modular/web && npm install --ignore-scripts && npm run build
+RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
+RUN npx playwright install --with-deps chromium
 RUN cd /work/dist/modular && mvn -B -ntp -DskipTests package
 RUN bash scripts/vnext/probe-modular-postgres.sh
 EXPOSE 3000

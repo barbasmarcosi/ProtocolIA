@@ -40,7 +40,7 @@ public class SecurityConfig {
     http.csrf(AbstractHttpConfigurer::disable)
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(a -> a.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-            .requestMatchers("/health").permitAll()
+            .requestMatchers("/health", "/", "/index.html", "/protocolia-ui.json", "/assets/**").permitAll()
             .requestMatchers("/api/**").authenticated()
             .anyRequest().denyAll())
         .httpBasic(Customizer.withDefaults());

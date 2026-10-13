@@ -117,6 +117,16 @@ export function generate(ir, openapi, outDir) {
   for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java"]) copy(base+filename,filename);
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
+  const uiOperations=Object.fromEntries(ops.filter(op=>op.behavior.kind!=="health").map(op=>[
+    op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
+  ]));
+  write("src/main/resources/static/protocolia-ui.json",JSON.stringify({
+    entity:e, view:e.view??e.name, operations:uiOperations
+  },null,2)+"\n");
+  for(const file of [
+    "package.json","index.html","vite.config.mjs",
+    "src/main.jsx","src/App.jsx","src/style.css"
+  ]) copy("web/"+file,"web/"+file);
   const columns=e.fields.map(f=>{
     const col=snake(f.name);
     const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
