@@ -68,6 +68,16 @@ public class BookInventory {
         return get(isbn);
     }
 
+    @Transactional
+    public Entry rename(String isbn, String title) {
+        if (title == null || title.isBlank() || title.length() > 255)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid title");
+        int changed = jdbc.update("UPDATE books SET title = ? WHERE isbn = ?", title, isbn);
+        if (changed == 0)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "book not found");
+        return get(isbn);
+    }
+
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Page list(Integer limit, Integer offset) {
         if (limit == null || limit < 1 || limit > 50 ||
