@@ -1,5 +1,11 @@
 # G5 v0.4 — verified Books vertical
 
+**Pilot accepted 2026-10-13:** contract field `publishedAt` and
+new `renameBook` PATCH action propagate into generated API/Orval/RJSF,
+real JDBC/Flyway V2, signed-JWT security checks and browser E2E.
+See [closeout evidence](../../docs/G5_CONTRACT_EVOLUTION_PROGRESS.md).
+
+
 This is the narrow, experimentally supported optional+nullable scalar field
 profile, **not** a general-purpose application generator.
 
@@ -8,6 +14,10 @@ missing field and explicit JSON null both become Java null. The generated
 OpenAPI 3.1, JSON Schema 2020-12, TypeScript, Java API and view manifests
 derive from `contract.json` + `resources.json`. Handwritten JDBC,
 application authorization and Flyway migrations remain reviewed, **user-owned**.
+
+For existing G3/v0.3 frontend behavior use `examples/books-web`; for
+v0.4 run the isolated `examples/books-web-v04` template. To inspect
+second-resource generality, see `examples/g5-second-resource`.
 
 ## One safe generation command
 
@@ -21,7 +31,7 @@ PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
   --resources examples/books-evolution-v04/resources.json \
   --domain-errors examples/books-paging-v03/http-errors.json \
   --java-generator-jar /path/to/openapi-generator-cli-7.26.0.jar \
-  --web-template examples/books-web \
+  --web-template examples/books-web-v04 \
   --out generated/books-v04
 ```
 

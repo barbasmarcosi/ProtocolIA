@@ -32,20 +32,23 @@ already-implemented tutorial, see [catalog vertical example](examples/catalog-ve
 A previous `java-spring/0.3` directory must be migrated explicitly into a new output
 directory rather than silently overwritten.
 
-## G5 v0.4 contract evolution — experimental
+## G5 — verified bounded full-stack pilot
 
-A new [G5 evolution pilot](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md) exercises
-the deliberately bounded `0.4` contract extension: optional nullable scalar
-fields, derived HTTP/JSON Schema/TypeScript/Java models, and the isolated
-`examples/books-evolution-v04` fixture. This is **experimental, not a
-general optional/null guarantee** and is not integrated into the deployed G3
-browser or G5 PostgreSQL app. Historical v0.1–v0.3 semantics remain unchanged.
-A disposable Render Free Docker pilot has now verified exact-source v0.4
-Python compatibility tests, deterministic upstream generation, React/Orval
-typechecking and Java 21/Spring Boot 4.1.1 with **10/10 JUnit** against
-PostgreSQL 16.10 (Flyway V1+V2), plus `publishedAt` persistence through two
-separate JVM starts. This is not full-stack Playwright E2E, a managed database,
-or a safe integrated regeneration system. See the [exact evidence ledger](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md).
+G0–G5 are implemented and verified for a bounded, nonproduction Books slice.
+[The exact-source G5 closeout](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md)
+records **221 Python tests (one skipped)**, **11 PostgreSQL/JUnit**, **8 signed
+JWT/PostgreSQL JUnit**, **5 real Chromium Playwright**, two-JVM data durability,
+two-pass deterministic code generation, plus an independently generated Widgets
+resource. No paid LLM provider or GitHub Actions minutes were used.
+
+Try the [versioned Books example](examples/books-evolution-v04/README.md),
+including `publishedAt` optional-nullable and the `renameBook` operation.
+Use the dedicated `examples/books-web-v04` frontend; the historical v0.3
+G3 app remains isolated and builds from its original contract.
+
+**Important:** the hosted demo serves only `/health`. Production OIDC,
+managed PostgreSQL, backups and operational release hardening are **not**
+part of the verified pilot; P4 ROI, P5 adoption and P6 release remain open.
 
 ## Product-first Java vertical slice
 

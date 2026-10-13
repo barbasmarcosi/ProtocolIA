@@ -1,8 +1,8 @@
 # Full-stack implementation plan G0–G5 — ProtocolIA
 
-**Status:** G0–G3 bounded verified, G4 signed-JWT test pilot verified, G5 PostgreSQL pilot verified; full integrated G5 is OPEN. The plan below retains original gate definitions.  
-**Revised:** 2026-10-12. Source: [user-provided deep research and alignment notes](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
-**Contract:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md). **Architecture:** [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md). See [G5 nullable-evolution work in progress](G5_CONTRACT_EVOLUTION_PROGRESS.md).  
+**Status:** G0–G5 VERIFIED for the **bounded nonproduction full-stack Books pilot**, including scoped G4 JWT+DB integration, v0.4 field/operation evolution, regeneration, browser, persistence and independent Widgets codegen. **Not production-ready.**  
+**Revised:** 2026-10-13. Source: [user-provided deep research and alignment notes](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
+**Contract:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md). **Architecture:** [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md). See [G5 verified pilot closeout](G5_CONTRACT_EVOLUTION_PROGRESS.md).  
 **Supersedes:** the old full-stack sequence in this document; existing Stage 1–4 product evidence remains historical fact.
 
 ## Invariants and workflow
@@ -109,9 +109,27 @@ coverage, and not a security audit**. G4 remains open for real-issuer rollout.
 
 **Fallback/no-go:** if regeneration is unstable or a generator upgrade changes semantics, pin last good tools and leave pilot incomplete. If DB or OIDC gates fail, report partial demo instead of a production-ready full-stack product. Frozen P4 untouched.
 
-### G5 checkpoint — 2026-10-12 (persisted Books test slice verified; other gates open)
+### G5 final supported-pilot closeout — 2026-10-13
 
-PostgreSQL 16.10 and Flyway v1 have been verified in an isolated Docker build with Java 21 / Boot 4.1.1: **10/10 JUnit PASS**, 409 domain protection, transaction rollback, concurrent restocks, consistent pagination and **book persisted across two distinct JVM launches**. The Java generator also produced zero-diff code from two independent runs. This uses reviewed user-owned migration/SQL and does not change the v0.3 wire source. [G5 evidence](G5_POSTGRESQL_PERSISTENCE_EVIDENCE.md). It is not a managed DB deployment, production readiness, full end-to-end regeneration, additive optional-field propagation or second resource. Those criteria remain OPEN.
+The earlier isolated v0.3 PostgreSQL 16/Flyway pilot remains historical
+evidence; PR #49 adds **one integrated, regenerated v0.4 Books slice** with
+real PostgreSQL, signed-JWT authentication, Orval, React/RJSF and browser
+verification. **Accepted** at executable source `941e9a8c33e0900a8867c362a774b6ff2c8f24d5` and
+Render Free deployment `dep-db6pgquk1f9s73b1f3rg` (LIVE). Regeneration stages Java,
+Orval, JSON Schema, UI/capability manifests into an owned tree; two full
+runs are byte-stable and negative ownership/compatibility tests pass.
+`publishedAt` and new PATCH `renameBook` flow through the contract to
+the real application, its tests and user-owned persistence. The independent
+Widgets resource is generated with the same engine. Historical G3 v0.3
+frontend is separately rebuilt. Results: **221 Python tests (1 skipped)**,
+**11/11 JDBC/Basic JUnit**, **8/8 signed JWT+PostgreSQL JUnit** and
+**5/5 Chromium Playwright**. Details, limitations, repairs and exact commands
+are in the [G5 closeout evidence](G5_CONTRACT_EVOLUTION_PROGRESS.md).
+
+**G5 accepted for the supported nonproduction pilot, not for arbitrary
+generated software nor production operations.** Durable managed deployments,
+external IdP, backup/restore, P4 measured superiority, P5 independent adoption
+and P6 stable v1 remain separate follow-on gates.
 
 ## Measurement and product decision
 

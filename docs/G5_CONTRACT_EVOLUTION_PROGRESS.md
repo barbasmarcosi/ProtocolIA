@@ -1,80 +1,98 @@
-# G5 — v0.4 contract evolution and full-stack regeneration
+# ProtocolIA G5 — bounded full-stack pilot closeout
 
-**Status: VERIFIED bounded v0.4 compilation + disposable PostgreSQL persistence pilot; full G5 regeneration remains OPEN.**
-**Date:** 2026-10-12 America/Argentina/Salta (2026-10-13 UTC).
+**Decision:** VERIFIED / ACCEPTED **for the versioned Books v0.4 pilot**.
+**Date:** 2026-10-13 UTC (2026-10-12 Argentina).
+**Not** a production launch, a general application generator, an approved
+external OIDC integration, or economic superiority evidence.
 
-## Source/evidence provenance
+## Executable evidence at a fixed source revision
 
-- Branched from main `64937baaa6b34951de881c136432354070fa8b00`.
-- Last freshly tested executable code/test SHA: `3605ebc42371bd52347fc826ea38ebd1e7bf217b`.
-- Render Free service `srv-db6oqbgu01pc73avte1g`, build/deploy `dep-db6osn7f3r2c73buel30`.
-- Build executed with actual Java 21/Spring Boot 4.1.1, PostgreSQL 16.10,
-  Flyway V1 + reviewed additive V2 and Orval 8.41.0. G5 JWT and historical
-  P4 sources remain untouched.
+- Source tested: `941e9a8c33e0900a8867c362a774b6ff2c8f24d5` on
+  `feature/g5-contract-evolution-regeneration`, based on original main
+  `64937baaa6b34951de881c136432354070fa8b00`.
+- Render service: `srv-db6oqbgu01pc73avte1g` (Free),
+  deploy `dep-db6pgquk1f9s73b1f3rg`, status **LIVE**.
+- Dockerfile: `experiments/g5-contract-evolution/Dockerfile`. All tests
+  occur in disposable build stages; the published image has only a public
+  health marker and **no writable public Books API or PostgreSQL**.
+- Tool versions: Python 3.13 for verifier, Java 21, Spring Boot 4.1.1,
+  OpenAPI Generator CLI 7.26.0 (version checked at CLI runtime), Orval 8.41.0,
+  TypeScript 5.9.3, React 19.2, RJSF 6.7.1, Chromium Playwright 1.56.1,
+  PostgreSQL 16.10 (Java/JWT test image; browser's Ubuntu package 16.15),
+  Flyway V1 and V2.
+- Host-side CI: GitHub Actions minutes unused. Paid AI APIs unused.
 
-## Implemented and observed
+## Verified gate evidence
 
-1. **Versioned semantics:** new v0.4 allows only `required:false,
-   nullable:true` primitive scalars. Omission and JSON null map to Java null,
-   deliberately not distinguished by the current adapter. Required-nullable,
-   optional-nonnullable and optional arrays/references fail closed.
-2. **Derived wire projections:** canonical v0.4 IR, OpenAPI 3.1,
-   JSON Schema 2020-12, TypeScript, Java typed model and resource/UI metadata.
-   Old v0.1/v0.2/v0.3 compiler behavior stays on its unchanged path.
-3. **Books evolution fixture:** `publishedAt` optional RFC3339 datetime
-   added to BookRequest/Book; fields in metadata-owned create/detail/list.
-   No changes to the existing G1–G5 baseline Books contract.
-4. **Provider-free Python tests:** 5/5 PASS; missing/null/valid/invalid
-   timestamp checks, conservative additive compatibility, unsupported grammar
-   negatives, historical v0.3 compiler parity.
-5. **Deterministic outputs:** `G5_V04_BUNDLE_IDEMPOTENT` (nine artifacts
-   emitted twice with no byte diff) and
-   `G5_V04_UPSTREAM_JAVA_IDEMPOTENT` (two distinct pinned Java source trees
-   byte-identical).
-6. **Frontend compile:** Orval generation twice, stable generated files,
-   capability/operation checks, TypeScript typecheck and Vite build all PASS:
-   `G5_V04_ORVAL_RJSF_BUILD_PASS`. This is **not** a browser E2E test.
-7. **Real PostgreSQL acceptance:** Flyway v1 and v2 applied freshly;
-   `mvn -B -ntp clean verify` **10 tests, 0 failures, 0 errors, 0 skipped,
-   BUILD SUCCESS**. Three new real HTTP/JDBC tests cover:
-   - valid `publishedAt` sent via HTTP 201 and read back from PostgreSQL;
-   - date survives PATCH stock 2→9, GET and paginated list;
-   - omitted and explicit JSON null fields accepted;
-   - malformed timestamp returns 400;
-   - existing schema still accepts legacy rows.
-8. **Cross-process persistence:** `restart_check.py` started two independent
-   executable Spring JVMs against the *same* disposable PostgreSQL instance.
-   Observed `G5_V04_PRE_RESTART_WITH_PUBLISHED_AT_PASS`,
-   `G5_V04_PUBLISHED_AT_SURVIVES_TWO_JVM_PROCESSES_PASS`, and
-   `G5_V04_DURABLE_ROWS=9`. No public writable DB/API was deployed.
+| Requirement | Observed result |
+| --- | --- |
+| v0.4 canonical IR & contracts | Optional+nullable **primitive scalars** supported. Missing/null both map to Java null; unsupported combinations rejected. v0.1–v0.3 compiler behavior unchanged |
+| Real field evolution | `publishedAt` propagated to OpenAPI 3.1, JSON Schema 2020-12, TypeScript, Java DTO, RJSF create/detail/list, JDBC, Flyway V2, PostgreSQL queries |
+| Real operation evolution | `renameBook` PATCH with `TitleChange` model, explicit `catalog.write`, Spring generated delegate, user-owned JDBC implementation, Orval mutation/cache invalidation, RJSF action, real HTTP/JWT/browser checks |
+| Versioned frontend compatibility | Historical `examples/books-web` v0.3 compiled with its own v0.3 contract and Orval; v0.4 isolated in `examples/books-web-v04` |
+| Generator reproducibility | Contract bundle generated twice with identical bytes; OpenAPI Generator Java generated twice identical; Orval twice identical; fullstack CLI executed twice with owned generated root |
+| Safe regeneration | `regenerate-fullstack` stages into fresh temporary managed tree; hash ownership and symlink guards; preserves handwritten code; rejects changed permissions/roles, breaking field/operation changes, conflicting files, generator failures; unit tests cover additive new operation/view, added nullable fields, tampering and refusal |
+| Python regression | **221 tests executed, 0 failures, 0 errors, 1 skipped**. Includes historical P0–P4 and 7 fullstack ownership tests, v0.4 and second-resource cases |
+| Real PostgreSQL / Basic HTTP | **11/11 JUnit**, zero failures/errors/skips. Flyway V1+V2; 201/200/400/403/404/409 cases, atomic stock, SQL rollback, nullable date and renamed title |
+| Cross-JVM durability | Two independently started JVM processes using same disposable PostgreSQL persisted `publishedAt` and stock adjustments. `G5_V04_PUBLISHED_AT_SURVIVES_TWO_JVM_PROCESSES_PASS` |
+| JWT + DB combined | **8/8 JUnit**, zero failures/errors/skips, signed RS256 JWT and local ephemeral JWKS, issuer/audience/expiry, server-side scope→capability mapping and method-level guards against unauthorized writes; real PostgreSQL `publishedAt` and title mutation |
+| Real React/HTTP/DB browser | **5/5 Chromium Playwright**, original G3 baseline then v0.4: schema form, nullable field, title rename, actual PostgreSQL stock/GET, reader write denial and mobile |
+| Second resource | Independent `Widgets` v0.4 contract, resources/views, HTTP projection, Java and Orval generation with same fullstack CLI; negative resource binding + optional field append tests |
 
-## Observed failed attempts (not hidden)
+The final image cannot be built unless the required stage marker artifacts
+are present; its deployed `/health` is deliberately **not** evidence that a
+database is publicly persistent.
 
-The initial `dep-db6oqc0u01pc73avtfa0` build FAILED at the Python
-sidecar-version test: a too-broad version match treated sidecar 0.3 as 0.2.
-It was corrected in `bdf1c3e0e7617aff06f364822d4837387bc8f188`.
-The follow-up `dep-db6oqqnf3r2c73bu7or0` confirmed the Python,
-backend Java compilation and frontend toolchain, but explicitly skipped
-Java tests. Only the third deploy (source above) executed the real DB/HTTP
-JUnit suite and two-JVM restart.
+## Exact scope and honesty boundaries
 
-## Remaining gates (NOT completed)
+1. This gate verifies the **bounded Books full-stack pipeline and a second
+   independent resource's code generation**. Widgets does not yet have a
+   hand-written runnable business implementation.
+2. `regenerate-fullstack` owns **only a dedicated output root** with Java API
+   sources, Orval client sources, schemas and manifests. The rest of the
+   application, including delegates, persistence, SQL, login and UI components,
+   remains hand-written and is compiled/verified by the outer Docker
+   integration suite, **not** by the CLI itself.
+3. The managed-root swap verifies hashes and stages before promoting, with
+   normal filesystem error recovery; it is **not** an ACID multi-directory
+   transaction nor a guarantee against process death mid-rename or
+   cross-layer Docker OverlayFS renames. Unsupported replacements fail closed.
+4. JWT acceptance uses **local test keys/JWKS**. No trusted third-party
+   production OIDC issuer, MFA, durable identities or production token rotation
+   was tested. The historical G3 Basic demonstration remains separate.
+5. PostgreSQL was real and durable **within the disposable build test and
+   across JVM restarts**, but is not a managed deployed volume. Backup/restore,
+   cross-deploy longevity and disaster recovery are operations for a later
+   production-ready release.
+6. The frozen P4 A/B/C economic comparison is unchanged and **has not proved**
+   token, cost, productivity or quality advantage over existing approaches.
 
-- Real Playwright browser E2E **of v0.4 with PostgreSQL**; compile is
-  insufficient to prove the `publishedAt` widget/submission is usable.
-- One explicit safe `protocolia regenerate-fullstack` pipeline that stages
-  OpenAPI Generator, Orval, manifests and schema forms; validates owned-path
-  hashes; forbids all handwritten changes; rejects partial failure before
-  promoting generated trees.
-- Same-version breaking fixture coverage, an independently reproduced
-  second resource, fuller nullable/optional/enum/array grammar conformance.
-- Integration of genuine JWT/OIDC with migrated DB; G4 remains an isolated
-  verified JWT test profile, NOT production identity.
-- Managed **nonproduction** PostgreSQL data durability, real backup/restore,
-  migrations against existing volumes, operational recovery, secret rotation.
-- P4 preregistered economic superiority or token savings is entirely
-  **unproved** and its frozen candidate artifacts are unchanged.
+## Reproducibility
 
-**Decision:** keep PR #49 Draft; do not merge or advertise G5 as 100%.
-This evidence supports a narrowly scoped v0.4 vertical, not arbitrary
-automatic SQL/permissions/business behavior.
+See `examples/books-evolution-v04/README.md` for the runnable
+`python -m protocolia regenerate-fullstack` invocation and its exact
+ownership guarantees. Java, Node and test dependencies are pinned by the
+Dockerfile, Maven POM and npm lock. Target-specific business invariants
+are never inferred from URL paths.
+
+## Relevant failed attempts and repairs
+
+- Incorrect 0.3 sidecar branch was fixed after a genuine Python failure.
+- Browser suite originally assumed an empty DB: fixture order was made explicit.
+- Missing `git` and `jsonschema` in the disposable global regression image
+  were installed rather than removing historic tests.
+- Docker OverlayFS rejected replacing a managed tree created in an earlier
+  image layer; the idempotence check was executed in one layer while the
+  runtime continues to fail closed for unsupported renames.
+- A new title field was initially selected outside its schema-owned action
+  form; the browser check was scoped semantically.
+- A second disposable PostgreSQL instance was assigned its own port, after
+  startup conflict in an inherited build stage.
+- UI v0.4 rename action was moved to a separate frontend rather than
+  breaking the v0.3 G3 client.
+- All these repair attempts are part of the actual Render deploy history,
+  not counted as successes.
+
+**Gate verdict:** G5's **supported, nonproduction pilot** is complete.
+P4 experimental measurement, P5 independent consumer, P6 stable release,
+general grammar coverage and production service operations remain OPEN.

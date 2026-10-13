@@ -1,13 +1,13 @@
 # Full-stack product requirements — ProtocolIA
 
-**Status:** Research-aligned proposed acceptance baseline; technology rollout NOT implemented.  
+**Status:** Requirements accepted and exercised for the bounded Books G0–G5 pilot (2026-10-13). Generalization, production, P4 economics, P5/P6 remain OPEN.  
 **Date:** 2026-10-12 (revised after supplied deep integration study).  
 **Scope:** Contract-to-software only (not the P3 executor or frozen P4 benchmark).  
 **Related:** [Architecture decision](ADR-003-FULLSTACK-COMPOSITION.md), [reordered G0–G5 plan](FULLSTACK_IMPLEMENTATION_PLAN.md), [research alignment and upstream references](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md), [existing product evidence](PRODUCT_FIRST_PLAN.md).
 
 ## 1. Problem and outcomes
 
-ProtocolIA currently compiles strict v0.1/v0.2 JSON contracts and supports a working Java 21 / Spring Boot 4 API. Its typed business-handler boundary, safe regeneration and a stock-change maintenance example have been exercised. It does **not** yet produce a usable typed React client, list/form UX and persistent end-to-end application from one contract.
+ProtocolIA currently compiles strict v0.1/v0.2 JSON contracts and supports a working Java 21 / Spring Boot 4 API. Its typed business-handler boundary, safe regeneration and a stock-change maintenance example have been exercised. The **bounded v0.4 pilot now does** produce a usable typed React client, list/form/actions, and a real PostgreSQL-backed end-to-end test application from one versioned contract, as recorded in [G5 closeout](G5_CONTRACT_EVOLUTION_PROGRESS.md). This does not generalize to arbitrary services or a production deployment.
 
 Target: A developer can describe a **supported** resource in one versioned contract, generate an actual API/typed frontend/forms with reproducible commands, implement explicit domain behavior in user-owned code, and demonstrate real HTTP operations, authorization and safe regeneration. A separate persistent profile must prove persistence before that claim can be made. The contract is a specification, not a substitute for implementing domain invariants, UX decisions or database design.
 
