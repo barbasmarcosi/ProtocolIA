@@ -83,7 +83,7 @@ export default function App(){
     setError("");setNotice("");setLoading(true);
     try{
       const data=await request(kind,params);
-      if(data?.[config.entity.identity])setSelected(data);
+      if(data?.[config.entity.publicIdentity])setSelected(data);
       setNotice("Operación confirmada: "+kind);
       const listing=await request("listPage",{query:{limit,offset}});
       setItems(listing.items);setTotal(listing.total);
@@ -106,7 +106,7 @@ export default function App(){
         <div className="heading"><h2>Listado <span className="muted">({total})</span></h2><button className="ghost" onClick={refresh}>Actualizar</button></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
         <div className="scroll"><table><thead><tr>{config.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
-        <tbody>{items.map(item=><tr key={item[config.entity.identity]}>
+        <tbody>{items.map(item=><tr key={item[config.entity.publicIdentity]}>
           {config.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
           <td><button className="ghost" onClick={()=>{setSelected(item);setRename(String(item[operations.patchFields.behavior.field]??""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
@@ -123,13 +123,13 @@ export default function App(){
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <button type="submit" disabled={loading}>Crear</button></form>
       </section>
-      {selected&&<section className="panel"><h2>Detalle: {selected[config.entity.identity]}</h2>
+      {selected&&<section className="panel"><h2>Detalle: {selected[config.entity.publicIdentity]}</h2>
         <dl>{config.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
         <div className="actions">
-          <form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.identity],body:{[operations.patchFields.behavior.input]:rename}});}}>
+          <form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Guardar nombre</button></form>
-          <form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.identity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
+          <form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Agregar existencias</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>
         </div>
