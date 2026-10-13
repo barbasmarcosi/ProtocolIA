@@ -257,7 +257,10 @@ def _model_validate(value:Any,model:str,models:dict[str,Any],depth:int)->bool:
 
 
 def validate_payload(contract:Any, model:str, payload:Any)->bool:
-    """Executable strict reference validator for supported v0.2 wire model payloads."""
+    """Executable strict reference validator for supported wire model payloads."""
+    if isinstance(contract, dict) and contract.get("version") == "0.4":
+        from .v04 import validate_payload as validate_v04_payload
+        return validate_v04_payload(contract, model, payload)
     ir=core.validate(contract)
     if model not in ir['models']:
         core._fail(f'unknown model {model}')
