@@ -11,8 +11,8 @@ assert.equal(entity.fields.find(f=>f.name==="calibratedAt")?.nullable,true);
 assert.equal(entity.fields.find(f=>f.name==="label")?.maxLength,90);
 assert.ok(ir.operations.every(o=>o.entity==="Gauge"));
 assert.deepEqual(ir.operations.map(o=>o.behavior.kind).sort(),
-  ["atomicIncrement","create","get","health","listPage","patchFields"]);
-for(const [method,path] of [["post","/api/gauges"],["get","/api/gauges/{serial}"],
+  ["atomicIncrement","create","delete","get","health","listPage","patchFields"]);
+for(const [method,path] of [["post","/api/gauges"],["get","/api/gauges/{serial}"],["delete","/api/gauges/{serial}"],
   ["get","/api/gauges"],["patch","/api/gauges/{serial}/reading"],
   ["patch","/api/gauges/{serial}/label"],["get","/health"]]){
   assert.ok(spec.paths[path]?.[method],"Missing "+method+" "+path);
