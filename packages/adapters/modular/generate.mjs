@@ -140,8 +140,8 @@ export function generate(ir, openapi, outDir) {
   });
   const signature=createHash("sha256").update(JSON.stringify({table,identity:key,fields:e.fields})).digest("hex");
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
-    "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\\n"+
-    "CREATE TABLE "+table+" (\\n"+columns.join(",\\n")+"\\n);\\n");
+    "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
+    "CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);\n");
   const manifest={
     adapter:"modular-spring-a0",irVersion:ir.irVersion,sourceSha256:createHash("sha256").update(JSON.stringify(ir)).digest("hex"),
     supportedKinds:[...supported].sort(),outcomes:"Generated; not proof of compilation or HTTP conformance",
