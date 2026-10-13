@@ -7,7 +7,9 @@ const books = resource.resources?.books;
 const operations = books?.operations;
 const invalidates = books?.invalidates;
 const expectedRoles = {create:'createBook',detail:'getBook',list:'listBooks'};
-const expectedWrites = {createBook:['books'],adjustStock:['books'],renameBook:['books']};
+const expectedWrites = resource.contractVersion==='0.4'
+ ? {createBook:['books'],adjustStock:['books'],renameBook:['books']}
+ : {createBook:['books'],adjustStock:['books']};
 const fail = (reason) => {throw new Error('PROTOCOLIA_G2_CONTRACT_DRIFT: ' + reason);};
 for (const [role,op] of Object.entries(expectedRoles))
  if (operations?.[role] !== op) fail('Resource role ' + role);
