@@ -61,6 +61,48 @@ export function diffContracts(oldIr,nextIr){
     blockers.push("Operation/routing/capability changed; requires separate reviewed migration");
   return {compatible:blockers.length===0,changes,blockers};
 }
+function canonical(value){
+  if(Array.isArray(value))return value.map(canonical);
+  if(value&&typeof value==="object")
+    return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));
+  return value;
+}
+/**
+ * The canonical IR only includes the operation's request model name, not all
+ * request-field validators. Disallow invisible HTTP API drift when evolving.
+ */
+export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
+  const issues=[];
+  if(!oldApi||!newApi||oldApi.openapi!==newApi.openapi){
+    return ["OpenAPI version changed or snapshot is missing"];
+  }
+  const next=structuredClone(newApi);
+  const beforeSchemas=oldApi.components?.schemas??{};
+  const nextSchemas=next.components?.schemas??{};
+  for(const change of plan.changes.filter(c=>c.kind==="addField")){
+    const entity=change.entity,field=change.field.name;
+    const op=nextIr.operations.find(x=>x.entity===entity&&x.behavior.kind==="create");
+    const request=op?.request;
+    if(!request||!nextSchemas[entity]?.properties||!nextSchemas[request]?.properties){
+      issues.push("Unresolved OpenAPI entity/request schemas for "+entity+"."+field);
+      continue;
+    }
+    const entityValue=nextSchemas[entity].properties[field];
+    const requestValue=nextSchemas[request].properties[field];
+    if(!entityValue||!requestValue||beforeSchemas[entity]?.properties?.[field]||
+       beforeSchemas[request]?.properties?.[field]||
+       !same(canonical(entityValue),canonical(requestValue))){
+      issues.push("Added field does not match entity and create-request OpenAPI: "+entity+"."+field);
+      continue;
+    }
+    delete nextSchemas[entity].properties[field];
+    delete nextSchemas[request].properties[field];
+  }
+  if(!same(canonical(oldApi),canonical(next)))
+    issues.push("Undeclared OpenAPI model/validation/routing change");
+  return issues;
+}
+
 function fieldDdl(field){
   const col=snake(field.name);
   const type=field.type==="string"?"VARCHAR("+(field.maxLength??255)+")":
@@ -127,11 +169,15 @@ export async function evolve(action,projectPath,outputPath){
   if(!existsSync(join(project,"tspconfig.yaml")))throw Error("Missing source TypeSpec project");
   preflight(out);
   const oldIr=contractFrom(out);
+  const oldOpenApi=readJson(join(out,"protocolia-contract-openapi.json"));
   const repoRoot=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
   run("npm",["run","build:vnext"],{cwd:repoRoot});
   run(join(repoRoot,"node_modules/.bin/tsp"),["compile",project],{cwd:repoRoot});
   const newIr=readJson(join(project,"tsp-output/@protocolia/compiler/ir.json"));
   const diff=diffContracts(oldIr,newIr);
+  const nextOpenApi=readJson(join(project,"tsp-output/@typespec/openapi3/openapi.json"));
+  diff.blockers.push(...validateOpenApiEvolution(oldOpenApi,nextOpenApi,oldIr,newIr,diff));
+  diff.compatible=diff.blockers.length===0;
   console.log("PROTOCOLIA_EVOLUTION_PLAN "+JSON.stringify(diff));
   if(action==="plan")return diff;
   if(!diff.compatible)throw Error("Breaking evolution forbidden: "+diff.blockers.join("; "));
