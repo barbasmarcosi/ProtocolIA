@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 function execute(cmd,args,{cwd,env=process.env,quiet=false,timeout=300000}={}){
@@ -54,7 +55,7 @@ export async function composeAction(action,path){
   execute("docker",["compose","version"],{quiet:true,timeout:15000});
   if(action==="run"){
     // User owns the local .env and Compose project. This is intentionally foreground.
-    console.log("PROTOCOLIA_LOCAL_RUN: app bound to 127.0.0.1:8080; demo auth requires explicit .env opt-in");
+    console.log("PROTOCOLIA_LOCAL_RUN: bound to local loopback; demo auth requires explicit .env opt-in");
     execute("docker",["compose","up","--build"],{cwd:out,timeout:0});
     return;
   }
@@ -92,7 +93,7 @@ export async function composeAction(action,path){
     }
     console.log("PROTOCOLIA_COMPOSE_HEALTH_PASS "+base);
     const processResult=spawnSync(process.execPath,[
-      join(new URL(".",import.meta.url).pathname,"conformance.mjs"),out,base
+      fileURLToPath(new URL("./conformance.mjs",import.meta.url)),out,base
     ],{
       cwd:out,env:{...env,PROTOCOLIA_ALLOW_CONFORMANCE_WRITES:"true"},
       stdio:"inherit",timeout:180000

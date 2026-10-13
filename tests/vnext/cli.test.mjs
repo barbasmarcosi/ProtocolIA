@@ -30,3 +30,16 @@ test("CLI rejects unknown flags before touching a workspace",()=>{
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/Unexpected or missing option/);
 });
+
+test("test and run commands require a generated project argument without starting Docker",()=>{
+  for(const mode of ["run","test"]){
+    const r=invoke(mode);
+    assert.notEqual(r.status,0);
+    assert.match(r.stderr,/Usage: protocolia/);
+  }
+});
+test("test rejects arbitrary unbuilt directories before Docker access",()=>{
+  const r=invoke("test","examples/vnext/taller");
+  assert.notEqual(r.status,0);
+  assert.match(r.stderr,/Expected a completed ProtocolIA generated app/);
+});

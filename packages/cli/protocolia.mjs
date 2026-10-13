@@ -93,9 +93,9 @@ function main(){
 }
 try {
   if(["run","test"].includes(process.argv[2])){
+    if(process.argv.length!==4)throw Error("Usage: protocolia "+process.argv[2]+" <generated-directory>");
     const {composeAction}=await import("./compose.mjs");
     await composeAction(process.argv[2],process.argv[3]);
-    if(process.argv.length!==4)throw Error("Unexpected extra options");
   }else main();
 }catch(e){
   console.error("PROTOCOLIA_APP_"+(process.argv[2]??"COMMAND").toUpperCase()+"_FAILED "+e.message);
