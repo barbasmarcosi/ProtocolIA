@@ -4,7 +4,7 @@ using TypeSpec.Http;
 using ProtocolIA.Domain;
 
 @service(#{ title: "Gauge Registry" })
-labelspace GaugeRegistry {
+namespace GaugeRegistry {
   @entity
   @view("Registro de instrumentos")
   model Gauge {
