@@ -3,6 +3,7 @@ package dev.protocolia.modular;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URLDecoder;
+import java.sql.SQLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -148,6 +150,12 @@ public class DomainRuntime {
     return v;
   }
 
+  private boolean constraintSqlState(Throwable error, String state) {
+    for (Throwable cause=error;cause!=null;cause=cause.getCause())
+      if (cause instanceof SQLException sql && state.equals(sql.getSQLState())) return true;
+    return false;
+  }
+
   private Map<String,Object> create(Manifest.Entity e, Map<String,Object> body) {
     Set<String> fields = e.fields().stream().map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
@@ -157,8 +165,14 @@ public class DomainRuntime {
     String values = e.fields().stream().map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
     try {
       jdbc.update("INSERT INTO " + e.table() + " (" + names + ") VALUES (" + values + ")", params);
-    } catch (DuplicateKeyException ex) {
-      throw new ResponseStatusException(HttpStatus.CONFLICT, "Duplicate public identity");
+    } catch (DataIntegrityViolationException ex) {
+      if (constraintSqlState(ex,"23503"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Referenced resource does not exist");
+      if (constraintSqlState(ex,"23505"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Duplicate unique value");
+      if (constraintSqlState(ex,"23502") || constraintSqlState(ex,"23514"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Database constraint violation");
+      throw ex;
     }
     return row(e, (String) body.get(e.identity()));
   }
@@ -192,7 +206,14 @@ public class DomainRuntime {
 
   private Object delete(Manifest.Entity e, String id) {
     if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-    int affected = jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key", Map.of("key",id));
+    int affected;
+    try {
+      affected = jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key", Map.of("key",id));
+    } catch (DataIntegrityViolationException ex) {
+      if (constraintSqlState(ex,"23503"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Referenced by another resource");
+      throw ex;
+    }
     if (affected == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return null;
   }
