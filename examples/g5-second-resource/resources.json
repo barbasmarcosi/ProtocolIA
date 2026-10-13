@@ -1,0 +1,57 @@
+{
+  "version": "0.3",
+  "resources": {
+    "widgets": {
+      "model": "Widget",
+      "identityField": "sku",
+      "operations": {
+        "detail": "getWidget",
+        "create": "createWidget",
+        "actions": {
+          "addUnits": "adjustUnits"
+        },
+        "list": "listWidgets"
+      },
+      "views": {
+        "create": {
+          "fields": [
+            "sku",
+            "label",
+            "units"
+          ],
+          "title": "Create widget"
+        },
+        "detail": {
+          "fields": [
+            "sku",
+            "label",
+            "units"
+          ],
+          "title": "Widget details"
+        },
+        "addUnits": {
+          "fields": [
+            "quantity"
+          ],
+          "title": "Add units"
+        },
+        "list": {
+          "fields": [
+            "sku",
+            "label",
+            "units"
+          ],
+          "title": "Widgets"
+        }
+      },
+      "invalidates": {
+        "createWidget": [
+          "widgets"
+        ],
+        "adjustUnits": [
+          "widgets"
+        ]
+      }
+    }
+  }
+}
