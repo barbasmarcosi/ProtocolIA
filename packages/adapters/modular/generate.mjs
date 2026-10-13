@@ -139,15 +139,21 @@ export function generate(ir, openapi, outDir) {
     "import java.util.List;",
     "public final class Manifest {",
     "  private Manifest() {}",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax) {}",
-    "  public static final String READ_CAPABILITY="+j(readCap)+";",
-    "  public static final String WRITE_CAPABILITY="+j(writeCap)+";",
+    "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
+    "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
-    "    new Entity("+[j(e.name),j(table),j(key),j(snake(key))].join(",")+",List.of(",
-    e.fields.map(f=>"      new Field("+[j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,n(f.min),n(f.max),n(f.minLength),n(f.maxLength)].join(",")+")").join(",\n"),
-    "    )));",
+    entities.map(e=>{
+      const parts=e.fields.map(f=>"      new Field("+[
+        j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null"
+      ].join(",")+")").join(",\\n");
+      return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
+        ",List.of(\\n"+parts+"\\n    ))";
+    }).join(",\\n"),
+    "  );",
     "  public static final List<Op> OPS=List.of(",
   ];
   const mapped=ops.filter(op=>op.behavior.kind!=="health").map(op=>{
@@ -170,11 +176,14 @@ export function generate(ir, openapi, outDir) {
   for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java"]) copy(base+filename,filename);
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
-  const uiOperations=Object.fromEntries(ops.filter(op=>op.behavior.kind!=="health").map(op=>[
-    op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
-  ]));
+  const resources=entities.map(entity=>({
+    entity,view:entity.view??entity.name,
+    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health").map(op=>[
+      op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
+    ]))
+  }));
   write("src/main/resources/static/protocolia-ui.json",JSON.stringify({
-    entity:e, view:e.view??e.name, operations:uiOperations
+    ...resources[0], resources
   },null,2)+"\n");
   for(const file of [
     "package.json","index.html","vite.config.mjs",
