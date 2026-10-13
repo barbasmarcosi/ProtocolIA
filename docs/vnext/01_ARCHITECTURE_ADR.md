@@ -1,9 +1,16 @@
 # ProtocolIA vNext — ADR-004: TypeSpec + IR semántico + adaptadores
 
-**Estado:** DECISIÓN DE ARQUITECTURA PARA IMPLEMENTAR, **condicionada por A0**. No constituye prueba de integración.  
+**Estado:** arquitectura TypeSpec/IR RATIFICADA, A0 validado empíricamente; JHipster 9.4 NO-GO contractual, fallback modular GO inicial.  
 **Fecha:** 2026-10-13. **Reemplaza para vNext:** la arquitectura objetivo de [ADR-003](../ADR-003-FULLSTACK-COMPOSITION.md); ADR-003 continúa siendo válida **históricamente** para el piloto G0–G5.  
 **Normativa de producto:** [requisitos](00_PRODUCT_REQUIREMENTS.md).
 
+## Actualización empírica A0 — 13/10/2026
+
+**Motor inicial seleccionado:** `TypeSpec 1.17 → @protocolia/domain → IR canónico → adaptador modular Java21/Spring Boot4/JDBC/PostgreSQL16 + React declarativo`. OpenAPI3 proviene del emisor oficial TypeSpec; OpenAPI Generator 7.26 emite interfaces y DTO compilados, **pero todavía no enlazados como handlers**. La ejecución HTTP de negocio reside en un runtime semántico reutilizable, que recibe un manifiesto derivado del IR. JDL y JHipster quedan como adaptador experimental NO-GO para el contrato actual.
+
+**Fundamento ejecutado:** JHipster generó y arrancó CRUD/React/PostgreSQL reales, pero GET por code 400, incremento y rename 404, duplicado 500, desconocidos JSON 201 y usuario de lectura pudo hacer POST 201. Corregirlo mediante blueprints exigiría sustituir controladores, frontend y autorización. El fallback generó dos aplicaciones independientes desde `Tool(code,name,quantity)` y `Gauge(serial,label,reading)`: Java/React compilados, PostgreSQL 16, HTTP/auth/concurrencia y Chromium 390×844 con mutaciones reales PASS. Ver [evidencia A0](evidence/A0.md).
+
+**Alcance deliberadamente limitado:** un recurso por aplicación, campos string/int32/utcDateTime, identidad natural string, seis comportamientos conocidos y dos capacidades read/write. El API/cliente tipado enlazado, multi-entidad, migraciones seguras, autenticación de producción, UX de errores y CLI única son trabajo posterior; A0 aceptado **no** implica A1/A2 terminados. Las secciones de candidaturas iniciales más abajo se preservan como razonamiento histórico previo a la validación, no como motor predeterminado vigente.
 ## Decisión resumida
 
 Adoptar **TypeSpec como fuente de definiciones**, crear una biblioteca semántica `@protocolia/domain` y emitir un **IR versionado ajeno al framework**. Un coordinador consume el IR y llama a **adaptadores intercambiables**. El **primer adaptador candidato** proyecta a JHipster/JDL y sus generadores para Spring Boot + React + PostgreSQL; se añaden templates de comportamiento solo para semánticas explícitas que JHipster no genere. El segundo destino previsto es JHipster Node/NestJS.

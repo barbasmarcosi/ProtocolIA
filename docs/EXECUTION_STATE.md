@@ -4,16 +4,13 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved; A0 PARTIALLY IMPLEMENTED, NOT ACCEPTED.** The user wants **usable systems
+**Direction approved; A0 PASÓ con fallback modular mononentidad (2026-10-13). A1/A2 PARCIALES, no cerrados.** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
-**Architecture chosen for empirical validation:** TypeSpec +
+**Architecture chosen and empirically validated for A0:** TypeSpec +
 `@protocolia/domain` + canonical framework-neutral IR + generator
-adapters; first candidate JHipster 9.4/Spring/React/PostgreSQL, second
-candidate JHipster Node 4.2/NestJS. JHipster .NET blueprint currently
-tracks 8.11 and is DEFERRED. JHipster acceptance is conditional on A0
-identity/API/regeneration behavior; fallback modular adapters are defined.
+adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras pruebas reales. El motor inicial es TypeSpec → IR + OpenAPI3 → generador modular Spring Boot/JDBC + React declarativo; OpenAPI Generator 7.26 emite interfaces/DTO compilados, aún sin delegación HTTP. NestJS sigue siendo segundo destino no validado.
 
 **Authoritative documents:** [requirements](vnext/00_PRODUCT_REQUIREMENTS.md),
 [ADR-004](vnext/01_ARCHITECTURE_ADR.md),
@@ -23,9 +20,9 @@ identity/API/regeneration behavior; fallback modular adapters are defined.
 
 | Stage | State | Exit value |
 | --- | --- | --- |
-| A0 — TypeSpec/JHipster feasibility | IN PROGRESS — TypeSpec/IR/JDL and JHipster Java+React generation; Java JAR + real PG16 CRUD and Chromium PASS; **identity/API parity FAIL**; contractual auth/increment NOT IMPLEMENTED | [Executed evidence](vnext/evidence/A0.md); runtime+generic identity adapter pending |
-| A1 — Domain compiler & persistence | NOT STARTED | Taller business HTTP/DB/auth/concurrency without manual domain classes |
-| A2 — Frontend/one-command | NOT STARTED | Full Taller built, browser-tested and deployed from contracts |
+| A0 — TypeSpec/JHipster feasibility | **PASS limitado** — JHipster stock NO-GO, fallback modular GO. TypeSpec/IR/OpenAPI + dos full-stacks independientes (Tool y Gauge) con PostgreSQL16, roles, atomicidad y Chromium verificadas | [Evidencia](vnext/evidence/A0.md); sin merge ni producción |
+| A1 — Domain compiler & persistence | PARTIAL — backend Spring/JDBC reutilizable y Taller/Gauge HTTP/DB/roles/concurrencia PASS; falta extensión semántica/migración y autenticación productiva | No asumir A1 cierre completo |
+| A2 — Frontend/one-command | PARTIAL — React/Vite dinámico, Chromium en Taller y Gauge PASS; faltan CLI one-command, errores/permisos en UI y ensamblado release | No asumir A2 cierre completo |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
 | A4 — Independent multi-entity system | NOT STARTED | FK, real CRUD and UI for Equipment/Inspections |
 | A5 — Safe evolution/MVP | NOT STARTED | Compatible regeneration + no unintended data/user-code loss |
