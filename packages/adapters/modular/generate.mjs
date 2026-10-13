@@ -35,13 +35,37 @@ function inputBounds(spec, op) {
 }
 export function generate(ir, openapi, outDir) {
   if(ir.irVersion !== "vnext-a0.1") throw Error("Unsupported canonical IR version");
-  if(ir.entities.length !== 1) throw Error("Modular A0 slice requires exactly one entity; multi-entity must fail closed");
-  const e=ir.entities[0];
-  const table=snake(e.name), key=name(e.publicIdentity);
-  if(!e.fields.some(f=>f.name===key&&f.type==="string"&&f.unique&&f.required&&!f.nullable)) throw Error("External identity must be a required unique string");
-  for(const f of e.fields){
-    name(f.name);
-    if(!["string","int32","utcDateTime"].includes(f.type)) throw Error("Unsupported field type: "+f.type);
+  if(!Array.isArray(ir.entities)||ir.entities.length===0||ir.entities.length>8)
+    throw Error("Modular A4 supports 1–8 entities");
+  const entities=ir.entities;
+  const entityMap=new Map();
+  const tableNames=new Set();
+  for(const e of entities){
+    name(e.name);
+    if(entityMap.has(e.name)||tableNames.has(snake(e.name)))
+      throw Error("Duplicate entity or SQL table identifier");
+    entityMap.set(e.name,e);
+    tableNames.add(snake(e.name));
+    const identity=e.fields.find(f=>f.name===e.publicIdentity);
+    if(!identity||identity.type!=="string"||!identity.unique||!identity.required||identity.nullable)
+      throw Error("External identity must be a required unique string");
+    const cols=new Set();
+    for(const f of e.fields){
+      name(f.name);
+      if(cols.has(snake(f.name)))throw Error("Duplicate SQL column identifier");
+      cols.add(snake(f.name));
+      if(!["string","int32","utcDateTime"].includes(f.type))
+        throw Error("Unsupported field type: "+f.type);
+    }
+  }
+  for(const e of entities)for(const f of e.fields){
+    if(!f.reference)continue;
+    const parent=entityMap.get(f.reference.target);
+    const pk=parent?.fields.find(x=>x.name===parent.publicIdentity);
+    if(!parent||parent===e||f.reference.onDelete!=="restrict"||
+       f.type!=="string"||!f.required||f.nullable||!pk||pk.type!=="string"||
+       (f.maxLength??255)<(pk.maxLength??255))
+      throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
   const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","delete","health"]);
   const methods = {create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",delete:"DELETE",health:"GET"};
@@ -50,11 +74,13 @@ export function generate(ir, openapi, outDir) {
   const routes = new Set();
   for(const op of ops){
     if(!supported.has(op.behavior.kind)) throw Error("Unsupported operation " + op.behavior.kind);
-    if(op.entity !== e.name || !/^[A-Z]+$/.test(op.method) ||
+    const bound=entityMap.get(op.entity);
+    if(!bound || !/^[A-Z]+$/.test(op.method) ||
       !/^\/[A-Za-z0-9_\/{}-]+$/.test(op.path)) throw Error("Unsupported routing/entity binding");
     if(op.method !== methods[op.behavior.kind] ||
        !Array.isArray(op.statuses) || !op.statuses.includes(success[op.behavior.kind]))
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
+    const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
     const requiresKey=["get","patchFields","atomicIncrement","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
@@ -66,24 +92,33 @@ export function generate(ir, openapi, outDir) {
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
     if(["atomicIncrement","patchFields"].includes(op.behavior.kind)){
-      const f=e.fields.find(x=>x.name===op.behavior.field);
+      const f=bound.fields.find(x=>x.name===op.behavior.field);
       if(!f||op.behavior.input!==op.behavior.field&&op.behavior.kind==="patchFields") throw Error("Unsupported field/input mapping");
       if(op.behavior.kind==="atomicIncrement"&&f.type!=="int32") throw Error("Atomic addition requires int32 field");
       if(op.behavior.kind==="patchFields"&&(f.type!=="string"||f.nullable))
         throw Error("Current patchFields runtime supports only non-null string fields");
     }
   }
-  const byKind=(kind)=>ops.filter(o=>o.behavior.kind===kind);
-  for(const k of ["create","get","listPage","patchFields","atomicIncrement","health"]) {
-    if(byKind(k).length!==1) throw Error("A0 profile requires exactly one " + k + " operation");
+  const byKind=(kind,entity)=>ops.filter(o=>o.behavior.kind===kind&&(!entity||o.entity===entity));
+  if(byKind("health").length!==1)throw Error("Exactly one health operation required");
+  const readCaps=[],writeCaps=[];
+  for(const e of entities){
+    for(const kind of ["create","get","listPage"])
+      if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
+    for(const kind of ["patchFields","atomicIncrement","delete"])
+      if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
+    const read=byKind("get",e.name)[0].capability;
+    const write=byKind("create",e.name)[0].capability;
+    if(!read||!write||read===write||read==="public"||write==="public")
+      throw Error("Invalid capabilities on "+e.name);
+    if(!readCaps.includes(read))readCaps.push(read);
+    if(!writeCaps.includes(write))writeCaps.push(write);
+    for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
+      const expected=["create","patchFields","atomicIncrement","delete"].includes(op.behavior.kind)?write:read;
+      if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
+    }
   }
-  if (byKind("delete").length>1) throw Error("Only one delete behavior allowed in current adapter profile");
-  const readCap=byKind("get")[0].capability, writeCap=byKind("create")[0].capability;
-  if(!readCap||!writeCap||readCap===writeCap||readCap==="public"||writeCap==="public") throw Error("Invalid role capabilities");
-  for(const op of ops.filter(o=>o.behavior.kind!=="health")){
-    const expected=["create","patchFields","atomicIncrement","delete"].includes(op.behavior.kind)?writeCap:readCap;
-    if(op.capability!==expected)throw Error("Inconsistent capability on " + op.name);
-  }
+  if(readCaps.some(x=>writeCaps.includes(x)))throw Error("Read/write authorities cannot overlap");
   if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
   const base="src/main/java/dev/protocolia/modular/";
   const outputs=[];
