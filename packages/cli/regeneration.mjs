@@ -128,18 +128,39 @@ function run(command,args,options={}){
 }
 function readJson(path){return JSON.parse(readFileSync(path,"utf8"));}
 function contractFrom(directory){return readJson(join(directory,"protocolia-contract-ir.json"));}
-function migrations(folder){
-  const root=join(folder,"src/main/resources/db/migration");
-  const files=readdirSync(root).filter(p=>/^V[1-9]\d*__[A-Za-z0-9_-]+\.sql$/.test(p));
-  if(!files.some(f=>f.startsWith("V1__")))throw Error("Missing Flyway V1 migration");
-  return {root,files};
+function migrations(folder,target){
+  if(target==="modular-spring"){
+    const root=join(folder,"src/main/resources/db/migration");
+    const files=readdirSync(root);
+    if(files.some(name=>!/^V[1-9]\d*__[A-Za-z0-9_-]+\.sql$/.test(name)))
+      throw Error("Unknown Flyway migration file; refusing evolution");
+    if(!files.some(name=>name.startsWith("V1__")))throw Error("Missing Flyway V1 migration");
+    const numbers=files.map(name=>Number(name.match(/^V(\d+)__/)[1])).sort((a,b)=>a-b);
+    if(numbers.some((v,i)=>v!==i+1))throw Error("Non-sequential Flyway migration versions");
+    return {root,files,lastVersion:Math.max(...numbers)};
+  }
+  if(target==="nestjs"){
+    const root=join(folder,"src/migrations"),baseline=join(folder,"src/schema.sql");
+    if(!existsSync(root)||!existsSync(baseline))throw Error("Missing Nest SQL baseline/migrations directory");
+    const files=readdirSync(root);
+    if(files.some(name=>!/^V[2-9]\d*__[A-Za-z0-9_-]+\.sql$/.test(name)))
+      throw Error("Unknown Nest migration file; refusing evolution");
+    const numbers=files.map(name=>Number(name.match(/^V(\d+)__/)[1])).sort((a,b)=>a-b);
+    if(numbers.some((v,i)=>v!==i+2))throw Error("Non-sequential Nest migration versions");
+    return {root,files,lastVersion:numbers.length+1,baseline};
+  }
+  throw Error("Unsupported evolution target: "+target);
 }
-function ownedArea(folder){
-  for(const [path,allowed] of [
+function ownedArea(folder,target){
+  const trees=target==="nestjs"?[
+    ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
+    ["src",new Set(["main.ts","manifest.json","schema.sql","migrations"])]
+  ]:[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
     ["src",new Set(["main"])],
     ["src/main",new Set(["java","resources"])]
-  ]){
+  ];
+  for(const [path,allowed] of trees){
     const dir=join(folder,path);
     if(!existsSync(dir))throw Error("Missing generated tree: "+path);
     for(const name of readdirSync(dir)){
@@ -150,11 +171,9 @@ function ownedArea(folder){
 function preflight(out){
   verifyApp(out);
   const meta=readJson(join(out,"protocolia-build.json"));
-  if(meta.target!=="modular-spring")throw Error("A5 evolution currently supports modular-spring; NestJS must be regenerated from a clean contract");
-  ownedArea(out);
-  const dirs=migrations(out);
-  for(const file of dirs.files)if(!/^V\d+__/.test(file))throw Error("Unsafe migration filename");
-  return dirs;
+  if(!["modular-spring","nestjs"].includes(meta.target))throw Error("Unsupported evolution target");
+  ownedArea(out,meta.target);
+  return {target:meta.target,...migrations(out,meta.target)};
 }
 function copyConsumer(oldDir,newDir){
   for(const path of ["extensions",".env"]){
@@ -169,7 +188,7 @@ export async function evolve(action,projectPath,outputPath){
     throw Error("Usage: protocolia <plan|evolve> <TypeSpec-project> <generated-directory>");
   const project=resolve(projectPath),out=resolve(outputPath);
   if(!existsSync(join(project,"tspconfig.yaml")))throw Error("Missing source TypeSpec project");
-  preflight(out);
+  const oldState=preflight(out);
   const oldIr=contractFrom(out);
   const oldOpenApi=readJson(join(out,"protocolia-contract-openapi.json"));
   const repoRoot=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
@@ -189,28 +208,33 @@ export async function evolve(action,projectPath,outputPath){
   }
   const parent=dirname(out);
   const stage=mkdtempSync(join(parent,".protocolia-stage-"));
-  const oldMigrations=migrations(out);
   let backup;
   try{
     run(process.execPath,[
       join(repoRoot,"packages/cli/protocolia.mjs"),"build",project,
-      "--target","modular-spring","--out",stage
+      "--target",oldState.target,"--out",stage
     ],{cwd:repoRoot});
-    const fresh=migrations(stage);
-    for(const filename of oldMigrations.files)
-      copyFileSync(join(oldMigrations.root,filename),join(fresh.root,filename));
+    const fresh=migrations(stage,oldState.target);
+    if(oldState.target==="nestjs"){
+      // Nest executes this immutable initial schema only for an empty database.
+      // Never install the new model as V1 when upgrading an existing database.
+      copyFileSync(oldState.baseline,fresh.baseline);
+    }
+    for(const filename of oldState.files)
+      copyFileSync(join(oldState.root,filename),join(fresh.root,filename));
     const sql=additiveSql(diff);
     if(sql){
-      const versions=oldMigrations.files.map(file=>Number(file.match(/^V(\d+)__/)[1]));
-      const next=Math.max(...versions)+1;
+      const next=oldState.lastVersion+1;
       writeFileSync(join(fresh.root,"V"+next+"__protocolia_additive.sql"),
-        "-- Non-destructive TypeSpec contract evolution; existing Flyway files preserved\n"+sql+"\n");
+        "-- Non-destructive TypeSpec contract evolution; original baseline preserved\\n"+sql+"\\n");
     }
     copyConsumer(out,stage);
-    // Repackage AFTER restoring the historical V1 and adding V2.
-    // Otherwise the already-built JAR would still contain the new baseline V1
-    // and silently fail Flyway checksum validation against the existing DB.
-    run("mvn",["-B","-ntp","-DskipTests","package"],{cwd:stage});
+    if(oldState.target==="modular-spring"){
+      // Flyway migrations are classpath resources: repackage the jar after restoring history.
+      run("mvn",["-B","-ntp","-DskipTests","package"],{cwd:stage});
+    }
+    // Nest reads baseline and patch files on startup, protected by a DB transaction
+    // and its versioned checksums. The compiled JS is unchanged by restoring SQL.
     sealApp(stage);
     // Do not swap if another process touched a managed output while we compiled.
     preflight(out);
