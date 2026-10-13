@@ -128,9 +128,9 @@ export default function App(){
         <div className="actions">
           <form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
-            <button type="submit" disabled={loading}>Guardar nombre</button></form>
+            <button type="submit" disabled={loading}>Guardar cambios</button></form>
           <form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
-            <label className="field"><span>Agregar existencias</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
+            <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>
         </div>
       </section>}
