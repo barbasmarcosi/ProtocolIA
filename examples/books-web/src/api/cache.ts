@@ -2,12 +2,14 @@ import { QueryClient, useQueryClient } from '@tanstack/react-query';
 import {
   adjustStock,
   createBook,
+  renameBook,
   getGetBookQueryKey,
   getListBooksQueryKey,
   useAdjustStock,
   useCreateBook,
+  useRenameBook,
 } from '../generated/orval/books';
-import type { BookRequest, StockAdjustment } from '../generated/orval/models';
+import type { BookRequest, StockAdjustment, TitleChange } from '../generated/orval/models';
 
 /** Schema-owned write effects imply invalidation; the cache policy below is
  * explicit and user-reviewed, not inferred from HTTP method or URL heuristics.
@@ -44,6 +46,19 @@ export function useCreateBookAndRefresh() {
 export function useAdjustStockAndRefresh() {
   const client = useQueryClient();
   return useAdjustStock({ mutation: { onSuccess: (book) => {
+    void invalidateBookCache(client, book.isbn);
+  } } });
+}
+
+/** Explicit write invalidation for contract-declared title mutation. */
+export async function renameBookAndRefresh(client: QueryClient, isbn: string, request: TitleChange) {
+  const book = await renameBook(isbn, request);
+  await invalidateBookCache(client, isbn);
+  return book;
+}
+export function useRenameBookAndRefresh() {
+  const client = useQueryClient();
+  return useRenameBook({ mutation: { onSuccess: (book) => {
     void invalidateBookCache(client, book.isbn);
   } } });
 }

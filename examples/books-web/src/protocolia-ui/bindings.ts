@@ -23,7 +23,7 @@ if(!books||books.model!=='Book'||books.identityField!=='isbn')fail('resource ide
 if(books.operations.create!=='createBook'||books.operations.detail!=='getBook'||
   books.operations.list!=='listBooks'||books.operations.actions?.restock!=='adjustStock')fail('operation bindings');
 if(schemaRoot.$schema!=='https://json-schema.org/draft/2020-12/schema')fail('unsupported JSON Schema draft');
-for(const [role,model] of Object.entries({list:'Book',detail:'Book',create:'BookRequest',restock:'StockAdjustment'})){
+for(const [role,model] of Object.entries({list:'Book',detail:'Book',create:'BookRequest',restock:'StockAdjustment',rename:'TitleChange'})){
   const view=books.views?.[role];
   if(!view||view.model!==model||view.schemaRef!=='#/$defs/'+model||
     !Array.isArray(view.fields)||!view.fields.length)fail('missing or untrusted '+role+' view');
@@ -39,10 +39,10 @@ export const labelFor = (name:string)=>({
   limit:'Límite',offset:'Desplazamiento',publishedAt:'Fecha de publicación'
 } as Record<string,string>)[name]??name;
 
-export const getView=(role:'list'|'detail'|'create'|'restock')=>books.views[role];
+export const getView=(role:'list'|'detail'|'create'|'restock'|'rename')=>books.views[role];
 export const listFields=getView('list').fields as (keyof Book)[];
 
-export function formSchema(role:'create'|'restock'):RJSFSchema {
+export function formSchema(role:'create'|'restock'|'rename'):RJSFSchema {
  const view=getView(role);
  const src=schemaRoot.$defs[view.model];
  // The generated JSON Schema, not a handwritten field list, defines validation.

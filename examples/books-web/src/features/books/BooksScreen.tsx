@@ -1,8 +1,8 @@
 import {useState} from 'react';
 import {useGetBook,useListBooks} from '../../generated/orval/books';
-import {useAdjustStockAndRefresh,useCreateBookAndRefresh} from '../../api/cache';
+import {useAdjustStockAndRefresh,useCreateBookAndRefresh,useRenameBookAndRefresh} from '../../api/cache';
 import {ApiHttpError} from '../../api/http';
-import type {BookRequest,StockAdjustment} from '../../generated/orval/models';
+import type {BookRequest,StockAdjustment,TitleChange} from '../../generated/orval/models';
 import {getView,labelFor,listFields} from '../../protocolia-ui/bindings';
 import {SchemaBookForm} from './SchemaBookForm';
 
@@ -28,6 +28,7 @@ export function BooksScreen({mode,onLogout}:Props){
  const detail=useGetBook(isbn??'',{query:{enabled:Boolean(isbn),retry:false}});
  const creating=useCreateBookAndRefresh();
  const adjusting=useAdjustStockAndRefresh();
+ const renaming=useRenameBookAndRefresh();
  const writable=mode==='writer'; // Convenience only; backend enforces catalog.write.
  const rows=query.data?.items??[];
  const total=query.data?.total??0;
@@ -49,6 +50,14 @@ export function BooksScreen({mode,onLogout}:Props){
   try{
    const book=await adjusting.mutateAsync({isbn,data:data as unknown as StockAdjustment});
    setNotice('Stock actualizado: '+book.stock+' unidades');
+  }catch(e){setMutationError(errorText(e));throw e;}
+ }
+ async function rename(data:Record<string,unknown>){
+  if(!isbn)throw new Error('Elegí un libro primero.');
+  setMutationError('');
+  try{
+   const book=await renaming.mutateAsync({isbn,data:data as unknown as TitleChange});
+   setNotice('Título actualizado: '+book.title);
   }catch(e){setMutationError(errorText(e));throw e;}
  }
  return <div className="app-frame">
@@ -87,7 +96,10 @@ export function BooksScreen({mode,onLogout}:Props){
      {isbn&&detail.isError&&<p className="error" role="alert">{errorText(detail.error)}</p>}
      {isbn&&detail.isSuccess&&<>
       <dl className="details">{getView('detail').fields.map(field=><div key={field}><dt>{labelFor(field)}</dt><dd>{String(detail.data[field as keyof typeof detail.data])}</dd></div>)}</dl>
-      {writable&&<SchemaBookForm key={isbn} role="restock" pending={adjusting.isPending} onValid={restock}/>}
+      {writable&&<>
+       <SchemaBookForm key={isbn+'stock'} role="restock" pending={adjusting.isPending} onValid={restock}/>
+       <SchemaBookForm key={isbn+'rename'} role="rename" pending={renaming.isPending} onValid={rename}/>
+      </>}
      </>}
     </section>
    </div>
