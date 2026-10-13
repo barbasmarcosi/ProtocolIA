@@ -4,7 +4,7 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved; A0 PASÓ con fallback modular mononentidad (2026-10-13). A1/A2 PARCIALES, no cerrados.** The user wants **usable systems
+**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL, A3–A5 abiertos.** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
@@ -21,7 +21,7 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | Stage | State | Exit value |
 | --- | --- | --- |
 | A0 — TypeSpec/JHipster feasibility | **PASS limitado** — JHipster stock NO-GO, fallback modular GO. TypeSpec/IR/OpenAPI + dos full-stacks independientes (Tool y Gauge) con PostgreSQL16, roles, atomicidad y Chromium verificadas | [Evidencia](vnext/evidence/A0.md); sin merge ni producción |
-| A1 — Domain compiler & persistence | PARTIAL — backend Spring/JDBC reutilizable y Taller/Gauge HTTP/DB/roles/concurrencia PASS; falta extensión semántica/migración y autenticación productiva | No asumir A1 cierre completo |
+| A1 — Domain compiler & persistence | **PASS (perfil mononentidad probado)** — Flyway V1 canónico, reuso de DB al reiniciar, bloqueo de checksum alterado, siete primitivas incluyendo delete opcional en Gauge, auth de demo, HTTP+PostgreSQL y concurrencia PASS | [Evidencia](vnext/evidence/A1.md); migraciones V2/OIDC quedan fuera de A1 |
 | A2 — Frontend/one-command | PARTIAL — React/Vite dinámico, Chromium en Taller y Gauge PASS; faltan CLI one-command, errores/permisos en UI y ensamblado release | No asumir A2 cierre completo |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
 | A4 — Independent multi-entity system | NOT STARTED | FK, real CRUD and UI for Equipment/Inspections |
