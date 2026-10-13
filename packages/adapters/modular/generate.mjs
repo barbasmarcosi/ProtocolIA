@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -66,7 +66,7 @@ export function generate(ir, openapi, outDir) {
     const expected=["create","patchFields","atomicIncrement"].includes(op.behavior.kind)?writeCap:readCap;
     if(op.capability!==expected)throw Error("Inconsistent capability on " + op.name);
   }
-  if(readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
+  if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
   const base="src/main/java/dev/protocolia/modular/";
   const outputs=[];
   function write(path,data) {
