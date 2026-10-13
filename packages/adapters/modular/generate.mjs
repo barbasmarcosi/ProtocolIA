@@ -191,25 +191,38 @@ export function generate(ir, openapi, outDir) {
   ]) copy("web/"+file,"web/"+file);
   for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
     copy(file,file);
-  const columns=e.fields.map(f=>{
-    const col=snake(f.name);
-    const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
-    const checks=[];
-    if(f.name===key)checks.push("PRIMARY KEY");
-    if(f.required&&!f.nullable)checks.push("NOT NULL");
-    if(f.unique&&f.name!==key)checks.push("UNIQUE");
-    if(f.type==="string" && f.minLength!==undefined)
-      checks.push("CHECK (char_length("+col+") >= "+f.minLength+")");
-    if(f.type==="string" && f.required && !f.nullable)
-      checks.push("CHECK (char_length(btrim("+col+")) > 0)");
-    if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
-    if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
-    return "  "+col+" "+type+" "+checks.join(" ");
-  });
-  const signature=createHash("sha256").update(JSON.stringify({table,identity:key,fields:e.fields})).digest("hex");
+  const sql=[];
+  for(const e of entities){
+    const table=snake(e.name),key=e.publicIdentity;
+    const columns=e.fields.map(f=>{
+      const col=snake(f.name);
+      const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":
+        f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
+      const checks=[];
+      if(f.name===key)checks.push("PRIMARY KEY");
+      if(f.required&&!f.nullable)checks.push("NOT NULL");
+      if(f.unique&&f.name!==key)checks.push("UNIQUE");
+      if(f.type==="string"&&f.minLength!==undefined)
+        checks.push("CHECK (char_length("+col+") >= "+f.minLength+")");
+      if(f.type==="string"&&f.required&&!f.nullable)
+        checks.push("CHECK (char_length(btrim("+col+")) > 0)");
+      if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
+      if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
+      return "  "+col+" "+type+" "+checks.join(" ");
+    });
+    sql.push("CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);");
+  }
+  for(const e of entities)for(const f of e.fields){
+    if(!f.reference)continue;
+    const parent=entityMap.get(f.reference.target);
+    sql.push("ALTER TABLE "+snake(e.name)+" ADD CONSTRAINT fk_"+snake(e.name)+"_"+
+      snake(f.name)+" FOREIGN KEY ("+snake(f.name)+") REFERENCES "+
+      snake(parent.name)+" ("+snake(parent.publicIdentity)+") ON DELETE RESTRICT;");
+  }
+  const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
-    "CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);\n");
+    sql.join("\n")+"\n");
   const manifest={
     adapter:"modular-spring-a0",irVersion:ir.irVersion,sourceSha256:createHash("sha256").update(JSON.stringify(ir)).digest("hex"),
     supportedKinds:[...supported].sort(),outcomes:"Generated; not proof of compilation or HTTP conformance",
