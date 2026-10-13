@@ -40,3 +40,8 @@ node scripts/vnext/probe-modular-http.mjs || { tail -n 90 /tmp/a0-modular-spring
 node scripts/vnext/probe-modular-browser.mjs || { tail -n 90 /tmp/a0-modular-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_modular -t -c 'SELECT code,name,quantity FROM tool ORDER BY code;'
 echo "A0_MODULAR_REAL_POSTGRES_CONFORMANCE_PASS"
+
+bash scripts/vnext/probe-flyway-lifecycle.sh "$pid" protocolia_modular \
+  "/work/dist/modular/target/modular-generated-0.0.1.jar" \
+  "/work/dist/modular/src/main/resources/db/migration/V1__contract_baseline.sql" \
+  "/api/tools/A0-MODULAR-001" quantity 17
