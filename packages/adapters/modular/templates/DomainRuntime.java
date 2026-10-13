@@ -70,9 +70,10 @@ public class DomainRuntime {
       case "listPage" -> result = page(entity, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
+      case "delete" -> result = delete(entity, publicKey);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
-    int status = matched.kind().equals("create") ? 201 : 200;
+    int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
     return ResponseEntity.status(status).body(result);
   }
 
@@ -178,6 +179,13 @@ public class DomainRuntime {
     int changed = jdbc.update("UPDATE " + e.table() + " SET " + col + "=:value WHERE " + e.identityColumn() + "=:key", params);
     if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return row(e, id);
+  }
+
+  private Object delete(Manifest.Entity e, String id) {
+    if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    int affected = jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key", Map.of("key",id));
+    if (affected == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return null;
   }
 
   private Map<String,Object> increment(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
