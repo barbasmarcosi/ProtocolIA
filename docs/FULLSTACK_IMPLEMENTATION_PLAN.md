@@ -1,4 +1,7 @@
-# Full-stack implementation plan G0–G5 — ProtocolIA
+# Full-stack implementation plan G0–G5 — ProtocolIA (historical closeout)
+
+> **HISTORICAL G0–G5 DOCUMENT (2026-10-13).** This G0–G5 sequence is COMPLETE for its narrow Books slice and does not govern vNext. For all **new** application-generation requirements, architecture and stages, see [vNext requirements](vnext/00_PRODUCT_REQUIREMENTS.md), [ADR-004](vnext/01_ARCHITECTURE_ADR.md) and [A0–A5 plan](vnext/02_IMPLEMENTATION_PLAN.md). G0–G5 evidence is unchanged; no vNext implementation is claimed.
+
 
 **Status:** G0–G5 VERIFIED for the **bounded nonproduction full-stack Books pilot**, including scoped G4 JWT+DB integration, v0.4 field/operation evolution, regeneration, browser, persistence and independent Widgets codegen. **Not production-ready.**  
 **Revised:** 2026-10-13. Source: [user-provided deep research and alignment notes](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
