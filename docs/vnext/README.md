@@ -36,7 +36,25 @@ npm run app:build -- examples/vnext/gauge --target modular-spring --out dist/gau
 
 La CLI realiza TypeSpec → IR → validación de capacidades → generación Spring/React → OpenAPI Generator 7.26 → compilación Maven y produce `protocolia-build.json` con hashes de origen. Rechaza sobrescribir directorios con archivos previos o generar dentro del árbol del contrato. No escribe código Java/SQL/React por entidad.
 
-Cada proyecto generado incluye `Dockerfile`, `compose.yaml` y `.env.example`. Para un **ensayo local exclusivamente**:
+Cada proyecto generado incluye `Dockerfile`, `compose.yaml` y `.env.example`.
+
+### Ejecutar o verificar el proyecto generado
+
+Después de `app:build`, desde la raíz del repositorio:
+
+```bash
+# Levanta la app del usuario usando el .env del proyecto generado.
+npm run app:run -- dist/taller
+
+# Ensayo aislado: DB/credenciales/puerto efímeros y limpieza al salir.
+npm run app:test -- dist/taller
+```
+
+`app:test` necesita Docker Engine y Docker Compose disponibles. Crea un proyecto Compose aleatorio independiente, guarda contraseñas temporales en un archivo privado del directorio temporal del sistema, comprueba `/health`, ejecuta una suite HTTP derivada del manifiesto del contrato (CRUD, identidad natural, 401/403, concurrencia y borrado cuando exista) y ejecuta `compose down --volumes` sobre **ese proyecto de prueba**, incluso ante fallos. Rechaza una URL remota para conformance y no usa los datos persistentes de `app:run`.
+
+**Verificación real en Render:** el mismo ensayo HTTP genérico pasó con Taller y Gauge, y Docker Compose v2.39.4 validó la sintaxis de los dos `compose.yaml` generados; esto **no** demuestra `docker compose up` porque el build aislado no ofrece Docker Engine anidado. El propio `app:test` completo todavía requiere ejecutarse donde haya un daemon Docker.
+
+Para un **ensayo local exclusivamente**:
 
 ```bash
 cd dist/taller
@@ -46,7 +64,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza un volumen local. El comando Compose está preparado pero **no se ejecutó mediante docker compose en la evidencia remota**; la conformance HTTP/PostgreSQL/Chromium sí se ejecutó en contenedores aislados. Las credenciales no se distribuyen precargadas, y la autenticación Basic de prueba requiere opt-in. No usar este perfil públicamente ni considerarlo seguridad de producción.
+El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza un volumen local. El comando Compose fue validado con `config --quiet`, pero **no se ejecutó mediante `docker compose up` en la evidencia remota**; la conformance HTTP/PostgreSQL/Chromium sí se ejecutó en contenedores aislados. Las credenciales no se distribuyen precargadas, y la autenticación Basic de prueba requiere opt-in. No usar este perfil públicamente ni considerarlo seguridad de producción.
 
 ## Estado por etapa
 
