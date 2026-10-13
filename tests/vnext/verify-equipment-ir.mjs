@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const directory="examples/vnext/equipment-inspections/tsp-output";
+const ir=JSON.parse(readFileSync(directory+"/@protocolia/compiler/ir.json","utf8"));
+const api=JSON.parse(readFileSync(directory+"/@typespec/openapi3/openapi.json","utf8"));
+assert.deepEqual(ir.entities.map(e=>e.name).sort(),["Equipment","Inspection"]);
+assert.equal(ir.entities.find(e=>e.name==="Equipment").publicIdentity,"code");
+const inspection=ir.entities.find(e=>e.name==="Inspection");
+assert.equal(inspection.publicIdentity,"number");
+const reference=inspection.fields.find(f=>f.name==="equipmentCode").reference;
+assert.deepEqual(reference,{target:"Equipment",onDelete:"restrict"});
+assert.equal(ir.operations.length,9);
+assert.ok(api.paths["/api/inspections"].post);
+assert.ok(api.paths["/api/equipment/{code}"].delete);
+console.log("A4_MULTIENTITY_TYPESPEC_IR_OPENAPI_PASS");
