@@ -1,15 +1,35 @@
-# Taller vNext — contract-first fixture
+# Taller vNext — TypeSpec-first A0 fixture
 
-This TypeSpec contract models the independently tested manual Taller oracle at
-`experiments/p5-taller-real-requirements-v1`, without copying its Java/React/SQL.
+Contract source: `contracts/main.tsp`. This uses native TypeSpec HTTP and
+stable `@protocolia/domain` decorators to express entity persistence, external
+identity, field constraints, operation behavior, capability and an optional UI hint.
 
-Source of truth: `contracts/main.tsp`. API routes/statuses are native TypeSpec HTTP;
-`@protocolia/domain` declares public identity, persistence entity, behavior,
-read/write capability, and a UI view hint. JDL and IR must be derived.
+```sh
+npm ci
+npm run check:vnext
+npm run compile:taller
+bash tests/vnext/negative-check.sh
+```
 
-Pending first remote/local installation: `npm install --package-lock-only`, then
-`npm ci && npm run compile:taller`. No claim of a passing compilation until run.
+The compiler emits canonical `ir.json`, JHipster `entities.jdl`,
+`jhipster-app.jdl`, capability blockers, and official OpenAPI 3.1 under
+`tsp-output/`. JDL must **not** be edited independently.
 
-`Tool.code` is the public resource key. JHipster's generated numeric ID is not
-automatically accepted as a replacement. Any adapter asserting full support must
-prove external identity, error parity, authorization and transaction semantics.
+Optional generator spike (isolated, requires an installed pinned generator):
+
+```sh
+npm install --no-save --package-lock=false --ignore-scripts generator-jhipster@9.4.0
+npm run probe:jhipster
+```
+
+The generated Java 21/Spring/React app can be compiled in isolation with:
+
+```sh
+docker build -f Dockerfile.a0-jhipster --progress=plain .
+```
+
+**Not production:** JHipster stock REST and React use numeric `Tool.id`
+instead of contractual `Tool.code`, and generic domain writes/authorization
+are not implemented. That conflict is recorded in `docs/vnext/evidence/A0.md`.
+No JHipster output is used as a handwritten domain template; the fixture's
+historical Java/React/SQL oracle remains unchanged.

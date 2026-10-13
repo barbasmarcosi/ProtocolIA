@@ -1,7 +1,5 @@
 kind: project
 entrypoint: contracts/main.tsp
-features:
-  - auto-decorators
 emit:
   - "@protocolia/compiler"
   - "@typespec/openapi3"
