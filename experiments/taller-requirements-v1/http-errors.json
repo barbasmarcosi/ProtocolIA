@@ -1,0 +1,15 @@
+{
+  "createTool": [
+    409
+  ],
+  "getTool": [
+    404
+  ],
+  "increaseQuantity": [
+    404,
+    409
+  ],
+  "renameTool": [
+    404
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "version": "0.3",
+  "resources": {
+    "tools": {
+      "model": "Tool",
+      "identityField": "code",
+      "operations": {
+        "detail": "getTool",
+        "create": "createTool",
+        "actions": {
+          "restock": "increaseQuantity",
+          "rename": "renameTool"
+        },
+        "list": "listTools"
+      },
+      "views": {
+        "create": {
+          "fields": [
+            "code",
+            "name",
+            "quantity",
+            "lastReviewedAt"
+          ],
+          "title": "Registrar herramienta"
+        },
+        "detail": {
+          "fields": [
+            "code",
+            "name",
+            "quantity",
+            "lastReviewedAt"
+          ],
+          "title": "Detalle de herramienta"
+        },
+        "restock": {
+          "fields": [
+            "amount"
+          ],
+          "title": "Agregar existencias"
+        },
+        "rename": {
+          "fields": [
+            "name"
+          ],
+          "title": "Modificar nombre"
+        },
+        "list": {
+          "fields": [
+            "code",
+            "name",
+            "quantity",
+            "lastReviewedAt"
+          ],
+          "title": "Inventario"
+        }
+      },
+      "invalidates": {
+        "createTool": [
+          "tools"
+        ],
+        "increaseQuantity": [
+          "tools"
+        ],
+        "renameTool": [
+          "tools"
+        ]
+      }
+    }
+  }
+}

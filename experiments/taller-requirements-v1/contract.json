@@ -1,0 +1,223 @@
+{
+  "version": "0.4",
+  "namespace": "TallerInventory",
+  "models": {
+    "ToolRequest": {
+      "code": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "name": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "quantity": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      },
+      "lastReviewedAt": {
+        "type": "datetime",
+        "required": false,
+        "nullable": true
+      }
+    },
+    "Tool": {
+      "code": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "name": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "quantity": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      },
+      "lastReviewedAt": {
+        "type": "datetime",
+        "required": false,
+        "nullable": true
+      }
+    },
+    "Health": {
+      "status": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 32
+        }
+      }
+    },
+    "QuantityAdjustment": {
+      "amount": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
+    "ToolNameChange": {
+      "name": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "ToolPage": {
+      "items": {
+        "type": "Tool[]",
+        "required": true
+      },
+      "limit": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "offset": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      },
+      "total": {
+        "type": "integer",
+        "required": true,
+        "constraints": {
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "operations": {
+    "createTool": {
+      "method": "POST",
+      "path": "/api/tools",
+      "request": "ToolRequest",
+      "response": "Tool",
+      "capability": "inventory.write",
+      "effects": [
+        "write"
+      ],
+      "depends_on": [],
+      "params": {}
+    },
+    "getTool": {
+      "method": "GET",
+      "path": "/api/tools/{code}",
+      "response": "Tool",
+      "capability": "inventory.read",
+      "effects": [
+        "read"
+      ],
+      "depends_on": [],
+      "params": {
+        "code": "string"
+      }
+    },
+    "health": {
+      "method": "GET",
+      "path": "/health",
+      "response": "Health",
+      "capability": "public",
+      "effects": [
+        "read"
+      ],
+      "depends_on": [],
+      "params": {}
+    },
+    "increaseQuantity": {
+      "method": "PATCH",
+      "path": "/api/tools/{code}/quantity",
+      "params": {
+        "code": "string"
+      },
+      "request": "QuantityAdjustment",
+      "response": "Tool",
+      "capability": "inventory.write",
+      "effects": [
+        "read",
+        "write"
+      ],
+      "depends_on": []
+    },
+    "renameTool": {
+      "method": "PATCH",
+      "path": "/api/tools/{code}/name",
+      "params": {
+        "code": "string"
+      },
+      "request": "ToolNameChange",
+      "response": "Tool",
+      "capability": "inventory.write",
+      "effects": [
+        "read",
+        "write"
+      ],
+      "depends_on": []
+    },
+    "listTools": {
+      "method": "GET",
+      "path": "/api/tools",
+      "response": "ToolPage",
+      "capability": "inventory.read",
+      "effects": [
+        "read"
+      ],
+      "depends_on": [],
+      "params": {},
+      "query": {
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 25,
+          "constraints": {
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "required": false,
+          "default": 0,
+          "constraints": {
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      }
+    }
+  }
+}
