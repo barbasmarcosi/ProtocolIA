@@ -56,8 +56,9 @@ public class DomainRuntime {
       }
     }
     if (matched == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-    if (!matched.capability().equals("public") &&
-        (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(matched.capability())))) {
+    Manifest.Op authorized = matched;
+    if (!authorized.capability().equals("public") &&
+        (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(authorized.capability())))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
     Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(matched.entity())).findFirst()

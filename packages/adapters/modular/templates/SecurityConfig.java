@@ -28,10 +28,10 @@ public class SecurityConfig {
       throw new IllegalStateException("Demo Basic authentication requires explicit isolated profile opt-in");
     var encoder = new BCryptPasswordEncoder();
     var reader = User.withUsername(required("PROTOCOLIA_READER_USERNAME"))
-        .password(encoder.encode(required("PROTOCOLIA_READER_PASSWORD")))
+        .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_READER_PASSWORD")))
         .authorities(Manifest.READ_CAPABILITY).build();
     var manager = User.withUsername(required("PROTOCOLIA_MANAGER_USERNAME"))
-        .password(encoder.encode(required("PROTOCOLIA_MANAGER_PASSWORD")))
+        .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_MANAGER_PASSWORD")))
         .authorities(Manifest.READ_CAPABILITY, Manifest.WRITE_CAPABILITY).build();
     return new InMemoryUserDetailsManager(reader, manager);
   }
