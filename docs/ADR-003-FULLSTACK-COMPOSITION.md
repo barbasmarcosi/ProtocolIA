@@ -1,4 +1,7 @@
-# ADR-003 — Full-stack contract composition using maintained generators
+# ADR-003 — Full-stack contract composition using maintained generators (historical)
+
+> **HISTORICAL G0–G5 DOCUMENT (2026-10-13).** **Superseded as the future architecture by ADR-004;** still an accurate description of the verified G5 design. For all **new** application-generation requirements, architecture and stages, see [vNext requirements](vnext/00_PRODUCT_REQUIREMENTS.md), [ADR-004](vnext/01_ARCHITECTURE_ADR.md) and [A0–A5 plan](vnext/02_IMPLEMENTATION_PLAN.md). G0–G5 evidence is unchanged; no vNext implementation is claimed.
+
 
 **Status: ACCEPTED for the bounded Books v0.4 nonproduction pilot (G0–G5 verified); generic/production adoption NOT accepted.**  
 **Revised:** 2026-10-13, aligned to the supplied [deep research assessment](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  

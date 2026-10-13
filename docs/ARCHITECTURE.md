@@ -1,5 +1,7 @@
 # Architecture and semantics — ProtocolIA
 
+> **HISTORICAL v0.1–v0.4 architecture reference.** The old JSON contract/compiler, deterministic artifact and P3 agent-execution design remains accurate in its historical scope. The **new planned contract-to-working-app architecture** adopts TypeSpec, ProtocolIA domain decorators, a technology-neutral semantic IR and replaceable full-stack adapters. See [vNext ADR-004](vnext/01_ARCHITECTURE_ADR.md), [requirements](vnext/00_PRODUCT_REQUIREMENTS.md) and [A0–A5 plan](vnext/02_IMPLEMENTATION_PLAN.md). No vNext implementation is yet claimed.
+
 ## Mission
 
 Convert human/agent intent into **validated, typed, versioned contracts**, then into predictable, inspectable artifacts and eventually executable plans. Use an LLM only when a decision is genuinely open. Separate *desired behavior*, *declared effects*, *generated artifacts*, and *verified runtime behavior*.
