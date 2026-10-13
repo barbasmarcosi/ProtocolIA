@@ -102,7 +102,7 @@ class RuntimeService{
       await connection.query("CREATE TABLE IF NOT EXISTS protocolia_nest_migration_history (version INTEGER PRIMARY KEY CHECK (version >= 2), checksum VARCHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       const folder=join(process.cwd(),"src/migrations");
       const names=existsSync(folder)?readdirSync(folder):[];
-      if(names.some(name=>!/^V[2-9][0-9]*__[A-Za-z0-9_-]+\\.sql$/.test(name)))
+      if(names.some(name=>!/^V[2-9][0-9]*__[A-Za-z0-9_-]+\.sql$/.test(name)))
         throw Error("Unsupported Nest migration file; refusing startup");
       const releases=names.map(name=>({
         name,version:Number(name.match(/^V([0-9]+)__/)[1])
