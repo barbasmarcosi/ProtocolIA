@@ -65,6 +65,25 @@ class FullstackRegenerationTest(unittest.TestCase):
         self.assertEqual(baseline,current)
         self.assertEqual(self.handwritten.read_bytes(),b"DO NOT TOUCH")
 
+    def test_added_operation_and_action_view_regenerates_compatibly(self):
+        # Start with same v0.4 Books model but without renameBook. The new
+        # PATCH operation and its RJSF view/invalidation are additive only
+        # if all existing bindings remain byte-for-byte semantically stable.
+        before=copy.deepcopy(AFTER)
+        older_views=copy.deepcopy(RESOURCES)
+        del before["operations"]["renameBook"]
+        del before["models"]["TitleChange"]
+        del older_views["resources"]["books"]["operations"]["actions"]["rename"]
+        del older_views["resources"]["books"]["views"]["rename"]
+        del older_views["resources"]["books"]["invalidates"]["renameBook"]
+        report=compare_resource_bundles(before,older_views,AFTER,RESOURCES)
+        self.assertTrue(report["compatible"],report)
+        self.assertIn("resource_action_added",[x["kind"] for x in report["semanticChanges"]])
+        generate(before,older_views,self.output,self.jar,self.template)
+        generated=generate(AFTER,RESOURCES,self.output,self.jar,self.template)
+        self.assertEqual(generated["state"],"GENERATED")
+        self.assertEqual(self.handwritten.read_bytes(),b"DO NOT TOUCH")
+
     def test_breaking_contract_declined_without_any_file_mutation(self):
         generate(AFTER,RESOURCES,self.output,self.jar,self.template)
         manifest=(self.output/"fullstack-manifest.json").read_bytes()
