@@ -53,6 +53,7 @@ class V04EvolutionTest(unittest.TestCase):
             {"type": "datetime", "required": True, "nullable": True},
             {"type": "Book[]", "required": False, "nullable": True},
             {"type": "datetime", "required": False, "nullable": "yes"},
+            {"type": [], "required": False, "nullable": True},
         )
         for spec in alternatives:
             edited = copy.deepcopy(AFTER)
