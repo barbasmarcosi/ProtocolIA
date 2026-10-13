@@ -55,4 +55,34 @@ const amountZero=await call("PATCH","/api/tools/"+code+"/quantity",manager,{amou
 assert.equal(amountZero.status,400);
 const badDate=await call("POST","/api/tools",manager,{code:"A0-BAD-DATE",name:"X",quantity:0,lastReviewedAt:"broken"});
 assert.equal(badDate.status,400);
+
+const readonlyPatch=await call("PATCH","/api/tools/"+code+"/quantity",reader,{amount:1});
+assert.equal(readonlyPatch.status,403);
+const malformedPage=await call("GET","/api/tools?limit=0&offset=0",manager);
+assert.equal(malformedPage.status,400);
+const unknownQuery=await call("GET","/api/tools?limit=1&extra=1",manager);
+assert.equal(unknownQuery.status,400);
+const unknownPatch=await call("PATCH","/api/tools/"+code+"/name",manager,{name:"Unexpected",extra:true});
+assert.equal(unknownPatch.status,400);
+const overflowCode="A0-MODULAR-MAX";
+const maximum=await call("POST","/api/tools",manager,{code:overflowCode,name:"Overflow control",quantity:2147483647});
+assert.equal(maximum.status,201);
+const overflow=await call("PATCH","/api/tools/"+overflowCode+"/quantity",manager,{amount:1});
+console.log("A0_MODULAR_ATOMIC_OVERFLOW_STATUS="+overflow.status);
+assert.equal(overflow.status,409);
+const postOverflow=await call("GET","/api/tools/"+overflowCode,manager);
+assert.equal(postOverflow.data.quantity,2147483647);
+const dateCode="A0-MODULAR-DATE";
+const withDate=await call("POST","/api/tools",manager,{
+ code:dateCode,name:"Date check",quantity:0,lastReviewedAt:"2026-10-13T12:00:00+02:00",
+});
+console.log("A0_MODULAR_DATE_ROUNDTRIP_CREATE_STATUS="+withDate.status);
+assert.equal(withDate.status,201);
+const readDate=await call("GET","/api/tools/"+dateCode,manager);
+assert.equal(readDate.status,200);
+assert.equal(Date.parse(readDate.data.lastReviewedAt),Date.parse("2026-10-13T10:00:00Z"));
+const omitted=await call("POST","/api/tools",manager,{code:"A0-MODULAR-OPTIONAL",name:"No date",quantity:0});
+assert.equal(omitted.status,201);
+assert.equal(omitted.data.lastReviewedAt,null);
+
 console.log("A0_MODULAR_HTTP_POSTGRES_AUTH_CONCURRENCY_PASS");
