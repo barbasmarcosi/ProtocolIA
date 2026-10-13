@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Conformance for the supported single-entity ProtocolIA profile.
+// Contract-driven HTTP conformance for the supported single/multi-resource profile.
 // This test MUTATES its target DB; only the isolated Compose test command may enable it.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -55,7 +55,125 @@ async function req(kind, authorization, {key,body:payload,query}={}){
   let result;try{result=JSON.parse(raw);}catch{result=raw;}
   return {status:response.status,data:result};
 }
+// Multi-resource conformance derives dependencies, routes, permissions and
+// payloads entirely from the generated manifest. No domain names are special.
+function orderedResources(){
+  const resources=config.resources??[{entity,operations}];
+  const named=new Map(resources.map(x=>[x.entity.name,x]));
+  if(named.size!==resources.length)throw Error("Duplicate entity in conformance manifest");
+  const result=[],pending=new Set(resources);
+  while(pending.size){
+    let changed=false;
+    for(const res of [...pending]){
+      const dependencies=res.entity.fields.filter(f=>f.reference)
+        .map(f=>f.reference.target);
+      for(const dep of dependencies)if(!named.has(dep))throw Error("Unknown reference: "+dep);
+      if(dependencies.every(x=>result.some(r=>r.entity.name===x))){
+        result.push(res);pending.delete(res);changed=true;
+      }
+    }
+    if(!changed)throw Error("Reference graph has an unsupported cycle");
+  }
+  return result;
+}
+async function runMulti(){
+  const resources=orderedResources();
+  const keys=new Map();
+  const baseUrl=base.replace(/\/$/,"");
+  const health=await fetch(baseUrl+"/health");
+  assert.equal(health.status,200);
+  const sessionRes=await fetch(baseUrl+"/api/_protocolia/me",{headers:{Authorization:writer}});
+  assert.equal(sessionRes.status,200);
+  const session=await sessionRes.json();
+  async function run(resource,kind,who,{key,body,query}={}){
+    const op=resource.operations[kind];
+    assert.ok(op,resource.entity.name+" missing operation "+kind);
+    const route=op.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(key));
+    const suffix=query?"?"+new URLSearchParams(query).toString():"";
+    const response=await fetch(baseUrl+route+suffix,{
+      method:op.method,headers:{
+        ...(who?{Authorization:who}:{}),
+        ...(body===undefined?{}:{"Content-Type":"application/json"})
+      },...(body===undefined?{}:{body:JSON.stringify(body)})
+    });
+    const raw=await response.text();
+    let result;
+    try{result=JSON.parse(raw);}catch{result=raw;}
+    return {status:response.status,data:result};
+  }
+  const createBodies=new Map();
+  for(const resource of resources){
+    const e=resource.entity,identity=e.publicIdentity;
+    for(const kind of ["create","get","listPage"])
+      assert.ok(resource.operations[kind],e.name+" requires "+kind);
+    assert.ok(session.capabilities.includes(resource.operations.create.capability),
+      "Manager missing write permission on "+e.name);
+    const body=Object.fromEntries(e.fields.filter(f=>f.required)
+      .map(f=>[f.name,f.reference?keys.get(f.reference.target):valueFor(f,f.name===identity)]));
+    assert.ok(e.fields.filter(f=>f.reference).every(f=>typeof body[f.name]==="string"));
+    const key=body[identity];
+    assert.equal(typeof key,"string");
+    assert.equal((await run(resource,"get",null,{key})).status,401);
+    assert.equal((await run(resource,"create",reader,{body})).status,403);
+    const created=await run(resource,"create",writer,{body});
+    assert.equal(created.status,201,e.name+": "+JSON.stringify(created.data));
+    assert.equal(created.data[identity],key);
+    assert.equal(Object.hasOwn(created.data,"id"),false);
+    assert.equal((await run(resource,"create",writer,{body})).status,409);
+    assert.equal((await run(resource,"get",reader,{key})).status,200);
+    const page=await run(resource,"listPage",reader,{query:{limit:1,offset:0}});
+    assert.equal(page.status,200);
+    assert.ok(page.data.total>=1);
+    assert.ok(Array.isArray(page.data.items));
+    assert.equal((await run(resource,"create",writer,{body:{...body,unknown:true}})).status,400);
+    keys.set(e.name,key);createBodies.set(e.name,body);
+    if(resource.operations.patchFields){
+      const op=resource.operations.patchFields;
+      const field=e.fields.find(f=>f.name===op.behavior.field);
+      assert.ok(field);
+      const update=String(valueFor(field))+"V2";
+      const value=update.slice(0,field.maxLength??255);
+      const changed=await run(resource,"patchFields",writer,{key,body:{[op.behavior.input]:value}});
+      assert.equal(changed.status,200);
+      assert.equal((await run(resource,"patchFields",reader,{key,body:{[op.behavior.input]:value}})).status,403);
+    }
+    if(resource.operations.atomicIncrement){
+      const op=resource.operations.atomicIncrement;
+      const initial=created.data[op.behavior.field];
+      assert.equal(typeof initial,"number");
+      const updates=await Promise.all(Array.from({length:10},()=>
+        run(resource,"atomicIncrement",writer,{key,body:{[op.behavior.input]:1}})));
+      assert.ok(updates.every(x=>x.status===200),e.name+" atomic updates");
+      const after=await run(resource,"get",reader,{key});
+      assert.equal(after.data[op.behavior.field],initial+10);
+    }
+    for(const f of e.fields.filter(f=>f.reference)){
+      const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
+        [f.name]:"UNMATCHED-"+uuid};
+      assert.equal((await run(resource,"create",writer,{body:bad})).status,400);
+    }
+  }
+  // RESTRICT is not cosmetic: parents referenced by persisted children must refuse delete.
+  for(const resource of resources){
+    if(!resource.operations.delete)continue;
+    const used=resources.some(child=>child.entity.fields.some(
+      f=>f.reference?.target===resource.entity.name));
+    if(used)assert.equal((await run(resource,"delete",writer,{key:keys.get(resource.entity.name)})).status,409);
+  }
+  for(const resource of [...resources].reverse()){
+    if(!resource.operations.delete)continue;
+    const key=keys.get(resource.entity.name);
+    assert.equal((await run(resource,"delete",reader,{key})).status,403);
+    assert.equal((await run(resource,"delete",writer,{key})).status,204);
+    assert.equal((await run(resource,"get",reader,{key})).status,404);
+  }
+  console.log("PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS "+
+    JSON.stringify({entities:resources.map(r=>r.entity.name),references:resources.flatMap(r=>
+      r.entity.fields.filter(f=>f.reference).map(f=>r.entity.name+"."+f.name+"->"+f.reference.target))}));
+}
+
 async function main(){
+  if((config.resources?.length??1)>1)return runMulti();
   const health=await fetch(base.replace(/\/$/,"")+"/health");assert.equal(health.status,200);
   const probe=await fetch(base.replace(/\/$/,"")+"/api/_protocolia/me",{headers:{Authorization:writer}});
   assert.equal(probe.status,200);
