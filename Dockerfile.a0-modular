@@ -20,6 +20,7 @@ RUN node packages/adapters/modular/generate.mjs \
 RUN cd /work/dist/modular/web && npm install --ignore-scripts && npm run build
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
+RUN bash scripts/vnext/probe-openapi-generator.sh
 RUN cd /work/dist/modular && mvn -B -ntp -DskipTests package
 RUN bash scripts/vnext/probe-modular-postgres.sh
 EXPOSE 3000
