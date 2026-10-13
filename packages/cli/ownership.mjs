@@ -8,7 +8,7 @@ const sources=[
   "src/main/java","src/main/resources","web/src",
   "pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
   "web/package.json","web/package-lock.json","web/index.html","web/vite.config.mjs",
-  "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json"
+  "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json","protocolia-contract-openapi.json","protocolia-contract-openapi.json"
 ];
 function walk(root,path,result){
   if(!existsSync(join(root,path)))return;
@@ -29,7 +29,7 @@ export function managedDigests(folder){
 }
 export function sealApp(folder){
   const digests=managedDigests(folder);
-  if(!digests["protocolia-contract-ir.json"]||!digests["protocolia-build.json"])
+  if(!digests["protocolia-contract-ir.json"]||!digests["protocolia-contract-openapi.json"]||!digests["protocolia-build.json"])
     throw Error("Cannot seal output without its compiled contract and build metadata");
   const seal={schema:1,algorithm:"sha256",files:digests};
   writeFileSync(join(folder,"protocolia-ownership.json"),JSON.stringify(seal,null,2)+"\n");
