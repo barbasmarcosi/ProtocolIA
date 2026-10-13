@@ -15,7 +15,9 @@
     "compile:gauge": "npm run build:vnext && tsp compile examples/vnext/gauge && node tests/vnext/verify-gauge-ir.mjs",
     "app:build": "node packages/cli/protocolia.mjs build",
     "app:test": "node packages/cli/protocolia.mjs test",
-    "app:run": "node packages/cli/protocolia.mjs run"
+    "app:run": "node packages/cli/protocolia.mjs run",
+    "app:plan": "node packages/cli/protocolia.mjs plan",
+    "app:evolve": "node packages/cli/protocolia.mjs evolve"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",

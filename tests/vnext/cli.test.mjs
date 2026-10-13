@@ -43,3 +43,16 @@ test("test rejects arbitrary unbuilt directories before Docker access",()=>{
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/Expected a completed ProtocolIA generated app/);
 });
+
+test("A5 evolution commands require an explicit project and application",()=>{
+  for(const mode of ["plan","evolve"]){
+    const r=invoke(mode);
+    assert.notEqual(r.status,0);
+    assert.match(r.stderr,/Usage: protocolia/);
+  }
+});
+test("A5 refuses to plan evolution of a directory without an ownership seal",()=>{
+  const r=invoke("plan","examples/vnext/taller","examples/vnext/taller");
+  assert.notEqual(r.status,0);
+  assert.match(r.stderr,/Unsealed output/);
+});
