@@ -1,18 +1,19 @@
-# Isolated A0 build probe; does NOT publish the generated app as production.
 FROM eclipse-temurin:21-jdk AS java21
-FROM node:24-bookworm
+FROM node:24-bookworm AS node24
+FROM postgres:16-bookworm
 COPY --from=java21 /opt/java/openjdk /opt/java/openjdk
+COPY --from=node24 /usr/local /usr/local
 ENV JAVA_HOME=/opt/java/openjdk
-ENV PATH=/opt/java/openjdk/bin:$PATH
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bash git unzip \
-    && rm -rf /var/lib/apt/lists/*
+ENV PATH=/opt/java/openjdk/bin:/usr/local/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git unzip && rm -rf /var/lib/apt/lists/*
 WORKDIR /work
 COPY . .
-RUN java -version && node --version
+RUN java -version && node --version && postgres --version
 RUN npm ci --ignore-scripts
 RUN npm run check:vnext && npm run compile:taller && bash tests/vnext/negative-check.sh
 RUN npm install --no-save --package-lock=false --ignore-scripts generator-jhipster@9.4.0
 RUN JHIPSTER_PROBE_OUT_DIR=/work/dist/jhipster npm run probe:jhipster
 RUN cd /work/dist/jhipster && chmod +x mvnw && ./mvnw -ntp -B -DskipTests package
+RUN bash scripts/vnext/probe-jhipster-postgres.sh
 EXPOSE 3000
-CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 JHipster compilation probe only')}).listen(process.env.PORT||3000,'0.0.0.0')"]
+CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 isolated build verification only')}).listen(process.env.PORT||3000,'0.0.0.0')"]

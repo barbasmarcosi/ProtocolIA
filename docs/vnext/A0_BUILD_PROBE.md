@@ -1,19 +1,7 @@
-# Local JHipster A0 toolchain build probe
+# A0 generated app and PostgreSQL integration probe
 
-This is an isolated infrastructure probe, not the generated final application.
+From a clean checkout, run:
 
-From a clean repository checkout:
+    docker build --progress=plain -f Dockerfile.a0-jhipster -t protocolia-a0-jhipster .
 
-```sh
-docker build --progress=plain -f Dockerfile.a0-jhipster -t protocolia-a0-jhipster .
-```
-
-The image uses Node 24, Java 21, TypeSpec 1.17.0 and a pinned JHipster 9.4.0
-installation. It runs contract compilation and negative checks, generates JDL
-from the TypeSpec IR, invokes JHipster in an isolated scratch directory and
-attempts a Maven package build. Its HTTP CMD is only a build marker: it does
-**not** expose the generated Taller API, PostgreSQL or React UI.
-
-Build success demonstrates Java compilation, not end-to-end contract fidelity.
-Public identity, response schemas, capabilities and atomic writes still require
-a generic adapter and PostgreSQL/HTTP/browser conformance tests.
+The isolated Docker build runs Java 21, Node 24, TypeSpec 1.17, JHipster 9.4 and ephemeral PostgreSQL 16. It compiles a generated Spring Boot JAR, starts it against the disposable database and checks HTTP JWT, generated CRUD, React HTML and explicit contract mismatches. The running public Render service only serves a verification marker, not the generated app. The test JWT credentials are JHipster defaults within the ephemeral container; do not reuse for production. A successful stock CRUD probe does not mean contractual parity or acceptance of A0.
