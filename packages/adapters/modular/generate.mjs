@@ -145,6 +145,8 @@ export function generate(ir, openapi, outDir) {
     "package.json","index.html","vite.config.mjs",
     "src/main.jsx","src/App.jsx","src/style.css"
   ]) copy("web/"+file,"web/"+file);
+  for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
+    copy(file,file);
   const columns=e.fields.map(f=>{
     const col=snake(f.name);
     const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
