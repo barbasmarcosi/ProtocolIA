@@ -1,0 +1,112 @@
+# ProtocolIA vNext — Matriz de aceptación y conformance
+
+**Estado:** ESPECIFICACIÓN DE PRUEBAS; pruebas vNext **aún no ejecutadas**.  
+**Fecha:** 2026-10-13. **Fuente de requisitos:** [00](00_PRODUCT_REQUIREMENTS.md); **plan:** [02](02_IMPLEMENTATION_PLAN.md).  
+**Principio:** generar código o arrancar Spring/NestJS **no equivale** a construir el sistema declarado.
+
+## 1. Definición de resultado y obligatoriedad
+
+- **PASS:** prueba corrio efectivamente sobre commit y toolchain registrados; observa HTTP/DB/Browser real y comprueba expected.
+- **FAIL:** ejecutó y no cumplió la aserción.
+- **BLOCKED:** falta entorno, generación, compilación o capacidad; motivo preciso. Nunca equivale a PASS.
+- **UNSUPPORTED:** feature expresamente fuera de la matriz declarada del destino, diagnosticada **antes** de generar; prohíbe afirmar perfil completo.
+- **NOT RUN:** prueba aún no ejecutada o no existe.
+- **GENERATED:** output escrito, no implica compilación.
+- **LIVE:** despliegue accesible públicamente; no implica paridad funcional con contrato sin pruebas HTTP/browser pertinentes.
+
+El `evidence.json` por ejecución debe registrar contract SHA, IR SHA, toolchain versions+digests, adapter, target, code SHA, command, exit status, case IDs, observed response/status/DB delta, environment, timestamp, links/artefactos. Secretos redacted. Publicar resumen `evidence/A*.md` con resultados reales. **No registrar estados hipotéticos como pruebas.**
+
+## 2. Escenarios normativos — Taller C1
+
+| ID | Preparación + acción | Observación obligatoria | Etapa |
+|---|---|---|---|
+| T-01 | Contrato TypeSpec compila y emit JDL/OpenAPI/IR | Mismos tipos, operaciones, schemas y `capabilities`; fuente única; diffs cero bajo toolchain fijado | A0 |
+| T-02 | Campo/code vacío o nombre vacío al crear | 4xx validación, ningún registro creado | A1 |
+| T-03 | Crear `{code: "T-001", name:"Multímetro", quantity:2}` | 201 + JSON coherente, fila persistida; GET por `T-001` retorna 200 | A1 |
+| T-04 | Repetir `T-001` | 409 sin modificar fila previa | A1 |
+| T-05 | Crear quantity negativo o input desconocido | 4xx y DB intacta; no coerción silenciosa | A1 |
+| T-06 | Crear fecha opcional omitida, `null` y una fecha válida | Persistencia+roundtrip semánticamente correctos; formato/offset no alterados arbitrariamente | A1 |
+| T-07 | GET código inexistente | 404 definido, sin fuga de datos | A1 |
+| T-08 | Listar desde DB poblada y paginar `limit/offset` | `items`, `total`, `limit`, `offset` correctos, orden estable | A1 |
+| T-09 | Renombrar herramienta | Solo name cambia; code y quantity permanecen | A1 |
+| T-10 | Incrementar 3 sobre quantity=2 | Resultado persistente = 5, response refleja 5 | A1 |
+| T-11 | 10 incrementos concurrentes de +1 sobre quantity=2 | Resultado final = 12, no lost updates, sin uso de locks globales de proceso | A1 |
+| T-12 | Incremento negativo, cero si prohibido, o causa overflow | 4xx/409 tipado, sin actualización ni desbordamiento | A1 |
+| T-13 | GET sin autenticación / con credencial inválida | 401 según perfil protegido, ninguna exposición adicional | A1 |
+| T-14 | Lector GET permitido, lector POST/PATCH prohibido | GET 200, escrituras 403 incluso HTTP directo | A1 |
+| T-15 | Gestor puede crear/renombrar/incrementar | Operaciones correctas sin conceder permisos anónimos | A1 |
+| T-16 | Abrir UI escritorio+móvil, iniciar sesión, listar | Navegación y contenido realmente servidos desde backend | A2 |
+| T-17 | Crear por formulario, detalle, incrementar y renombrar | Refresco observable de lista y detalle, formularios coherentes con schema | A2 |
+| T-18 | Mostrar loading, lista vacía, invalid, 401/403 y error de red | UI recuperable, sin success falso; no request write de lector | A2 |
+| T-19 | Reconstruir desde checkout limpio con TypeSpec+config | Docker/PostgreSQL/API/UI arrancan, pruebas pasan; 0 archivos por entidad creados a mano | A2 |
+| T-20 | Regenerar dos veces y cambiar un input compatible | Ownership intacto, extensiones sin cambios, contrato compatible y salida coherente | A5 |
+
+**Oracle:** los requisitos de C1 deben coincidir con el Taller experimental actual; se acepta variación de tecnologías o identidad DB interna, **no** alteración de API/semántica de negocio para forzar PASS.
+
+## 3. Escenarios de portabilidad C3
+
+| ID | Prueba | Criterio |
+|---|---|---|
+| P-01 | Construir Spring y Nest desde `*.tsp` con digest idéntico | Ningún contrato modificado por destino; IR semántico idéntico |
+| P-02 | Ejecutar T-02…T-15 sobre ambos | Misma semántica declarada, estados y resultados, incluida concurrencia |
+| P-03 | Probar endpoint desconocido, malformado y protected | Errores consistentes con contrato; no exposición extra |
+| P-04 | Verificar schema database independiente | Diferente ORM/DDL interno permitido; invariantes y persistencia equivalentes |
+| P-05 | Simular feature no soportada para un adaptador | `plan` rechaza con diagnóstico preciso y no genera app que mienta |
+| P-06 | Regeneración sin extensiones perdidas por ambos backends | No edits manuales per-resource entre runs |
+
+**Restricción:** un `UNSUPPORTED` explícito protege honestidad, pero no cuenta como PASS de C3. Para cerrar A3, el conjunto exacto del Taller debe pasar en NestJS.
+
+## 4. Escenarios del dominio independiente C2
+
+| ID | Prueba | Criterio |
+|---|---|---|
+| E-01 | Contrato con `Equipo` e `Inspeccion` sin código específico | Generator outputs contienen ambas entidades con FK |
+| E-02 | Crear Inspección con Equipo existente | Persistencia y GET/list incluyen relación correcta |
+| E-03 | Crear Inspección con Equipo inexistente | 4xx documentado + integridad DB, no huérfanos |
+| E-04 | Borrar Equipo con Inspecciones | Acción de FK declarada (restrict/cascade), no pérdida accidental |
+| E-05 | UI Inspección → selector Equipo | Consulta real, conserva referencia, lector sin write |
+| E-06 | Listados independientes con paginación | Sin confundir `total` entre recursos o cache keys |
+| E-07 | Cambiar etiquetas/orden/campo opcional en contrato | UI/DTO/DB se actualizan sin edición manual |
+| E-08 | Inspeccionar source tree generado | Ningún `if (entityName === Tool/Book/Equipment)` dentro del engine genérico |
+
+## 5. Escenarios negativos del compilador
+
+| ID | Input inválido | Resultado esperado |
+|---|---|---|
+| N-01 | Uso de entidad inexistente / FK roto | Error en fichero/símbolo, no output partial |
+| N-02 | `atomicIncrement` de un string / boolean | Error semántico, no código emitido |
+| N-03 | `public` capability para mutación protegida | Contrato inconsistente rechazado |
+| N-04 | Operation sin `behavior` vinculante | Error unsupported en lugar de stub |
+| N-05 | `required` vs `nullable` incompatible con target | Error con feature/target |
+| N-06 | Timestamps, límites o enum no soportados en mapeo | Error antes de ejecutar generador |
+| N-07 | Campo de identidad alterado sin migration plan | Breaking; regeneración segura denegada |
+| N-08 | Cambiar target conservando contrato | Capability negotiation; no reescritura de fuentes |
+| N-09 | Cambiar un archivo propio generado | Rechazar overwrite no autorizado |
+| N-10 | Agregar archivo ajeno en output gestionado | No eliminar ni sobrescribir, bloquear con mensaje |
+| N-11 | Cambio destructivo (drop table/column) en DB con datos | Nunca ejecutar automáticamente |
+| N-12 | Contrato intenta introducir comandos/shell/SQL arbitrario | Bloqueo; ninguna ejecución de contenido no confiable |
+| N-13 | Múltiples tools versions incompatibles | Fallo de preflight, no baseline falsamente reproducible |
+| N-14 | JHipster altera public identity `code` a `id` | Contract parity FAIL y A0 NO-GO hasta adaptador reusable |
+
+## 6. Matriz requisitos → etapas → evidencia
+
+| Requisitos | A0 | A1 | A2 | A3 | A4 | A5 |
+|---|---|---|---|---|---|---|
+| FN-01/02/03/17/18 | Modelo+IR | Extender semántica | CLI | Paridad | Relación | Diff |
+| FN-04 | Modelar relación | FK support | UI lookup | Donde soportado | Prueba real | Evolution |
+| FN-05/06/07/08/09/12 | Delimitar soporte | **DB/HTTP/auth PASS** | Integración | **Paridad** | Segundo dominio | Regenerar |
+| FN-10/11 | UI/manifest decisión | Forms mapping | **Browser PASS** | Browser donde aplique | Referencias | UI evolution |
+| FN-13/14/15 | Toolchain/ownership | Generate behavior | **One command** | Segundo adapter | Clean-room | **Safe regeneration** |
+| FN-16/19 | Interfaz adapter | Capability set | Primer target | **Segundo target** | Generalidad | Release contract |
+| FN-20/21/22 | Diagnostics/fixture | Auth+concurrencia | Browser/docker | Same suite | Independent suite | Evidence |
+
+## 7. Reglas de cierre de etapa
+
+- A0 PASS exige una app JHipster real con al menos CRUD del Taller verificable y decisión GO/NO-GO. `IR generado` aislado no basta.
+- A1 PASS exige backend del Taller en PostgreSQL, transacciones y permisos, sin dominio handwritten.
+- A2 PASS exige app completa mediante un comando y browser E2E, sin pantallas por recurso.
+- A3 PASS exige *mismo contrato* operativo en Spring y NestJS y misma suite T-02…T-15.
+- A4 PASS exige segundo dominio multi-entidad independiente, FK, UI y tests de relación.
+- A5 PASS exige compatibilidad/regeneración sin pérdida y tutorial en limpio. Completar docs sin ejecutar tests no cierra etapa.
+
+**Importante:** no hay medición de tokens como puerta de cierre. La evidencia puede ser mínima pero debe ser verdadera y suficiente; no agregar 10 pruebas decorativas cuando 1 prueba real demuestra una condición.
