@@ -261,6 +261,13 @@ class JwtAuthorizationHttpTest {
         status(200, http("PATCH", "/api/books/" + isbn + "/stock",
             "{\"quantity\":7}", valid(WRITE)));
         assertEquals(9, jdbc.queryForObject("SELECT stock FROM books WHERE isbn = ?",Integer.class,isbn));
+        status(403,http("PATCH","/api/books/"+isbn+"/title",
+            "{\"title\":\"Denied\"}",valid(READ)));
+        status(200,http("PATCH","/api/books/"+isbn+"/title",
+            "{\"title\":\"JWT approved\"}",valid(WRITE)));
+        assertEquals("JWT approved",jdbc.queryForObject(
+            "SELECT title FROM books WHERE isbn = ?",String.class,isbn));
+
     }
 
 }
