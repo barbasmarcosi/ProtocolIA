@@ -43,7 +43,8 @@ start_app(){
     exit 1
   fi
 }
-APP=/work/dist/relations
+APP=/work/dist/relations-a5
+cp -a /work/dist/relations "$APP"
 PROJECT=/work/examples/vnext/a4-contract-evolution-test
 test -f "$APP/protocolia-ownership.json"
 test -f "$APP/protocolia-contract-ir.json"
@@ -77,7 +78,7 @@ grep -q 'ALTER TABLE inspection ADD COLUMN checked_at TIMESTAMP WITH TIME ZONE;'
  "$APP/src/main/resources/db/migration/V2__protocolia_additive.sql"
 cmp /tmp/a5-original-v1.sql "$APP/src/main/resources/db/migration/V1__contract_baseline.sql"
 printf '%s\n' 'CONSUMER-OWNED-DO-NOT-MODIFY' | cmp - "$APP/extensions/consumer.txt"
-node --input-type=module -e 'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp("/work/dist/relations")'
+node --input-type=module -e 'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp("/work/dist/relations-a5")'
 echo A5_V1_BYTES_AND_EXTENSION_PRESERVED_PASS
 
 start_app "$APP"
