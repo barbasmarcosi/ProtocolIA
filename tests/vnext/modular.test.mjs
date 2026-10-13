@@ -19,6 +19,7 @@ const operations = [
   {name:"addReading",entity:"Gauge",method:"PATCH",path:"/api/gauges/{serial}/reading",capability:"gauges.write",behavior:{kind:"atomicIncrement",field:"reading",input:"delta"}},
   {name:"health",entity:"Gauge",method:"GET",path:"/health",capability:"public",behavior:{kind:"health"}},
 ];
+for(const op of operations)op.statuses=[op.behavior.kind==="create"?201:200];
 const ir={irVersion:"vnext-a0.1",namespace:"IndependentGauge",entities:[{name:"Gauge",publicIdentity:"serial",fields}],operations};
 const q=(name,def,min,max)=>({name,in:"query",schema:{type:"integer",default:def,minimum:min,maximum:max}});
 const spec={paths:{
@@ -69,4 +70,16 @@ test("unsupported operations and unsafe SQL field names fail before writing",()=
   const unsafe=structuredClone(ir);
   unsafe.entities[0].fields[1].name="label; DROP TABLE";
   assert.throws(()=>generate(unsafe,spec,scratch()),/Unsafe identifier/);
+});
+
+test("wrong HTTP verb, status and public-key route fail before generating code",()=>{
+  const verb=structuredClone(ir);
+  verb.operations.find(o=>o.name==="getGauge").method="POST";
+  assert.throws(()=>generate(verb,spec,scratch()),/HTTP verb\/status mismatch/);
+  const status=structuredClone(ir);
+  status.operations.find(o=>o.name==="registerGauge").statuses=[200];
+  assert.throws(()=>generate(status,spec,scratch()),/HTTP verb\/status mismatch/);
+  const identity=structuredClone(ir);
+  identity.operations.find(o=>o.name==="getGauge").path="/api/gauges/{id}";
+  assert.throws(()=>generate(identity,spec,scratch()),/Public identity path/);
 });
