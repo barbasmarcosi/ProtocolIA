@@ -21,7 +21,7 @@ PROTOCOLIA_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/protocolia_gauge \
 PROTOCOLIA_JDBC_USER=postgres \
 PROTOCOLIA_JDBC_PASSWORD=postgres \
 PORT=8080 \
-java -jar /work/dist/modular/target/modular-generated-0.0.1.jar > /tmp/a0-modular-spring.log 2>&1 &
+java -jar /work/dist/gauge/target/modular-generated-0.0.1.jar > /tmp/a0-gauge-spring.log 2>&1 &
 pid=$!
 ready=0
 for i in $(seq 1 90); do
@@ -32,11 +32,11 @@ for i in $(seq 1 90); do
 done
 if [ "$ready" != 1 ]; then
   echo "A0_MODULAR_BOOT_FAILED"
-  tail -n 100 /tmp/a0-modular-spring.log
+  tail -n 100 /tmp/a0-gauge-spring.log
   exit 1
 fi
 echo "A0_GAUGE_HEALTH_200"
-node scripts/vnext/probe-gauge-http.mjs || { tail -n 90 /tmp/a0-modular-spring.log; exit 1; }
-node scripts/vnext/probe-gauge-browser.mjs || { tail -n 90 /tmp/a0-modular-spring.log; exit 1; }
+node scripts/vnext/probe-gauge-http.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
+node scripts/vnext/probe-gauge-browser.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_gauge -t -c 'SELECT serial,label,reading FROM gauge ORDER BY serial;'
 echo "A0_GAUGE_REAL_POSTGRES_CONFORMANCE_PASS"
