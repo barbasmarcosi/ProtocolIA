@@ -4,7 +4,7 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 y A5 abiertos, A4 PASS acotado en dos entidades con FK, frontend relacional y E-07 sobre contrato evolucionado en DB nueva.** The user wants **usable systems
+**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 abierto; A5 PASS acotado (V1→V2 sobre DB con datos); A4 PASS acotado en dos entidades con FK, frontend relacional y E-07 sobre contrato evolucionado en DB nueva.** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
@@ -25,7 +25,7 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | A2 — Frontend/one-command | **PARTIAL avanzado** — CLI build en Taller/Gauge, HTTP+PG+Chromium y conformance genérica PASS, Compose `config --quiet` oficial PASS; comandos locales `run/test` aislados implementados, todavía sin `docker compose up` verificado por falta de Docker Engine | [Evidencia A2](vnext/evidence/A2.md); falta prueba real Compose up y cierre de UI/browser genéricos |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
 | A4 — Independent multi-entity system | **PASS acotado (E-01..E-08)** — dos entidades con FK restrict, HTTP 201/400/409/204, React relacional Chromium, roles independientes; segunda variante TypeSpec con etiqueta y fecha opcional recompilada y ejecutada contra DB nueva | [Evidencia A4](vnext/evidence/A4.md); no confundir con migración V2 segura de A5 |
-| A5 — Safe evolution/MVP | NOT STARTED | Compatible regeneration + no unintended data/user-code loss |
+| A5 — Safe evolution/MVP | **PASS núcleo aditivo acotado; MVP de producción NO** — CLI `plan/evolve`, ownership hash, cambios destructivos rechazados, V1 inmutable + V2 sobre PostgreSQL poblado, extensiones y datos preservados; contraste OpenAPI adicional en validación | [Evidencia A5](vnext/evidence/A5.md), siguiente: validar OpenAPI diff y segundo destino NestJS; backups/productive IAM pendientes |
 
 **Unchanged historical facts:** G5 Books passed its bounded checks;
 the Taller manually integrated branch has a real Render Free demo
