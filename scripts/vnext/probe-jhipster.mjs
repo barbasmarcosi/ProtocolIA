@@ -59,3 +59,10 @@ console.log("JHIPSTER_REGENERATE_EXTENSION_UNCHANGED="+
   (existsSync(ext)&&readFileSync(ext,"utf8")==="keep this untouched\n"));
 console.log("JHIPSTER_REGENERATE_RESOURCE_IDENTICAL="+
   (existsSync(resourceFile)&&sha(readFileSync(resourceFile,"utf8"))===sourceBefore));
+
+if(process.env.JHIPSTER_PROBE_OUT_DIR){
+  const destination=resolve(process.env.JHIPSTER_PROBE_OUT_DIR);
+  if(destination===root)throw Error("invalid destination");
+  cpSync(root,destination,{recursive:true,force:false,errorOnExist:true});
+  console.log("JHIPSTER_PROBE_APP_SAVED="+destination);
+}
