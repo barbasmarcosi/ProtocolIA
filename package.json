@@ -10,7 +10,7 @@
   "scripts": {
     "build:vnext": "tsc -p packages/contracts/tsconfig.json && tsc -p packages/adapters/jhipster/tsconfig.json && tsc -p packages/compiler/tsconfig.json",
     "compile:taller": "npm run build:vnext && tsp compile examples/vnext/taller && node tests/vnext/verify-ir.mjs",
-    "check:vnext": "node scripts/vnext/print-lock.mjs && npm run build:vnext && node --test tests/vnext/*.test.mjs",
+    "check:vnext": "npm run build:vnext && node --test tests/vnext/*.test.mjs",
     "probe:jhipster": "node scripts/vnext/probe-jhipster.mjs"
   },
   "devDependencies": {
