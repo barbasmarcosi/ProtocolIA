@@ -11,7 +11,8 @@ COPY . .
 RUN java -version && node --version && postgres --version
 RUN npm ci --ignore-scripts
 RUN npm run check:vnext && npm run compile:taller && bash tests/vnext/negative-check.sh
-RUN npm install --no-save --package-lock=false --ignore-scripts generator-jhipster@9.4.0
+RUN npm install --no-save --package-lock=false --ignore-scripts generator-jhipster@9.4.0 playwright@1.64.0
+RUN npx playwright install --with-deps chromium
 RUN JHIPSTER_PROBE_OUT_DIR=/work/dist/jhipster npm run probe:jhipster
 RUN cd /work/dist/jhipster && chmod +x mvnw && ./mvnw -ntp -B -DskipTests package
 RUN bash scripts/vnext/probe-jhipster-postgres.sh

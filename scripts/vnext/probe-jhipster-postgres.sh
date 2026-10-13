@@ -37,6 +37,7 @@ if [ "$ready" != 1 ]; then
 fi
 echo "A0_SPRING_HEALTH_200"
 node scripts/vnext/probe-jhipster-http.mjs || { tail -n 80 /tmp/a0-spring.log; exit 1; }
+node scripts/vnext/probe-jhipster-browser.mjs || { tail -n 60 /tmp/a0-spring.log; exit 1; }
 echo "A0_POSTGRES_TOOL_ROWS"
 gosu postgres psql -h 127.0.0.1 -d protocolia_a0 -t -c 'SELECT count(*) FROM tool;'
 echo "A0_POSTGRES_REAL_HTTP_PROBE_PASS"
