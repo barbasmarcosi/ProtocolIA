@@ -52,4 +52,39 @@ console.log("A0_CONTRACT_RENAME_STATUS=" + rename.status + " REQUIRED=200");
 console.log("A0_STOCK_JHIPSTER_FULL_PARITY=" +
   (publicRead.status === 200 && increment.status === 200 && rename.status === 200 &&
    !Array.isArray(list.value) && Array.isArray(list.value?.items)));
+
+const duplicate = await req("/api/tools", {
+  method: "POST", headers,
+  body: JSON.stringify({ code, name: "Duplicate fixture", quantity: 99 }),
+});
+console.log("A0_DUPLICATE_CODE_STATUS=" + duplicate.status + " REQUIRED=409");
+const negative = await req("/api/tools", {
+  method: "POST", headers,
+  body: JSON.stringify({ code: "A0-NEGATIVE", name: "Invalid quantity", quantity: -1 }),
+});
+console.log("A0_NEGATIVE_QUANTITY_STATUS=" + negative.status + " REQUIRED=4XX");
+const unexpected = await req("/api/tools", {
+  method: "POST", headers,
+  body: JSON.stringify({ code: "A0-UNKNOWN", name: "Extra property", quantity: 2, notInContract: 15 }),
+});
+console.log("A0_UNKNOWN_PROPERTY_STATUS=" + unexpected.status + " REQUIRED=4XX");
+console.log("A0_INTERNAL_ID_EXPOSED_IN_PUBLIC_JSON=" + Object.hasOwn(created.value,"id"));
+const anonymous = await req("/api/tools/" + numericId);
+console.log("A0_ANONYMOUS_GET_STATUS=" + anonymous.status + " REQUIRED=401");
+const userLogin = await req("/api/authenticate", {
+  method: "POST", headers: { "content-type":"application/json" },
+  body: JSON.stringify({ username:"user", password:"user", rememberMe:false }),
+});
+console.log("A0_JHIPSTER_STOCK_USER_LOGIN=" + userLogin.status);
+if(userLogin.status===200 && userLogin.value?.id_token){
+  const viewerHeaders = { "content-type":"application/json", authorization:"Bearer "+userLogin.value.id_token };
+  const readerWrite = await req("/api/tools", {
+    method:"POST",headers:viewerHeaders,
+    body:JSON.stringify({code:"A0-READER-WRITE",name:"Forbidden read-only test",quantity:1}),
+  });
+  console.log("A0_STOCK_ROLE_USER_CAN_POST_STATUS=" + readerWrite.status + " EXPECTED_CONTRACT_READ_ONLY=403");
+} else {
+  console.log("A0_STOCK_ROLE_USER_WRITE_TEST_BLOCKED=true");
+}
+
 console.log("A0_REAL_POSTGRES_STOCK_CRUD_HTTP_PASS");
