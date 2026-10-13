@@ -2,25 +2,39 @@
 
 Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeout recorded 2026-10-13. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
 
-## New product priority — contract-only working applications (2026-10-13)
+## Product vNext — current authoritative plan (2026-10-13)
 
-The user’s acceptance criterion is **working software from explicit,
-versioned contracts**, not cost or token savings. Treat
-[the A1–A5 contract-to-working-app plan](CONTRACT_TO_WORKING_APP_NORTH_STAR.md)
-as the next product direction. **No A1–A5 implementation is claimed yet.**
-A1 removes handwritten workshop DB/domain code; A2 removes per-resource
-React code; A3 packages one-command generation and execution; A4 verifies
-an unseen independent multi-entity application. G5 remains a narrower
-historically verified codegen pilot.
+**Direction approved, NOT IMPLEMENTED.** The user wants **usable systems
+from versioned contracts** with no handwritten per-entity backend, SQL or
+React code, not token/agent-cost savings.
 
-A first independent P5-style workshop pilot exists on the isolated branch
-`experiments/p5-taller-real-requirements-v1`, Render demo
-[here](https://protocolia-taller-v1-20261013.onrender.com), with actual
-PostgreSQL and HTTP smoke verification. It **required handwritten
-application code** and has not been merged to main; this establishes
-the gap and does not prove A1–A5. Earlier tabular status below reflects
-the original benchmark/adoption tracks; do not reinterpret it as a veto
-over this new product priority.
+**Architecture chosen for empirical validation:** TypeSpec +
+`@protocolia/domain` + canonical framework-neutral IR + generator
+adapters; first candidate JHipster 9.4/Spring/React/PostgreSQL, second
+candidate JHipster Node 4.2/NestJS. JHipster .NET blueprint currently
+tracks 8.11 and is DEFERRED. JHipster acceptance is conditional on A0
+identity/API/regeneration behavior; fallback modular adapters are defined.
+
+**Authoritative documents:** [requirements](vnext/00_PRODUCT_REQUIREMENTS.md),
+[ADR-004](vnext/01_ARCHITECTURE_ADR.md),
+[implementation stages A0–A5](vnext/02_IMPLEMENTATION_PLAN.md),
+[acceptance matrix](vnext/03_ACCEPTANCE_MATRIX.md),
+[runbook](vnext/04_EXECUTION_RUNBOOK.md).
+
+| Stage | State | Exit value |
+| --- | --- | --- |
+| A0 — TypeSpec/JHipster feasibility | NOT STARTED | Real generated CRUD+UI app, exact identity semantics, GO/NO-GO |
+| A1 — Domain compiler & persistence | NOT STARTED | Taller business HTTP/DB/auth/concurrency without manual domain classes |
+| A2 — Frontend/one-command | NOT STARTED | Full Taller built, browser-tested and deployed from contracts |
+| A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
+| A4 — Independent multi-entity system | NOT STARTED | FK, real CRUD and UI for Equipment/Inspections |
+| A5 — Safe evolution/MVP | NOT STARTED | Compatible regeneration + no unintended data/user-code loss |
+
+**Unchanged historical facts:** G5 Books passed its bounded checks;
+the Taller manually integrated branch has a real Render Free demo
+(PostgreSQL and HTTP smoke), but is **not** a generic application
+generator. P3 executor and P4 economy work are separate research
+tracks and do not block vNext.
 
 ## Full-stack G0–G5 — supported pilot accepted, 2026-10-13
 
