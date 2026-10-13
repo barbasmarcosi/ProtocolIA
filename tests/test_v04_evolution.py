@@ -68,7 +68,8 @@ class V04EvolutionTest(unittest.TestCase):
     def test_additive_compatibility_and_java_profile(self):
         result = compare_contracts(BEFORE, AFTER)
         self.assertTrue(result["compatible"])
-        self.assertEqual(result["additive"], 2)
+        self.assertEqual(result["additive"], 4)  # two optional fields, TitleChange model, renameBook operation
+        self.assertIn("renameBook", validate(AFTER)["operations"])
         self.assertEqual(result["breaking"], 0)
         generated = generate_java(AFTER)
         java = generated["src/main/java/dev/protocolia/generated/Book.java"]
