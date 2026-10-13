@@ -31,14 +31,14 @@ for i in $(seq 1 90); do
   sleep 2
 done
 if [ "$ready" != 1 ]; then
-  echo "A0_MODULAR_BOOT_FAILED"
+  echo "A4_MODULAR_BOOT_FAILED"
   tail -n 100 /tmp/a4-relations-spring.log
   exit 1
 fi
-echo "A0_GAUGE_HEALTH_200"
-node scripts/vnext/probe-a4-http.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
-node scripts/vnext/probe-a4-browser.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
-node scripts/vnext/probe-a4-cleanup.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
+echo "A4_HEALTH_200"
+node scripts/vnext/probe-a4-http.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
+node scripts/vnext/probe-a4-browser.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
+node scripts/vnext/probe-a4-cleanup.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('equipment','inspection') ORDER BY table_name;"
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT count(*) FROM information_schema.table_constraints WHERE constraint_type = 'FOREIGN KEY' AND table_name='inspection';"
 
