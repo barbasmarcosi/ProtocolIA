@@ -16,7 +16,7 @@ try{
   await page.getByRole("heading",{name:"Crear Inspection"}).waitFor({timeout:15000});
   const form=page.locator("section.panel").filter({has:page.getByRole("heading",{name:"Crear Inspection"})}).locator("form");
   const select=form.locator("select");
-  await select.locator('option[value="E-001"]').waitFor({timeout:18000});
+  await select.locator('option[value="E-001"]').waitFor({state:"attached",timeout:18000});
   await form.locator("input").nth(0).fill("I-UI-001");
   await select.selectOption("E-001");
   await form.locator("input").last().fill("Created from relation picker");
