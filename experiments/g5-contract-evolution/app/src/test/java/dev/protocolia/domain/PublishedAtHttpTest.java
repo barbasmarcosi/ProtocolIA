@@ -71,6 +71,22 @@ class PublishedAtHttpTest {
     }
 
     @Test
+    void titleMutationIsPersistentAndFailClosed() throws Exception {
+        String isbn="g5-v04-title-"+UUID.randomUUID();
+        assertEquals(201,call("POST","/api/books",
+            "{\"isbn\":\""+isbn+"\",\"title\":\"Original\",\"stock\":2}").statusCode());
+        var renamed=call("PATCH","/api/books/"+isbn+"/title",
+            "{\"title\":\"Renamed book\"}");
+        assertEquals(200,renamed.statusCode(),renamed.body());
+        assertEquals("Renamed book",jdbc.queryForObject(
+            "SELECT title FROM books WHERE isbn = ?",String.class,isbn));
+        assertEquals(400,call("PATCH","/api/books/"+isbn+"/title",
+            "{\"title\":\"   \"}").statusCode());
+        assertEquals(404,call("PATCH","/api/books/no-such-book/title",
+            "{\"title\":\"Valid title\"}").statusCode());
+    }
+
+    @Test
     void reviewedFlywayV2AppliedWithoutDestroyingLegacyRows() {
         assertEquals(1,jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '2' AND success = true",
