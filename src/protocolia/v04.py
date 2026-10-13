@@ -28,7 +28,8 @@ def _project(contract: Any) -> dict:
             if type(spec["required"]) is not bool:
                 core._fail(f"{where}: required must be boolean")
             if not spec["required"]:
-                if spec.get("nullable") is not True or spec["type"] not in core.PRIMITIVES:
+                if (spec.get("nullable") is not True or type(spec["type"]) is not str
+                        or spec["type"] not in core.PRIMITIVES):
                     core._fail(f"{where}: only optional nullable scalar primitives supported")
             elif "nullable" in spec:
                 core._fail(f"{where}: required nullable fields unsupported")
