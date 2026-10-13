@@ -2,7 +2,7 @@ import {Controller,Get,Inject,Injectable,Module,NestModule,RequestMapping,Reques
 import {NestFactory} from "@nestjs/core";
 import {NestExpressApplication} from "@nestjs/platform-express";
 import {createHash,timingSafeEqual} from "node:crypto";
-import {readFileSync} from "node:fs";
+import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
 import "reflect-metadata";
@@ -97,6 +97,34 @@ class RuntimeService{
         await connection.query("INSERT INTO protocolia_schema_history (digest) VALUES ($1)",[digest]);
       }else if(history.rows.length!==1||history.rows[0].digest!==digest)
         throw Error("ProtocolIA Nest schema drift detected; refusing startup");
+      // Migrations use a separate, immutable and checksummed journal.
+      // Bootstrap/upgrade and its journal commit atomically under the same DB advisory lock.
+      await connection.query("CREATE TABLE IF NOT EXISTS protocolia_nest_migration_history (version INTEGER PRIMARY KEY CHECK (version >= 2), checksum VARCHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      const folder=join(process.cwd(),"src/migrations");
+      const names=existsSync(folder)?readdirSync(folder):[];
+      if(names.some(name=>!/^V[2-9][0-9]*__[A-Za-z0-9_-]+\\.sql$/.test(name)))
+        throw Error("Unsupported Nest migration file; refusing startup");
+      const releases=names.map(name=>({
+        name,version:Number(name.match(/^V([0-9]+)__/)[1])
+      })).sort((a,b)=>a.version-b.version);
+      const ledger=await connection.query("SELECT version,checksum FROM protocolia_nest_migration_history ORDER BY version");
+      if(ledger.rows.length>releases.length)
+        throw Error("Nest database is newer than this application's migrations");
+      for(let i=0;i<releases.length;i++){
+        const migration=releases[i];
+        if(!Number.isSafeInteger(migration.version)||migration.version!==i+2)
+          throw Error("Nonsequential Nest migration versions");
+        const patch=readFileSync(join(folder,migration.name),"utf8");
+        const checksum=createHash("sha256").update(patch).digest("hex");
+        if(i<ledger.rows.length){
+          if(ledger.rows[i].version!==migration.version||ledger.rows[i].checksum!==checksum)
+            throw Error("ProtocolIA Nest migration checksum/history drift detected");
+        }else{
+          await connection.query(patch);
+          await connection.query("INSERT INTO protocolia_nest_migration_history (version,checksum) VALUES ($1,$2)",[migration.version,checksum]);
+          console.log("PROTOCOLIA_NEST_MIGRATION_APPLIED "+migration.version);
+        }
+      }
       await connection.query("COMMIT");
     }catch(e){await connection.query("ROLLBACK");throw e;}
     finally{connection.release();}
