@@ -4,6 +4,8 @@ FROM python:3.13-slim AS contract
 WORKDIR /repo
 COPY src/protocolia ./src/protocolia
 COPY tests/test_v04_evolution.py ./tests/test_v04_evolution.py
+COPY tests/test_fullstack_regeneration.py ./tests/test_fullstack_regeneration.py
+RUN PYTHONPATH=src python -m unittest discover -s tests -p test_fullstack_regeneration.py -v
 COPY examples/books-paging-v03 ./examples/books-paging-v03
 COPY examples/books-evolution-v04 ./examples/books-evolution-v04
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_v04_evolution.py -v
@@ -98,10 +100,39 @@ COPY experiments/g3-books-ui/run-browser-tests.sh ./run-g3-browser-tests.sh
 COPY experiments/g5-contract-evolution/run-browser-tests.sh ./run-browser-tests.sh
 RUN bash ./run-browser-tests.sh && echo G5_BROWSER_E2E_VERIFIED >/tmp/g5-v04-browser-verified.txt
 
+# Real command-line orchestration: same contract into disposable bundled,
+# pinned Java and Orval outputs. Repeated generation must be byte-identical.
+FROM node:22-bookworm-slim AS regenerate-integrated
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=maven:3.9.11-eclipse-temurin-21 /opt/java/openjdk /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="/opt/java/openjdk/bin:${PATH}"
+WORKDIR /repo
+COPY src/protocolia ./src/protocolia
+COPY examples/books-evolution-v04 ./examples/books-evolution-v04
+COPY examples/books-paging-v03/http-errors.json ./examples/books-paging-v03/http-errors.json
+COPY examples/books-web ./examples/books-web
+COPY --from=java-generator /tools/openapi-generator-cli-7.26.0.jar /tools/openapi-generator-cli-7.26.0.jar
+RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
+ examples/books-evolution-v04/contract.json --profile java-spring-basic-demo \
+ --resources examples/books-evolution-v04/resources.json \
+ --domain-errors examples/books-paging-v03/http-errors.json \
+ --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
+ --web-template examples/books-web --out /managed
+RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
+ examples/books-evolution-v04/contract.json --profile java-spring-basic-demo \
+ --resources examples/books-evolution-v04/resources.json \
+ --domain-errors examples/books-paging-v03/http-errors.json \
+ --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
+ --web-template examples/books-web --out /managed \
+ && echo G5_REAL_FULLSTACK_REGEN_IDEMPOTENT > /tmp/g5-regen-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
 COPY --from=browser-integration /tmp/g5-v04-browser-verified.txt ./browser-verified.txt
+COPY --from=regenerate-integrated /tmp/g5-regen-verified.txt ./regen-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
