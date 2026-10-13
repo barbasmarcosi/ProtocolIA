@@ -1,4 +1,6 @@
-# ProtocolIA — Master Execution Roadmap
+# ProtocolIA — Master Execution Roadmap (historic P0–P6)
+
+> **New authoritative product execution roadmap, 2026-10-13:** [vNext A0–A5](vnext/02_IMPLEMENTATION_PLAN.md) and [runbook](vnext/04_EXECUTION_RUNBOOK.md). The P0–P6 plan below is preserved for historical action/security/agent-research streams. **It no longer defines the next steps of contract-to-working-application product development.** The cost-per-mission/agent-token objective below is *historical*, not an acceptance criterion for vNext. The new contract-first architecture uses TypeSpec, technology-neutral IR, and replaceable generators (JHipster-first pending A0). No A0–A5 stage has been implemented yet.
 
 **Status:** planned and gated; updated 2026-10-10  
 **Source of execution truth:** [EXECUTION_STATE.md](EXECUTION_STATE.md)  
