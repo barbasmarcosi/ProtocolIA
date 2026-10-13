@@ -11,7 +11,7 @@ export function SchemaToolForm({role,pending,onValid}:Props){
  const [formError,setFormError]=useState('');
  const view=getView(role);
  return <section className="form-panel">
-  <h3>{view.name}</h3>
+  <h3>{view.title}</h3>
   <p className="subtle small">Campos y reglas desde JSON Schema 2020-12.</p>
   <Form key={role+'-'+revision}
     schema={formSchema(role) as RJSFSchema}
