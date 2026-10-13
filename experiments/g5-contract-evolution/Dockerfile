@@ -119,8 +119,8 @@ RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  --resources examples/books-evolution-v04/resources.json \
  --domain-errors examples/books-paging-v03/http-errors.json \
  --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
- --web-template examples/books-web --out /managed
-RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
+ --web-template examples/books-web --out /managed \
+ && PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo \
  --resources examples/books-evolution-v04/resources.json \
  --domain-errors examples/books-paging-v03/http-errors.json \
