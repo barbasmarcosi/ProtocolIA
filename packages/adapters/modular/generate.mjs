@@ -43,7 +43,7 @@ export function generate(ir, openapi, outDir) {
     name(f.name);
     if(!["string","int32","utcDateTime"].includes(f.type)) throw Error("Unsupported field type: "+f.type);
   }
-  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","health"]);
+  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","delete","health"]);
   const ops = ir.operations;
   for(const op of ops){
     if(!supported.has(op.behavior.kind)) throw Error("Unsupported operation " + op.behavior.kind);
@@ -60,10 +60,11 @@ export function generate(ir, openapi, outDir) {
   for(const k of ["create","get","listPage","patchFields","atomicIncrement","health"]) {
     if(byKind(k).length!==1) throw Error("A0 profile requires exactly one " + k + " operation");
   }
+  if (byKind("delete").length>1) throw Error("Only one delete behavior allowed in current adapter profile");
   const readCap=byKind("get")[0].capability, writeCap=byKind("create")[0].capability;
   if(!readCap||!writeCap||readCap===writeCap||readCap==="public"||writeCap==="public") throw Error("Invalid role capabilities");
   for(const op of ops.filter(o=>o.behavior.kind!=="health")){
-    const expected=["create","patchFields","atomicIncrement"].includes(op.behavior.kind)?writeCap:readCap;
+    const expected=["create","patchFields","atomicIncrement","delete"].includes(op.behavior.kind)?writeCap:readCap;
     if(op.capability!==expected)throw Error("Inconsistent capability on " + op.name);
   }
   if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
