@@ -251,9 +251,43 @@ def compare_resource_bundles(before_contract: Any, before_resources: Any,
             changes.append({"path": path, "severity": "additive", "kind": "resource_added"})
         else:
             for field in ("model", "identityField", "operations", "views", "invalidates"):
-                if b[resource][field] != a[resource][field]:
-                    changes.append({"path": f"{path}.{field}", "severity": "breaking",
-                                    "kind": "semantic_binding_changed"})
+                if b[resource][field] == a[resource][field]:
+                    continue
+                severity = "breaking"
+                kind = "semantic_binding_changed"
+                if field == "views":
+                    # A view may append already-validated optional contract
+                    # fields without changing roles, paths, labels or order.
+                    # Removed/reordered existing fields remain breaking.
+                    old_views = b[resource]["views"]
+                    new_views = a[resource]["views"]
+                    if set(old_views) == set(new_views) and all(
+                        set(old_views[name]) == set(new_views[name]) and
+                        all(old_views[name][k] == new_views[name][k]
+                            for k in old_views[name] if k != "fields") and
+                        new_views[name]["fields"][:len(old_views[name]["fields"])]
+                            == old_views[name]["fields"]
+                        for name in old_views
+                    ):
+                        added = [
+                            key for name in old_views for key in
+                            new_views[name]["fields"][len(old_views[name]["fields"]):]
+                        ]
+                        model_names = {
+                            name: new_views[name]["model"] for name in new_views
+                        }
+                        # Only optional fields may be added to views without
+                        # changing the original user interaction contract.
+                        contract_ir = validate_contract(after_contract)
+                        if all(
+                            not contract_ir["models"][model_names[name]][item]["required"]
+                            for name in old_views
+                            for item in new_views[name]["fields"][len(old_views[name]["fields"]):]
+                        ) and added:
+                            severity = "additive"
+                            kind = "optional_view_fields_appended"
+                changes.append({"path": f"{path}.{field}", "severity": severity,
+                                "kind": kind})
     breaking = contract["breaking"] + sum(c["severity"] == "breaking" for c in changes)
     return {"compatible": breaking == 0, "breaking": breaking,
             "wireContract": contract, "semanticChanges": changes,
