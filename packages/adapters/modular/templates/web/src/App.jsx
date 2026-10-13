@@ -66,7 +66,16 @@ export default function App(){
     });
     const text=await response.text();
     let data;try{data=JSON.parse(text);}catch{data={};}
-    if(!response.ok)throw Error("HTTP "+response.status+" — "+kind);
+    if(!response.ok){
+      const descriptions={
+        400:"Revisá los datos ingresados.",
+        401:"Sesión inválida. Volvé a iniciar sesión.",
+        403:"No tenés permiso para esta operación.",
+        404:"El registro ya no existe.",
+        409:"Conflicto: no es posible completar la operación."
+      };
+      throw Error(descriptions[response.status]??"Error HTTP "+response.status+" — "+kind);
+    }
     return data;
   }
   async function refresh(){
