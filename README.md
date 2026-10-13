@@ -4,20 +4,32 @@
 
 ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
-## Product goal: contracts to a complete working application
+## Current product direction — ProtocolIA vNext (2026-10-13)
 
-**Current north star (2026-10-13):** start from business requirements,
-formalize the contracts, and then generate an **actually functioning**
-full-stack application — database/migrations, implemented backend,
-frontend and deployment — with **no per-resource handwritten code**
-for the supported contract grammar. Token savings are secondary and
-not a required success metric. See the
-[contract-to-working-app product plan](docs/CONTRACT_TO_WORKING_APP_NORTH_STAR.md).
+**Goal:** from reviewed business requirements and **TypeSpec contracts**,
+generate a **working complete system**: persisted backend, operations with
+real domain semantics, security, navigable React UI, tests and deployable
+container, with no per-resource handwritten application implementation.
 
-This is an **aspiration, not current capability**. G5 generates typed API
-and client artifacts; the independently deployed workshop experiment
-still needed handwritten domain SQL, adapters and screens. The next
-A1–A3 increments close precisely those gaps.
+**Architecture (planned, not implemented):** `@protocolia/domain` TypeSpec
+library → technology-neutral semantic IR → replaceable generation adapters.
+**A0 candidate:** JHipster 9.4 + React + Spring Boot + PostgreSQL, with a
+JHipster NestJS target second; no JDL-first contract, no TypeSpec grammar
+claimed implemented. If JHipster distorts contract identity, HTTP semantics
+or regeneration, a modular adapter based on OpenAPI Generator/frameworks
+is the documented fallback.
+
+**Source of truth for vNext:**
+- [Product requirements](docs/vnext/00_PRODUCT_REQUIREMENTS.md)
+- [Architecture / ADR-004](docs/vnext/01_ARCHITECTURE_ADR.md)
+- [A0–A5 implementation plan](docs/vnext/02_IMPLEMENTATION_PLAN.md)
+- [Real behavior acceptance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md)
+- [Execution runbook / next task](docs/vnext/04_EXECUTION_RUNBOOK.md)
+
+**Status:** A0–A5 **NOT STARTED**. Current v0.1–v0.4 generators
+and G5 pilot remain usable/historical. They do not already generate
+complete general applications. The workshop experiment remains a
+functioning **hand-integrated** full-stack demo, not A1/A2 evidence.
 
 ## Start a Java/Spring project from a contract
 
@@ -71,7 +83,7 @@ The current goal is **one generated Spring Boot application with a typed impleme
 
 ## Why
 
-LLMs are powerful at ambiguity, design, and novel problems. They should not have to regenerate routine DTOs, interfaces, API schemas, and execution plans on every request. ProtocolIA tests the hypothesis that *verified contract compilation reduces model work per successful mission without reducing quality*.
+LLMs can help resolve ambiguous requirements and propose contracts. ProtocolIA's **primary vNext goal** is compiling reviewed contracts into complete, functioning software for declared supported profiles. Historical token-efficiency and agent-economics experiments are secondary and do not gate application generation.
 
 ## P1: formal versioned contracts (v0.2)
 
