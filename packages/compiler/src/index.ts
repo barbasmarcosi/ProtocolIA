@@ -38,6 +38,10 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
+    ...(metadata(p,"reference",prop) ? {reference:{
+      target:String(metadata(p,"reference",prop)?.entity),
+      onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
+    }} : {}),
     ...(getMinLength(p,prop) !== undefined ? {minLength:getMinLength(p,prop)} : {}),
     ...(getMaxLength(p,prop) !== undefined ? {maxLength:getMaxLength(p,prop)} : {}),
     ...(getMinValue(p,prop) !== undefined ? {min:getMinValue(p,prop)} : {}),
@@ -89,6 +93,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
       name:m.name,publicIdentity:identity.name,fields,
       ...(metadata(p,"view",m)?.label !== undefined ? {view:String(metadata(p,"view",m)?.label)} : {}),
     });
+  }
+  for (const entity of entities) {
+    for (const f of entity.fields) {
+      if (!f.reference) continue;
+      const target = entities.find(x=>x.name===f.reference?.target);
+      const key = target?.fields.find(x=>x.name===target.publicIdentity);
+      if (!target || !key || target.name===entity.name || f.type!=="string" ||
+          f.nullable || !f.required || f.reference.onDelete!=="restrict" ||
+          key.type!=="string" ||
+          (f.maxLength!==undefined && key.maxLength!==undefined && f.maxLength < key.maxLength)) {
+        reject("invalid-reference",entity.name+"."+f.name+
+          " must reference another entity's public string identity with onDelete=restrict and sufficient length",
+          models.find(m=>m.name===entity.name)!);
+      }
+    }
   }
   const operations: IrOperation[] = [];
   const relevant = ops.filter((x)=> namespaces.has(x.namespace));

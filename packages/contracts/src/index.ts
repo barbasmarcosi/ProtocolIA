@@ -8,6 +8,7 @@ export const $lib = createTypeSpecLibrary({
     entity: {description:"ProtocolIA entity contract metadata"},
     publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
     unique: {description:"ProtocolIA unique contract metadata"},
+    reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
     behavior: {description:"ProtocolIA behavior contract metadata"},
     capability: {description:"ProtocolIA capability contract metadata"},
@@ -24,6 +25,10 @@ function publicIdentity(context: DecoratorContext, target: ModelProperty): void 
 
 function unique(context: DecoratorContext, target: ModelProperty): void {
   context.program.stateMap($lib.stateKeys.unique).set(target, {});
+}
+
+function reference(context: DecoratorContext, target: ModelProperty, entity: string, onDelete?: string): void {
+  context.program.stateMap($lib.stateKeys.reference).set(target, {entity, onDelete: onDelete ?? "restrict"});
 }
 
 function view(context: DecoratorContext, target: Model, label: string): void {
@@ -43,6 +48,7 @@ export const $decorators = {
     entity,
     publicIdentity,
     unique,
+    reference,
     view,
     behavior,
     capability,

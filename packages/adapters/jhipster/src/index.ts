@@ -12,6 +12,7 @@ export interface IrField {
   max?: number;
   minLength?: number;
   maxLength?: number;
+  reference?: {target: string; onDelete: "restrict"};
 }
 export interface IrEntity {
   name: string;
