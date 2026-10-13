@@ -41,6 +41,11 @@ node scripts/vnext/probe-a4-browser.mjs || { tail -n 90 /tmp/a4-relations-spring
 if [[ "${A4_VARIANT:-false}" == "true" ]]; then
   node scripts/vnext/probe-a4-evolution-http.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 fi
+PROTOCOLIA_ALLOW_CONFORMANCE_WRITES=true \
+PROTOCOLIA_MANAGER_USERNAME=manager PROTOCOLIA_MANAGER_PASSWORD=test-manager-only-2026 \
+PROTOCOLIA_READER_USERNAME=reader PROTOCOLIA_READER_PASSWORD=test-reader-only-2026 \
+node packages/cli/conformance.mjs /work/dist/relations http://127.0.0.1:8080 \
+ || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 node scripts/vnext/probe-a4-cleanup.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('equipment','inspection') ORDER BY table_name;"
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT count(*) FROM information_schema.table_constraints WHERE constraint_type = 'FOREIGN KEY' AND table_name='inspection';"
