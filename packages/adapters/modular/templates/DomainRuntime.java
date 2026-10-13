@@ -36,6 +36,15 @@ public class DomainRuntime {
   @GetMapping("/health")
   public Map<String, String> health() { return Map.of("status", "UP"); }
 
+  // Platform-authenticated capability discovery; only server authorities are trusted.
+  @GetMapping("/api/_protocolia/me")
+  public Map<String, Object> session(Authentication user) {
+    if (user == null || !user.isAuthenticated())
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+    return Map.of("username", user.getName(),
+      "capabilities", user.getAuthorities().stream().map(a -> a.getAuthority()).sorted().toList());
+  }
+
   @Transactional
   @RequestMapping("/api/**")
   public ResponseEntity<Object> dispatch(
