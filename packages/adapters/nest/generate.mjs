@@ -144,6 +144,7 @@ export function generate(ir,spec,out){
     operations:compiled,readCapabilities:reads,writeCapabilities:writes};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
+  mkdirSync(join(out,"src/migrations"),{recursive:true});
   copy("src/main.ts",join(root,"templates/main.ts"));
   write("package.json",JSON.stringify({name:"protocolia-nest-generated",
     private:true,version:"0.0.1",
@@ -172,6 +173,7 @@ export function generate(ir,spec,out){
     "FROM node:24-bookworm-slim","WORKDIR /app",
     "COPY package*.json ./","RUN npm ci --omit=dev",
     "COPY dist ./dist","COPY src/schema.sql ./src/schema.sql",
+    "COPY src/migrations ./src/migrations",
     "EXPOSE 8080",'CMD ["node","dist/main.js"]',""
   ].join("\n"));
   write(".dockerignore","node_modules/\nweb/\n.protocolia-toolchain/\n.env\n");
