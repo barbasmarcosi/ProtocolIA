@@ -2,6 +2,26 @@
 
 Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeout recorded 2026-10-13. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
 
+## New product priority — contract-only working applications (2026-10-13)
+
+The user’s acceptance criterion is **working software from explicit,
+versioned contracts**, not cost or token savings. Treat
+[the A1–A5 contract-to-working-app plan](CONTRACT_TO_WORKING_APP_NORTH_STAR.md)
+as the next product direction. **No A1–A5 implementation is claimed yet.**
+A1 removes handwritten workshop DB/domain code; A2 removes per-resource
+React code; A3 packages one-command generation and execution; A4 verifies
+an unseen independent multi-entity application. G5 remains a narrower
+historically verified codegen pilot.
+
+A first independent P5-style workshop pilot exists on the isolated branch
+`experiments/p5-taller-real-requirements-v1`, Render demo
+[here](https://protocolia-taller-v1-20261013.onrender.com), with actual
+PostgreSQL and HTTP smoke verification. It **required handwritten
+application code** and has not been merged to main; this establishes
+the gap and does not prove A1–A5. Earlier tabular status below reflects
+the original benchmark/adoption tracks; do not reinterpret it as a veto
+over this new product priority.
+
 ## Full-stack G0–G5 — supported pilot accepted, 2026-10-13
 
 G0–G3 accepted within versioned bounded profiles (PRs #41–#46). G4 signed
