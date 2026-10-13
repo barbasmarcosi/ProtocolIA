@@ -141,7 +141,7 @@ RUN python -m pip install --no-cache-dir -e '.[operator-auth]' 'jsonschema==4.25
 
 # Derive an honest bearer-only OpenAPI profile from the SAME v0.4 IR.
 FROM contract AS jwt-contract
-COPY experiments/g4-jwt-capabilities/jwt_projection.py /jwt_projection.py
+COPY experiments/g5-contract-evolution/jwt/jwt_projection.py /jwt_projection.py
 RUN python /jwt_projection.py /bundle/openapi.json \
  /bundle/capability-manifest.json /bundle/openapi.g4-jwt.json
 
@@ -161,7 +161,7 @@ RUN rm -f src/main/java/dev/protocolia/security/DemoSecurity.java \
  src/main/java/dev/protocolia/domain/BooksDelegate.java \
  && rm -rf src/main/java/dev/protocolia/upstream src/test/java target
 COPY --from=jwt-generator /jwt-gen/upstream/src/main/java ./src/main/java
-COPY experiments/g4-jwt-capabilities/app/src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java ./src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java
+COPY experiments/g5-contract-evolution/jwt/JwtCapabilitySecurity.java ./src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java
 COPY experiments/g5-contract-evolution/jwt/BooksDelegate.java ./src/main/java/dev/protocolia/domain/BooksDelegate.java
 COPY experiments/g5-contract-evolution/jwt/pom.xml ./pom.xml
 COPY experiments/g5-contract-evolution/jwt/application.properties ./src/main/resources/application.properties
