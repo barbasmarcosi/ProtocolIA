@@ -27,6 +27,11 @@ public final class BooksDelegate implements BooksApiDelegate {
     }
 
     @Override
+    public Book renameBook(String isbn, dev.protocolia.upstream.model.TitleChange update) {
+        return toWire(inventory.rename(isbn, update == null ? null : update.getTitle()));
+    }
+
+    @Override
     public Book getBook(String isbn) { return toWire(inventory.get(isbn)); }
 
     @Override
