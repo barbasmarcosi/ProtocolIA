@@ -5,10 +5,13 @@ WORKDIR /repo
 COPY src/protocolia ./src/protocolia
 COPY tests/test_v04_evolution.py ./tests/test_v04_evolution.py
 COPY tests/test_fullstack_regeneration.py ./tests/test_fullstack_regeneration.py
+COPY tests/test_v04_second_resource.py ./tests/test_v04_second_resource.py
 COPY examples/books-paging-v03 ./examples/books-paging-v03
 COPY examples/books-evolution-v04 ./examples/books-evolution-v04
+COPY examples/g5-second-resource ./examples/g5-second-resource
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_fullstack_regeneration.py -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_v04_evolution.py -v
+RUN PYTHONPATH=src python -m unittest discover -s tests -p test_v04_second_resource.py -v
 RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle
 RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle-again  && diff -rq /bundle /bundle-again && echo G5_V04_BUNDLE_IDEMPOTENT
 RUN PYTHONPATH=src python -m protocolia generate-java  examples/books-evolution-v04/contract.json --out /java-output
@@ -175,6 +178,20 @@ RUN set -eu; \
  mvn -B -ntp clean verify; \
  echo G5_SIGNED_JWT_POSTGRESQL_V04_PASS > /tmp/g5-jwt-verified.txt
 
+# Second independent resource proves that codegen is not hardwired to
+# Books identities, operation names, models, or Orval file names.
+FROM regenerate-integrated AS second-resource-generate
+WORKDIR /repo
+COPY examples/g5-second-resource ./examples/g5-second-resource
+COPY examples/widgets-web ./examples/widgets-web
+RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
+ examples/g5-second-resource/contract.json --profile java-spring-basic-demo \
+ --resources examples/g5-second-resource/resources.json \
+ --domain-errors examples/g5-second-resource/http-errors.json \
+ --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
+ --web-template examples/widgets-web --out /managed-widgets \
+ && echo G5_SECOND_RESOURCE_JAVA_ORVAL_REGEN_PASS > /tmp/g5-widgets-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
@@ -182,6 +199,7 @@ COPY --from=browser-integration /tmp/g5-v04-browser-verified.txt ./browser-verif
 COPY --from=regenerate-integrated /tmp/g5-regen-verified.txt ./regen-verified.txt
 COPY --from=python-regressions /tmp/g5-python-verified.txt ./python-verified.txt
 COPY --from=jwt-postgres-integration /tmp/g5-jwt-verified.txt ./jwt-verified.txt
+COPY --from=second-resource-generate /tmp/g5-widgets-verified.txt ./widgets-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
