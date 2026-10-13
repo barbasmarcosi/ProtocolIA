@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Última definición:** 2026-10-13. **Estado del producto:** PLANIFICADO; A0–A5 sin implementar.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3–A5 abiertos.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -11,32 +11,55 @@
 4. [03 — Matriz de aceptación](03_ACCEPTANCE_MATRIX.md) — pruebas HTTP/DB/auth/browser, portabilidad y casos negativos.
 5. [04 — Runbook de ejecución](04_EXECUTION_RUNBOOK.md) — primera acción concreta, ramas, reportes y continuidad.
 
-## Decisión vigente
+## Arquitectura y decisión vigentes
 
 ```text
-Requerimientos revisados
-   -> *.tsp + @protocolia/domain
-   -> TypeSpec Compiler + canonical semantic IR
-   -> adapter negotiation
-   -> JHipster 9.4 / Spring Boot / React / PostgreSQL (A0 candidate)
-   -> NestJS blueprint (A3 second target)
-   -> real conformance + safe regeneration
+Requerimientos → contratos TypeSpec + @protocolia/domain
+   → IR semántico canónico y OpenAPI 3.1 oficial
+   → adaptador modular Spring Boot 4.1.1/JDBC
+   → PostgreSQL 16 (migración Flyway generada)
+   → React/Vite declarativos, con capacidades desde backend
+   → aplicación ejecutable
 ```
 
-JHipster es **candidato, no requisito irreversible**. Solo se adopta como motor inicial tras A0 si respeta identidad pública, HTTP/errores, seguridad y regeneración. El mismo IR sirve para un adaptador modular alternativo. El conjunto limitado de comportamientos iniciales es `create/get/listPage/patchFields/delete/atomicIncrement`.
+JHipster 9.4 fue ejecutado con Spring/React/PostgreSQL reales, pero no cumplió identidad pública, rutas especiales ni autorización contractual: **NO-GO** como motor principal. El IR se conservó y el fallback pasó HTTP, DB y Chromium con **dos contratos independientes** (Taller y Gauge). OpenAPI Generator 7.26 produce interfaces/DTO Java compilados; el controlador HTTP operativo es todavía el runtime semántico común, sin delegates tipados.
+
+## Construir una aplicación desde contratos
+
+Con Node 24, Java 21, Maven y las dependencias del repositorio instaladas (`npm ci`):
+
+```bash
+npm run app:build -- examples/vnext/taller --target modular-spring --out dist/taller
+# Alternativa con el mismo motor:
+npm run app:build -- examples/vnext/gauge --target modular-spring --out dist/gauge
+```
+
+La CLI realiza TypeSpec → IR → validación de capacidades → generación Spring/React → OpenAPI Generator 7.26 → compilación Maven y produce `protocolia-build.json` con hashes de origen. Rechaza sobrescribir directorios con archivos previos o generar dentro del árbol del contrato. No escribe código Java/SQL/React por entidad.
+
+Cada proyecto generado incluye `Dockerfile`, `compose.yaml` y `.env.example`. Para un **ensayo local exclusivamente**:
+
+```bash
+cd dist/taller
+cp .env.example .env
+# Editar .env: contraseñas únicas y no vacías;
+# activar PROTOCOLIA_ALLOW_DEMO_AUTH=true SOLO para la demo local
+docker compose up --build
+```
+
+El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza un volumen local. El comando Compose está preparado pero **no se ejecutó mediante docker compose en la evidencia remota**; la conformance HTTP/PostgreSQL/Chromium sí se ejecutó en contenedores aislados. Las credenciales no se distribuyen precargadas, y la autenticación Basic de prueba requiere opt-in. No usar este perfil públicamente ni considerarlo seguridad de producción.
 
 ## Estado por etapa
 
-| Etapa | Estado actual | Próxima evidencia requerida |
+| Etapa | Estado | Evidencia |
 | --- | --- | --- |
-| A0 — TypeSpec + JHipster GO/NO-GO | NOT STARTED | App Taller JHipster generada y CRUD real, `Tool.code` preservado |
-| A1 — Backend/semántica | NOT STARTED | Taller sin Java/SQL escritos por entidad y con incrementos atómicos |
-| A2 — Web+CLI+Docker | NOT STARTED | App completa y Playwright desde un comando |
-| A3 — NestJS | NOT STARTED | Paridad contractual del Taller en segundo backend |
-| A4 — Nuevo dominio | NOT STARTED | Equipos + Inspecciones, FK, UI, permisos |
-| A5 — Evolution/MVP | NOT STARTED | Regeneración segura y evolución con datos |
+| A0 — Tecnología y contrato canónico | PASS acotado | [A0](evidence/A0.md), JHipster NO-GO contractual, fallback GO |
+| A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
+| A2 — CLI/UI/empaquetado | PARCIAL | Una CLI compila ambas apps; browser real prueba gestor y lector; Compose todavía no verificado en runtime |
+| A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
+| A4 — Dos entidades y relaciones FK | NOT STARTED | Integridad y UI relacional |
+| A5 — Regeneración/evolución segura | NOT STARTED | Migraciones V2, ownership y preservación |
 
-**Iniciar por A0.** Se conservan los experimentos existentes sin atribuirles capacidades de vNext; no hay tests nuevos ejecutados por el mero hecho de aprobar este plan.
+**Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
 
 ## Historial preservado
 
