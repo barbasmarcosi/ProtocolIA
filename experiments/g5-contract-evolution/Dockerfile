@@ -135,7 +135,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 COPY . .
-RUN python -m pip install --no-cache-dir -e '.[operator-auth]' \
+RUN python -m pip install --no-cache-dir -e '.[operator-auth]' 'jsonschema==4.25.1' \
  && PYTHONPATH=src python -m unittest discover -s tests -v \
  && echo G5_ALL_PYTHON_REGRESSIONS_PASS > /tmp/g5-python-verified.txt
 
