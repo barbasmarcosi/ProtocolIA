@@ -1,5 +1,7 @@
 # Product-first plan (ProtocolIA)
 
+> **HISTORICAL 2026-10-11 product-first Spring/JSON pilot.** This document describes the narrower implementer-owned Java handler experiment. The product goal now replaces handwritten per-resource domain, SQL and UI with contract-driven full-app generation. See [vNext requirements](vnext/00_PRODUCT_REQUIREMENTS.md), [ADR-004](vnext/01_ARCHITECTURE_ADR.md) and [A0–A5 plan](vnext/02_IMPLEMENTATION_PLAN.md). Keep the historical experiment/evidence intact; its four-step sequence is **not the current implementation plan**.
+
 **Decision — 2026-10-11:** pause expansion of P4. Preserve its frozen study and
 three exploratory artifacts. An HTTP PASS on manually implemented shadow
 controllers does not establish value for ProtocolIA.
