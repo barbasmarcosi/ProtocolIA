@@ -1,0 +1,6 @@
+# Environment-only target declaration; contains no business semantics.
+target: jhipster-spring
+generator: generator-jhipster
+generatorVersion: 9.4.0
+database: postgresql
+frontend: react

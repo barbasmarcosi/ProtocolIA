@@ -1,0 +1,13 @@
+{
+  "name": "@protocolia/domain",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "tspMain": "lib/main.tsp",
+  "exports": {
+    ".": {
+      "typespec": "./lib/main.tsp",
+      "default": "./lib/main.tsp"
+    }
+  }
+}

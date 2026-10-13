@@ -1,8 +1,12 @@
+# Python and historical build outputs
 __pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
+*.pyc
 .pytest_cache/
-generated/
-dist/
-build/
+.venv/
+# vNext TypeSpec/JHipster generated output
+node_modules/
+**/node_modules/
+**/dist/
+**/tsp-output/
+**/.jhipster/
+**/target/

@@ -1,0 +1,10 @@
+{
+  "name": "@protocolia/jhipster",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  }
+}

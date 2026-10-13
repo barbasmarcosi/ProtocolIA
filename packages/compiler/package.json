@@ -1,0 +1,16 @@
+{
+  "name": "@protocolia/compiler",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@protocolia/domain": "0.0.1",
+    "@protocolia/jhipster": "0.0.1",
+    "@typespec/compiler": "1.17.0",
+    "@typespec/http": "1.17.0"
+  }
+}
