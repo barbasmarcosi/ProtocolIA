@@ -8,6 +8,7 @@ COPY examples/books-paging-v03 ./examples/books-paging-v03
 COPY examples/books-evolution-v04 ./examples/books-evolution-v04
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_v04_evolution.py -v
 RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle
+RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle-again  && diff -rq /bundle /bundle-again && echo G5_V04_BUNDLE_IDEMPOTENT
 RUN PYTHONPATH=src python -m protocolia generate-java  examples/books-evolution-v04/contract.json --out /java-output
 
 FROM maven:3.9.11-eclipse-temurin-21 AS java-generator
@@ -15,6 +16,8 @@ WORKDIR /gen
 COPY --from=contract /bundle/openapi.json ./openapi.json
 RUN mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:copy  -Dartifact=org.openapitools:openapi-generator-cli:7.26.0:jar -DoutputDirectory=/tools
 RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate  -g spring -i openapi.json -o upstream  --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream  --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
+RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate  -g spring -i openapi.json -o upstream-again  --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream  --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
+RUN diff -rq upstream/src/main/java upstream-again/src/main/java  && echo G5_V04_UPSTREAM_JAVA_IDEMPOTENT
 
 FROM maven:3.9.11-eclipse-temurin-21 AS java-compile
 WORKDIR /app
