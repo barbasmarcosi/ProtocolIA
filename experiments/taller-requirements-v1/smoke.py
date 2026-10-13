@@ -14,7 +14,7 @@ def auth(name,pw):
 writer=auth(os.environ["PROTOCOLIA_USER"],os.environ["PROTOCOLIA_PASSWORD"])
 reader=auth(os.environ["PROTOCOLIA_VIEWER_USER"],os.environ["PROTOCOLIA_VIEWER_PASSWORD"])
 def call(method,path,data=None,token=None):
- headers={"Accept":"application/json"}
+ headers={"Accept":"text/html" if path=="/" else "application/json"}
  if token:headers["Authorization"]=token
  if data is not None:headers["Content-Type"]="application/json"
  body=json.dumps(data).encode() if data is not None else None
