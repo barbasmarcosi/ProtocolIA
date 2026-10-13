@@ -57,9 +57,12 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
     if sidecar_version == BUNDLE_VERSION:
         if ir["version"] != "0.2":
             core._fail("resource sidecar 0.1 requires contract 0.2")
-    elif sidecar_version == "0.2":
+    elif sidecar_version in {"0.2", "0.3"}:
         if ir["version"] != "0.3":
             core._fail("resource sidecar 0.2 requires query-aware contract 0.3")
+    elif sidecar_version == "0.3":
+        if ir["version"] != "0.4":
+            core._fail("resource sidecar 0.3 requires contract 0.4")
     else:
         core._fail("unsupported resource sidecar version")
     resources = description["resources"]
@@ -84,14 +87,14 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
             core._fail(f"{where}.identityField: must be a required scalar identity")
         ops = obj["operations"]
         required_roles = {"detail", "create", "actions"}
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             required_roles.add("list")
         core._keys(ops, required_roles, set(), f"{where}.operations")
         actions = ops["actions"]
         if not isinstance(actions, dict) or len(actions) > 25:
             core._fail(f"{where}.operations.actions: expected bounded action map")
         roles = {"detail": ops["detail"], "create": ops["create"]}
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             roles["list"] = ops["list"]
         for action_id, op_name in actions.items():
             core._name(action_id, f"{where}.actions")
@@ -164,7 +167,7 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
             "detail": ops["detail"], "create": ops["create"],
             "actions": {a: actions[a] for a in sorted(actions)},
         }
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             normalized_ops["list"] = ops["list"]
         normalized[resource_id] = {
             "model": model, "identityField": key,
@@ -214,7 +217,9 @@ def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = 
     artifact_digests = {name: core._sha(content) for name, content in sorted(artifacts.items())
                         if name != "manifest.json"}
     compiler = (BUNDLE_COMPILER if resource_ir["version"] == BUNDLE_VERSION
-                else "protocolia/0.3/java-spring-basic-demo-resource-bundle/2")
+                else "protocolia/0.3/java-spring-basic-demo-resource-bundle/2"
+                if resource_ir["version"] == "0.2"
+                else "protocolia/0.4/java-spring-basic-demo-resource-bundle/3")
     artifacts["generation-manifest.json"] = core._json({
         "compiler": compiler, "profile": PROFILE,
         "contractSha256": core._sha(artifacts["ir.json"]),

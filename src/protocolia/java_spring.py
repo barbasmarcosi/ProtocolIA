@@ -50,7 +50,8 @@ def record(name: str,fields: dict) -> str:
     parts=[]
     for field, spec in fields.items():
         if field in BAD: _fail("unsupported Java field name: "+field)
-        if not spec["required"]: _fail("java-spring: optional/null semantics not yet supported for "+name+"."+field)
+        if not spec["required"] and spec.get("nullable") is not True:
+            _fail("java-spring: optional nonnullable field unsupported for "+name+"."+field)
         parts.append("    "+annotation(spec)+" "+jt(spec["type"])+" "+field)
     return "package "+PKG+";\npublic record "+name+"(\n"+",\n".join(parts)+"\n) {}\n"
 
@@ -204,7 +205,7 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/x
 
 def generate_java(contract: Any) -> dict[str,str]:
     ir=validate(contract)
-    if ir["version"] not in {"0.2", "0.3"}: _fail("Java target requires v0.2 or v0.3")
+    if ir["version"] not in {"0.2", "0.3", "0.4"}: _fail("Java target requires v0.2, v0.3 or bounded v0.4")
     outputs={"pom.xml":POM,"contract-ir.json":_json(ir),
         "src/main/resources/application.properties":"spring.application.name=protocolia-generated\nserver.error.include-message=never\nspring.jackson.deserialization.fail-on-unknown-properties=true\n",
         SRC+"GeneratedApplication.java":("package "+PKG+";\n@org.springframework.boot.autoconfigure.SpringBootApplication\n"
