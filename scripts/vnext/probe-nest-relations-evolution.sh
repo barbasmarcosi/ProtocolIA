@@ -37,7 +37,7 @@ start_app(){
     if ! kill -0 "$pid" 2>/dev/null; then break; fi
     sleep 1
   done
-  if [[ "$ready" != 1" ]]; then
+  if [[ "$ready" != "1" ]]; then
     echo A3_NEST_RELATIONS_BOOT_FAILED
     tail -n 100 /tmp/nest-relations-app.log
     exit 1
