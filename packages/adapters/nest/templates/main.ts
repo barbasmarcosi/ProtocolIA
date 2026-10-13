@@ -1,0 +1,247 @@
+import {Controller,Get,Inject,Injectable,Module,NestModule,RequestMapping,RequestMethod,Req,Res} from "@nestjs/common";
+import {NestFactory} from "@nestjs/core";
+import {NestExpressApplication} from "@nestjs/platform-express";
+import {createHash,timingSafeEqual} from "node:crypto";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
+import {Pool} from "pg";
+import "reflect-metadata";
+import contract from "./manifest.json";
+
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string}};
+type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;field?:string;input?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
+const spec=contract as Manifest;
+class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
+function sendProblem(res:any,error:unknown):void{
+  if(error instanceof Problem){res.status(error.status).json({statusCode:error.status,message:error.message});return;}
+  const pgError=error as {code?:string};
+  const status=pgError?.code==="23505"?409:
+    pgError?.code==="23503"?400:
+    ["23502","23514","22P02","22008"].includes(pgError?.code??"")?400:500;
+  if(status===500)console.error("PROTOCOLIA_NEST_UNEXPECTED_ERROR",error);
+  res.status(status).json({statusCode:status,message:status===500?"Internal server error":"Database constraint violation"});
+}
+function isRecord(value:unknown):value is Record<string,unknown>{
+  return !!value&&typeof value==="object"&&!Array.isArray(value);
+}
+function safeIdentifier(value:string):string{
+  if(!/^[A-Za-z][A-Za-z0-9_]*$/.test(value))throw Error("Unsafe SQL identifier: "+value);
+  return value;
+}
+function checkString(value:unknown,f:Field):boolean{
+  return typeof value==="string"&&value.trim().length>0&&
+    value.length>=(f.minLength??0)&&value.length<=(f.maxLength??255);
+}
+function parseTimestamp(value:unknown):string{
+  if(typeof value!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value))
+    throw new Problem(400,"Invalid date-time");
+  const date=new Date(value);
+  if(!Number.isFinite(date.valueOf()))throw new Problem(400,"Invalid date-time");
+  return date.toISOString();
+}
+function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):Record<string,unknown>{
+  if(!isRecord(body))throw new Problem(400,"Expected JSON object");
+  if(Object.keys(body).some(key=>!writable.includes(key)))throw new Problem(400,"Unknown field");
+  if(create&&e.fields.some(f=>f.required&&!Object.hasOwn(body,f.name)))
+    throw new Problem(400,"Missing required field");
+  for(const [key,value] of Object.entries(body)){
+    const f=e.fields.find(x=>x.name===key);
+    if(!f)throw new Problem(400,"Unknown field");
+    if(value===null){if(!f.nullable)throw new Problem(400,"Null not allowed");continue;}
+    if(f.type==="string"&&!checkString(value,f))throw new Problem(400,"Invalid string");
+    if(f.type==="int32"&&(!Number.isInteger(value)||(value as number)<-2147483648||
+       (value as number)>2147483647||(f.min!==undefined&&(value as number)<f.min)||
+       (f.max!==undefined&&(value as number)>f.max)))throw new Problem(400,"Invalid int32");
+    if(f.type==="utcDateTime")parseTimestamp(value);
+  }
+  return body;
+}
+function equalSecrets(a:string,b:string):boolean{
+  const aa=createHash("sha256").update(a).digest(),bb=createHash("sha256").update(b).digest();
+  return timingSafeEqual(aa,bb);
+}
+@Injectable()
+class RuntimeService{
+  private readonly pool:Pool;
+  private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
+  constructor(){
+    const source=(process.env.PROTOCOLIA_JDBC_URL??"").replace(/^jdbc:/,"");
+    if(!/^postgres(?:ql)?:\/\//.test(source))throw Error("PostgreSQL connection required");
+    this.pool=new Pool({connectionString:source,user:process.env.PROTOCOLIA_JDBC_USER,
+      password:process.env.PROTOCOLIA_JDBC_PASSWORD,max:20});
+    if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true")
+      for(const key of ["PROTOCOLIA_READER_USERNAME","PROTOCOLIA_READER_PASSWORD",
+        "PROTOCOLIA_MANAGER_USERNAME","PROTOCOLIA_MANAGER_PASSWORD"])
+        if(!process.env[key])throw Error("Missing demo credential: "+key);
+    for(const e of spec.entities){
+      safeIdentifier(e.table);safeIdentifier(e.identityColumn);
+      for(const f of e.fields)safeIdentifier(f.column);
+    }
+  }
+  async init():Promise<void>{
+    const connection=await this.pool.connect();
+    try{
+      await connection.query("BEGIN");
+      await connection.query("SELECT pg_advisory_xact_lock(7219, 3006)");
+      await connection.query("CREATE TABLE IF NOT EXISTS protocolia_schema_history (digest VARCHAR(64) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      const sql=readFileSync(join(process.cwd(),"src/schema.sql"),"utf8");
+      const digest=createHash("sha256").update(sql).digest("hex");
+      const history=await connection.query("SELECT digest FROM protocolia_schema_history");
+      if(history.rows.length===0){
+        await connection.query(sql);
+        await connection.query("INSERT INTO protocolia_schema_history (digest) VALUES ($1)",[digest]);
+      }else if(history.rows.length!==1||history.rows[0].digest!==digest)
+        throw Error("ProtocolIA Nest schema drift detected; refusing startup");
+      await connection.query("COMMIT");
+    }catch(e){await connection.query("ROLLBACK");throw e;}
+    finally{connection.release();}
+  }
+  login(req:any):{username:string;capabilities:string[]}{
+    if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH!=="true")throw new Problem(401,"Authentication required");
+    const auth=req.headers.authorization;
+    if(typeof auth!=="string"||!/^Basic [A-Za-z0-9+/=]+$/.test(auth))
+      throw new Problem(401,"Authentication required");
+    let credential:string;
+    try{credential=Buffer.from(auth.slice(6),"base64").toString("utf8");}
+    catch{throw new Problem(401,"Invalid credentials");}
+    const split=credential.indexOf(":");
+    if(split<0)throw new Problem(401,"Invalid credentials");
+    const username=credential.slice(0,split),password=credential.slice(split+1);
+    const m=process.env.PROTOCOLIA_MANAGER_USERNAME!,r=process.env.PROTOCOLIA_READER_USERNAME!;
+    const manager=equalSecrets(username,m)&&equalSecrets(password,process.env.PROTOCOLIA_MANAGER_PASSWORD!);
+    const reader=equalSecrets(username,r)&&equalSecrets(password,process.env.PROTOCOLIA_READER_PASSWORD!);
+    if(!manager&&!reader)throw new Problem(401,"Invalid credentials");
+    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities])].sort():
+      [...spec.readCapabilities].sort()};
+  }
+  me(req:any,res:any):void{
+    try{res.status(200).json(this.login(req));}catch(e){sendProblem(res,e);}
+  }
+  private select(e:Entity):string{
+    return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+" FROM "+e.table;
+  }
+  private async row(e:Entity,id:string):Promise<Record<string,unknown>>{
+    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1",[id]);
+    if(!response.rows.length)throw new Problem(404,"Not found");
+    return response.rows[0];
+  }
+  private async page(e:Entity,op:Operation,query:Record<string,unknown>):Promise<unknown>{
+    if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
+    function integer(value:unknown,def:number):number{
+      if(value===undefined)return def;
+      if(typeof value!=="string"||!/^[-]?[0-9]+$/.test(value))throw new Problem(400,"Invalid page bounds");
+      const number=Number(value);
+      if(!Number.isSafeInteger(number))throw new Problem(400,"Invalid page bounds");
+      return number;
+    }
+    const limit=integer(query.limit,op.limitDefault??25),offset=integer(query.offset,op.offsetDefault??0);
+    if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
+      throw new Problem(400,"Invalid page bounds");
+    const [items,count]=await Promise.all([
+      this.pool.query(this.select(e)+" ORDER BY "+e.identityColumn+" LIMIT $1 OFFSET $2",[limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table)
+    ]);
+    return {items:items.rows,total:count.rows[0].total,limit,offset};
+  }
+  private async create(e:Entity,body:unknown):Promise<Record<string,unknown>>{
+    const input=validateInput(e,body,e.fields.map(f=>f.name),true);
+    const cols=e.fields.map(f=>f.column);
+    const params=e.fields.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
+      parseTimestamp(input[f.name]):input[f.name]??null);
+    await this.pool.query("INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
+      cols.map((_,i)=>"$"+(i+1)).join(",")+")",params);
+    return this.row(e,String(input[e.publicIdentity]));
+  }
+  private async patch(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
+    const input=validateInput(e,body,[op.input!],false);
+    if(Object.keys(input).length!==1||!Object.hasOwn(input,op.input!))
+      throw new Problem(400,"Expected one patch property");
+    const field=e.fields.find(f=>f.name===op.field)!;
+    const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+
+      "=$1 WHERE "+e.identityColumn+"=$2 RETURNING "+e.identityColumn,[input[op.input!],key]);
+    if(!changed.rowCount)throw new Problem(404,"Not found");
+    return this.row(e,key);
+  }
+  private async increment(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
+    if(!isRecord(body)||Object.keys(body).length!==1||
+      !Object.hasOwn(body,op.input!))throw new Problem(400,"Invalid increment");
+    const amount=body[op.input!];
+    if(!Number.isInteger(amount)||(amount as number)<(op.inputMin??1)||
+      (amount as number)>(op.inputMax??1000))throw new Problem(400,"Invalid increment");
+    const col=e.fields.find(f=>f.name===op.field)!.column;
+    const changed=await this.pool.query("UPDATE "+e.table+" SET "+col+"="+col+"+$1 WHERE "+
+      e.identityColumn+"=$2 AND "+col+"<=2147483647-$1 RETURNING "+e.identityColumn,[amount,key]);
+    if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
+    return this.row(e,key);
+  }
+  private async remove(e:Entity,key:string):Promise<void>{
+    try{
+      const deleted=await this.pool.query("DELETE FROM "+e.table+
+        " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
+      if(!deleted.rowCount)throw new Problem(404,"Not found");
+    }catch(e){
+      if((e as {code?:string}).code==="23503")throw new Problem(409,"Referenced resource cannot be deleted");
+      throw e;
+    }
+  }
+  async dispatch(op:Operation,req:any,res:any):Promise<void>{
+    try{
+      const session=this.login(req);
+      if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
+      const entity=this.entities.get(op.entity);
+      if(!entity)throw new Error("Unknown generated entity");
+      const identity=req.params?.[entity.publicIdentity];
+      let data:unknown;
+      switch(op.kind){
+        case "create": data=await this.create(entity,req.body);break;
+        case "get":data=await this.row(entity,identity);break;
+        case "listPage":data=await this.page(entity,op,req.query??{});break;
+        case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
+        case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
+        case "delete":await this.remove(entity,identity);res.status(204).send();return;
+        default:throw new Error("Unsupported generated operation");
+      }
+      res.status(op.kind==="create"?201:200).json(data);
+    }catch(error){
+      if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
+        sendProblem(res,new Problem(409,"Referenced resource cannot be deleted"));
+      }else sendProblem(res,error);
+    }
+  }
+}
+@Controller()
+class MetadataController{
+  constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
+  @Get("health")health(){return {status:"UP"};}
+  @Get("api/_protocolia/me")me(@Req() req:any,@Res() res:any):void{this.service.me(req,res);}
+}
+function operationController(op:Operation):any{
+  @Controller()
+  class GeneratedOperationController{
+    constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
+    @RequestMapping({path:op.path.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g,":$1"),
+      method:(RequestMethod as any)[op.method]})
+    async execute(@Req() req:any,@Res() res:any):Promise<void>{
+      await this.service.dispatch(op,req,res);
+    }
+  }
+  return GeneratedOperationController;
+}
+@Module({
+  controllers:[MetadataController,...spec.operations.filter(o=>o.kind!=="health").map(operationController)],
+  providers:[RuntimeService]
+})
+class ContractModule{}
+async function bootstrap(){
+  const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"]});
+  app.useStaticAssets(join(process.cwd(),"dist/static"));
+  const engine=app.get(RuntimeService);
+  await engine.init();
+  await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
+  console.log("PROTOCOLIA_NEST_STARTED "+JSON.stringify({
+    operations:spec.operations.length,entities:spec.entities.map(e=>e.name)
+  }));
+}
+bootstrap().catch(error=>{console.error("PROTOCOLIA_NEST_BOOT_FAILED",error);process.exitCode=1;});
