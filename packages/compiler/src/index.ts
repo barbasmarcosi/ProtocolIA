@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","patchFields","atomicIncrement","health"];
+  ["create","get","listPage","patchFields","atomicIncrement","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -139,6 +139,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
+      reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
