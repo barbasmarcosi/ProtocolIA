@@ -11,9 +11,11 @@ copyFileSync(join(original,"tspconfig.yaml"),join(variant,"tspconfig.yaml"));
 let contract=readFileSync(join(original,"contracts/main.tsp"),"utf8");
 contract=contract.replace('@view("Equipos")','@view("Equipos auditados")');
 const marker='    @minLength(1) @maxLength(160)\n    notes: string;';
-assert.equal(contract.split(marker).length-1,2,"One entity field and one request field expected");
-contract=contract.replaceAll(marker,
-  '    checkedAt?: utcDateTime | null;\n'+marker);
+assert.equal(contract.split(marker).length-1,1,"Inspection entity field required");
+contract=contract.replace(marker,'    checkedAt?: utcDateTime | null;\n'+marker);
+const requestMarker='    @minLength(1) @maxLength(160) notes: string;';
+assert.equal(contract.split(requestMarker).length-1,1,"Inspection request field required");
+contract=contract.replace(requestMarker,'    checkedAt?: utcDateTime | null;\n'+requestMarker);
 writeFileSync(join(variant,"contracts/main.tsp"),contract);
 const result=spawnSync(process.execPath,[
   "packages/cli/protocolia.mjs","build",variant,
