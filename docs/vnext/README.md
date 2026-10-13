@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3/A5 pendientes; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 pendiente; A5 evolución aditiva PASS acotado; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -77,7 +77,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A2 — CLI/UI/empaquetado | PARCIAL | Una CLI compila ambas apps; browser real prueba gestor y lector; Compose todavía no verificado en runtime |
 | A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
 | A4 — Dos entidades y relaciones FK | PASS acotado | [A4](evidence/A4.md): 2 entidades/FK, selector React y evolución de contrato regenerada y ejecutada en DB nueva |
-| A5 — Regeneración/evolución segura | NOT STARTED | Migraciones V2, ownership y preservación |
+| A5 — Regeneración/evolución segura | PASS núcleo aditivo acotado | [A5](evidence/A5.md): Flyway V1→V2 sobre DB poblada, ownership y extensiones preservados; API drift/checks adicionales en verificación |
 
 **Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -87,3 +87,20 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 - [Taller manual](https://github.com/barbasmarcosi/ProtocolIA/blob/experiments/p5-taller-real-requirements-v1/experiments/taller-requirements-v1/EVIDENCE.md) — app real + PostgreSQL + Render, con dominio/UI manuales.
 - [ROADMAP P0–P6](../ROADMAP.md) — track histórico y otros ámbitos de investigación.
 - [Execution state](../EXECUTION_STATE.md) — estado global.
+
+## Evolucionar una aplicación generada (A5, perfil seguro acotado)
+
+La primera compilación de `app:build` crea `protocolia-contract-ir.json`, `protocolia-contract-openapi.json` y `protocolia-ownership.json` dentro del output. Esto permite detectar cambios en los archivos gestionados antes de intentar reemplazarlos. Los archivos de personalización deben mantenerse **exclusivamente** en `extensions/`; la configuración local se conserva en `.env`.
+
+```bash
+# Inicialmente, contrato v1:
+npm run app:build -- examples/vnext/equipment-inspections --target modular-spring --out dist/relations
+
+# Una vez editado el TypeSpec (por ejemplo, nuevo campo opcional nullable):
+npm run app:plan -- examples/vnext/equipment-inspections dist/relations
+npm run app:evolve -- examples/vnext/equipment-inspections dist/relations
+```
+
+`plan` devuelve cambios y blockers sin tocar la base de datos. `evolve` rechaza campos eliminados, tipos/identidades alterados y cambios de rutas/permisos; genera en staging, restaura las migraciones V1/V2 previas, añade una migración nueva por columnas opcionales compatibles y empaqueta nuevamente el JAR. Tras la sustitución conserva una copia del proyecto anterior en `.protocolia-backup-...`. **La migración SQL se aplica al siguiente inicio de la aplicación, no durante `evolve`.**
+
+El ensayo [A5](evidence/A5.md) conservó las filas originales y comprobó Flyway V1→V2 en PostgreSQL real. Este mecanismo **no es un respaldo de base de datos, una herramienta de rollback SQL ni un generador de migraciones destructivas**. Antes de apuntarlo a una DB persistente importante, hacer backup externo y validar las migraciones en un clon. Las aplicaciones construidas por versiones anteriores sin sello de ownership requieren una nueva compilación limpia desde sus contratos; no se adoptan automáticamente.
