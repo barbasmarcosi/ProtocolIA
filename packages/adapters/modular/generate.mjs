@@ -44,16 +44,33 @@ export function generate(ir, openapi, outDir) {
     if(!["string","int32","utcDateTime"].includes(f.type)) throw Error("Unsupported field type: "+f.type);
   }
   const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,patchFields:200,atomicIncrement:200,delete:204,health:200};
   const ops = ir.operations;
+  const routes = new Set();
   for(const op of ops){
     if(!supported.has(op.behavior.kind)) throw Error("Unsupported operation " + op.behavior.kind);
     if(op.entity !== e.name || !/^[A-Z]+$/.test(op.method) ||
       !/^\/[A-Za-z0-9_\/{}-]+$/.test(op.path)) throw Error("Unsupported routing/entity binding");
+    if(op.method !== methods[op.behavior.kind] ||
+       !Array.isArray(op.statuses) || !op.statuses.includes(success[op.behavior.kind]))
+      throw Error("Contract HTTP verb/status mismatch in " + op.name);
+    const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
+    const requiresKey=["get","patchFields","atomicIncrement","delete"].includes(op.behavior.kind);
+    if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
+      throw Error("Public identity path must contain {" + key + "} in " + op.name);
+    if(!requiresKey && placeholders.length!==0)
+      throw Error("Unexpected route placeholders in " + op.name);
+    const routeKey=op.method+" "+op.path;
+    if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
+    routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
     if(["atomicIncrement","patchFields"].includes(op.behavior.kind)){
       const f=e.fields.find(x=>x.name===op.behavior.field);
       if(!f||op.behavior.input!==op.behavior.field&&op.behavior.kind==="patchFields") throw Error("Unsupported field/input mapping");
       if(op.behavior.kind==="atomicIncrement"&&f.type!=="int32") throw Error("Atomic addition requires int32 field");
+      if(op.behavior.kind==="patchFields"&&(f.type!=="string"||f.nullable))
+        throw Error("Current patchFields runtime supports only non-null string fields");
     }
   }
   const byKind=(kind)=>ops.filter(o=>o.behavior.kind===kind);
@@ -135,6 +152,10 @@ export function generate(ir, openapi, outDir) {
     if(f.name===key)checks.push("PRIMARY KEY");
     if(f.required&&!f.nullable)checks.push("NOT NULL");
     if(f.unique&&f.name!==key)checks.push("UNIQUE");
+    if(f.type==="string" && f.minLength!==undefined)
+      checks.push("CHECK (char_length("+col+") >= "+f.minLength+")");
+    if(f.type==="string" && f.required && !f.nullable)
+      checks.push("CHECK (char_length(btrim("+col+")) > 0)");
     if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
     if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
     return "  "+col+" "+type+" "+checks.join(" ");
