@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3/A5 pendientes; A4 relacional validado parcialmente.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3/A5 pendientes; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -76,7 +76,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
 | A2 — CLI/UI/empaquetado | PARCIAL | Una CLI compila ambas apps; browser real prueba gestor y lector; Compose todavía no verificado en runtime |
 | A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
-| A4 — Dos entidades y relaciones FK | PARCIAL avanzado | [A4](evidence/A4.md): TypeSpec 2 entidades, FK PostgreSQL, selector React/Chromium PASS; E-07 pendiente |
+| A4 — Dos entidades y relaciones FK | PASS acotado | [A4](evidence/A4.md): 2 entidades/FK, selector React y evolución de contrato regenerada y ejecutada en DB nueva |
 | A5 — Regeneración/evolución segura | NOT STARTED | Migraciones V2, ownership y preservación |
 
 **Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
