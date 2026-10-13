@@ -29,6 +29,12 @@ public class BooksDelegate implements BooksApiDelegate {
     }
 
     @Override
+    @PreAuthorize("hasAuthority('catalog.write')")
+    public Book renameBook(String isbn, dev.protocolia.upstream.model.TitleChange update) {
+        return toWire(inventory.rename(isbn, update == null ? null : update.getTitle()));
+    }
+
+    @Override
     @PreAuthorize("hasAuthority('catalog.read')")
     public Book getBook(String isbn) { return toWire(inventory.get(isbn)); }
 
