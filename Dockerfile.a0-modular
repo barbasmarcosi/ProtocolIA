@@ -19,6 +19,10 @@ RUN npm run check:vnext && bash tests/vnext/negative-check.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
+# A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
+RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target nestjs --out /work/dist/nest-taller
+RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target nestjs --out /work/dist/nest-gauge
+RUN bash scripts/vnext/probe-nest-postgres.sh
 RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/modular/compose.yaml config --quiet
 RUN echo A2_TALLER_COMPOSE_CONFIG_VERIFIED
 RUN bash scripts/vnext/probe-modular-postgres.sh
@@ -33,9 +37,6 @@ RUN node scripts/vnext/probe-a4-evolution.mjs
 RUN sed -e 's|/work/dist/relations/|/work/dist/relations-evolved/|g' -e 's|protocolia_a4|protocolia_a4evolved|g' scripts/vnext/probe-a4-postgres.sh > /tmp/a4-evolved-probe.sh \
   && A4_VARIANT=true bash /tmp/a4-evolved-probe.sh
 RUN bash scripts/vnext/probe-a5-postgres.sh
-# A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
-RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target nestjs --out /work/dist/nest-taller
-RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target nestjs --out /work/dist/nest-gauge
-RUN bash scripts/vnext/probe-nest-postgres.sh
+
 EXPOSE 3000
 CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 modular isolated build marker only')}).listen(process.env.PORT||3000,'0.0.0.0')"]
