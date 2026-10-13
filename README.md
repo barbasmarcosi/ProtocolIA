@@ -32,6 +32,17 @@ already-implemented tutorial, see [catalog vertical example](examples/catalog-ve
 A previous `java-spring/0.3` directory must be migrated explicitly into a new output
 directory rather than silently overwritten.
 
+## G5 v0.4 contract evolution — experimental
+
+A new [G5 evolution pilot](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md) exercises
+the deliberately bounded `0.4` contract extension: optional nullable scalar
+fields, derived HTTP/JSON Schema/TypeScript/Java models, and the isolated
+`examples/books-evolution-v04` fixture. This is **experimental, not a
+general optional/null guarantee** and is not integrated into the deployed G3
+browser or G5 PostgreSQL app. Historical v0.1–v0.3 semantics remain unchanged.
+The disposable Docker compilation test still requires observed acceptance
+evidence before this pilot is declared verified.
+
 ## Product-first Java vertical slice
 
 The current goal is **one generated Spring Boot application with a typed implementer-owned business handler**, not parallel handwritten controllers. See [product execution plan](docs/PRODUCT_FIRST_PLAN.md) and [catalog example](examples/catalog-vertical/README.md). P4 experimental records remain separate.
