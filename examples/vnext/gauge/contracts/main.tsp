@@ -117,6 +117,13 @@ namespace GaugeRegistry {
   op relabelGauge(@path serial: string, @body input: GaugeLabelChange):
       Gauge | NotFound | BadRequest | Unauthorized | Forbidden;
 
+  @route("/api/gauges/{serial}")
+  @delete
+  @behavior("delete", "Gauge")
+  @capability("gauges.write")
+  op deleteGauge(@path serial: string): { @statusCode _: 204; }
+      | NotFound | Unauthorized | Forbidden;
+
   @route("/health")
   @get
   @behavior("health", "Gauge")
