@@ -1,4 +1,7 @@
-# Full-stack product requirements — ProtocolIA
+# Full-stack product requirements — ProtocolIA (historical G0–G5)
+
+> **HISTORICAL G0–G5 DOCUMENT (2026-10-13).** This specification was accepted only for the bounded Books pilot. For all **new** application-generation requirements, architecture and stages, see [vNext requirements](vnext/00_PRODUCT_REQUIREMENTS.md), [ADR-004](vnext/01_ARCHITECTURE_ADR.md) and [A0–A5 plan](vnext/02_IMPLEMENTATION_PLAN.md). G0–G5 evidence is unchanged; no vNext implementation is claimed.
+
 
 **Status:** Requirements accepted and exercised for the bounded Books G0–G5 pilot (2026-10-13). Generalization, production, P4 economics, P5/P6 remain OPEN.  
 **Date:** 2026-10-12 (revised after supplied deep integration study).  
