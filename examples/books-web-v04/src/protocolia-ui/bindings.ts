@@ -48,7 +48,7 @@ export function formSchema(role:'create'|'restock'|'rename'):RJSFSchema {
  // The generated JSON Schema, not a handwritten field list, defines validation.
  return {...src,$defs:schemaRoot.$defs,$schema:schemaRoot.$schema};
 }
-export function formUiSchema(role:'create'|'restock'):UiSchema {
+export function formUiSchema(role:'create'|'restock'|'rename'):UiSchema {
  const view=getView(role);
  const schema:UiSchema={'ui:order':view.fields};
  for(const key of view.fields)schema[key]={'ui:title':labelFor(key)};
