@@ -23,5 +23,14 @@ RUN npx playwright install --with-deps chromium
 RUN bash scripts/vnext/probe-openapi-generator.sh
 RUN cd /work/dist/modular && mvn -B -ntp -DskipTests package
 RUN bash scripts/vnext/probe-modular-postgres.sh
+# Second source contract: no Java/SQL/React entity files are handwritten.
+RUN node packages/adapters/modular/generate.mjs \
+  examples/vnext/gauge/tsp-output/@protocolia/compiler/ir.json \
+  examples/vnext/gauge/tsp-output/@typespec/openapi3/openapi.json \
+  /work/dist/gauge
+RUN cd /work/dist/gauge/web && npm install --ignore-scripts && npm run build
+RUN PROTOCOLIA_TEST_CONTRACT=gauge PROTOCOLIA_APP_ROOT=/work/dist/gauge bash scripts/vnext/probe-openapi-generator.sh
+RUN cd /work/dist/gauge && mvn -B -ntp -DskipTests package
+RUN bash scripts/vnext/probe-gauge-postgres.sh
 EXPOSE 3000
 CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 modular isolated build marker only')}).listen(process.env.PORT||3000,'0.0.0.0')"]
