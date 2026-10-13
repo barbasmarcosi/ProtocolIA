@@ -34,6 +34,9 @@ export default function App(){
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
   const [auth,setAuth]=useState("");
+  const [capabilities,setCapabilities]=useState([]);
+  const [loginError,setLoginError]=useState("");
+  const [loginBusy,setLoginBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [total,setTotal]=useState(0);
   const [offset,setOffset]=useState(0);
@@ -50,6 +53,7 @@ export default function App(){
     return r.json();
   }).then(c=>{setConfig(c);setForm(createEmpty(c.entity.fields));}).catch(e=>setStartupError(e.message));},[]);
   const operations=useMemo(()=>config?.operations??{},[config]);
+  const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
 
   async function request(kind,{body,code,query}={}){
     const operation=operations[kind];
@@ -75,9 +79,25 @@ export default function App(){
     }catch(e){setError(e.message);}finally{setLoading(false);}
   }
   useEffect(()=>{if(config&&auth)refresh();},[config,auth,offset]);
-  function logIn(event){
-    event.preventDefault();setError("");setNotice("");
-    setAuth(btoa(username+":"+password));
+  async function logIn(event){
+    event.preventDefault();
+    setLoginBusy(true);setLoginError("");setError("");setNotice("");
+    const candidate=btoa(username+":"+password);
+    try{
+      const response=await fetch("/api/_protocolia/me",{headers:{Authorization:"Basic "+candidate}});
+      if(!response.ok)throw Error("Authentication HTTP "+response.status);
+      const session=await response.json();
+      if(!Array.isArray(session.capabilities))throw Error("Invalid server capability response");
+      setCapabilities(session.capabilities);
+      setAuth(candidate);
+      setPassword("");
+    }catch{
+      setAuth("");setCapabilities([]);
+      setLoginError("Credenciales incorrectas o servicio no disponible");
+    }finally{setLoginBusy(false);}
+  }
+  function logOut(){
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setItems([]);setError("");setNotice("");
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
@@ -94,11 +114,12 @@ export default function App(){
   if(!config)return <main><p>Cargando contrato…</p></main>;
   return <main className="shell">
     <header><div><small>ProtocolIA · generado desde contrato</small><h1>{config.view||config.entity.name}</h1></div>
-      {auth&&<button className="ghost" onClick={()=>{setAuth("");setPassword("");setSelected(null);setItems([]);}}>Salir</button>}</header>
+      {auth&&<button className="ghost" onClick={logOut}>Salir</button>}</header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
+      {loginError&&<p className="message error" role="alert">{loginError}</p>}
       <form onSubmit={logIn}><label className="field"><span>Usuario</span><input data-testid="username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
       <label className="field"><span>Contraseña</span><input data-testid="password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
-      <button type="submit">Entrar</button></form></section>:
+      <button type="submit" disabled={loginBusy}>{loginBusy?"Verificando…":"Entrar"}</button></form></section>:
       <>
       {error&&<p className="message error" role="alert">{error}</p>}
       {notice&&<p className="message" role="status">{notice}</p>}
@@ -115,23 +136,23 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <section className="panel"><h2>Crear {config.entity.name}</h2>
+      {can("create")&&<section className="panel"><h2>Crear {config.entity.name}</h2>
         <form onSubmit={async event=>{event.preventDefault();
           const data=await act("create",{body:normalizePayload(config.entity.fields,form)});
           if(data)setForm(createEmpty(config.entity.fields));
         }}><div className="fields">{config.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <button type="submit" disabled={loading}>Crear</button></form>
-      </section>
+      </section>}
       {selected&&<section className="panel"><h2>Detalle: {selected[config.entity.publicIdentity]}</h2>
         <dl>{config.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
         <div className="actions">
-          <form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
+          {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
-            <button type="submit" disabled={loading}>Guardar cambios</button></form>
-          <form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
+            <button type="submit" disabled={loading}>Guardar cambios</button></form>}
+          {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
-            <button type="submit" disabled={loading}>Incrementar</button></form>
+            <button type="submit" disabled={loading}>Incrementar</button></form>}
         </div>
       </section>}
       </>
