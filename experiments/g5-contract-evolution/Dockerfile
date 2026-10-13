@@ -139,12 +139,49 @@ RUN python -m pip install --no-cache-dir -e '.[operator-auth]' 'jsonschema==4.25
  && PYTHONPATH=src python -m unittest discover -s tests -v \
  && echo G5_ALL_PYTHON_REGRESSIONS_PASS > /tmp/g5-python-verified.txt
 
+# Derive an honest bearer-only OpenAPI profile from the SAME v0.4 IR.
+FROM contract AS jwt-contract
+COPY experiments/g4-jwt-capabilities/jwt_projection.py /jwt_projection.py
+RUN python /jwt_projection.py /bundle/openapi.json \
+ /bundle/capability-manifest.json /bundle/openapi.g4-jwt.json
+
+FROM java-generator AS jwt-generator
+WORKDIR /jwt-gen
+COPY --from=jwt-contract /bundle/openapi.g4-jwt.json ./openapi.json
+RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
+ -g spring -i /jwt-gen/openapi.json -o /jwt-gen/upstream \
+ --additional-properties=library=spring-boot,delegatePattern=true,useSpringBoot4=true,useJackson3=true,useResponseEntity=false,useSpringBuiltInValidation=true,useTags=true,openApiNullable=false,useSwaggerUI=false,annotationLibrary=none,documentationProvider=none,hideGenerationTimestamp=true,apiPackage=dev.protocolia.upstream.api,modelPackage=dev.protocolia.upstream.model,basePackage=dev.protocolia.upstream \
+ --global-property=apis,models,apiTests=false,modelTests=false,apiDocs=false,modelDocs=false,supportingFiles=ApiUtil.java
+
+# Same real PostgreSQL/Flyway migration; independent signed RSA/JWKS/
+# issuer/audience/expiry/scope security profile. No Basic fallback.
+FROM database-integration AS jwt-postgres-integration
+WORKDIR /work/app
+RUN rm -f src/main/java/dev/protocolia/security/DemoSecurity.java \
+ src/main/java/dev/protocolia/domain/BooksDelegate.java \
+ && rm -rf src/main/java/dev/protocolia/upstream src/test/java target
+COPY --from=jwt-generator /jwt-gen/upstream/src/main/java ./src/main/java
+COPY experiments/g4-jwt-capabilities/app/src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java ./src/main/java/dev/protocolia/security/JwtCapabilitySecurity.java
+COPY experiments/g5-contract-evolution/jwt/BooksDelegate.java ./src/main/java/dev/protocolia/domain/BooksDelegate.java
+COPY experiments/g5-contract-evolution/jwt/pom.xml ./pom.xml
+COPY experiments/g5-contract-evolution/jwt/application.properties ./src/main/resources/application.properties
+COPY experiments/g5-contract-evolution/jwt/JwtAuthorizationHttpTest.java ./src/test/java/dev/protocolia/security/JwtAuthorizationHttpTest.java
+RUN set -eu; \
+ install -d -m 0700 -o postgres -g postgres /tmp/g5-jwt-pg; \
+ su postgres -c "initdb -D /tmp/g5-jwt-pg -A trust --no-instructions" >/tmp/g5-jwt-init.log; \
+ su postgres -c "pg_ctl -D /tmp/g5-jwt-pg -o '-c listen_addresses=127.0.0.1 -p 55432' -l /tmp/g5-jwt-postgres.log start"; \
+ trap 'su postgres -c "pg_ctl -D /tmp/g5-jwt-pg -m immediate stop" || true' EXIT; \
+ su postgres -c "createdb -h 127.0.0.1 -p 55432 books_test"; \
+ mvn -B -ntp clean verify; \
+ echo G5_SIGNED_JWT_POSTGRESQL_V04_PASS > /tmp/g5-jwt-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
 COPY --from=browser-integration /tmp/g5-v04-browser-verified.txt ./browser-verified.txt
 COPY --from=regenerate-integrated /tmp/g5-regen-verified.txt ./regen-verified.txt
 COPY --from=python-regressions /tmp/g5-python-verified.txt ./python-verified.txt
+COPY --from=jwt-postgres-integration /tmp/g5-jwt-verified.txt ./jwt-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
