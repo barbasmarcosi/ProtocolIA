@@ -5,9 +5,9 @@ WORKDIR /repo
 COPY src/protocolia ./src/protocolia
 COPY tests/test_v04_evolution.py ./tests/test_v04_evolution.py
 COPY tests/test_fullstack_regeneration.py ./tests/test_fullstack_regeneration.py
-RUN PYTHONPATH=src python -m unittest discover -s tests -p test_fullstack_regeneration.py -v
 COPY examples/books-paging-v03 ./examples/books-paging-v03
 COPY examples/books-evolution-v04 ./examples/books-evolution-v04
+RUN PYTHONPATH=src python -m unittest discover -s tests -p test_fullstack_regeneration.py -v
 RUN PYTHONPATH=src python -m unittest discover -s tests -p test_v04_evolution.py -v
 RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle
 RUN PYTHONPATH=src python -m protocolia compile-bundle  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo  --resources examples/books-evolution-v04/resources.json  --domain-errors examples/books-paging-v03/http-errors.json --out /bundle-again  && diff -rq /bundle /bundle-again && echo G5_V04_BUNDLE_IDEMPOTENT
