@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+const base="http://127.0.0.1:8080";
+const auth=(u,p)=>"Basic "+Buffer.from(u+":"+p).toString("base64");
+const manager={authorization:auth("manager","test-manager-only-2026"),"content-type":"application/json"};
+const reader={authorization:auth("reader","test-reader-only-2026"),"content-type":"application/json"};
+async function req(method,path,headers={},body){
+ const r=await fetch(base+path,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const text=await r.text();let data;try{data=JSON.parse(text)}catch{data=text}
+ return {status:r.status,data};
+}
+const serial="A0-GAUGE-001";
+const created=await req("POST","/api/gauges",manager,{serial,label:"Reference instrument",reading:2,calibratedAt:null});
+assert.equal(created.status,201);assert.equal(created.data.serial,serial);
+assert.equal(Object.hasOwn(created.data,"id"),false);
+assert.equal((await req("GET","/api/gauges/"+serial,reader)).status,200);
+assert.equal((await req("GET","/api/gauges/not-found",reader)).status,404);
+assert.equal((await req("POST","/api/gauges",manager,{serial,label:"Duplicate",reading:2})).status,409);
+assert.equal((await req("POST","/api/gauges",manager,{serial:"",label:"Blank",reading:0})).status,400);
+assert.equal((await req("POST","/api/gauges",manager,{serial:"X-NEG",label:"Negative",reading:-1})).status,400);
+assert.equal((await req("POST","/api/gauges",manager,{serial:"X-EXTRA",label:"Extra",reading:1,unknown:true})).status,400);
+assert.equal((await req("GET","/api/gauges/"+serial)).status,401);
+assert.equal((await req("POST","/api/gauges",reader,{serial:"X-READER",label:"Denied",reading:0})).status,403);
+const page=await req("GET","/api/gauges?limit=1&offset=0",reader);
+assert.equal(page.status,200);assert.equal(page.data.total,1);
+assert.equal(page.data.items[0].serial,serial);
+const renamed=await req("PATCH","/api/gauges/"+serial+"/label",manager,{label:"Reference gauge"});
+assert.equal(renamed.status,200);assert.equal(renamed.data.label,"Reference gauge");
+const added=await req("PATCH","/api/gauges/"+serial+"/reading",manager,{delta:3});
+assert.equal(added.status,200);assert.equal(added.data.reading,5);
+const simultaneous=await Promise.all(Array.from({length:10},()=>req("PATCH","/api/gauges/"+serial+"/reading",manager,{delta:1})));
+assert.ok(simultaneous.every(r=>r.status===200));
+const result=await req("GET","/api/gauges/"+serial,reader);
+assert.equal(result.data.reading,15);
+assert.equal((await req("PATCH","/api/gauges/"+serial+"/reading",manager,{delta:0})).status,400);
+assert.equal((await req("PATCH","/api/gauges/"+serial+"/reading",manager,{delta:26})).status,400);
+console.log("A0_GAUGE_CONCURRENT_QUANTITY="+result.data.reading);
+console.log("A0_INDEPENDENT_GAUGE_HTTP_POSTGRES_CONFORMANCE_PASS");
