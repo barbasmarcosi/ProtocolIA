@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {diffContracts,additiveSql} from "../../packages/cli/regeneration.mjs";
+import {diffContracts,additiveSql,validateOpenApiEvolution} from "../../packages/cli/regeneration.mjs";
 import {sealApp,verifyApp} from "../../packages/cli/ownership.mjs";
 
 const base={
@@ -68,6 +68,7 @@ function fixture(){
   writeFileSync(join(root,"src/main/resources/application.properties"),"app=ok\n");
   writeFileSync(join(root,"web/src/App.jsx"),"export default function App(){}");
   writeFileSync(join(root,"protocolia-contract-ir.json"),JSON.stringify(base));
+  writeFileSync(join(root,"protocolia-contract-openapi.json"),JSON.stringify({openapi:"3.1.0",components:{schemas:{}}}));
   writeFileSync(join(root,"protocolia-build.json"),JSON.stringify({builder:"protocolia-cli-vnext-a2"}));
   writeFileSync(join(root,"extensions/consumer.txt"),"keep me");
   return root;
@@ -88,4 +89,33 @@ test("A5 ownership detects new foreign source file in managed tree",()=>{
 });
 test("A5 missing seal fails closed rather than assuming a legacy output is safe",()=>{
   assert.throws(()=>verifyApp(fixture()),/Unsealed output/);
+});
+
+test("A5 rejects hidden HTTP DTO/validation drift even when IR is unchanged",()=>{
+  const oldIr=change(ir=>ir.operations.push({
+    name:"createInspection",entity:"Inspection",capability:"inspections.write",
+    method:"POST",path:"/api/inspections",behavior:{kind:"create"},request:"InspectionRequest",statuses:[201]
+  }));
+  const newIr=structuredClone(oldIr);
+  newIr.entities[1].fields.push({name:"checkedAt",type:"utcDateTime",required:false,nullable:true,unique:false});
+  const property={type:["string","null"],format:"date-time"};
+  const oldApi={openapi:"3.1.0",info:{title:"X",version:"1"},
+    components:{schemas:{
+      Inspection:{type:"object",properties:{number:{type:"string"}}},
+      InspectionRequest:{type:"object",properties:{number:{type:"string"}}}
+    }},paths:{}};
+  const nextApi=structuredClone(oldApi);
+  nextApi.components.schemas.Inspection.properties.checkedAt=structuredClone(property);
+  nextApi.components.schemas.InspectionRequest.properties.checkedAt=structuredClone(property);
+  const diff=diffContracts(oldIr,newIr);
+  assert.equal(diff.compatible,true);
+  assert.deepEqual(validateOpenApiEvolution(oldApi,nextApi,oldIr,newIr,diff),[]);
+  const unsafe=structuredClone(nextApi);
+  unsafe.components.schemas.InspectionRequest.properties.checkedAt.maxLength=20;
+  assert.match(validateOpenApiEvolution(oldApi,unsafe,oldIr,newIr,diff).join(";"),
+    /does not match entity and create-request/);
+  const invisible=structuredClone(oldApi);
+  invisible.components.schemas.InspectionRequest.properties.number.maxLength=19;
+  assert.match(validateOpenApiEvolution(oldApi,invisible,oldIr,oldIr,diffContracts(oldIr,oldIr)).join(";"),
+    /Undeclared OpenAPI/);
 });
