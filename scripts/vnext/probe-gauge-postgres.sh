@@ -40,3 +40,8 @@ node scripts/vnext/probe-gauge-http.mjs || { tail -n 90 /tmp/a0-gauge-spring.log
 node scripts/vnext/probe-gauge-browser.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_gauge -t -c 'SELECT serial,label,reading FROM gauge ORDER BY serial;'
 echo "A0_GAUGE_REAL_POSTGRES_CONFORMANCE_PASS"
+
+bash scripts/vnext/probe-flyway-lifecycle.sh "$pid" protocolia_gauge \
+  "/work/dist/gauge/target/modular-generated-0.0.1.jar" \
+  "/work/dist/gauge/src/main/resources/db/migration/V1__contract_baseline.sql" \
+  "/api/gauges/A0-GAUGE-001" reading 17
