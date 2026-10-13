@@ -170,7 +170,7 @@ export default function App(){
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main><p>Cargando contrato…</p></main>;
   return <main className="shell">
-    <header><div><small>ProtocolIA · generado desde contrato</small><h1>{active.view||config.entity.name}</h1></div>
+    <header><div><small>ProtocolIA · generado desde contrato</small><h1>{active.view||active.entity.name}</h1></div>
       {auth&&<button className="ghost" onClick={logOut}>Salir</button>}</header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
@@ -189,9 +189,9 @@ export default function App(){
       <section className="panel">
         <div className="heading"><h2>Listado <span className="muted">({total})</span></h2><button className="ghost" onClick={refresh}>Actualizar</button></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
-        <div className="scroll"><table><thead><tr>{config.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
-        <tbody>{items.map(item=><tr key={item[config.entity.publicIdentity]}>
-          {config.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
+        <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
+        <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
+          {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
           <td><button className="ghost" onClick={()=>{setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
@@ -199,27 +199,27 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      {can("create")&&<section className="panel"><h2>Crear {config.entity.name}</h2>
+      {can("create")&&<section className="panel"><h2>Crear {active.entity.name}</h2>
         <form onSubmit={async event=>{event.preventDefault();
-          const data=await act("create",{body:normalizePayload(config.entity.fields,form)});
-          if(data)setForm(createEmpty(config.entity.fields));
-        }}><div className="fields">{config.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+          const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
+          if(data)setForm(createEmpty(active.entity.fields));
+        }}><div className="fields">{active.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <button type="submit" disabled={loading}>Crear</button></form>
       </section>}
-      {selected&&<section className="panel"><h2>Detalle: {selected[config.entity.publicIdentity]}</h2>
-        <dl>{config.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
+      {selected&&<section className="panel"><h2>Detalle: {selected[active.entity.publicIdentity]}</h2>
+        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
         <div className="actions">
-          {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[config.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
+          {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Guardar cambios</button></form>}
-          {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[config.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
+          {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[active.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>}
         </div>
         {can("delete")&&<button className="ghost" disabled={loading} onClick={()=>{
-          if(!window.confirm("¿Eliminar "+selected[config.entity.publicIdentity]+"?"))return;
-          act("delete",{code:selected[config.entity.publicIdentity]});
+          if(!window.confirm("¿Eliminar "+selected[active.entity.publicIdentity]+"?"))return;
+          act("delete",{code:selected[active.entity.publicIdentity]});
         }}>Eliminar</button>}
       </section>}
       </>
