@@ -149,10 +149,10 @@ export function generate(ir, openapi, outDir) {
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
         n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null"
-      ].join(",")+")").join(",\\n");
+      ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
-        ",List.of(\\n"+parts+"\\n    ))";
-    }).join(",\\n"),
+        ",List.of(\n"+parts+"\n    ))";
+    }).join(",\n"),
     "  );",
     "  public static final List<Op> OPS=List.of(",
   ];
