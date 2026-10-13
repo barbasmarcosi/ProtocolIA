@@ -47,5 +47,5 @@ for entry in "taller:nest-taller:protocolia_nest_taller:modular" "gauge:nest-gau
   node packages/cli/conformance.mjs "/work/dist/$folder" http://127.0.0.1:8080 \
     || { tail -n 90 "/tmp/a3-$name-nest.log"; exit 1; }
   stop_app
-  echo "A3_NEST_PARITY_$name_HTTP_POSTGRES_BROWSER_PASS"
+  echo "A3_NEST_PARITY_${name}_HTTP_POSTGRES_BROWSER_PASS"
 done
