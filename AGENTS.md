@@ -18,12 +18,10 @@ written after the contracts are finalized**.
 5. [Conformance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md)
 6. [Runbook](docs/vnext/04_EXECUTION_RUNBOOK.md)
 
-**Immediate next implementation milestone: A0**, real TypeSpec → semantic IR →
-generated JDL → JHipster 9.4 Spring+React+PostgreSQL feasibility for the
-Taller contract, including preservation of external identity `Tool.code`.
-JHipster is a **candidate adapter** and may be rejected for proven
-compatibility/regeneration defects. Fall back to modular generators
-without rewriting the business contracts.
+**Verified vNext outcomes:** A0 TypeSpec/IR and modular fallback PASS (JHipster stock NO-GO); A1 backend/HTTP/DB/auth PASS acotado; A4 multi-entity FK + browser PASS acotado; A5 additive Flyway V1→V2 on a populated PostgreSQL DB PASS acotado (see `docs/vnext/evidence/A5.md`). A2 complete generated Docker Compose lifecycle is still **NOT RUN** due unavailable Docker Engine. A3 NestJS portability is NOT STARTED. All stages are profile-scoped and do not imply production security.
+
+**Next useful work:** (1) validate the generated Compose stack on an actual engine without mutating consumer volumes; (2) implement NestJS target against the unchanged Taller TypeSpec/IR and P-01..P-06 conformance; (3) expand A5 compatibility only with new real DB preservation tests. No parallel planning document is needed. TypeSpec remains the authority. The sandbox Render service publishes a **marker only**, not the generated app.
+
 
 ## Invariants
 
