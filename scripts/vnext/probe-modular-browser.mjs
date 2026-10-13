@@ -6,6 +6,9 @@ const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
 try {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   page.on("pageerror",error=>console.log("A0_MODULAR_BROWSER_PAGE_ERROR="+error.message));
+  page.on("response",response=>{
+    if(response.url().includes("/api/"))console.log("A0_MODULAR_BROWSER_API_RESPONSE="+response.request().method()+" "+new URL(response.url()).pathname+" "+response.status());
+  });
   const base="http://127.0.0.1:8080";
   await page.goto(base+"/",{waitUntil:"domcontentloaded"});
   await page.locator('[data-testid="username"]').fill("manager");
@@ -17,7 +20,12 @@ try {
   await row.getByRole("button",{name:"Detalle"}).click();
   await page.locator('[data-testid="rename"]').fill("Updated through Chromium");
   await page.getByRole("button",{name:"Guardar nombre"}).click();
-  await page.getByRole("status").getByText("Operación confirmada: patchFields").waitFor({timeout:15000});
+  try {
+    await page.getByRole("status").getByText("Operación confirmada: patchFields").waitFor({timeout:15000});
+  } catch(error) {
+    console.log("A0_MODULAR_BROWSER_AFTER_RENAME_TEXT="+(await page.locator("body").innerText()).slice(-1700));
+    throw error;
+  }
   await page.locator('[data-testid="increment"]').fill("2");
   await page.getByRole("button",{name:"Incrementar"}).click();
   await page.getByRole("status").getByText("Operación confirmada: atomicIncrement").waitFor({timeout:15000});
