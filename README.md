@@ -40,8 +40,12 @@ fields, derived HTTP/JSON Schema/TypeScript/Java models, and the isolated
 `examples/books-evolution-v04` fixture. This is **experimental, not a
 general optional/null guarantee** and is not integrated into the deployed G3
 browser or G5 PostgreSQL app. Historical v0.1–v0.3 semantics remain unchanged.
-The disposable Docker compilation test still requires observed acceptance
-evidence before this pilot is declared verified.
+A disposable Render Free Docker pilot has now verified exact-source v0.4
+Python compatibility tests, deterministic upstream generation, React/Orval
+typechecking and Java 21/Spring Boot 4.1.1 with **10/10 JUnit** against
+PostgreSQL 16.10 (Flyway V1+V2), plus `publishedAt` persistence through two
+separate JVM starts. This is not full-stack Playwright E2E, a managed database,
+or a safe integrated regeneration system. See the [exact evidence ledger](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md).
 
 ## Product-first Java vertical slice
 
