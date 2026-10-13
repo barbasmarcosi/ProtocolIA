@@ -26,7 +26,7 @@ def call(method,path,data=None,token=None):
  except HTTPError as error:
   return error.code,error.read().decode(errors="replace")
 ready=False
-for _ in range(80):
+for _ in range(40):
  try:
   status,body=call("GET","/health")
   if status==200:ready=True;break

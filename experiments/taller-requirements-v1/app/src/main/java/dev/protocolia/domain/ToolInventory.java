@@ -12,7 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /** Human-owned domain implementation. The ProtocolIA contract never generates business SQL. */
 @Service
-public final class ToolInventory {
+public class ToolInventory {
     public record Entry(String code,String name,int quantity,OffsetDateTime lastReviewedAt){}
     public record Page(List<Entry> items,int limit,int offset,int total){}
     private final JdbcTemplate jdbc;
