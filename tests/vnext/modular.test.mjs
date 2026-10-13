@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generate } from "../../packages/adapters/modular/generate.mjs";
@@ -32,9 +32,11 @@ test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=
   const root=scratch();
   const result=generate(ir,spec,root);
   assert.equal(result.files.length,15);
-  const sql=readFileSync(join(root,"src/main/resources/schema.sql"),"utf8");
+  const sql=readFileSync(join(root,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
+  assert.equal(existsSync(join(root,"src/main/resources/schema.sql")),false);
   const java=readFileSync(join(root,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8");
-  assert.match(sql,/CREATE TABLE IF NOT EXISTS gauge/);
+  assert.match(sql,/CREATE TABLE gauge/);
+  assert.match(sql,/ProtocolIA schema SHA256 [a-f0-9]{64}/);
   assert.match(sql,/serial VARCHAR\(40\) PRIMARY KEY NOT NULL/);
   assert.match(sql,/reading INTEGER NOT NULL CHECK \(reading>=0\)/);
   assert.match(java,/IndependentGauge|Gauge/);

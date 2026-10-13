@@ -138,8 +138,10 @@ export function generate(ir, openapi, outDir) {
     if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
     return "  "+col+" "+type+" "+checks.join(" ");
   });
-  write("src/main/resources/schema.sql",
-    "CREATE TABLE IF NOT EXISTS "+table+" (\n"+columns.join(",\n")+"\n);\n");
+  const signature=createHash("sha256").update(JSON.stringify({table,identity:key,fields:e.fields})).digest("hex");
+  write("src/main/resources/db/migration/V1__contract_baseline.sql",
+    "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\\n"+
+    "CREATE TABLE "+table+" (\\n"+columns.join(",\\n")+"\\n);\\n");
   const manifest={
     adapter:"modular-spring-a0",irVersion:ir.irVersion,sourceSha256:createHash("sha256").update(JSON.stringify(ir)).digest("hex"),
     supportedKinds:[...supported].sort(),outcomes:"Generated; not proof of compilation or HTTP conformance",
