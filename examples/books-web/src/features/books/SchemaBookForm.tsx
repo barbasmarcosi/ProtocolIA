@@ -4,7 +4,7 @@ import type {RJSFSchema} from '@rjsf/utils';
 import {formSchema,formUiSchema,getView} from '../../protocolia-ui/bindings';
 import {validator} from '../../protocolia-ui/validator';
 
-type Props={role:'create'|'restock'|'rename';pending:boolean;onValid:(data:Record<string,unknown>)=>Promise<void>};
+type Props={role:'create'|'restock';pending:boolean;onValid:(data:Record<string,unknown>)=>Promise<void>};
 
 export function SchemaBookForm({role,pending,onValid}:Props){
  const [revision,setRevision]=useState(0);
@@ -39,7 +39,7 @@ export function SchemaBookForm({role,pending,onValid}:Props){
         setFormError(e instanceof Error?e.message:'No se pudo guardar');
       }
     }}>
-    <button type="submit" className="primary" disabled={pending}>{pending?'Guardando…':role==='create'?'Crear libro':role==='rename'?'Cambiar título':'Aplicar reposición'}</button>
+    <button type="submit" className="primary" disabled={pending}>{pending?'Guardando…':role==='create'?'Crear libro':'Aplicar reposición'}</button>
   </Form>
   {formError&&<p className="error" role="alert">{formError}</p>}
  </section>;
