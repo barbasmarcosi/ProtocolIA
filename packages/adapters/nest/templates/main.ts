@@ -69,8 +69,11 @@ class RuntimeService{
   constructor(){
     const source=(process.env.PROTOCOLIA_JDBC_URL??"").replace(/^jdbc:/,"");
     if(!/^postgres(?:ql)?:\/\//.test(source))throw Error("PostgreSQL connection required");
-    this.pool=new Pool({connectionString:source,user:process.env.PROTOCOLIA_JDBC_USER,
-      password:process.env.PROTOCOLIA_JDBC_PASSWORD,max:20});
+    const connection=new URL(source);
+    if(!connection.username)connection.username=process.env.PROTOCOLIA_JDBC_USER??"";
+    if(!connection.password)connection.password=process.env.PROTOCOLIA_JDBC_PASSWORD??"";
+    if(!connection.username)throw Error("PostgreSQL username must be explicit");
+    this.pool=new Pool({connectionString:connection.toString(),max:20});
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true")
       for(const key of ["PROTOCOLIA_READER_USERNAME","PROTOCOLIA_READER_PASSWORD",
         "PROTOCOLIA_MANAGER_USERNAME","PROTOCOLIA_MANAGER_PASSWORD"])
