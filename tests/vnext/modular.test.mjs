@@ -32,7 +32,7 @@ const scratch=()=>mkdtempSync(join(tmpdir(),"protocolia-modular-fixture-"));
 test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=>{
   const root=scratch();
   const result=generate(ir,spec,root);
-  assert.equal(result.files.length,15);
+  assert.equal(result.files.length,19);
   const sql=readFileSync(join(root,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
   assert.equal(existsSync(join(root,"src/main/resources/schema.sql")),false);
   const java=readFileSync(join(root,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8");
@@ -45,6 +45,13 @@ test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=
   assert.doesNotMatch(java,/Tool|Book|Inventory/);
   assert.match(java,/gauges\.read/);
   assert.match(java,/gauges\.write/);
+  const compose=readFileSync(join(root,"compose.yaml"),"utf8");
+  assert.match(compose,/127\.0\.0\.1:8080:8080/);
+  assert.match(compose,/PROTOCOLIA_ALLOW_DEMO_AUTH/);
+  assert.match(compose,/\$\{PROTOCOLIA_DB_PASSWORD:\?/);
+  const env=readFileSync(join(root,".env.example"),"utf8");
+  assert.match(env,/PROTOCOLIA_ALLOW_DEMO_AUTH=false/);
+  assert.doesNotMatch(env,/test-manager-only-2026/);
   const ui=JSON.parse(readFileSync(join(root,"src/main/resources/static/protocolia-ui.json"),"utf8"));
   assert.equal(ui.entity.publicIdentity,"serial");
   assert.equal(ui.operations.atomicIncrement.behavior.input,"delta");
