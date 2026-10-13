@@ -38,6 +38,9 @@ fi
 echo "A4_HEALTH_200"
 node scripts/vnext/probe-a4-http.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 node scripts/vnext/probe-a4-browser.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
+if [[ "${A4_VARIANT:-false}" == "true" ]]; then
+  node scripts/vnext/probe-a4-evolution-http.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
+fi
 node scripts/vnext/probe-a4-cleanup.mjs || { tail -n 90 /tmp/a4-relations-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('equipment','inspection') ORDER BY table_name;"
 gosu postgres psql -h 127.0.0.1 -d protocolia_a4 -t -c "SELECT count(*) FROM information_schema.table_constraints WHERE constraint_type = 'FOREIGN KEY' AND table_name='inspection';"
