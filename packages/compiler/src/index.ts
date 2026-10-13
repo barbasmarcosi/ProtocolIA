@@ -6,7 +6,7 @@ import {
 } from "@typespec/compiler";
 import { getHttpOperation } from "@typespec/http";
 import { readDomainDecorator } from "@protocolia/domain";
-import { emitJdl, planJhipster, type IrDocument, type IrEntity, type IrField,
+import { emitJdl, emitJhipsterApplicationJdl, planJhipster, type IrDocument, type IrEntity, type IrField,
   type IrOperation } from "@protocolia/jhipster";
 
 const metadata = (p: Program, name: string, target: Type) =>
@@ -172,6 +172,9 @@ export async function $onEmit(context: EmitContext): Promise<void> {
   });
   await emitFile(context.program,{
     path:resolvePath(out,"entities.jdl"),content:emitJdl(ir),
+  });
+  await emitFile(context.program,{
+    path:resolvePath(out,"jhipster-app.jdl"),content:emitJhipsterApplicationJdl(ir),
   });
   await emitFile(context.program,{
     path:resolvePath(out,"jhipster-capability-report.json"),

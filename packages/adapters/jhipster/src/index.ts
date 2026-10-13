@@ -114,3 +114,26 @@ export function planJhipster(ir: IrDocument): AdapterDecision {
     canEmitJdl:true,fullContractSupported:blockers.length===0,blockers,
   };
 }
+
+export function emitJhipsterApplicationJdl(ir: IrDocument): string {
+  // Only infrastructure configuration is selected here; domain is read solely from IR.
+  const application = [
+    "application {",
+    "  config {",
+    "    baseName protocoliaTaller",
+    "    applicationType monolith",
+    "    authenticationType jwt",
+    "    packageName dev.protocolia.generated",
+    "    clientFramework react",
+    "    buildTool maven",
+    "    databaseType sql",
+    "    devDatabaseType postgresql",
+    "    prodDatabaseType postgresql",
+    "    cacheProvider no",
+    "    enableTranslation false",
+    "  }",
+    "  entities " + ir.entities.map((e) => identifier(e.name)).join(", "),
+    "}",
+  ];
+  return application.join("\n") + "\n\n" + emitJdl(ir);
+}

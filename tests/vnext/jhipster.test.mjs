@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {emitJdl,planJhipster} from "../../packages/adapters/jhipster/dist/index.js";
+import {emitJdl,emitJhipsterApplicationJdl,planJhipster} from "../../packages/adapters/jhipster/dist/index.js";
 
 const demo = {
   irVersion:"vnext-a0.1",namespace:"IndependentFixture",
@@ -35,4 +35,12 @@ test("unsafe field names cannot become generator identifiers",()=>{
   const malformed=structuredClone(demo);
   malformed.entities[0].fields.push({...malformed.entities[0].fields[1],name:"\n} shell("});
   assert.throws(()=>emitJdl(malformed),/Unsafe JDL identifier/);
+});
+
+test("application JDL is projected from same IR without editing domain",()=>{
+  const jdl=emitJhipsterApplicationJdl(demo);
+  assert.match(jdl,/clientFramework react/);
+  assert.match(jdl,/prodDatabaseType postgresql/);
+  assert.match(jdl,/entities Widget/);
+  assert.match(jdl,/entity Widget/);
 });
