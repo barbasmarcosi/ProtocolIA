@@ -230,6 +230,7 @@ class JwtAuthorizationHttpTest {
         var checks = java.util.Map.of(
             "createBook", "hasAuthority('catalog.write')",
             "adjustStock", "hasAuthority('catalog.write')",
+            "renameBook", "hasAuthority('catalog.write')",
             "getBook", "hasAuthority('catalog.read')",
             "listBooks", "hasAuthority('catalog.read')");
         for (var entry : checks.entrySet()) {
