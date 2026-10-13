@@ -36,7 +36,7 @@ if(JSON.stringify(books.invalidates?.createBook)!=='["books"]' ||
 
 export const labelFor = (name:string)=>({
   isbn:'ISBN',title:'Título',stock:'Existencias',quantity:'Unidades',total:'Total',
-  limit:'Límite',offset:'Desplazamiento'
+  limit:'Límite',offset:'Desplazamiento',publishedAt:'Fecha de publicación'
 } as Record<string,string>)[name]??name;
 
 export const getView=(role:'list'|'detail'|'create'|'restock')=>books.views[role];
