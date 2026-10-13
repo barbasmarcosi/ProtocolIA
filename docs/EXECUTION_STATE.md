@@ -1,6 +1,27 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
+Historical baseline updated 2026-10-10. G0–G5 product work appended 2026-10-12. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
+
+## Full-stack G0–G5 status (2026-10-12 snapshot)
+
+G0: v0.3 contracts, resource metadata, bounded Books pagination and HTTP
+projection merged (PR #41–#43). G1: real OpenAPI Generator 7.26.0 Spring
+compile/HTTP pilot verified, default promotion withheld (PR #44). G2: Orval
+8.41.0 selected and Java HTTP/client/cache pilot verified (PR #45). G3: RJSF,
+React and Chromium browser E2E pilot verified (PR #46). G4: independent
+signed-JWT authorization and bounded Schemathesis **GET** conformance pilot
+verified (PR #47). G5: disposable PostgreSQL 16.10 / Flyway V1, 10 JUnit tests
+and two-JVM restart verified in the isolated test source, **not** a public
+persistent Books service (PR #48).
+
+G5 contract evolution branch `feature/g5-contract-evolution-regeneration` is
+an **in-progress unmerged experiment**. It adds a conservative v0.4 optional
+nullable scalar contract fixture and Java/TS/schema compiler code. Do not
+upgrade this to VERIFIED before an observed exact-SHA test log (see
+[G5 progress](G5_CONTRACT_EVOLUTION_PROGRESS.md)). End-to-end synced
+regeneration, nonproduction durable DB operations and browser nullable-field
+behavior remain OPEN. The original P4 comparison remains OPEN and its frozen
+experimental fixtures are unmodified.
 
 ## Merged baseline
 
