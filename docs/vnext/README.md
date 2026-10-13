@@ -74,10 +74,10 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | --- | --- | --- |
 | A0 — Tecnología y contrato canónico | PASS acotado | [A0](evidence/A0.md), JHipster NO-GO contractual, fallback GO |
 | A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
-| A2 — CLI/UI/empaquetado | PARCIAL | Una CLI compila ambas apps; browser real prueba gestor y lector; Compose todavía no verificado en runtime |
+| A2 — CLI/UI/empaquetado | PARCIAL | CLI compila Taller, Gauge y app multientidad; navegador/DB y conformance genérica PASS; Compose `config` PASS, arranque Compose sin Docker Engine sigue pendiente |
 | A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
 | A4 — Dos entidades y relaciones FK | PASS acotado | [A4](evidence/A4.md): 2 entidades/FK, selector React y evolución de contrato regenerada y ejecutada en DB nueva |
-| A5 — Regeneración/evolución segura | PASS núcleo aditivo acotado | [A5](evidence/A5.md): Flyway V1→V2 sobre DB poblada, ownership y extensiones preservados; API drift/checks adicionales en verificación |
+| A5 — Regeneración/evolución segura | PASS núcleo aditivo acotado | [A5](evidence/A5.md): Flyway V1→V2 sobre DB poblada, ownership y extensiones preservados; OpenAPI diff/validaciones y migración PostgreSQL V1→V2 verificados |
 
 **Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
 
