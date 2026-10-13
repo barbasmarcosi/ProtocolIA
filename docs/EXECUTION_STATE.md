@@ -4,13 +4,13 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 abierto; A5 PASS acotado (V1→V2 sobre DB con datos); A4 PASS acotado en dos entidades con FK, frontend relacional y E-07 sobre contrato evolucionado en DB nueva.** The user wants **usable systems
+**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 paridad Spring/NestJS PASS acotada (P-06 Nest evolution pendiente); A5 PASS aditivo Spring acotado (V1→V2 sobre DB con datos); A4 PASS acotado en dos entidades con FK, frontend relacional y E-07 sobre contrato evolucionado en DB nueva.** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
 **Architecture chosen and empirically validated for A0:** TypeSpec +
 `@protocolia/domain` + canonical framework-neutral IR + generator
-adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras pruebas reales. El motor inicial es TypeSpec → IR + OpenAPI3 → generador modular Spring Boot/JDBC + React declarativo; OpenAPI Generator 7.26 emite interfaces/DTO compilados, aún sin delegación HTTP. NestJS sigue siendo segundo destino no validado.
+adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras pruebas reales. El motor inicial es TypeSpec → IR + OpenAPI3 → generador modular Spring Boot/JDBC + React declarativo; OpenAPI Generator 7.26 emite interfaces/DTO compilados, aún sin delegación HTTP. NestJS 11.1.6 PASS en Taller/Gauge sobre el mismo TypeSpec/IR/OpenAPI, HTTP/PostgreSQL/Chromium; [A3 evidencia](vnext/evidence/A3.md), con Nest evolution in-place P-06 pendiente.
 
 **Authoritative documents:** [requirements](vnext/00_PRODUCT_REQUIREMENTS.md),
 [ADR-004](vnext/01_ARCHITECTURE_ADR.md),
@@ -23,7 +23,7 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | A0 — TypeSpec/JHipster feasibility | **PASS limitado** — JHipster stock NO-GO, fallback modular GO. TypeSpec/IR/OpenAPI + dos full-stacks independientes (Tool y Gauge) con PostgreSQL16, roles, atomicidad y Chromium verificadas | [Evidencia](vnext/evidence/A0.md); sin merge ni producción |
 | A1 — Domain compiler & persistence | **PASS (perfil mononentidad probado)** — Flyway V1 canónico, reuso de DB al reiniciar, bloqueo de checksum alterado, siete primitivas incluyendo delete opcional en Gauge, auth de demo, HTTP+PostgreSQL y concurrencia PASS | [Evidencia](vnext/evidence/A1.md); migraciones V2/OIDC quedan fuera de A1 |
 | A2 — Frontend/one-command | **PARTIAL avanzado** — CLI build en Taller/Gauge, HTTP+PG+Chromium y conformance genérica PASS, Compose `config --quiet` oficial PASS; comandos locales `run/test` aislados implementados, todavía sin `docker compose up` verificado por falta de Docker Engine | [Evidencia A2](vnext/evidence/A2.md); falta prueba real Compose up y cierre de UI/browser genéricos |
-| A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
+| A3 — NestJS second target | **PASS funcional acotado (T-02…T-15)** — mismo contrato/IR/OpenAPI, NestJS+PostgreSQL+React ejecutados, HTTP, 10 incrementos concurrentes, roles, Chromium y conformance genérica PASS en Taller/Gauge | [Evidencia A3](vnext/evidence/A3.md); P-06 safe evolution Nest aún pendiente |
 | A4 — Independent multi-entity system | **PASS acotado (E-01..E-08)** — dos entidades con FK restrict, HTTP 201/400/409/204, React relacional Chromium, roles independientes; segunda variante TypeSpec con etiqueta y fecha opcional recompilada y ejecutada contra DB nueva | [Evidencia A4](vnext/evidence/A4.md); no confundir con migración V2 segura de A5 |
 | A5 — Safe evolution/MVP | **PASS núcleo aditivo acotado; MVP de producción NO** — CLI `plan/evolve`, ownership hash, cambios destructivos rechazados, V1 inmutable + V2 sobre PostgreSQL poblado, extensiones y datos preservados; contraste OpenAPI 3.1/DTO validado y conformance genérica multientidad PASS | [Evidencia A5](vnext/evidence/A5.md), siguiente: Docker Engine real para A2 y segundo destino NestJS A3; backups/productive IAM pendientes |
 

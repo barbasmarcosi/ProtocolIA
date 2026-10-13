@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 pendiente; A5 evolución aditiva PASS acotado; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring PASS funcional acotado (P-06 pendiente); A5 evolución aditiva PASS acotado; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -75,7 +75,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A0 — Tecnología y contrato canónico | PASS acotado | [A0](evidence/A0.md), JHipster NO-GO contractual, fallback GO |
 | A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
 | A2 — CLI/UI/empaquetado | PARCIAL | CLI compila Taller, Gauge y app multientidad; navegador/DB y conformance genérica PASS; Compose `config` PASS, arranque Compose sin Docker Engine sigue pendiente |
-| A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
+| A3 — Segundo backend NestJS | PASS funcional acotado | [A3](evidence/A3.md): mismo TypeSpec/IR/OpenAPI y suites HTTP/PG/Chromium Taller+Gauge; Nest P-06 evolución in-place no implementada |
 | A4 — Dos entidades y relaciones FK | PASS acotado | [A4](evidence/A4.md): 2 entidades/FK, selector React y evolución de contrato regenerada y ejecutada en DB nueva |
 | A5 — Regeneración/evolución segura | PASS núcleo aditivo acotado | [A5](evidence/A5.md): Flyway V1→V2 sobre DB poblada, ownership y extensiones preservados; OpenAPI diff/validaciones y migración PostgreSQL V1→V2 verificados |
 
@@ -104,3 +104,16 @@ npm run app:evolve -- examples/vnext/equipment-inspections dist/relations
 `plan` devuelve cambios y blockers sin tocar la base de datos. `evolve` rechaza campos eliminados, tipos/identidades alterados y cambios de rutas/permisos; genera en staging, restaura las migraciones V1/V2 previas, añade una migración nueva por columnas opcionales compatibles y empaqueta nuevamente el JAR. Tras la sustitución conserva una copia del proyecto anterior en `.protocolia-backup-...`. **La migración SQL se aplica al siguiente inicio de la aplicación, no durante `evolve`.**
 
 El ensayo [A5](evidence/A5.md) conservó las filas originales y comprobó Flyway V1→V2 en PostgreSQL real. Este mecanismo **no es un respaldo de base de datos, una herramienta de rollback SQL ni un generador de migraciones destructivas**. Antes de apuntarlo a una DB persistente importante, hacer backup externo y validar las migraciones en un clon. Las aplicaciones construidas por versiones anteriores sin sello de ownership requieren una nueva compilación limpia desde sus contratos; no se adoptan automáticamente.
+
+## Segundo destino NestJS — contratos idénticos, sin Java
+
+Desde la misma raíz de ProtocolIA, con Node.js 24 y `npm ci`:
+
+```bash
+npm run app:build -- examples/vnext/taller --target nestjs --out dist/nest-taller
+npm run app:build -- examples/vnext/gauge --target nestjs --out dist/nest-gauge
+```
+
+El target NestJS crea controladores Nest a partir de operaciones del IR, servidor de PostgreSQL con consultas parametrizadas, SQL DDL, verificación de huella de esquema al iniciar, la misma React/Vite generada, Compose local y snapshot del contrato/OpenAPI con ownership. **No exige Java ni Maven.** La conformance genérica detecta automáticamente dónde está el manifiesto según el backend. Contrato, IR y OpenAPI conservan hashes iguales al target Spring.
+
+[Ver evidencia A3](evidence/A3.md) para HTTP, Postgres y Chromium ejecutados en ambos sistemas. **Límite:** `app:evolve` con migraciones de base existente solo soporta `modular-spring`; en Nest bloquea el cambio antes de mutar. La prueba real de `docker compose up` sigue pendiente en ambos destinos porque falta Docker Engine.
