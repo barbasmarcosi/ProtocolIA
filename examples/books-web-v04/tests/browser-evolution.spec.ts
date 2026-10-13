@@ -30,6 +30,10 @@ test('v0.4 PostgreSQL: RJSF optional publication date through real browser, API 
  await detail.getByRole('button',{name:'Aplicar reposición'}).click();
  await expect(page.getByText('Stock actualizado: 9 unidades')).toBeVisible();
  await expect(detail.getByText(/2026-10-12/)).toBeVisible();
+ await detail.getByLabel('Título').fill('Renamed in browser');
+ await detail.getByRole('button',{name:'Cambiar título'}).click();
+ await expect(page.getByText('Título actualizado: Renamed in browser')).toBeVisible();
+ await expect(detail.getByText('Renamed in browser')).toBeVisible();
  // Real HTTP response must include persisted date, not just browser-local form state.
  const response=await page.request.get('http://127.0.0.1:10111/api/books/'+isbn,{
   headers:{Authorization:'Basic '+Buffer.from(OWNER.join(':')).toString('base64')},
