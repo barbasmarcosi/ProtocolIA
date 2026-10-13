@@ -3,6 +3,7 @@
 // No agent loops, hidden per-entity source edits, or paid services.
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { sealApp } from "./ownership.mjs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,10 +90,17 @@ function main(){
     note:"Compiled artifact; HTTP/DB/browser conformance must be tested independently",
   };
   writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
+  cpSync(irPath,join(out,"protocolia-contract-ir.json"),{force:false,errorOnExist:true});
+  const ownership=sealApp(out);
+  console.log("PROTOCOLIA_OWNERSHIP_SEALED "+Object.keys(ownership.files).length);
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
 try {
-  if(["run","test"].includes(process.argv[2])){
+  if(["plan","evolve"].includes(process.argv[2])){
+    if(process.argv.length!==5)throw Error("Usage: protocolia "+process.argv[2]+" <TypeSpec-project> <generated-directory>");
+    const {evolve}=await import("./regeneration.mjs");
+    await evolve(process.argv[2],process.argv[3],process.argv[4]);
+  }else if(["run","test"].includes(process.argv[2])){
     if(process.argv.length!==4)throw Error("Usage: protocolia "+process.argv[2]+" <generated-directory>");
     const {composeAction}=await import("./compose.mjs");
     await composeAction(process.argv[2],process.argv[3]);
