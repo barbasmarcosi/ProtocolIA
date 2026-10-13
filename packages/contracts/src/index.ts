@@ -1,0 +1,56 @@
+import { createTypeSpecLibrary, type Program, type Type, type DecoratorContext, type Model,
+  type ModelProperty, type Operation } from "@typespec/compiler";
+
+export const $lib = createTypeSpecLibrary({
+  name:"@protocolia/domain",
+  diagnostics:{},
+  state:{
+    entity: {description:"ProtocolIA entity contract metadata"},
+    publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
+    unique: {description:"ProtocolIA unique contract metadata"},
+    view: {description:"ProtocolIA view contract metadata"},
+    behavior: {description:"ProtocolIA behavior contract metadata"},
+    capability: {description:"ProtocolIA capability contract metadata"},
+  },
+});
+
+function entity(context: DecoratorContext, target: Model): void {
+  context.program.stateMap($lib.stateKeys.entity).set(target, {});
+}
+
+function publicIdentity(context: DecoratorContext, target: ModelProperty): void {
+  context.program.stateMap($lib.stateKeys.publicIdentity).set(target, {});
+}
+
+function unique(context: DecoratorContext, target: ModelProperty): void {
+  context.program.stateMap($lib.stateKeys.unique).set(target, {});
+}
+
+function view(context: DecoratorContext, target: Model, label: string): void {
+  context.program.stateMap($lib.stateKeys.view).set(target, { label });
+}
+
+function behavior(context: DecoratorContext, target: Operation, kind: string, entity: string, field?: string, input?: string): void {
+  context.program.stateMap($lib.stateKeys.behavior).set(target, { kind, entity, field, input });
+}
+
+function capability(context: DecoratorContext, target: Operation, name: string): void {
+  context.program.stateMap($lib.stateKeys.capability).set(target, { name });
+}
+
+export const $decorators = {
+  "ProtocolIA.Domain": {
+    entity,
+    publicIdentity,
+    unique,
+    view,
+    behavior,
+    capability,
+  },
+};
+
+export function readDomainDecorator(program: Program, name: string, target: Type): Record<string, unknown> | undefined {
+  const key = $lib.stateKeys[name as keyof typeof $lib.stateKeys];
+  if (!key) throw new Error("Unknown ProtocolIA decorator: " + name);
+  return program.stateMap(key).get(target) as Record<string, unknown> | undefined;
+}

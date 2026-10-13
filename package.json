@@ -8,7 +8,7 @@
     "packages/adapters/jhipster"
   ],
   "scripts": {
-    "build:vnext": "tsc -p packages/adapters/jhipster/tsconfig.json && tsc -p packages/compiler/tsconfig.json",
+    "build:vnext": "tsc -p packages/contracts/tsconfig.json && tsc -p packages/adapters/jhipster/tsconfig.json && tsc -p packages/compiler/tsconfig.json",
     "compile:taller": "npm run build:vnext && tsp compile examples/vnext/taller",
     "check:vnext": "npm run build:vnext && node --test tests/vnext/*.test.mjs"
   },

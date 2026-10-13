@@ -1,18 +1,11 @@
-// ProtocolIA domain metadata only. Types and HTTP binding remain native TypeSpec.
-// Auto decorators require TypeSpec >= 1.14 and are read by @protocolia/compiler.
+import "../dist/index.js";
 using TypeSpec.Reflection;
 namespace ProtocolIA.Domain {
-  auto dec entity(target: Model);
-  auto dec publicIdentity(target: ModelProperty);
-  auto dec unique(target: ModelProperty);
-  auto dec view(target: Model, label: valueof string);
-  // Behavior operands are resolved against entity/model fields by the semantic compiler.
-  auto dec behavior(
-    target: Operation,
-    kind: valueof string,
-    entity: valueof string,
-    field?: valueof string,
-    input?: valueof string
-  );
-  auto dec capability(target: Operation, name: valueof string);
+  extern dec entity(target: Model);
+  extern dec publicIdentity(target: ModelProperty);
+  extern dec unique(target: ModelProperty);
+  extern dec view(target: Model, label: valueof string);
+  extern dec behavior(target: Operation, kind: valueof string,
+    entity: valueof string, field?: valueof string, input?: valueof string);
+  extern dec capability(target: Operation, name: valueof string);
 }

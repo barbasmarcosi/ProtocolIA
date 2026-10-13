@@ -1,16 +1,16 @@
 import {
-  emitFile, getAutoDecoratorValue, getMinLength, getMaxLength, getMinValue,
+  emitFile, getMinLength, getMaxLength, getMinValue,
   getMaxValue, navigateProgram, resolvePath,
   type EmitContext, type Model, type ModelProperty, type Operation, type Type,
   type Program,
 } from "@typespec/compiler";
 import { getHttpOperation } from "@typespec/http";
+import { readDomainDecorator } from "@protocolia/domain";
 import { emitJdl, planJhipster, type IrDocument, type IrEntity, type IrField,
   type IrOperation } from "@protocolia/jhipster";
 
-const domain = "ProtocolIA.Domain.";
 const metadata = (p: Program, name: string, target: Type) =>
-  getAutoDecoratorValue(p, domain + name, target);
+  readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
   ["create","get","listPage","patchFields","atomicIncrement","health"];

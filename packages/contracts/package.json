@@ -4,10 +4,16 @@
   "private": true,
   "type": "module",
   "tspMain": "lib/main.tsp",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "typespec": "./lib/main.tsp",
-      "default": "./lib/main.tsp"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "@typespec/compiler": "1.17.0"
   }
 }
