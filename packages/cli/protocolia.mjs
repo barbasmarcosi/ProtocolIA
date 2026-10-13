@@ -91,4 +91,13 @@ function main(){
   writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
-try{main();}catch(e){console.error("PROTOCOLIA_APP_BUILD_FAILED "+e.message);process.exitCode=1;}
+try {
+  if(["run","test"].includes(process.argv[2])){
+    const {composeAction}=await import("./compose.mjs");
+    await composeAction(process.argv[2],process.argv[3]);
+    if(process.argv.length!==4)throw Error("Unexpected extra options");
+  }else main();
+}catch(e){
+  console.error("PROTOCOLIA_APP_"+(process.argv[2]??"COMMAND").toUpperCase()+"_FAILED "+e.message);
+  process.exitCode=1;
+}
