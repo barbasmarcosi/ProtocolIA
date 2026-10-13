@@ -1,0 +1,146 @@
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { resolve, join, dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
+const j = (v) => JSON.stringify(v);
+const n = (v) => typeof v === "number" && Number.isInteger(v) ? String(v) : "null";
+function name(value) {
+  if (typeof value !== "string" || !/^[A-Za-z][A-Za-z0-9_]*$/.test(value)) throw Error("Unsafe identifier " + JSON.stringify(value));
+  return value;
+}
+const snake = (v) => name(v).replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+const resolveRef = (obj, value) => {
+  if (value?.$ref) return value.$ref.split("/").slice(1).reduce((current, key) => current?.[key], obj);
+  return value;
+};
+function queryParameter(spec, op, parameter) {
+  const source = resolveRef(spec,spec.paths[op.path][op.method.toLowerCase()].parameters.find((p) => {
+    const d = resolveRef(spec,p); return d?.name === parameter && d?.in === "query";
+  }));
+  const schema = resolveRef(spec,source?.schema);
+  if (!schema || !Number.isInteger(schema.default) || !Number.isInteger(schema.minimum) ||
+      !Number.isInteger(schema.maximum)) throw Error("Unresolved query bounds/default for " + op.name + "." + parameter);
+  return schema;
+}
+function inputBounds(spec, op) {
+  const operation = spec.paths[op.path]?.[op.method.toLowerCase()];
+  const requestBody = resolveRef(spec,operation?.requestBody);
+  const schema = resolveRef(spec,requestBody?.content?.["application/json"]?.schema);
+  const field = resolveRef(spec,schema?.properties?.[op.behavior.input]);
+  if (!field || !Number.isInteger(field.minimum) || !Number.isInteger(field.maximum))
+    throw Error("Unresolved atomic increment input bounds from TypeSpec OpenAPI");
+  return field;
+}
+export function generate(ir, openapi, outDir) {
+  if(ir.irVersion !== "vnext-a0.1") throw Error("Unsupported canonical IR version");
+  if(ir.entities.length !== 1) throw Error("Modular A0 slice requires exactly one entity; multi-entity must fail closed");
+  const e=ir.entities[0];
+  const table=snake(e.name), key=name(e.publicIdentity);
+  if(!e.fields.some(f=>f.name===key&&f.type==="string"&&f.unique&&f.required&&!f.nullable)) throw Error("External identity must be a required unique string");
+  for(const f of e.fields){
+    name(f.name);
+    if(!["string","int32","utcDateTime"].includes(f.type)) throw Error("Unsupported field type: "+f.type);
+  }
+  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","health"]);
+  const ops = ir.operations;
+  for(const op of ops){
+    if(!supported.has(op.behavior.kind)) throw Error("Unsupported operation " + op.behavior.kind);
+    if(op.entity !== e.name || !/^[A-Z]+$/.test(op.method) ||
+      !/^\/[A-Za-z0-9_\/{}-]+$/.test(op.path)) throw Error("Unsupported routing/entity binding");
+    if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
+    if(["atomicIncrement","patchFields"].includes(op.behavior.kind)){
+      const f=e.fields.find(x=>x.name===op.behavior.field);
+      if(!f||op.behavior.input!==op.behavior.field&&op.behavior.kind==="patchFields") throw Error("Unsupported field/input mapping");
+      if(op.behavior.kind==="atomicIncrement"&&f.type!=="int32") throw Error("Atomic addition requires int32 field");
+    }
+  }
+  const byKind=(kind)=>ops.filter(o=>o.behavior.kind===kind);
+  for(const k of ["create","get","listPage","patchFields","atomicIncrement","health"]) {
+    if(byKind(k).length!==1) throw Error("A0 profile requires exactly one " + k + " operation");
+  }
+  const readCap=byKind("get")[0].capability, writeCap=byKind("create")[0].capability;
+  if(!readCap||!writeCap||readCap===writeCap||readCap==="public"||writeCap==="public") throw Error("Invalid role capabilities");
+  for(const op of ops.filter(o=>o.behavior.kind!=="health")){
+    const expected=["create","patchFields","atomicIncrement"].includes(op.behavior.kind)?writeCap:readCap;
+    if(op.capability!==expected)throw Error("Inconsistent capability on " + op.name);
+  }
+  if(readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
+  const base="src/main/java/dev/protocolia/modular/";
+  const outputs=[];
+  function write(path,data) {
+    const full=join(outDir,path);
+    mkdirSync(dirname(full),{recursive:true});
+    writeFileSync(full,data);
+    outputs.push(path);
+  }
+  function copy(path,source) {
+    const full=join(outDir,path);
+    mkdirSync(dirname(full),{recursive:true});
+    copyFileSync(join(toolRoot,source),full);
+    outputs.push(path);
+  }
+  const classes=[
+    "package dev.protocolia.modular;",
+    "import java.util.List;",
+    "public final class Manifest {",
+    "  private Manifest() {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength) {}",
+    "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax) {}",
+    "  public static final String READ_CAPABILITY="+j(readCap)+";",
+    "  public static final String WRITE_CAPABILITY="+j(writeCap)+";",
+    "  public static final List<Entity> ENTITIES=List.of(",
+    "    new Entity("+[j(e.name),j(table),j(key),j(snake(key))].join(",")+",List.of(",
+    e.fields.map(f=>"      new Field("+[j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,n(f.min),n(f.max),n(f.minLength),n(f.maxLength)].join(",")+")").join(",\n"),
+    "    )));",
+    "  public static final List<Op> OPS=List.of(",
+  ];
+  const mapped=ops.filter(op=>op.behavior.kind!=="health").map(op=>{
+    const b=op.behavior;
+    let mn=0,mx=0,ld=0,lmin=0,lmax=0,od=0,om=0;
+    if(b.kind==="atomicIncrement"){
+      const range=inputBounds(openapi,op);mn=range.minimum;mx=range.maximum;
+    }
+    if(b.kind==="listPage"){
+      const l=queryParameter(openapi,op,"limit");
+      const o=queryParameter(openapi,op,"offset");
+      ld=l.default;lmin=l.minimum;lmax=l.maximum;od=o.default;om=o.maximum;
+    }
+    return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
+      j(op.capability),j(b.field??""),j(b.input??""),
+      mn,mx,ld,lmin,lmax,od,om].join(",")+")";
+  });
+  classes.push(mapped.join(",\n"),"  );","}");
+  write(base+"Manifest.java",classes.join("\n")+"\n");
+  for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java"]) copy(base+filename,filename);
+  copy("pom.xml","pom.xml");
+  copy("src/main/resources/application.properties","application.properties");
+  const columns=e.fields.map(f=>{
+    const col=snake(f.name);
+    const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
+    const checks=[];
+    if(f.name===key)checks.push("PRIMARY KEY");
+    if(f.required&&!f.nullable)checks.push("NOT NULL");
+    if(f.unique&&f.name!==key)checks.push("UNIQUE");
+    if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
+    if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
+    return "  "+col+" "+type+" "+checks.join(" ");
+  });
+  write("src/main/resources/schema.sql",
+    "CREATE TABLE IF NOT EXISTS "+table+" (\n"+columns.join(",\n")+"\n);\n");
+  const manifest={
+    adapter:"modular-spring-a0",irVersion:ir.irVersion,sourceSha256:createHash("sha256").update(JSON.stringify(ir)).digest("hex"),
+    supportedKinds:[...supported].sort(),outcomes:"Generated; not proof of compilation or HTTP conformance",
+    files:outputs.sort()
+  };
+  write("protocolia-generation.json",JSON.stringify(manifest,null,2)+"\n");
+  return manifest;
+}
+if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+  const [irFile,openapiFile,output]=process.argv.slice(2);
+  if(!irFile||!openapiFile||!output)throw Error("Usage: node generate.mjs ir.json openapi.json output-dir");
+  const manifest=generate(JSON.parse(readFileSync(irFile,"utf8")),JSON.parse(readFileSync(openapiFile,"utf8")),resolve(output));
+  console.log("MODULAR_A0_PROJECT_GENERATED "+JSON.stringify({files:manifest.files.length,sourceSha256:manifest.sourceSha256}));
+}
