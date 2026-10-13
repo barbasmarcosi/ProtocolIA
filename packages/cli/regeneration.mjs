@@ -159,6 +159,10 @@ export async function evolve(action,projectPath,outputPath){
         "-- Non-destructive TypeSpec contract evolution; existing Flyway files preserved\n"+sql+"\n");
     }
     copyConsumer(out,stage);
+    // Repackage AFTER restoring the historical V1 and adding V2.
+    // Otherwise the already-built JAR would still contain the new baseline V1
+    // and silently fail Flyway checksum validation against the existing DB.
+    run("mvn",["-B","-ntp","-DskipTests","package"],{cwd:stage});
     sealApp(stage);
     // Do not swap if another process touched a managed output while we compiled.
     preflight(out);
