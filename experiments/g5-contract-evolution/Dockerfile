@@ -159,6 +159,8 @@ RUN java -jar /tools/openapi-generator-cli-7.26.0.jar generate \
 # Same real PostgreSQL/Flyway migration; independent signed RSA/JWKS/
 # issuer/audience/expiry/scope security profile. No Basic fallback.
 FROM database-integration AS jwt-postgres-integration
+# Do not reuse the preceding disposable DB port/socket across overlay layers.
+ENV G5_JDBC_URL="jdbc:postgresql://127.0.0.1:55433/books_test"
 WORKDIR /work/app
 RUN rm -f src/main/java/dev/protocolia/security/DemoSecurity.java \
  src/main/java/dev/protocolia/domain/BooksDelegate.java \
@@ -172,9 +174,9 @@ COPY experiments/g5-contract-evolution/jwt/JwtAuthorizationHttpTest.java ./src/t
 RUN set -eu; \
  install -d -m 0700 -o postgres -g postgres /tmp/g5-jwt-pg; \
  su postgres -c "initdb -D /tmp/g5-jwt-pg -A trust --no-instructions" >/tmp/g5-jwt-init.log; \
- su postgres -c "pg_ctl -D /tmp/g5-jwt-pg -o '-c listen_addresses=127.0.0.1 -p 55432' -l /tmp/g5-jwt-postgres.log start"; \
+ su postgres -c "pg_ctl -D /tmp/g5-jwt-pg -o '-c listen_addresses=127.0.0.1 -p 55433' -l /tmp/g5-jwt-postgres.log start" || { cat /tmp/g5-jwt-postgres.log; exit 1; }; \
  trap 'su postgres -c "pg_ctl -D /tmp/g5-jwt-pg -m immediate stop" || true' EXIT; \
- su postgres -c "createdb -h 127.0.0.1 -p 55432 books_test"; \
+ su postgres -c "createdb -h 127.0.0.1 -p 55433 books_test"; \
  mvn -B -ntp clean verify; \
  echo G5_SIGNED_JWT_POSTGRESQL_V04_PASS > /tmp/g5-jwt-verified.txt
 
