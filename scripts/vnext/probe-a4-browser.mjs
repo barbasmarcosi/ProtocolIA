@@ -19,7 +19,7 @@ try{
   await select.locator('option[value="E-001"]').waitFor({state:"attached",timeout:18000});
   await form.locator("input").nth(0).fill("I-UI-001");
   await select.selectOption("E-001");
-  await form.locator("input").last().fill("Created from relation picker");
+  await form.getByLabel(/notes/).fill("Created from relation picker");
   await form.getByRole("button",{name:"Crear"}).click();
   await page.locator("table tbody tr").filter({hasText:"I-UI-001"}).waitFor({timeout:18000});
   console.log("A4_BROWSER_RELATION_PICKER_INSPECTION_CREATE_PASS");
