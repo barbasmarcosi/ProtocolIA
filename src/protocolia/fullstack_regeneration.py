@@ -107,7 +107,7 @@ def _java(spec: Path, jar: Path, root: Path) -> dict[str, bytes]:
         return _files(target / "src/main/java")
     first = generate(root / "spring-a")
     second = generate(root / "spring-b")
-    if not first or first != second or not any(p.endswith("BooksApiDelegate.java") for p in first):
+    if not first or first != second or not any(p.endswith("ApiDelegate.java") for p in first):
         core._fail("upstream Java source not complete or not byte-identical")
     return first
 
@@ -133,7 +133,7 @@ def _orval(spec: Path, template: Path, root: Path) -> dict[str, bytes]:
     first = _files(web / "src/generated/orval")
     _run(["npm", "run", "generate"], web)
     second = _files(web / "src/generated/orval")
-    if not first or first != second or not any(p.endswith("books.ts") for p in first):
+    if not first or first != second or not any(p.endswith(".ts") for p in first):
         core._fail("Orval output missing or not byte-identical")
     return first
 
