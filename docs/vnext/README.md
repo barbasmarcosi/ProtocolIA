@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3–A5 abiertos.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3/A5 pendientes; A4 relacional validado parcialmente.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -32,6 +32,8 @@ Con Node 24, Java 21, Maven y las dependencias del repositorio instaladas (`npm 
 npm run app:build -- examples/vnext/taller --target modular-spring --out dist/taller
 # Alternativa con el mismo motor:
 npm run app:build -- examples/vnext/gauge --target modular-spring --out dist/gauge
+# Entidades relacionadas, clave foránea restrict y selector React:
+npm run app:build -- examples/vnext/equipment-inspections --target modular-spring --out dist/relations
 ```
 
 La CLI realiza TypeSpec → IR → validación de capacidades → generación Spring/React → OpenAPI Generator 7.26 → compilación Maven y produce `protocolia-build.json` con hashes de origen. Rechaza sobrescribir directorios con archivos previos o generar dentro del árbol del contrato. No escribe código Java/SQL/React por entidad.
@@ -74,7 +76,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
 | A2 — CLI/UI/empaquetado | PARCIAL | Una CLI compila ambas apps; browser real prueba gestor y lector; Compose todavía no verificado en runtime |
 | A3 — Segundo backend NestJS | NOT STARTED | Misma suite con contrato idéntico |
-| A4 — Dos entidades y relaciones FK | NOT STARTED | Integridad y UI relacional |
+| A4 — Dos entidades y relaciones FK | PARCIAL avanzado | [A4](evidence/A4.md): TypeSpec 2 entidades, FK PostgreSQL, selector React/Chromium PASS; E-07 pendiente |
 | A5 — Regeneración/evolución segura | NOT STARTED | Migraciones V2, ownership y preservación |
 
 **Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
