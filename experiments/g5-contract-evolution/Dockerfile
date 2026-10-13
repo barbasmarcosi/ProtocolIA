@@ -31,11 +31,11 @@ RUN mvn -B -ntp -DskipTests package && echo G5_V04_JAVA_BUILD_PASS
 
 FROM node:22-bookworm-slim AS web-compile
 WORKDIR /web
-COPY examples/books-web/package.json examples/books-web/package-lock.json ./
-COPY examples/books-web/orval.config.ts examples/books-web/tsconfig.json examples/books-web/vite.config.ts ./
-COPY examples/books-web/index.html ./
-COPY examples/books-web/scripts ./scripts
-COPY examples/books-web/src ./src
+COPY examples/books-web-v04/package.json examples/books-web-v04/package-lock.json ./
+COPY examples/books-web-v04/orval.config.ts examples/books-web-v04/tsconfig.json examples/books-web-v04/vite.config.ts ./
+COPY examples/books-web-v04/index.html ./
+COPY examples/books-web-v04/scripts ./scripts
+COPY examples/books-web-v04/src ./src
 COPY --from=contract /bundle ./contract-bundle
 RUN cp contract-bundle/openapi.json ./openapi.json
 RUN npm ci --no-audit --no-fund
@@ -94,7 +94,7 @@ WORKDIR /web
 COPY --from=web-compile /web ./
 COPY --from=maven:3.9.11-eclipse-temurin-21 /opt/java/openjdk /opt/java/openjdk
 COPY --from=database-integration /work/app/target/g5-pg-books-0.1.0.jar /tmp/books.jar
-COPY examples/books-web/tests ./tests
+COPY examples/books-web-v04/tests ./tests
 COPY experiments/g5-contract-evolution/playwright.config.ts ./playwright.config.ts
 COPY experiments/g3-books-ui/run-browser-tests.sh ./run-g3-browser-tests.sh
 COPY experiments/g5-contract-evolution/run-browser-tests.sh ./run-browser-tests.sh
@@ -112,20 +112,20 @@ WORKDIR /repo
 COPY src/protocolia ./src/protocolia
 COPY examples/books-evolution-v04 ./examples/books-evolution-v04
 COPY examples/books-paging-v03/http-errors.json ./examples/books-paging-v03/http-errors.json
-COPY examples/books-web ./examples/books-web
+COPY examples/books-web-v04 ./examples/books-web-v04
 COPY --from=java-generator /tools/openapi-generator-cli-7.26.0.jar /tools/openapi-generator-cli-7.26.0.jar
 RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo \
  --resources examples/books-evolution-v04/resources.json \
  --domain-errors examples/books-paging-v03/http-errors.json \
  --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
- --web-template examples/books-web --out /managed \
+ --web-template examples/books-web-v04 --out /managed \
  && PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  examples/books-evolution-v04/contract.json --profile java-spring-basic-demo \
  --resources examples/books-evolution-v04/resources.json \
  --domain-errors examples/books-paging-v03/http-errors.json \
  --java-generator-jar /tools/openapi-generator-cli-7.26.0.jar \
- --web-template examples/books-web --out /managed \
+ --web-template examples/books-web-v04 --out /managed \
  && echo G5_REAL_FULLSTACK_REGEN_IDEMPOTENT > /tmp/g5-regen-verified.txt
 
 # Guard legacy P0/P1/P2/P3/P4 compiler/authorization/benchmark harness
