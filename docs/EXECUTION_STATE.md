@@ -22,7 +22,7 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | --- | --- | --- |
 | A0 — TypeSpec/JHipster feasibility | **PASS limitado** — JHipster stock NO-GO, fallback modular GO. TypeSpec/IR/OpenAPI + dos full-stacks independientes (Tool y Gauge) con PostgreSQL16, roles, atomicidad y Chromium verificadas | [Evidencia](vnext/evidence/A0.md); sin merge ni producción |
 | A1 — Domain compiler & persistence | **PASS (perfil mononentidad probado)** — Flyway V1 canónico, reuso de DB al reiniciar, bloqueo de checksum alterado, siete primitivas incluyendo delete opcional en Gauge, auth de demo, HTTP+PostgreSQL y concurrencia PASS | [Evidencia](vnext/evidence/A1.md); migraciones V2/OIDC quedan fuera de A1 |
-| A2 — Frontend/one-command | PARTIAL — React/Vite dinámico, Chromium en Taller y Gauge PASS; faltan CLI one-command, errores/permisos en UI y ensamblado release | No asumir A2 cierre completo |
+| A2 — Frontend/one-command | **PARTIAL** — CLI única construye Taller y Gauge (Java/React/OpenAPI) desde TypeSpec; HTTP/PG/Chromium PASS, frontend lector sin mutaciones y error login verificado; Dockerfile/Compose local generados pero sin prueba `compose up` | [Evidencia A2](vnext/evidence/A2.md); falta test/run universal y validación del Compose generado |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
 | A4 — Independent multi-entity system | NOT STARTED | FK, real CRUD and UI for Equipment/Inspections |
 | A5 — Safe evolution/MVP | NOT STARTED | Compatible regeneration + no unintended data/user-code loss |
