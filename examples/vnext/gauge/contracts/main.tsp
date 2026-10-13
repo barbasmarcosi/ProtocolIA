@@ -1,0 +1,125 @@
+import "@typespec/http";
+import "@protocolia/domain";
+using TypeSpec.Http;
+using ProtocolIA.Domain;
+
+@service(#{ title: "Gauge Registry" })
+labelspace GaugeRegistry {
+  @entity
+  @view("Registro de instrumentos")
+  model Gauge {
+    @publicIdentity
+    @unique
+    @minLength(1)
+    @maxLength(40)
+    serial: string;
+
+    @minLength(1)
+    @maxLength(90)
+    label: string;
+
+    @minValue(0)
+    reading: int32;
+
+    // Omitted and explicit null remain different in request semantics.
+    calibratedAt?: utcDateTime | null;
+  }
+
+  model GaugeRequest {
+    @minLength(1)
+    @maxLength(40)
+    serial: string;
+    @minLength(1)
+    @maxLength(90)
+    label: string;
+    @minValue(0)
+    reading: int32;
+    calibratedAt?: utcDateTime | null;
+  }
+
+  model ReadingAdjustment {
+    @minValue(1)
+    @maxValue(25)
+    delta: int32;
+  }
+  model GaugeLabelChange {
+    @minLength(1)
+    @maxLength(90)
+    label: string;
+  }
+  model GaugePage {
+    items: Gauge[];
+    @minValue(1)
+    @maxValue(50)
+    limit: int32;
+    @minValue(0)
+    offset: int32;
+    @minValue(0)
+    total: int32;
+  }
+  model Health { status: string; }
+
+  @error model NotFound {
+    @statusCode _: 404;
+    message: string;
+  }
+  @error model Conflict {
+    @statusCode _: 409;
+    message: string;
+  }
+  @error model BadRequest {
+    @statusCode _: 400;
+    message: string;
+  }
+  @error model Unauthorized {
+    @statusCode _: 401;
+    message: string;
+  }
+  @error model Forbidden {
+    @statusCode _: 403;
+    message: string;
+  }
+
+  @route("/api/gauges")
+  @post
+  @behavior("create", "Gauge")
+  @capability("gauges.write")
+  op createGauge(@body input: GaugeRequest):
+      { @statusCode _: 201; @body gauge: Gauge; }
+    | Conflict | BadRequest | Unauthorized | Forbidden;
+
+  @route("/api/gauges/{serial}")
+  @get
+  @behavior("get", "Gauge")
+  @capability("gauges.read")
+  op getGauge(@path serial: string): Gauge | NotFound | Unauthorized | Forbidden;
+
+  @route("/api/gauges")
+  @get
+  @behavior("listPage", "Gauge")
+  @capability("gauges.read")
+  op listGauges(
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
+  ): GaugePage | BadRequest | Unauthorized | Forbidden;
+
+  @route("/api/gauges/{serial}/reading")
+  @patch
+  @behavior("atomicIncrement", "Gauge", "reading", "delta")
+  @capability("gauges.write")
+  op increaseReading(@path serial: string, @body input: ReadingAdjustment):
+      Gauge | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
+
+  @route("/api/gauges/{serial}/label")
+  @patch
+  @behavior("patchFields", "Gauge", "label", "label")
+  @capability("gauges.write")
+  op relabelGauge(@path serial: string, @body input: GaugeLabelChange):
+      Gauge | NotFound | BadRequest | Unauthorized | Forbidden;
+
+  @route("/health")
+  @get
+  @behavior("health", "Gauge")
+  @capability("public")
+  op health(): Health;
+}
