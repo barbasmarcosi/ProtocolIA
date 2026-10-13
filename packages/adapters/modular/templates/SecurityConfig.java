@@ -29,10 +29,11 @@ public class SecurityConfig {
     var encoder = new BCryptPasswordEncoder();
     var reader = User.withUsername(required("PROTOCOLIA_READER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_READER_PASSWORD")))
-        .authorities(Manifest.READ_CAPABILITY).build();
+        .authorities(Manifest.READ_CAPABILITIES.toArray(String[]::new)).build();
     var manager = User.withUsername(required("PROTOCOLIA_MANAGER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_MANAGER_PASSWORD")))
-        .authorities(Manifest.READ_CAPABILITY, Manifest.WRITE_CAPABILITY).build();
+        .authorities(java.util.stream.Stream.concat(Manifest.READ_CAPABILITIES.stream(),
+            Manifest.WRITE_CAPABILITIES.stream()).distinct().toArray(String[]::new)).build();
     return new InMemoryUserDetailsManager(reader, manager);
   }
   @Bean
