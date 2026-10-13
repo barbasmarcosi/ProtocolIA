@@ -111,14 +111,15 @@ printf '\n-- mutated migration checksum\n' >> "$APP/src/migrations/V2__protocoli
   PORT=8080 node dist/main.js
 ) >/tmp/nest-checksum-negative.log 2>&1 &
 negative_pid=$!
-sleep 2
-if kill -0 "$negative_pid" 2>/dev/null; then
+sleep 3
+if [[ "$(curl --max-time 1 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || true)" == "200" ]]; then
   echo A5_NEST_ALTERED_MIGRATION_WAS_ACCEPTED
-  kill "$negative_pid"; wait "$negative_pid" || true
+  kill "$negative_pid" 2>/dev/null || true
   exit 1
 fi
-wait "$negative_pid" || true
 grep -q 'migration checksum/history drift detected' /tmp/nest-checksum-negative.log
+kill "$negative_pid" 2>/dev/null || true
+wait "$negative_pid" 2>/dev/null || true
 mv /tmp/nest-original-v2.sql "$APP/src/migrations/V2__protocolia_additive.sql"
 node --input-type=module -e 'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp("/work/dist/nest-evolution")'
 echo A5_NEST_CHANGED_APPLIED_MIGRATION_REFUSED_PASS

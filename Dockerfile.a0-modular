@@ -23,6 +23,10 @@ RUN npx playwright install --with-deps chromium
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target nestjs --out /work/dist/nest-taller
 RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target nestjs --out /work/dist/nest-gauge
 RUN bash scripts/vnext/probe-nest-postgres.sh
+# A3 multi-entity Nest parity and A5 transactional, checksummed V1-to-V2 on persisted Nest DB.
+RUN node packages/cli/protocolia.mjs build examples/vnext/equipment-inspections --target nestjs --out /work/dist/nest-relations
+RUN PROTOCOLIA_DB_PASSWORD=only-compose-test PROTOCOLIA_READER_PASSWORD=only-compose-test PROTOCOLIA_MANAGER_PASSWORD=only-compose-test docker-compose -f /work/dist/nest-relations/compose.yaml config --quiet
+RUN bash scripts/vnext/probe-nest-relations-evolution.sh
 RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/modular/compose.yaml config --quiet
 RUN echo A2_TALLER_COMPOSE_CONFIG_VERIFIED
 RUN bash scripts/vnext/probe-modular-postgres.sh
