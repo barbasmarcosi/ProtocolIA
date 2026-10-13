@@ -19,7 +19,7 @@ try {
   assert.match(await row.innerText(),/Renamed drill/);
   await row.getByRole("button",{name:"Detalle"}).click();
   await page.locator('[data-testid="rename"]').fill("Updated through Chromium");
-  await page.getByRole("button",{name:"Guardar nombre"}).click();
+  await page.getByRole("button",{name:"Guardar cambios"}).click();
   try {
     await page.getByRole("status").getByText("Operación confirmada: patchFields").waitFor({timeout:15000});
   } catch(error) {
