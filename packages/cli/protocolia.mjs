@@ -30,28 +30,30 @@ function projectDigest(directory){
   return fingerprint.digest("hex");
 }
 function parse(argv){
-  if(argv[0]!=="build"||!argv[1])throw Error("Usage: protocolia build <project> --target modular-spring --out <directory>");
+  if(argv[0]!=="build"||!argv[1])throw Error("Usage: protocolia build <project> --target <modular-spring|nestjs> --out <directory>");
   const options={};
   for(let i=2;i<argv.length;i+=2){
     if(!["--target","--out"].includes(argv[i])||!argv[i+1]||options[argv[i]])
       throw Error("Unexpected or missing option "+argv[i]);
     options[argv[i]]=argv[i+1];
   }
-  if(options["--target"]!=="modular-spring"||!options["--out"])
-    throw Error("Only explicit --target modular-spring is supported");
-  return {project:resolve(argv[1]),out:resolve(options["--out"])};
+  if(!["modular-spring","nestjs"].includes(options["--target"])||!options["--out"])
+    throw Error("Only explicit --target modular-spring or nestjs is supported");
+  return {project:resolve(argv[1]),out:resolve(options["--out"]),target:options["--target"]};
 }
 function main(){
-  const {project,out}=parse(process.argv.slice(2));
+  const {project,out,target}=parse(process.argv.slice(2));
   if(!existsSync(join(project,"tspconfig.yaml"))||!existsSync(join(project,"contracts")))
     throw Error("Project requires tspconfig.yaml and contracts/");
   if(out===project||out.startsWith(project+sep))
     throw Error("Refusing to write generated application inside its source contract project");
   if(existsSync(out)&&readdirSync(out).length>0)
     throw Error("Output must be empty; refusing to overwrite consumer files");
-  const java=spawnSync("java",["-version"],{encoding:"utf8"});
-  if(java.status!==0||!/version "21[."]/.test((java.stderr||"")+(java.stdout||"")))
-    throw Error("Java 21 is required by the supported modular-spring profile");
+  if(target==="modular-spring"){
+    const java=spawnSync("java",["-version"],{encoding:"utf8"});
+    if(java.status!==0||!/version "21[."]/.test((java.stderr||"")+(java.stdout||"")))
+      throw Error("Java 21 is required by the modular-spring profile");
+  }
   if(Number(process.versions.node.split(".")[0])<24)
     throw Error("Node.js 24 is required by the pinned React/Vite toolchain");
   const contractSha256=projectDigest(project);
@@ -62,9 +64,16 @@ function main(){
   const openapiPath=join(base,"@typespec/openapi3/openapi.json");
   if(!existsSync(irPath)||!existsSync(openapiPath))
     throw Error("TypeSpec emitters did not produce IR and official OpenAPI3");
-  run(process.execPath,[join(repoRoot,"packages/adapters/modular/generate.mjs"),irPath,openapiPath,out]);
+  const generator=target==="nestjs"?"packages/adapters/nest/generate.mjs":
+    "packages/adapters/modular/generate.mjs";
+  run(process.execPath,[join(repoRoot,generator),irPath,openapiPath,out]);
+  if(target==="nestjs"){
+    run("npm",["install","--ignore-scripts","--no-audit","--no-fund"],out);
+    run("npm",["run","build"],out);
+  }
   run("npm",["install","--ignore-scripts","--no-audit","--no-fund"],join(out,"web"));
   run("npm",["run","build"],join(out,"web"));
+  if(target==="modular-spring"){
   const tooling=join(out,".protocolia-toolchain");
   mkdirSync(tooling,{recursive:true});
   run("mvn",["-B","-ntp","org.apache.maven.plugins:maven-dependency-plugin:3.9.0:copy",
@@ -82,11 +91,12 @@ function main(){
   if(!existsSync(from)||existsSync(to))throw Error("OpenAPI generated files missing or target path already owned");
   cpSync(from,to,{recursive:true,force:false,errorOnExist:true});
   run("mvn",["-B","-ntp","-DskipTests","package"],out);
+  }
   const metadata={
-    builder:"protocolia-cli-vnext-a2",target:"modular-spring",
+    builder:"protocolia-cli-vnext-a3",target,
     contractSha256,irSha256:sha(readFileSync(irPath)),
     openapiSha256:sha(readFileSync(openapiPath)),
-    typespec:"1.17.0",openapiGenerator:"7.26.0",
+    typespec:"1.17.0",openapiGenerator:target==="modular-spring"?"7.26.0":null,
     note:"Compiled artifact; HTTP/DB/browser conformance must be tested independently",
   };
   writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");

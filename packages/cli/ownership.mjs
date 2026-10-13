@@ -5,9 +5,10 @@ import {existsSync,readFileSync,readdirSync,writeFileSync,statSync} from "node:f
 import {join,relative,sep} from "node:path";
 
 const sources=[
-  "src/main/java","src/main/resources","web/src",
+  "src/main/java","src/main/resources","src/main.ts","src/manifest.json","src/schema.sql","web/src",
   "pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
   "web/package.json","web/package-lock.json","web/index.html","web/vite.config.mjs",
+  "package.json","package-lock.json","tsconfig.json",
   "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json","protocolia-contract-openapi.json"
 ];
 function walk(root,path,result){
@@ -48,7 +49,8 @@ export function verifyApp(folder){
     throw Error("Managed files modified/removed/added; refusing overwrite. Changed: "+
       [...missing,...added].join(", "));
   // The only consumer-owned areas are extensions/ and the local .env.
-  const allowed=new Set(["src","web","target",".protocolia-toolchain","extensions",
+  const allowed=new Set(["src","web","target","dist","node_modules",".protocolia-toolchain","extensions",
+    "package.json","package-lock.json","tsconfig.json",
     ".env","pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
     "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json",
     "protocolia-ownership.json","protocolia-contract-openapi.json"]);

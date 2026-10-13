@@ -149,6 +149,8 @@ function ownedArea(folder){
 }
 function preflight(out){
   verifyApp(out);
+  const meta=readJson(join(out,"protocolia-build.json"));
+  if(meta.target!=="modular-spring")throw Error("A5 evolution currently supports modular-spring; NestJS must be regenerated from a clean contract");
   ownedArea(out);
   const dirs=migrations(out);
   for(const file of dirs.files)if(!/^V\d+__/.test(file))throw Error("Unsafe migration filename");

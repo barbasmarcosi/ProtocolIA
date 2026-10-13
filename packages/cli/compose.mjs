@@ -40,11 +40,12 @@ async function waitHealthy(base,timeoutMs){
 }
 function checkOutput(folder){
   if(!existsSync(join(folder,"protocolia-build.json"))||
-     !existsSync(join(folder,"compose.yaml"))||
-     !existsSync(join(folder,"target/modular-generated-0.0.1.jar")))
+     !existsSync(join(folder,"compose.yaml")))
     throw Error("Expected a completed ProtocolIA generated app with JAR and Compose");
   const data=JSON.parse(readFileSync(join(folder,"protocolia-build.json"),"utf8"));
-  if(data.builder!=="protocolia-cli-vnext-a2"||data.target!=="modular-spring")
+  if(![ "modular-spring","nestjs"].includes(data.target)||
+    !["protocolia-cli-vnext-a2","protocolia-cli-vnext-a3"].includes(data.builder)||
+    !existsSync(join(folder,data.target==="nestjs"?"dist/main.js":"target/modular-generated-0.0.1.jar")))
     throw Error("Unsupported output manifest; rebuild with ProtocolIA");
 }
 export async function composeAction(action,path){
