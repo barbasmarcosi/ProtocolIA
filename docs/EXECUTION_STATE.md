@@ -23,7 +23,7 @@ identity/API/regeneration behavior; fallback modular adapters are defined.
 
 | Stage | State | Exit value |
 | --- | --- | --- |
-| A0 — TypeSpec/JHipster feasibility | IN PROGRESS — TypeSpec/IR/JDL and JHipster Java+React generation; Java JAR builds; **identity/API parity FAIL**; DB/browser NOT RUN | [Executed evidence](vnext/evidence/A0.md); runtime+generic identity adapter pending |
+| A0 — TypeSpec/JHipster feasibility | IN PROGRESS — TypeSpec/IR/JDL and JHipster Java+React generation; Java JAR + real PG16 CRUD and Chromium PASS; **identity/API parity FAIL**; contractual auth/increment NOT IMPLEMENTED | [Executed evidence](vnext/evidence/A0.md); runtime+generic identity adapter pending |
 | A1 — Domain compiler & persistence | NOT STARTED | Taller business HTTP/DB/auth/concurrency without manual domain classes |
 | A2 — Frontend/one-command | NOT STARTED | Full Taller built, browser-tested and deployed from contracts |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
