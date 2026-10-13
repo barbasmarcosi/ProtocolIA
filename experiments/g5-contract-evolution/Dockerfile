@@ -194,6 +194,24 @@ RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  --web-template examples/widgets-web --out /managed-widgets \
  && echo G5_SECOND_RESOURCE_JAVA_ORVAL_REGEN_PASS > /tmp/g5-widgets-verified.txt
 
+# Explicit backward-compatibility proof: historical G3 v0.3 React app
+# is not modified or broken by v0.4 action/schema generation.
+FROM contract AS legacy-contract
+RUN PYTHONPATH=src python -m protocolia compile-bundle \
+ examples/books-paging-v03/contract.json --profile java-spring-basic-demo \
+ --resources examples/books-paging-v03/resources.json \
+ --domain-errors examples/books-paging-v03/http-errors.json --out /legacy-bundle
+
+FROM node:22-bookworm-slim AS legacy-web-v03
+WORKDIR /legacy
+COPY examples/books-web ./
+COPY --from=legacy-contract /legacy-bundle ./contract-bundle
+RUN cp contract-bundle/openapi.json ./openapi.json
+RUN npm ci --no-audit --no-fund \
+ && npm run generate && npm run verify:contract \
+ && npm run typecheck && npm run build \
+ && echo G5_HISTORICAL_V03_WEB_UNCHANGED_PASS > /tmp/g5-v03-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
@@ -202,6 +220,7 @@ COPY --from=regenerate-integrated /tmp/g5-regen-verified.txt ./regen-verified.tx
 COPY --from=python-regressions /tmp/g5-python-verified.txt ./python-verified.txt
 COPY --from=jwt-postgres-integration /tmp/g5-jwt-verified.txt ./jwt-verified.txt
 COPY --from=second-resource-generate /tmp/g5-widgets-verified.txt ./widgets-verified.txt
+COPY --from=legacy-web-v03 /tmp/g5-v03-verified.txt ./legacy-v03-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
