@@ -27,6 +27,13 @@ try {
  await page.getByRole("status").getByText("Operación confirmada: atomicIncrement").waitFor({timeout:15000});
  await page.waitForFunction(()=>document.querySelector("dl")?.textContent?.includes("17"),null,{timeout:15000});
  assert.match(await baseline.innerText(),/Updated Gauge from UI/);
+ const disposable=page.locator("table tbody tr").filter({hasText:"A0-GAUGE-BROWSER"}).first();
+ await disposable.getByRole("button",{name:"Detalle"}).click();
+ page.once("dialog",dialog=>dialog.accept());
+ await page.getByRole("button",{name:"Eliminar"}).click();
+ await page.getByRole("status").getByText("Operación confirmada: delete").waitFor({timeout:15000});
+ assert.equal(await page.locator("table tbody tr").filter({hasText:"A0-GAUGE-BROWSER"}).count(),0);
+ console.log("A2_GAUGE_BROWSER_CONTRACT_DECLARED_DELETE_PASS");
  const image=await page.screenshot({fullPage:true});
  console.log("A0_GAUGE_CHROMIUM_SCREENSHOT_SHA256="+createHash("sha256").update(image).digest("hex"));
  console.log("A0_GAUGE_UI_CREATE_RENAME_INCREMENT_POSTGRES_PASS");
