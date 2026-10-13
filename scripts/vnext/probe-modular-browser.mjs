@@ -39,6 +39,21 @@ try {
     return response.status;
   });
   assert.equal(verify,401,"Anonymous browser fetch cannot bypass backend auth");
+  // UI discovers authorities from the protected server endpoint, not local assumptions.
+  await page.getByRole("button",{name:"Salir"}).click();
+  await page.locator('[data-testid="username"]').fill("reader");
+  await page.locator('[data-testid="password"]').fill("incorrect");
+  await page.getByRole("button",{name:"Entrar"}).click();
+  await page.getByRole("alert").getByText("Credenciales incorrectas o servicio no disponible").waitFor({timeout:15000});
+  assert.equal(await page.locator("table tbody tr").count(),0);
+  await page.locator('[data-testid="password"]').fill("test-reader-only-2026");
+  await page.getByRole("button",{name:"Entrar"}).click();
+  await page.locator("table tbody tr").filter({hasText:"A0-MODULAR-001"}).first().waitFor({timeout:15000});
+  assert.equal(await page.getByRole("heading",{name:"Crear Tool"}).count(),0);
+  await page.locator("table tbody tr").filter({hasText:"A0-MODULAR-001"}).first().getByRole("button",{name:"Detalle"}).click();
+  assert.equal(await page.getByRole("button",{name:"Guardar cambios"}).count(),0);
+  assert.equal(await page.getByRole("button",{name:"Incrementar"}).count(),0);
+  console.log("A2_READER_BROWSER_NO_MUTATION_CONTROLS_AND_BAD_LOGIN_RECOVERS_PASS");
   const screenshot=await page.screenshot({fullPage:true});
   console.log("A0_MODULAR_CHROMIUM_SCREENSHOT_SHA256="+createHash("sha256").update(screenshot).digest("hex"));
   console.log("A0_MODULAR_BROWSER_VIEWPORT=390x844");
