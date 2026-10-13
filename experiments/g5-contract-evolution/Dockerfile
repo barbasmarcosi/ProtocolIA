@@ -83,9 +83,25 @@ RUN set -eu; \
  su postgres -c "psql -h 127.0.0.1 -p 55432 -d books_test -Atc \"SELECT 'G5_V04_DURABLE_ROWS=' || count(*) FROM books\""; \
  echo G5_V04_POSTGRES_FLYWAY_HTTP_RESTART_PASS > /tmp/g5-v04-verified.txt
 
+# Browser-backed G5 proof: real generated React form over HTTP to a real
+# PostgreSQL-backed Java server. Database exists only during Docker build.
+FROM mcr.microsoft.com/playwright:v1.56.1-noble AS browser-integration
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-16 \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /web
+COPY --from=web-compile /web ./
+COPY --from=maven:3.9.11-eclipse-temurin-21 /opt/java/openjdk /opt/java/openjdk
+COPY --from=database-integration /work/app/target/g5-pg-books-0.1.0.jar /tmp/books.jar
+COPY examples/books-web/tests ./tests
+COPY experiments/g5-contract-evolution/playwright.config.ts ./playwright.config.ts
+COPY experiments/g3-books-ui/run-browser-tests.sh ./run-g3-browser-tests.sh
+COPY experiments/g5-contract-evolution/run-browser-tests.sh ./run-browser-tests.sh
+RUN bash ./run-browser-tests.sh && echo G5_BROWSER_E2E_VERIFIED >/tmp/g5-v04-browser-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
+COPY --from=browser-integration /tmp/g5-v04-browser-verified.txt ./browser-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
