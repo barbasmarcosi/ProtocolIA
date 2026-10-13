@@ -25,7 +25,7 @@ public class DemoSecurity {
     SecurityFilterChain security(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable()) // Stateless test/demo API only
             .authorizeHttpRequests(registry -> registry
-                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
                 .requestMatchers(HttpMethod.GET, "/health", "/", "/index.html", "/assets/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/tools", "/api/tools/*").hasAuthority("inventory.read")
                 .requestMatchers(HttpMethod.POST, "/api/tools").hasAuthority("inventory.write")

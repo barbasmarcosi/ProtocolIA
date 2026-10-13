@@ -33,7 +33,8 @@ for _ in range(40):
  except (URLError,OSError):pass
  time.sleep(1)
 assert ready,"app failed to serve /health"
-assert call("GET","/")[0]==200
+status,homepage=call("GET","/")
+assert status==200,(status,str(homepage)[:500])
 assert call("GET","/api/tools")[0]==401
 status,page=call("GET","/api/tools?limit=2&offset=0",token=writer)
 assert status==200 and page["total"]>=4,(status,page)
