@@ -131,6 +131,8 @@ RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
 # Guard legacy P0/P1/P2/P3/P4 compiler/authorization/benchmark harness
 # regressions without consuming GitHub Actions or any paid providers.
 FROM python:3.13-slim AS python-regressions
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 COPY . .
 RUN python -m pip install --no-cache-dir -e '.[operator-auth]' \
