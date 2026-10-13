@@ -14,14 +14,21 @@ verified (PR #47). G5: disposable PostgreSQL 16.10 / Flyway V1, 10 JUnit tests
 and two-JVM restart verified in the isolated test source, **not** a public
 persistent Books service (PR #48).
 
-G5 contract evolution branch `feature/g5-contract-evolution-regeneration` is
-an **in-progress unmerged experiment**. It adds a conservative v0.4 optional
-nullable scalar contract fixture and Java/TS/schema compiler code. Do not
-upgrade this to VERIFIED before an observed exact-SHA test log (see
-[G5 progress](G5_CONTRACT_EVOLUTION_PROGRESS.md)). End-to-end synced
-regeneration, nonproduction durable DB operations and browser nullable-field
-behavior remain OPEN. The original P4 comparison remains OPEN and its frozen
-experimental fixtures are unmodified.
+G5 evolution PR #49 remains an unmerged **Draft**, with bounded v0.4 optional
+nullable scalar semantics and a separate `publishedAt` Books fixture. The
+disposable Render Free **exact-code** `3605ebc42371bd52347fc826ea38ebd1e7bf217b`
+deployment `dep-db6osn7f3r2c73buel30` is LIVE. It freshly passed
+5/5 Python regression tests, deterministic contract/Java generation,
+Orval TS/Vite, Java 21/Spring Boot 4.1.1 **10 JUnit, no skips** against
+PostgreSQL 16.10 with Flyway V1/V2, and real HTTP plus two separate JVM
+processes preserving `publishedAt`. The public URL exposes only a health
+marker; no durable public API/DB exists.
+
+**Still OPEN:** v0.4 real Chromium browser test, unified signed JWT and DB
+application, transactional staged regeneration and user-owned-file drift
+protection, managed nonproduction DB backups/recovery and second-resource
+generalization. The original P4 A/B/C remains inconclusive and frozen.
+See [G5 progress](G5_CONTRACT_EVOLUTION_PROGRESS.md).
 
 ## Merged baseline
 
