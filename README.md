@@ -4,6 +4,21 @@
 
 ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
+## Product goal: contracts to a complete working application
+
+**Current north star (2026-10-13):** start from business requirements,
+formalize the contracts, and then generate an **actually functioning**
+full-stack application — database/migrations, implemented backend,
+frontend and deployment — with **no per-resource handwritten code**
+for the supported contract grammar. Token savings are secondary and
+not a required success metric. See the
+[contract-to-working-app product plan](docs/CONTRACT_TO_WORKING_APP_NORTH_STAR.md).
+
+This is an **aspiration, not current capability**. G5 generates typed API
+and client artifacts; the independently deployed workshop experiment
+still needed handwritten domain SQL, adapters and screens. The next
+A1–A3 increments close precisely those gaps.
+
 ## Start a Java/Spring project from a contract
 
 With Python 3.11+ and a checked-out copy of ProtocolIA:
