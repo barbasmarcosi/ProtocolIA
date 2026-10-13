@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-contract=/work/examples/vnext/taller/tsp-output/@typespec/openapi3/openapi.json
+contract="/work/examples/vnext/${PROTOCOLIA_TEST_CONTRACT:-taller}/tsp-output/@typespec/openapi3/openapi.json"
 test -s "$contract"
 mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:copy -Dartifact=org.openapitools:openapi-generator-cli:7.26.0:jar -DoutputDirectory=/work/dist/openapi-cli
 cli=/work/dist/openapi-cli/openapi-generator-cli-7.26.0.jar
