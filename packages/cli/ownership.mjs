@@ -8,7 +8,7 @@ const sources=[
   "src/main/java","src/main/resources","web/src",
   "pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
   "web/package.json","web/package-lock.json","web/index.html","web/vite.config.mjs",
-  "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json","protocolia-contract-openapi.json","protocolia-contract-openapi.json"
+  "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json","protocolia-contract-openapi.json"
 ];
 function walk(root,path,result){
   if(!existsSync(join(root,path)))return;
@@ -51,7 +51,7 @@ export function verifyApp(folder){
   const allowed=new Set(["src","web","target",".protocolia-toolchain","extensions",
     ".env","pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
     "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json",
-    "protocolia-ownership.json"]);
+    "protocolia-ownership.json","protocolia-contract-openapi.json"]);
   for(const entry of readdirSync(folder,{withFileTypes:true})){
     if(!allowed.has(entry.name)||entry.isSymbolicLink())
       throw Error("Unexpected consumer file outside extensions/: "+entry.name);
