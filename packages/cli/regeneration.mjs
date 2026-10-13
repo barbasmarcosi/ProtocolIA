@@ -226,7 +226,7 @@ export async function evolve(action,projectPath,outputPath){
     if(sql){
       const next=oldState.lastVersion+1;
       writeFileSync(join(fresh.root,"V"+next+"__protocolia_additive.sql"),
-        "-- Non-destructive TypeSpec contract evolution; original baseline preserved\\n"+sql+"\\n");
+        "-- Non-destructive TypeSpec contract evolution; original baseline preserved\n"+sql+"\n");
     }
     copyConsumer(out,stage);
     if(oldState.target==="modular-spring"){
