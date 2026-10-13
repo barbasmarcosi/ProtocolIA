@@ -12,7 +12,11 @@ assert.equal(process.env.PROTOCOLIA_ALLOW_CONFORMANCE_WRITES, "true",
   "Conformance writes require explicit isolated-test opt-in");
 assert.match(base, /^http:\/\/(?:127\.0\.0\.1|localhost):\d+\/?$/,
   "Conformance cannot mutate a remote or publicly exposed application");
-const config=JSON.parse(readFileSync(resolve(app,"src/main/resources/static/protocolia-ui.json"),"utf8"));
+const buildInfo=JSON.parse(readFileSync(resolve(app,"protocolia-build.json"),"utf8"));
+const uiPath=buildInfo.target==="nestjs"?"dist/static/protocolia-ui.json":
+  buildInfo.target==="modular-spring"?"src/main/resources/static/protocolia-ui.json":null;
+assert.ok(uiPath,"Unsupported generated target for conformance");
+const config=JSON.parse(readFileSync(resolve(app,uiPath),"utf8"));
 const entity=config.entity, operations=config.operations;
 const id=entity.publicIdentity, fields=entity.fields;
 const managerName=process.env.PROTOCOLIA_MANAGER_USERNAME;
