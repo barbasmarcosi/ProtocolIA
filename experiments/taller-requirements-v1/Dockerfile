@@ -75,7 +75,7 @@ ENV TALLER_PGDATA=/tmp/taller-smoke-db
 RUN (bash ./start.sh > /tmp/taller-smoke.log 2>&1 & pid=$!; \
  trap 'kill $pid 2>/dev/null || true' EXIT; \
  python3 /app/smoke.py || { cat /tmp/taller-smoke.log; exit 1; }; \
- echo TALLER_REAL_HTTP_POSTGRES_AUTH_SMOKE_PASS > /tmp/taller-verified.txt)
+ echo TALLER_REAL_HTTP_POSTGRES_AUTH_SMOKE_PASS > /app/verified.txt)
 
 FROM postgres:16.10-bookworm
 COPY --from=maven:3.9.11-eclipse-temurin-21 /opt/java/openjdk /opt/java/openjdk
@@ -87,7 +87,7 @@ ENV TALLER_DB_USER=postgres
 ENV TALLER_DB_PASSWORD=""
 ENV JAVA_TOOL_OPTIONS="-XX:ActiveProcessorCount=2 -XX:MaxRAMPercentage=55 -XX:+UseSerialGC"
 WORKDIR /app
-COPY --from=smoke /tmp/taller-verified.txt ./verified.txt
+COPY --from=smoke /app/verified.txt ./verified.txt
 COPY --from=java-build /app/target/taller-tools-pilot-0.1.0.jar ./taller.jar
 COPY experiments/taller-requirements-v1/start.sh ./start.sh
 EXPOSE 10000
