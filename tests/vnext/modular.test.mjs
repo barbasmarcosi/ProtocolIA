@@ -90,3 +90,64 @@ test("wrong HTTP verb, status and public-key route fail before generating code",
   identity.operations.find(o=>o.name==="getGauge").path="/api/gauges/{id}";
   assert.throws(()=>generate(identity,spec,scratch()),/Public identity path/);
 });
+
+const equipmentFields=[
+  {name:"code",type:"string",required:true,nullable:false,unique:true,minLength:1,maxLength:40},
+  {name:"name",type:"string",required:true,nullable:false,unique:false,minLength:1,maxLength:120}
+];
+const inspectionFields=[
+  {name:"number",type:"string",required:true,nullable:false,unique:true,minLength:1,maxLength:40},
+  {name:"equipmentCode",type:"string",required:true,nullable:false,unique:false,minLength:1,maxLength:40,
+    reference:{target:"Equipment",onDelete:"restrict"}},
+  {name:"notes",type:"string",required:true,nullable:false,unique:false,minLength:1,maxLength:160}
+];
+const a4ops=[
+  ...["Equipment","Inspection"].flatMap((entity)=>{
+    const path=entity==="Equipment"?"/api/equipment":"/api/inspections";
+    const key=entity==="Equipment"?"code":"number";
+    const prefix=entity==="Equipment"?"equipment":"inspections";
+    return [
+      {name:"create"+entity,entity,method:"POST",path,behavior:{kind:"create"},capability:prefix+".write",statuses:[201]},
+      {name:"get"+entity,entity,method:"GET",path:path+"/{"+key+"}",behavior:{kind:"get"},capability:prefix+".read",statuses:[200]},
+      {name:"list"+entity,entity,method:"GET",path,behavior:{kind:"listPage"},capability:prefix+".read",statuses:[200]},
+      {name:"delete"+entity,entity,method:"DELETE",path:path+"/{"+key+"}",behavior:{kind:"delete"},capability:prefix+".write",statuses:[204]}
+    ];
+  }),
+  {name:"health",entity:"Equipment",method:"GET",path:"/health",behavior:{kind:"health"},capability:"public",statuses:[200]}
+];
+const multiIr={
+  irVersion:"vnext-a0.1",namespace:"EquipmentInspections",
+  entities:[{name:"Equipment",publicIdentity:"code",fields:equipmentFields},
+    {name:"Inspection",publicIdentity:"number",fields:inspectionFields}],operations:a4ops
+};
+const multiSpec={paths:{
+  "/api/equipment":{get:{parameters:[q("limit",25,1,50),q("offset",0,0,1000000)]}},
+  "/api/inspections":{get:{parameters:[q("limit",25,1,50),q("offset",0,0,1000000)]}}
+}};
+test("A4 two entities generate independent SQL tables and a restrictive FK",()=>{
+  const path=scratch();
+  const generated=generate(multiIr,multiSpec,path);
+  assert.equal(generated.adapter,"modular-spring-a0");
+  const sql=readFileSync(join(path,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
+  assert.match(sql,/CREATE TABLE equipment \(/);
+  assert.match(sql,/CREATE TABLE inspection \(/);
+  assert.match(sql,/FOREIGN KEY \(equipment_code\) REFERENCES equipment \(code\) ON DELETE RESTRICT/);
+  const java=readFileSync(join(path,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8");
+  assert.match(java,/READ_CAPABILITIES=List\.of\("equipment\.read","inspections\.read"\)/);
+  assert.match(java,/WRITE_CAPABILITIES=List\.of\("equipment\.write","inspections\.write"\)/);
+  assert.match(java,/new Entity\("Equipment"/);
+  assert.match(java,/new Entity\("Inspection"/);
+  const ui=JSON.parse(readFileSync(join(path,"src/main/resources/static/protocolia-ui.json"),"utf8"));
+  assert.equal(ui.resources.length,2);
+  assert.deepEqual(ui.resources[1].entity.fields[1].reference,{target:"Equipment",onDelete:"restrict"});
+});
+test("A4 invalid references fail before emission",()=>{
+  for(const invalid of ["Unknown","Inspection"]){
+    const value=structuredClone(multiIr);
+    value.entities[1].fields[1].reference.target=invalid;
+    assert.throws(()=>generate(value,multiSpec,scratch()),/Unsupported FK/);
+  }
+  const invalid=structuredClone(multiIr);
+  invalid.entities[1].fields[1].reference.onDelete="cascade";
+  assert.throws(()=>generate(invalid,multiSpec,scratch()),/Unsupported FK/);
+});
