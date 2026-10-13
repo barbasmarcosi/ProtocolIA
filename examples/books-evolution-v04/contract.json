@@ -109,6 +109,16 @@
           "minimum": 0
         }
       }
+    },
+    "TitleChange": {
+      "title": {
+        "type": "string",
+        "required": true,
+        "constraints": {
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
     }
   },
   "operations": {
@@ -193,6 +203,21 @@
           }
         }
       }
+    },
+    "renameBook": {
+      "method": "PATCH",
+      "path": "/api/books/{isbn}/title",
+      "params": {
+        "isbn": "string"
+      },
+      "request": "TitleChange",
+      "response": "Book",
+      "capability": "catalog.write",
+      "effects": [
+        "read",
+        "write"
+      ],
+      "depends_on": []
     }
   }
 }

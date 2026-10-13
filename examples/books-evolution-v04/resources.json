@@ -8,7 +8,8 @@
         "detail": "getBook",
         "create": "createBook",
         "actions": {
-          "restock": "adjustStock"
+          "restock": "adjustStock",
+          "rename": "renameBook"
         },
         "list": "listBooks"
       },
@@ -45,6 +46,12 @@
             "publishedAt"
           ],
           "title": "Books"
+        },
+        "rename": {
+          "fields": [
+            "title"
+          ],
+          "title": "Rename book"
         }
       },
       "invalidates": {
@@ -52,6 +59,9 @@
           "books"
         ],
         "adjustStock": [
+          "books"
+        ],
+        "renameBook": [
           "books"
         ]
       }
