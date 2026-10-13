@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, cpSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, cpSync, existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 
@@ -30,3 +31,31 @@ console.log("JHIPSTER_PROBE_ENTITY_JSON="+JSON.stringify(entity));
 console.log("JHIPSTER_PROBE_REACT_FILES="+JSON.stringify(ui.slice(0,12)));
 console.log("JHIPSTER_PROBE_TOOL_RESOURCE="+JSON.stringify(java));
 if(!entity.length)throw Error("JHipster returned 0 but did not generate Tool entity JSON");
+
+const resourceFile=join(root,java[0]);
+const resourceText=readFileSync(resourceFile,"utf8");
+console.log("JHIPSTER_REAL_JAVA_HTTP_BINDINGS="+JSON.stringify(
+  resourceText.split("\n").map((x)=>x.trim()).filter((x)=>/Mapping\(|PathVariable/.test(x)).slice(0,32)
+));
+const uiDetail=entries.find((p)=>p.endsWith("entities/tool/tool-detail.tsx"));
+const uiContent=uiDetail?readFileSync(join(root,uiDetail),"utf8"):"";
+console.log("JHIPSTER_REACT_ID_REFERENCES="+JSON.stringify(
+  uiContent.split("\n").map((x)=>x.trim()).filter((x)=>/id|code/.test(x)).slice(0,18)
+));
+console.log("JHIPSTER_JAVA_AVAILABLE="+(spawnSync("java",["-version"],{encoding:"utf8"}).status===0));
+console.log("JHIPSTER_MAVEN_AVAILABLE="+existsSync(join(root,"mvnw")));
+
+const ext=join(root,"extensions","consumer-owned.txt");
+mkdirSync(join(root,"extensions"),{recursive:true});
+writeFileSync(ext,"keep this untouched\n");
+const sha=(x)=>createHash("sha256").update(x).digest("hex");
+const sourceBefore=sha(resourceText);
+const replay=spawnSync(binary,["jdl","generated.jdl","--skip-install","--skip-git","--no-insight"],{
+ cwd:root,encoding:"utf8",timeout:90000,maxBuffer:4_000_000,env:{...process.env,CI:"true",JHIPSTER_SKIP_INSTALL:"true"}
+});
+console.log("JHIPSTER_REGENERATE_EXIT="+(replay.status??"null"));
+console.log("JHIPSTER_REGENERATE_STDERR_TAIL="+(replay.stderr||"").slice(-500));
+console.log("JHIPSTER_REGENERATE_EXTENSION_UNCHANGED="+
+  (existsSync(ext)&&readFileSync(ext,"utf8")==="keep this untouched\n"));
+console.log("JHIPSTER_REGENERATE_RESOURCE_IDENTICAL="+
+  (existsSync(resourceFile)&&sha(readFileSync(resourceFile,"utf8"))===sourceBefore));
