@@ -155,6 +155,10 @@ export default function App(){
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>}
         </div>
+        {can("delete")&&<button className="ghost" disabled={loading} onClick={()=>{
+          if(!window.confirm("¿Eliminar "+selected[config.entity.publicIdentity]+"?"))return;
+          act("delete",{code:selected[config.entity.publicIdentity]});
+        }}>Eliminar</button>}
       </section>}
       </>
     }
