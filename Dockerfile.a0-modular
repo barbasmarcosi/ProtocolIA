@@ -1,10 +1,12 @@
 FROM eclipse-temurin:21-jdk AS java21
 FROM node:24-bookworm AS node24
 FROM maven:3.9.11-eclipse-temurin-21 AS maven39
+FROM docker:28.5.0-cli AS compose-cli
 FROM postgres:16-bookworm
 COPY --from=java21 /opt/java/openjdk /opt/java/openjdk
 COPY --from=node24 /usr/local /usr/local
 COPY --from=maven39 /usr/share/maven /usr/share/maven
+COPY --from=compose-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH=/opt/java/openjdk/bin:/usr/local/bin:/usr/share/maven/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git unzip && rm -rf /var/lib/apt/lists/*
@@ -17,8 +19,12 @@ RUN npm run check:vnext && bash tests/vnext/negative-check.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
+RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/modular/compose.yaml config --quiet
+RUN echo A2_TALLER_COMPOSE_CONFIG_VERIFIED
 RUN bash scripts/vnext/probe-modular-postgres.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target modular-spring --out /work/dist/gauge
+RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/gauge/compose.yaml config --quiet
+RUN echo A2_GAUGE_COMPOSE_CONFIG_VERIFIED
 RUN bash scripts/vnext/probe-gauge-postgres.sh
 EXPOSE 3000
 CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 modular isolated build marker only')}).listen(process.env.PORT||3000,'0.0.0.0')"]

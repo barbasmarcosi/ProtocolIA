@@ -38,6 +38,10 @@ fi
 echo "A0_GAUGE_HEALTH_200"
 node scripts/vnext/probe-gauge-http.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
 node scripts/vnext/probe-gauge-browser.mjs || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
+PROTOCOLIA_ALLOW_CONFORMANCE_WRITES=true \
+PROTOCOLIA_MANAGER_USERNAME=manager PROTOCOLIA_MANAGER_PASSWORD=test-manager-only-2026 \
+PROTOCOLIA_READER_USERNAME=reader PROTOCOLIA_READER_PASSWORD=test-reader-only-2026 \
+node packages/cli/conformance.mjs /work/dist/gauge http://127.0.0.1:8080 || { tail -n 90 /tmp/a0-gauge-spring.log; exit 1; }
 gosu postgres psql -h 127.0.0.1 -d protocolia_gauge -t -c 'SELECT serial,label,reading FROM gauge ORDER BY serial;'
 echo "A0_GAUGE_REAL_POSTGRES_CONFORMANCE_PASS"
 
