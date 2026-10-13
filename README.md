@@ -79,7 +79,7 @@ part of the verified pilot; P4 ROI, P5 adoption and P6 release remain open.
 
 ## Product-first Java vertical slice
 
-The current goal is **one generated Spring Boot application with a typed implementer-owned business handler**, not parallel handwritten controllers. See [product execution plan](docs/PRODUCT_FIRST_PLAN.md) and [catalog example](examples/catalog-vertical/README.md). P4 experimental records remain separate.
+**Historical product-first stage (2026-10-11):** this pilot built a generated Spring Boot application with an implementer-owned typed handler; it is no longer the current product scope. The vNext goal above removes per-resource handwritten implementations for supported operations. See [historical product execution plan](docs/PRODUCT_FIRST_PLAN.md), [catalog example](examples/catalog-vertical/README.md) and [vNext plan](docs/vnext/02_IMPLEMENTATION_PLAN.md). P3/P4 experimental records remain separate.
 
 ## Why
 
