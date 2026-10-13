@@ -57,7 +57,7 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
     if sidecar_version == BUNDLE_VERSION:
         if ir["version"] != "0.2":
             core._fail("resource sidecar 0.1 requires contract 0.2")
-    elif sidecar_version in {"0.2", "0.3"}:
+    elif sidecar_version == "0.2":
         if ir["version"] != "0.3":
             core._fail("resource sidecar 0.2 requires query-aware contract 0.3")
     elif sidecar_version == "0.3":
