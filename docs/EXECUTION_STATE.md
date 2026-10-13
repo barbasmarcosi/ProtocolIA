@@ -1,6 +1,31 @@
 # ProtocolIA — Execution State
 
-Updated: 2026-10-10. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
+Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeout recorded 2026-10-13. P0, P1, bounded P2 and P3-A local action execution and P3-B1 bounded Docker read-only adapter and P3-B2.1 typed read-only broker and P3-B2.2 Ed25519 signer gateway, P3-B3 local host approval service and P3-B4 signed cost ledger are MERGED and independently verified within their bounded scopes. P3 as a whole remains open.
+
+## Full-stack G0–G5 — supported pilot accepted, 2026-10-13
+
+G0–G3 accepted within versioned bounded profiles (PRs #41–#46). G4 signed
+RS256 JWT resource-server and previously isolated Schemathesis GET conformance
+accepted (PR #47), now additionally tested on actual G5 PostgreSQL v0.4.
+G5 historical disposable PostgreSQL/Flyway V1 pilot merged (PR #48);
+its continuation, PR #49, closes the supported v0.4 fullstack pipeline with
+added nullable `publishedAt`, added `renameBook`, real React browser and
+JDBC/Flyway V2, role-enforced Basic and separately signed JWT profiles,
+deterministic OpenAPI Generator/Orval/manifest outputs, guarded
+`regenerate-fullstack`, a second independent Widgets codegen resource and
+explicit historical G3 v0.3 regression.
+
+**Exact tested source:** `941e9a8c33e0900a8867c362a774b6ff2c8f24d5`, Render deployment
+`dep-db6pgquk1f9s73b1f3rg` status LIVE. **221 Python tests (1 skipped), 11 JDBC/Basic
+JUnit, 8 signed-JWT/PostgreSQL JUnit, 5 real Chromium Playwright**.
+The final public Render artifact is health-only, not a persistent hosted API.
+See [G5 closeout](G5_CONTRACT_EVOLUTION_PROGRESS.md) for SHA, decisions and
+remaining limits.
+
+**G5 result: COMPLETE for the narrow nonproduction supported pilot.**
+Production OIDC, managed database backup/recovery, P4 scientific ROI,
+P5 consumer adoption and P6 stable general release remain NOT COMPLETE.
+The G5 PR is tracked separately from the already-merged historical baseline.
 
 ## Merged baseline
 

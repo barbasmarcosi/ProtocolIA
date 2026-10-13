@@ -1,8 +1,23 @@
 # ADR-003 — Full-stack contract composition using maintained generators
 
-**Status: PROPOSED FOR PILOT (architecture selected; integrations NOT verified).**  
-**Revised:** 2026-10-12, aligned to the supplied [deep research assessment](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
+**Status: ACCEPTED for the bounded Books v0.4 nonproduction pilot (G0–G5 verified); generic/production adoption NOT accepted.**  
+**Revised:** 2026-10-13, aligned to the supplied [deep research assessment](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
 **Basis:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md), [delivery gates](FULLSTACK_IMPLEMENTATION_PLAN.md), [ADR-002](ADR-002-JAVA-BACKEND.md).
+
+## Implementation decision — 2026-10-13
+
+The selected architecture is verified through the versioned Books v0.4
+vertical: ProtocolIA canonical contract/IR and manifests; OpenAPI Generator
+7.26.0 Spring boundary; Orval 8.41.0 typed client; RJSF React UI; trusted
+server-enforced signed JWT mapped to capabilities; handwritten transactional
+Spring/JDBC, Flyway V1/V2 and real PostgreSQL; staged `regenerate-fullstack`
+source ownership; an independent Widgets codegen fixture. Source
+`941e9a8c33e0900a8867c362a774b6ff2c8f24d5` and Render
+`dep-db6pgquk1f9s73b1f3rg` (LIVE) verify exact pipeline behavior.
+[Evidence and limits](G5_CONTRACT_EVOLUTION_PROGRESS.md).
+
+Do not interpret this as production OIDC, production database recovery, a
+general no-code app platform, or economic superiority over direct coding.
 
 ## Problem and product boundary
 

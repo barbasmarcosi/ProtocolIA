@@ -1,0 +1,70 @@
+{
+  "version": "0.3",
+  "resources": {
+    "books": {
+      "model": "Book",
+      "identityField": "isbn",
+      "operations": {
+        "detail": "getBook",
+        "create": "createBook",
+        "actions": {
+          "restock": "adjustStock",
+          "rename": "renameBook"
+        },
+        "list": "listBooks"
+      },
+      "views": {
+        "create": {
+          "fields": [
+            "isbn",
+            "title",
+            "stock",
+            "publishedAt"
+          ],
+          "title": "Create book"
+        },
+        "detail": {
+          "fields": [
+            "isbn",
+            "title",
+            "stock",
+            "publishedAt"
+          ],
+          "title": "Book details"
+        },
+        "restock": {
+          "fields": [
+            "quantity"
+          ],
+          "title": "Restock book"
+        },
+        "list": {
+          "fields": [
+            "isbn",
+            "title",
+            "stock",
+            "publishedAt"
+          ],
+          "title": "Books"
+        },
+        "rename": {
+          "fields": [
+            "title"
+          ],
+          "title": "Rename book"
+        }
+      },
+      "invalidates": {
+        "createBook": [
+          "books"
+        ],
+        "adjustStock": [
+          "books"
+        ],
+        "renameBook": [
+          "books"
+        ]
+      }
+    }
+  }
+}

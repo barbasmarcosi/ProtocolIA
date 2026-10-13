@@ -32,6 +32,24 @@ already-implemented tutorial, see [catalog vertical example](examples/catalog-ve
 A previous `java-spring/0.3` directory must be migrated explicitly into a new output
 directory rather than silently overwritten.
 
+## G5 — verified bounded full-stack pilot
+
+G0–G5 are implemented and verified for a bounded, nonproduction Books slice.
+[The exact-source G5 closeout](docs/G5_CONTRACT_EVOLUTION_PROGRESS.md)
+records **221 Python tests (one skipped)**, **11 PostgreSQL/JUnit**, **8 signed
+JWT/PostgreSQL JUnit**, **5 real Chromium Playwright**, two-JVM data durability,
+two-pass deterministic code generation, plus an independently generated Widgets
+resource. No paid LLM provider or GitHub Actions minutes were used.
+
+Try the [versioned Books example](examples/books-evolution-v04/README.md),
+including `publishedAt` optional-nullable and the `renameBook` operation.
+Use the dedicated `examples/books-web-v04` frontend; the historical v0.3
+G3 app remains isolated and builds from its original contract.
+
+**Important:** the hosted demo serves only `/health`. Production OIDC,
+managed PostgreSQL, backups and operational release hardening are **not**
+part of the verified pilot; P4 ROI, P5 adoption and P6 release remain open.
+
 ## Product-first Java vertical slice
 
 The current goal is **one generated Spring Boot application with a typed implementer-owned business handler**, not parallel handwritten controllers. See [product execution plan](docs/PRODUCT_FIRST_PLAN.md) and [catalog example](examples/catalog-vertical/README.md). P4 experimental records remain separate.

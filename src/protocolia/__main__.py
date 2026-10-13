@@ -17,7 +17,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 def main() -> int:
     parser=argparse.ArgumentParser(prog="protocolia")
-    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","compile-http","compile-bundle","diff-bundle","action-preview","action-run"])
+    parser.add_argument("command", choices=["validate","compile","diff","migrate","preview","generate-java","generate-inventory-java","init-java","compile-http","compile-bundle","diff-bundle","regenerate-fullstack","action-preview","action-run"])
     parser.add_argument("contract",type=Path)
     parser.add_argument("candidate",type=Path,nargs="?")
     parser.add_argument("--out",type=Path,default=Path("generated"))
@@ -27,16 +27,24 @@ def main() -> int:
     parser.add_argument("--domain-errors",type=Path)
     parser.add_argument("--resources",type=Path)
     parser.add_argument("--candidate-resources",type=Path)
+    parser.add_argument("--java-generator-jar",type=Path)
+    parser.add_argument("--web-template",type=Path)
     args=parser.parse_args()
-    if args.command in {"compile-http", "compile-bundle"} and args.profile!="java-spring-basic-demo":
+    if args.command in {"compile-http", "compile-bundle", "regenerate-fullstack"} and args.profile!="java-spring-basic-demo":
         parser.error("target compilation requires --profile java-spring-basic-demo")
-    if args.command not in {"compile-http", "compile-bundle"} and (args.profile is not None or args.domain_errors is not None):
+    if args.command not in {"compile-http", "compile-bundle", "regenerate-fullstack"} and (args.profile is not None or args.domain_errors is not None):
         parser.error("--profile/--domain-errors reserved for target compilation")
-    if args.command in {"compile-bundle", "diff-bundle"} and args.resources is None:
+    if args.command in {"compile-bundle", "diff-bundle", "regenerate-fullstack"} and args.resources is None:
         parser.error("resource bundle commands require --resources")
+    if args.command == "regenerate-fullstack" and (
+            args.java_generator_jar is None or args.web_template is None):
+        parser.error("fullstack regeneration requires --java-generator-jar and --web-template")
+    if args.command != "regenerate-fullstack" and (
+            args.java_generator_jar is not None or args.web_template is not None):
+        parser.error("Java CLI jar and web template are only for regenerate-fullstack")
     if args.command=="diff-bundle" and args.candidate_resources is None:
         parser.error("diff-bundle requires --candidate-resources")
-    if args.command not in {"compile-bundle", "diff-bundle"} and args.resources is not None:
+    if args.command not in {"compile-bundle", "diff-bundle", "regenerate-fullstack"} and args.resources is not None:
         parser.error("--resources reserved for bundle commands")
     if args.command!="diff-bundle" and args.candidate_resources is not None:
         parser.error("--candidate-resources reserved for diff-bundle")
@@ -104,6 +112,15 @@ def main() -> int:
             artifacts=compile_resource_bundle(contract,description,errors)
             write_artifacts(artifacts,args.out)
             print(f"GENERATED validated Java resource bundle ({len(artifacts)} artifacts) in {args.out}")
+        elif args.command=="regenerate-fullstack":
+            from .fullstack_regeneration import regenerate_fullstack
+            description=json.loads(args.resources.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+            errors=(json.loads(args.domain_errors.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicate_keys)
+                    if args.domain_errors is not None else {})
+            result=regenerate_fullstack(contract,description,errors,
+                out=args.out,java_generator_jar=args.java_generator_jar,
+                web_template=args.web_template)
+            print(json.dumps(result,sort_keys=True,indent=2))
         elif args.command=="generate-inventory-java":
             from .inventory_backend import generate_inventory
             from .java_spring import write_java

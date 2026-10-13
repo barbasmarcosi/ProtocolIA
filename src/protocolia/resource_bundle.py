@@ -60,6 +60,9 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
     elif sidecar_version == "0.2":
         if ir["version"] != "0.3":
             core._fail("resource sidecar 0.2 requires query-aware contract 0.3")
+    elif sidecar_version == "0.3":
+        if ir["version"] != "0.4":
+            core._fail("resource sidecar 0.3 requires contract 0.4")
     else:
         core._fail("unsupported resource sidecar version")
     resources = description["resources"]
@@ -84,14 +87,14 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
             core._fail(f"{where}.identityField: must be a required scalar identity")
         ops = obj["operations"]
         required_roles = {"detail", "create", "actions"}
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             required_roles.add("list")
         core._keys(ops, required_roles, set(), f"{where}.operations")
         actions = ops["actions"]
         if not isinstance(actions, dict) or len(actions) > 25:
             core._fail(f"{where}.operations.actions: expected bounded action map")
         roles = {"detail": ops["detail"], "create": ops["create"]}
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             roles["list"] = ops["list"]
         for action_id, op_name in actions.items():
             core._name(action_id, f"{where}.actions")
@@ -164,7 +167,7 @@ def validate_resource_sidecar(contract: Any, description: Any) -> dict:
             "detail": ops["detail"], "create": ops["create"],
             "actions": {a: actions[a] for a in sorted(actions)},
         }
-        if sidecar_version == "0.2":
+        if sidecar_version in {"0.2", "0.3"}:
             normalized_ops["list"] = ops["list"]
         normalized[resource_id] = {
             "model": model, "identityField": key,
@@ -214,7 +217,9 @@ def compile_resource_bundle(contract: Any, resources: Any, domain_errors: Any = 
     artifact_digests = {name: core._sha(content) for name, content in sorted(artifacts.items())
                         if name != "manifest.json"}
     compiler = (BUNDLE_COMPILER if resource_ir["version"] == BUNDLE_VERSION
-                else "protocolia/0.3/java-spring-basic-demo-resource-bundle/2")
+                else "protocolia/0.3/java-spring-basic-demo-resource-bundle/2"
+                if resource_ir["version"] == "0.2"
+                else "protocolia/0.4/java-spring-basic-demo-resource-bundle/3")
     artifacts["generation-manifest.json"] = core._json({
         "compiler": compiler, "profile": PROFILE,
         "contractSha256": core._sha(artifacts["ir.json"]),
@@ -246,9 +251,60 @@ def compare_resource_bundles(before_contract: Any, before_resources: Any,
             changes.append({"path": path, "severity": "additive", "kind": "resource_added"})
         else:
             for field in ("model", "identityField", "operations", "views", "invalidates"):
-                if b[resource][field] != a[resource][field]:
-                    changes.append({"path": f"{path}.{field}", "severity": "breaking",
-                                    "kind": "semantic_binding_changed"})
+                if b[resource][field] == a[resource][field]:
+                    continue
+                severity = "breaking"
+                kind = "semantic_binding_changed"
+                if field == "operations":
+                    old_ops = b[resource]["operations"]
+                    next_ops = a[resource]["operations"]
+                    old_actions = old_ops["actions"]
+                    next_actions = next_ops["actions"]
+                    if (all(old_ops[key] == next_ops[key]
+                            for key in old_ops if key != "actions") and
+                        all(next_actions.get(k) == v for k, v in old_actions.items()) and
+                        len(next_actions) > len(old_actions)):
+                        severity = "additive"
+                        kind = "resource_action_added"
+                elif field == "invalidates":
+                    before_keys = b[resource]["invalidates"]
+                    after_keys = a[resource]["invalidates"]
+                    added_actions = set(a[resource]["operations"]["actions"].values()) - set(
+                        b[resource]["operations"]["actions"].values())
+                    if (all(after_keys.get(k) == v for k, v in before_keys.items())
+                            and set(after_keys) - set(before_keys) == added_actions
+                            and added_actions):
+                        severity = "additive"
+                        kind = "new_action_invalidation_added"
+                elif field == "views":
+                    # Validated metadata can append optional model fields or
+                    # introduce a new view for a newly declared resource action.
+                    # Existing fields, bindings, labels and order cannot change.
+                    old_views = b[resource]["views"]
+                    new_views = a[resource]["views"]
+                    added_actions = set(a[resource]["operations"]["actions"]) - set(
+                        b[resource]["operations"]["actions"])
+                    extra_views = set(new_views) - set(old_views)
+                    if (set(old_views).issubset(new_views) and
+                        extra_views == added_actions and
+                        all(set(old_views[name]) == set(new_views[name]) and
+                            all(old_views[name][k] == new_views[name][k]
+                                for k in old_views[name] if k != "fields") and
+                            new_views[name]["fields"][:len(old_views[name]["fields"])]
+                                == old_views[name]["fields"]
+                            for name in old_views)):
+                        new_fields = [
+                            (new_views[name]["model"], key)
+                            for name in old_views for key in
+                            new_views[name]["fields"][len(old_views[name]["fields"]):]
+                        ]
+                        if all(not validate_contract(after_contract)["models"][model][key]["required"]
+                               for model, key in new_fields) and (new_fields or added_actions):
+                            severity = "additive"
+                            kind = ("resource_action_view_added" if added_actions else
+                                    "optional_view_fields_appended")
+                changes.append({"path": f"{path}.{field}", "severity": severity,
+                                "kind": kind})
     breaking = contract["breaking"] + sum(c["severity"] == "breaking" for c in changes)
     return {"compatible": breaking == 0, "breaking": breaking,
             "wireContract": contract, "semanticChanges": changes,
