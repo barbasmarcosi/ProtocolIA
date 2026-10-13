@@ -4,7 +4,7 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved, NOT IMPLEMENTED.** The user wants **usable systems
+**Direction approved; A0 PARTIALLY IMPLEMENTED, NOT ACCEPTED.** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
@@ -23,7 +23,7 @@ identity/API/regeneration behavior; fallback modular adapters are defined.
 
 | Stage | State | Exit value |
 | --- | --- | --- |
-| A0 — TypeSpec/JHipster feasibility | NOT STARTED | Real generated CRUD+UI app, exact identity semantics, GO/NO-GO |
+| A0 — TypeSpec/JHipster feasibility | IN PROGRESS — TypeSpec/IR/JDL and JHipster Java+React generation; Java JAR builds; **identity/API parity FAIL**; DB/browser NOT RUN | [Executed evidence](vnext/evidence/A0.md); runtime+generic identity adapter pending |
 | A1 — Domain compiler & persistence | NOT STARTED | Taller business HTTP/DB/auth/concurrency without manual domain classes |
 | A2 — Frontend/one-command | NOT STARTED | Full Taller built, browser-tested and deployed from contracts |
 | A3 — NestJS second target | NOT STARTED | Same unchanged contract passes equivalent HTTP/DB/auth suite |
