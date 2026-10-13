@@ -128,11 +128,21 @@ RUN PYTHONPATH=src python3 -m protocolia regenerate-fullstack \
  --web-template examples/books-web --out /managed \
  && echo G5_REAL_FULLSTACK_REGEN_IDEMPOTENT > /tmp/g5-regen-verified.txt
 
+# Guard legacy P0/P1/P2/P3/P4 compiler/authorization/benchmark harness
+# regressions without consuming GitHub Actions or any paid providers.
+FROM python:3.13-slim AS python-regressions
+WORKDIR /repo
+COPY . .
+RUN python -m pip install --no-cache-dir -e '.[operator-auth]' \
+ && PYTHONPATH=src python -m unittest discover -s tests -v \
+ && echo G5_ALL_PYTHON_REGRESSIONS_PASS > /tmp/g5-python-verified.txt
+
 FROM python:3.13-alpine
 WORKDIR /app
 COPY --from=database-integration /tmp/g5-v04-verified.txt ./verified.txt
 COPY --from=browser-integration /tmp/g5-v04-browser-verified.txt ./browser-verified.txt
 COPY --from=regenerate-integrated /tmp/g5-regen-verified.txt ./regen-verified.txt
+COPY --from=python-regressions /tmp/g5-python-verified.txt ./python-verified.txt
 COPY --from=web-compile /web/dist ./compiled-frontend
 COPY experiments/g5-contract-evolution/health_only.py ./health_only.py
 USER 65532:65532
