@@ -91,6 +91,7 @@ function main(){
   };
   writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
   cpSync(irPath,join(out,"protocolia-contract-ir.json"),{force:false,errorOnExist:true});
+  cpSync(openapiPath,join(out,"protocolia-contract-openapi.json"),{force:false,errorOnExist:true});
   const ownership=sealApp(out);
   console.log("PROTOCOLIA_OWNERSHIP_SEALED "+Object.keys(ownership.files).length);
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
