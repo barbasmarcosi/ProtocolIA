@@ -46,7 +46,7 @@ test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=
   assert.match(java,/gauges\.read/);
   assert.match(java,/gauges\.write/);
   const compose=readFileSync(join(root,"compose.yaml"),"utf8");
-  assert.match(compose,/127\.0\.0\.1:8080:8080/);
+  assert.match(compose,/127\.0\.0\.1:\$\{PROTOCOLIA_HOST_PORT:-8080\}:8080/);
   assert.match(compose,/PROTOCOLIA_ALLOW_DEMO_AUTH/);
   assert.match(compose,/\$\{PROTOCOLIA_DB_PASSWORD:\?/);
   const env=readFileSync(join(root,".env.example"),"utf8");
