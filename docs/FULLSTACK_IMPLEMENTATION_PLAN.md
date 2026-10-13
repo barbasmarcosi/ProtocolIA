@@ -1,8 +1,8 @@
 # Full-stack implementation plan G0–G5 — ProtocolIA
 
-**Status:** PROPOSED / RESEARCH-ALIGNED; executable backlog, NOT implemented.  
+**Status:** G0–G3 bounded verified, G4 signed-JWT test pilot verified, G5 PostgreSQL pilot verified; full integrated G5 is OPEN. The plan below retains original gate definitions.  
 **Revised:** 2026-10-12. Source: [user-provided deep research and alignment notes](FULLSTACK_RESEARCH_ALIGNMENT_20261012.md).  
-**Contract:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md). **Architecture:** [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md).  
+**Contract:** [requirements](PRODUCT_REQUIREMENTS_FULLSTACK.md). **Architecture:** [ADR-003](ADR-003-FULLSTACK-COMPOSITION.md). See [G5 nullable-evolution work in progress](G5_CONTRACT_EVOLUTION_PROGRESS.md).  
 **Supersedes:** the old full-stack sequence in this document; existing Stage 1–4 product evidence remains historical fact.
 
 ## Invariants and workflow
