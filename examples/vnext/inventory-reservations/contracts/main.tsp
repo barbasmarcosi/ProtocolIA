@@ -19,6 +19,7 @@ namespace InventoryReservations {
     @reference("Part", "restrict")
     @minLength(1) @maxLength(40) partSku: string;
     @minValue(1) @maxValue(1000) units: int32;
+    @initial("active") @minLength(1) @maxLength(20) status: string;
   }
 
   model PartRequest {
@@ -30,6 +31,7 @@ namespace InventoryReservations {
     @minLength(1) @maxLength(40) number: string;
     @minLength(1) @maxLength(40) partSku: string;
     @minValue(1) @maxValue(1000) units: int32;
+    @minLength(1) @maxLength(20) status: string;
   }
   model PartPage {
     items: Part[];
@@ -74,6 +76,14 @@ namespace InventoryReservations {
   op createAllocation(@body input: AllocationRequest):
     { @statusCode _: 201; @body allocation: Allocation; }
     | Conflict | BadRequest | Unauthorized | Forbidden;
+
+  @route("/api/allocations/{number}/cancel")
+  @post @behavior("transition", "Allocation", "status")
+  @transition("active", "cancelled")
+  @release("Part", "available", "partSku", "units")
+  @capability("allocations.write")
+  op cancelAllocation(@path number: string):
+    Allocation | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
 
   @route("/api/allocations/{number}")
   @get @behavior("get", "Allocation") @capability("allocations.read")
