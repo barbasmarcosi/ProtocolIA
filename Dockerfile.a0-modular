@@ -20,6 +20,10 @@ RUN npm run check:vnext && bash tests/vnext/negative-check.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
+# A14 new customer contract: tested separately; frozen A13 stays unchanged.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target modular-spring --out /work/dist/a14-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target nestjs --out /work/dist/a14-nest
+RUN bash -n scripts/vnext/probe-a14-reassign-postgres.sh && bash scripts/vnext/probe-a14-reassign-postgres.sh
 # A13 BLIND PRODUCT TRIAL — original customer contract frozen before generator invocation.
 # No source modifications to generators/adapters/templates for this trial. Fail is a product finding.
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
