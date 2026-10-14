@@ -31,7 +31,7 @@ namespace InventoryReservations {
     @minLength(1) @maxLength(40) number: string;
     @minLength(1) @maxLength(40) partSku: string;
     @minValue(1) @maxValue(1000) units: int32;
-    @minLength(1) @maxLength(20) status: string;
+    @minLength(1) @maxLength(20) status?: string;
   }
   model PartPage {
     items: Part[];
