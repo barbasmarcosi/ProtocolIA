@@ -72,11 +72,14 @@ public class DomainRuntime {
         (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(authorized.capability())))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
+    if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(authorized.entity())).findFirst()
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
-      case "create" -> result = create(entity, body);
+      case "create" -> result = create(entity, matched, body);
       case "get" -> result = row(entity, publicKey);
       case "listPage" -> result = page(entity, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
@@ -159,9 +162,29 @@ public class DomainRuntime {
     return false;
   }
 
-  private Map<String,Object> create(Manifest.Entity e, Map<String,Object> body) {
+  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body) {
     Set<String> fields = e.fields().stream().map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
+    // dispatch() is @Transactional: failure inserting the child rolls back this debit.
+    if (op.reserve()!=null) {
+      var reserve=op.reserve();
+      String stock=(String)body.get(reserve.referenceField());
+      Integer amount=(Integer)body.get(reserve.amountField());
+      if (stock==null || amount==null || amount < 1)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid reservation");
+      int debited=jdbc.update("UPDATE "+reserve.stockTable()+" SET "+
+          reserve.availableColumn()+"="+reserve.availableColumn()+"-:amount WHERE "+
+          reserve.stockKeyColumn()+"=:stock AND "+reserve.availableColumn()+">=:amount",
+          Map.of("stock",stock,"amount",amount));
+      if (debited==0) {
+        Number exists=jdbc.queryForObject("SELECT COUNT(*) FROM "+reserve.stockTable()+
+            " WHERE "+reserve.stockKeyColumn()+"=:stock",
+            Map.of("stock",stock),Number.class);
+        if (exists==null || exists.intValue()==0)
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Stock item does not exist");
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Insufficient availability");
+      }
+    }
     var params = new MapSqlParameterSource();
     for (var f : e.fields()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
