@@ -1,0 +1,28 @@
+name: vnext-a143-generated-worker
+on:
+  push:
+    branches:
+      - feature/vnext-a0-typespec-jhipster-spike
+    paths:
+      - '.github/workflows/vnext-a143-generated-worker.yml'
+      - 'Dockerfile.a143-runtime'
+      - 'scripts/vnext/probe-a143-worker-postgres.sh'
+      - 'packages/**'
+      - 'examples/vnext/facility-maintenance-a143/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vnext-a143-generated-worker-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  both-targets:
+    name: Generated Spring and Nest opt-in worker with real PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile applications and verify opt-in alert pollers
+        run: docker build --progress=plain -f Dockerfile.a143-runtime -t protocolia-a143-runtime:${{ github.sha }} .
