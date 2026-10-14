@@ -40,6 +40,11 @@ for target in spring nest; do
   done
   if [[ "$ready" != "1" ]]; then tail -n 100 "/tmp/workflow-$target.log"; exit 1; fi
   node scripts/vnext/probe-workflow-http.mjs || { tail -n 100 "/tmp/workflow-$target.log"; exit 1; }
+  PROTOCOLIA_ALLOW_CONFORMANCE_WRITES=true \
+  PROTOCOLIA_MANAGER_USERNAME=manager PROTOCOLIA_MANAGER_PASSWORD=test-manager-only-2026 \
+  PROTOCOLIA_READER_USERNAME=reader PROTOCOLIA_READER_PASSWORD=test-reader-only-2026 \
+  node packages/cli/conformance.mjs "/work/dist/workflow-$target" http://127.0.0.1:8080 \
+    || { tail -n 100 "/tmp/workflow-$target.log"; exit 1; }
   gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT status FROM work_order WHERE code='W-001'" | grep -qx closed
   if gosu postgres psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -d "$db" -c     "INSERT INTO work_order (code,title,status) VALUES ('W-ROGUE','db bypass','unapproved');" > /tmp/workflow-bypass.log 2>&1; then
     echo A6_DATABASE_STATE_CHECK_BYPASSED
