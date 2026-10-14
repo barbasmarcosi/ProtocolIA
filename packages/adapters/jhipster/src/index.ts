@@ -32,6 +32,7 @@ export interface IrOperation {
     input?: string;
     from?: string;
     to?: string;
+    reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
   };
   capability: string;
   request?: string;
@@ -104,7 +105,7 @@ export function planJhipster(ir: IrDocument): AdapterDecision {
   }
   for (const op of ir.operations) {
     const detail: Record<IrOperation["behavior"]["kind"], string> = {
-      create: "Contractual POST body/201/409/capability not proven on generated endpoint",
+      create: "Contractual POST body/201/409/capability not proven on generated endpoint, including transactional reserve+insert where declared",
       get: "Contractual GET by public identity/404/capability not proven",
       listPage: "Contract uses limit/offset and a page object, not JHipster default pageable response",
       patchFields: "Field-restricted PATCH with exact path and behavior needs a generic extension",
