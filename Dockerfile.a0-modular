@@ -38,6 +38,10 @@ RUN node scripts/vnext/probe-a10-audit-negative.mjs
 RUN node scripts/vnext/probe-a11-audit-negative.mjs
 RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target nestjs --out /work/dist/workflow-nest
 RUN bash scripts/vnext/probe-workflow-postgres.sh
+# A12: in-place A10→A11 read-only audit capability on a persisted DB, zero DDL, both targets.
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders-a10 --target modular-spring --out /work/dist/a12-spring-a10
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders-a10 --target nestjs --out /work/dist/a12-nest-a10
+RUN bash -n scripts/vnext/probe-a12-audit-upgrade.sh && bash scripts/vnext/probe-a12-audit-upgrade.sh
 # A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target nestjs --out /work/dist/nest-taller
 RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target nestjs --out /work/dist/nest-gauge
