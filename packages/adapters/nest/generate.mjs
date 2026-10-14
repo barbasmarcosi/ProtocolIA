@@ -41,6 +41,10 @@ export function generate(ir,spec,out){
       if(columns.has(snake(f.name)))throw Error("Duplicate SQL column");
       columns.add(snake(f.name));
       if(!["string","int32","utcDateTime"].includes(f.type))throw Error("Unsupported field type");
+      if(f.initial!==undefined && (f.type!=="string"||!f.required||f.nullable||f.unique||
+        f.reference||typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
+        f.initial.length<(f.minLength??1)||f.initial.length>(f.maxLength??255)))
+        throw Error("Invalid finite-state initial value "+e.name+"."+f.name);
       if(f.type==="string"&&(!Number.isInteger(f.maxLength??255)||(f.maxLength??255)<1))
         throw Error("Invalid string maximum length");
     }
@@ -54,9 +58,9 @@ export function generate(ir,spec,out){
       throw Error("Unsupported FK: "+e.name+"."+f.name);
   }
   const methods={create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",
-    atomicIncrement:"PATCH",delete:"DELETE",health:"GET"};
+    atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
   const ok={create:201,get:200,listPage:200,patchFields:200,
-    atomicIncrement:200,delete:204,health:200};
+    atomicIncrement:200,transition:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
   if(of("health").length!==1)throw Error("One health operation required");
@@ -75,25 +79,33 @@ export function generate(ir,spec,out){
       if(!methods[kind]||op.method!==methods[kind]||!op.statuses?.includes(ok[kind]))
         throw Error("Verb/status mismatch "+op.name);
       const cap=kind==="health"?"public":
-        ["create","patchFields","atomicIncrement","delete"].includes(kind)?write:read;
+        ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
       if(op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","patchFields","atomicIncrement","delete"].includes(kind);
+      const keyed=["get","patchFields","atomicIncrement","transition","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
+      if(kind==="transition"){
+        const field=e.fields.find(f=>f.name===b.field);
+        const safe=x=>typeof x==="string" && /^[a-z][a-z0-9_-]{0,63}$/.test(x) &&
+          x.length>=(field?.minLength??1) && x.length<=(field?.maxLength??255);
+        if(!field||!field.initial||field.type!=="string"||!field.required||field.nullable||
+          !safe(b.from)||!safe(b.to)||b.from===b.to||b.input||!op.statuses?.includes(409))
+          throw Error("Invalid source-guarded transition "+op.name);
+      }
       if(["patchFields","atomicIncrement"].includes(kind)){
         const field=e.fields.find(f=>f.name===b.field);
         if(!field||!b.input||
-           (kind==="patchFields"&&(field.type!=="string"||field.nullable||b.input!==b.field))||
+           (kind==="patchFields"&&(field.type!=="string"||field.nullable||field.initial!==undefined||b.input!==b.field))||
            (kind==="atomicIncrement"&&field.type!=="int32"))
           throw Error("Unsupported mutation "+op.name);
       }
       const item={name:op.name,method:op.method,path:op.path,entity:e.name,
         kind,capability:op.capability,...(b.field?{field:b.field}:{}),
-        ...(b.input?{input:b.input}:{})};
+        ...(b.input?{input:b.input}:{}),...(kind==="transition"?{from:b.from,to:b.to}:{})};
       if(kind==="listPage"){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
@@ -128,6 +140,14 @@ export function generate(ir,spec,out){
         f.type==="string"&&f.required&&!f.nullable?"CHECK (char_length(btrim("+col+")) > 0)":"",
         f.min!==undefined?"CHECK ("+col+">="+f.min+")":"",
         f.max!==undefined?"CHECK ("+col+"<="+f.max+")":""].filter(Boolean);
+      if(f.initial!==undefined){
+        const states=new Set([f.initial,...ir.operations.filter(op=>
+          op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)
+          .flatMap(op=>[op.behavior.from,op.behavior.to])]);
+        if(states.size<2||[...states].some(v=>typeof v!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(v)))
+          throw Error("Invalid finite-state transition values");
+        checks.push("CHECK ("+col+" IN ("+[...states].sort().map(v=>"'"+v+"'").join(",")+"))");
+      }
       return "  "+col+" "+sqlType+" "+checks.join(" ");
     });
     schema.push("CREATE TABLE "+snake(e.name)+" (\n"+fields.join(",\n")+"\n);");
@@ -164,8 +184,10 @@ export function generate(ir,spec,out){
   write("web/vite.config.mjs",'import {defineConfig} from "vite";\n'+
     'export default defineConfig({base:"/",build:{outDir:"../dist/static",emptyOutDir:false}});\n');
   const resources=ir.entities.map(entity=>({entity,view:entity.view??entity.name,
+    transitions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition")
+      .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ir.operations.filter(op=>
-      op.entity===entity.name&&op.behavior.kind!=="health").map(op=>[
+      op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
         op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
       ]))}));
   write("dist/static/protocolia-ui.json",JSON.stringify({...resources[0],resources},null,2)+"\n");
