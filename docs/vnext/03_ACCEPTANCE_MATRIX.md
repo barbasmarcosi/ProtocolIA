@@ -189,3 +189,17 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | E9-09 | Docker Engine Compose-up; rolling mixed-version deploy; backup/restore production | NOT RUN / OUT OF PROFILE |
 
 **E9-01–E9-08 PASS bounded**. Exact functional code SHA `913bcb318724cf2a0bcd12cedf1e609da0c03075`; Render resumed build `dep-db7euknavr4c73809dmg` checks out `49c63d7a68370376f4e3afe6b8c0f87b88a8943e`; 39/39 Node PASS and both real PostgreSQL/Chromium/upgrade probes PASS. [Evidence A9](evidence/A9.md). Final Render deployment `dep-db7euknavr4c73809dmg` **LIVE**; complete A0–A8 regression suite PASS.
+
+## 14. A10 — Auditing business operations declared in TypeSpec
+
+| ID | Contract-level test | Status |
+| --- | --- | --- |
+| F10-01 | Declare `@audit("title,status")` on create and `@audit("status")` on transition | IR + Spring/Nest emitters generated; 41/41 Node PASS |
+| F10-02 | Bad audit selections (duplicate, unknown, identity on create, use on read) | Adapter negative PASS; TypeSpec negative build pending |
+| F10-03 | Successful create and guarded state changes append authenticated field-level entries | Real PostgreSQL HTTP proof pending |
+| F10-04 | Duplicate, unauthorized and wrong-state operations do not append audit entries | Real PostgreSQL proof pending |
+| F10-05 | PostgreSQL audit trigger failure rolls back CREATE atomically | Fault-injection proof pending |
+| F10-06 | PostgreSQL audit trigger failure rolls back guarded transition atomically | Fault-injection proof pending |
+| F10-07 | A0–A9 regressions unaffected on both backend targets | Complete Render build pending |
+
+**Bottleneck:** `dep-db7fkidg1s2s73abvlj0` on source `ed7e12e7a7ca1eb17df33062d8181c96afb014ea` running. Code and tests committed; no unverified PASS claims on F10-02 TypeSpec or F10-03–07. [A10 evidence](evidence/A10.md). Data is append-only through generated API, not tamper-proof.
