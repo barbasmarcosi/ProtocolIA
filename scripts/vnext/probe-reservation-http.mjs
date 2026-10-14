@@ -39,7 +39,7 @@ await verify(409,"POST",alloc,writer,{number:"R-OVER",partSku:"P-001",units:8,st
 assert.equal((await get()).available,7);
 // Distinct reservation identities compete over the same row. No overselling.
 const requests=Array.from({length:10},(_,i)=>call("POST",alloc,writer,{
-  number:"R-RACE-"+i,partSku:"P-001",units:1
+  number:"R-RACE-"+i,partSku:"P-001",units:1,status:"active"
 }));
 const outcomes=await Promise.all(requests);
 assert.equal(outcomes.filter(x=>x.status===201).length,7,JSON.stringify(outcomes));
