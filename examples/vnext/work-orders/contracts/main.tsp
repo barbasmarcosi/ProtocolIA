@@ -35,7 +35,7 @@ namespace WorkOrders {
   @error model Forbidden { @statusCode _: 403; message: string; }
 
   @route("/api/work-orders")
-  @post @behavior("create", "WorkOrder") @capability("orders.write")
+  @post @behavior("create", "WorkOrder") @audit("title,status") @capability("orders.write")
   op createWorkOrder(@body input: WorkOrderRequest):
     { @statusCode _: 201; @body record: WorkOrder; }
     | Conflict | BadRequest | Unauthorized | Forbidden;
@@ -54,6 +54,7 @@ namespace WorkOrders {
   @route("/api/work-orders/{code}/approve")
   @post @behavior("transition", "WorkOrder", "status")
   @transition("draft", "approved")
+  @audit("status")
   @capability("orders.write")
   op approveWorkOrder(@path code: string):
     WorkOrder | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
@@ -61,6 +62,7 @@ namespace WorkOrders {
   @route("/api/work-orders/{code}/close")
   @post @behavior("transition", "WorkOrder", "status")
   @transition("approved", "closed")
+  @audit("status")
   @capability("orders.write")
   op closeWorkOrder(@path code: string):
     WorkOrder | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
