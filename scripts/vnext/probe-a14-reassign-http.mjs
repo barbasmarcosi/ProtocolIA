@@ -35,6 +35,11 @@ if(phase==="seed"){
   assert.equal(audit.total,3);
   assert.deepEqual([audit.items[0].fieldName,audit.items[0].beforeValue,audit.items[0].afterValue],["technicianBadge","TE-A","TE-B"]);
   console.log("A14_REASSIGNMENT_FK_AUTH_CAS_AUDIT_HTTP_PASS");
+}else if(phase==="fail-audit"){
+  await check(500,"PATCH",assignment,manager,{expected:"TE-B",technicianBadge:"TE-C"});
+  assert.equal((await check(200,"GET",key,reader)).technicianBadge,"TE-B");
+  assert.equal((await check(200,"GET",key+"/audit?limit=10&offset=0",manager)).total,3);
+  console.log("A14_REASSIGNMENT_AUDIT_FAILURE_ATOMIC_ROLLBACK_PASS");
 }else if(phase==="recover"){
   await check(200,"PATCH",assignment,manager,{expected:"TE-B",technicianBadge:"TE-C"});
   assert.equal((await check(200,"GET",key,reader)).technicianBadge,"TE-C");
