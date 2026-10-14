@@ -86,6 +86,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A8 — Cancelación/reintegro compensatorio | PASS PostgreSQL acotado Spring+Nest | [A8](evidence/A8.md): `@release` sobre `@transition` original, una sola devolución en 10 cancelaciones concurrentes, rechazo por overflow con rollback, reintento y conformance genérica; Chromium A8 específico pendiente |
 | A9 — Migración A7→A8 y UI Chromium | PASS HTTP/PG/browser acotado Spring+Nest | [A9](evidence/A9.md): backfill V2 `active` sobre DB con reservas existentes, V1 intacta, DTO antiguo compatible, dos reinicios, diario Flyway/Nest y cancelación UI de registros históricos |
 | A10 — Auditoría contractual de mutaciones | Código+41 unitarios PASS; PostgreSQL funcional en verificación | [A10](evidence/A10.md): `@audit` con campos permitidos en create/transitions, actor y before/after, journal transaccional Spring+Nest; rollback provocado mediante trigger PostgreSQL |
+| A11 — Historial auditable HTTP/React | **PASS acotado Spring+Nest PostgreSQL/Chromium** | [A11](evidence/A11.md): nueva operación `auditPage` con capacidad independiente, paginación/404/400, reader 403 y pantalla historial React móvil; aún sin upgrade A10→A11 in-place |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -140,6 +141,14 @@ Los clientes A7 pueden seguir creando reservas sin enviar `status`; Spring y Nes
 `@audit("campo1,campo2")` permite seleccionar de forma explícita campos de una operación `create`, o el estado auditado de una `transition`. ProtocolIA agrega un diario PostgreSQL que registra usuario autenticado, entidad, identificador, operación, campo, valor anterior/nuevo y momento de commit. En Spring y Nest la escritura ocurre dentro de la transacción de negocio: si no se puede escribir la auditoría, la operación falla y se revierte.
 
 El ejemplo `examples/vnext/work-orders/contracts/main.tsp` lo ejerce sin crear servicios particulares por dominio. **Límites:** no se almacenan cuerpos completos por defecto; el autor debe evitar seleccionar secretos, no hay endpoint ni UI de consulta todavía y los administradores de base pueden alterar registros. [Evidencia A10](evidence/A10.md).
+
+## A11 — Historial de cambios generado desde el contrato
+
+Al definir `@behavior("auditPage", "Entidad") @capability("entidad.audit")` sobre una operación GET TypeSpec con ruta por identidad pública y consulta paginada, ProtocolIA genera una vista del diario de eventos ya declarado en A10. La operación se autoriza con un **permiso distinto** del usado para leer o modificar el recurso. Un lector convencional no ve el historial en React y recibe 403 al llamar directamente a su URL.
+
+Spring y Nest devuelven un historial `{items,total,limit,offset}` con usuario, operación, campo, valor anterior/nuevo y fecha UTC. Ambas implementaciones filtran por entidad + clave, respetan límites, rechazan parámetros desconocidos y devuelven 404 para recursos inexistentes después de comprobar la autorización. React genera una tabla en el detalle del recurso a partir del manifiesto contractual, verificada en Chromium móvil con ambos backends.
+
+**Evidencia:** [A11](evidence/A11.md). Perfil acotado: generación sobre base nueva, historial no criptográficamente inmutable, autenticación demo Basic, y sin garantías de evolución in-place A10→A11 todavía.
 
 ## Historial preservado
 
