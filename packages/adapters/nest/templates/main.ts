@@ -12,7 +12,9 @@ type Field={name:string;column:string;type:string;required:boolean;nullable:bool
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null};
+type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
+type Operation={query?:QuerySpec;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -176,6 +178,53 @@ class RuntimeService{
     const [items,count]=await Promise.all([
       this.pool.query(this.select(e)+" ORDER BY "+e.identityColumn+" LIMIT $1 OFFSET $2",[limit,offset]),
       this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table)
+    ]);
+    return {items:items.rows,total:count.rows[0].total,limit,offset};
+  }
+  private async queryPage(entity:Entity,op:Operation,query:Record<string,unknown>):Promise<unknown>{
+    const plan=op.query;
+    if(!plan)throw new Error("Missing generated query plan");
+    const allowed=new Set(["limit","offset",...plan.filters.map(f=>f.name)]);
+    if(Object.keys(query).some(k=>!allowed.has(k)))throw new Problem(400,"Unknown query parameter");
+    const intBound=(value:unknown,fallback:number)=>{
+      if(value===undefined)return fallback;
+      if(typeof value!=="string"||!/^[0-9]+$/.test(value))throw new Problem(400,"Invalid pagination");
+      const number=Number(value);
+      if(!Number.isSafeInteger(number))throw new Problem(400,"Invalid pagination");
+      return number;
+    };
+    const limit=intBound(query.limit,op.limitDefault??25);
+    const offset=intBound(query.offset,op.offsetDefault??0);
+    if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
+      throw new Problem(400,"Invalid pagination");
+    const values:unknown[]=[];
+    let clause=" WHERE TRUE";
+    for(const filter of plan.filters){
+      if(!Object.hasOwn(query,filter.name))continue;
+      const raw=query[filter.name];
+      if(typeof raw!=="string")throw new Problem(400,"Invalid filter input");
+      let value:unknown=raw;
+      if(filter.type==="string"){
+        if(!raw.trim()||(filter.minLength!=null&&raw.length<filter.minLength)||
+           (filter.maxLength!=null&&raw.length>filter.maxLength))
+          throw new Problem(400,"Invalid string filter");
+      }else if(filter.type==="int32"){
+        if(!/^-?[0-9]+$/.test(raw))throw new Problem(400,"Invalid integer filter");
+        const num=Number(raw);
+        if(!Number.isInteger(num)||num<-2147483648||num>2147483647||
+           (filter.min!=null&&num<filter.min)||(filter.max!=null&&num>filter.max))
+          throw new Problem(400,"Invalid integer filter");
+        value=num;
+      }else if(filter.type==="utcDateTime"){
+        value=parseTimestamp(raw);
+      }else throw new Error("Invalid generated query type");
+      values.push(value);
+      clause+=" AND "+filter.expression+" "+filter.comparator+" $"+values.length;
+    }
+    const [items,count]=await Promise.all([
+      this.pool.query(plan.projection+plan.source+clause+plan.order+
+        " LIMIT $"+(values.length+1)+" OFFSET $"+(values.length+2),[...values,limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total"+plan.source+clause,values)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
@@ -388,6 +437,7 @@ class RuntimeService{
         case "create": data=await this.create(entity,op,req.body,session.username);break;
         case "get":data=await this.row(entity,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
+        case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
