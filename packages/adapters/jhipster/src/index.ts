@@ -35,6 +35,7 @@ export interface IrOperation {
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     audit?: string[];
+    filters?: Array<{query:string;fieldPath:string;operator:"eq"|"gte"|"lte";type:"string"|"int32"|"utcDateTime"}>;
   };
   capability: string;
   request?: string;
