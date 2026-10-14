@@ -67,9 +67,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,patchFields:200,atomicIncrement:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","transition","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,patchFields:200,atomicIncrement:200,transition:200,delete:204,health:200};
   const ops = ir.operations;
   const routes = new Set();
   for(const op of ops){
@@ -82,7 +82,7 @@ export function generate(ir, openapi, outDir) {
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","patchFields","atomicIncrement","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0)
@@ -91,11 +91,21 @@ export function generate(ir, openapi, outDir) {
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
+    if(op.behavior.kind==="transition"){
+      const f=bound.fields.find(x=>x.name===op.behavior.field);
+      const b=op.behavior;
+      const safe=x=>typeof x==="string" && /^[a-z][a-z0-9_-]{0,63}$/.test(x) &&
+        x.length>=(f?.minLength??1) && x.length<=(f?.maxLength??255);
+      if(!f||!f.initial||f.type!=="string"||!f.required||f.nullable||
+        !safe(b.from)||!safe(b.to)||b.from===b.to||b.input)
+        throw Error("Invalid guarded transition "+op.name);
+      if(!op.statuses.includes(409))throw Error("Transition must declare 409 "+op.name);
+    }
     if(["atomicIncrement","patchFields"].includes(op.behavior.kind)){
       const f=bound.fields.find(x=>x.name===op.behavior.field);
       if(!f||op.behavior.input!==op.behavior.field&&op.behavior.kind==="patchFields") throw Error("Unsupported field/input mapping");
       if(op.behavior.kind==="atomicIncrement"&&f.type!=="int32") throw Error("Atomic addition requires int32 field");
-      if(op.behavior.kind==="patchFields"&&(f.type!=="string"||f.nullable))
+      if(op.behavior.kind==="patchFields"&&(f.type!=="string"||f.nullable||f.initial!==undefined))
         throw Error("Current patchFields runtime supports only non-null string fields");
     }
   }
@@ -114,7 +124,7 @@ export function generate(ir, openapi, outDir) {
     if(!readCaps.includes(read))readCaps.push(read);
     if(!writeCaps.includes(write))writeCaps.push(write);
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
-      const expected=["create","patchFields","atomicIncrement","delete"].includes(op.behavior.kind)?write:read;
+      const expected=["create","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind)?write:read;
       if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
@@ -139,16 +149,16 @@ export function generate(ir, openapi, outDir) {
     "import java.util.List;",
     "public final class Manifest {",
     "  private Manifest() {}",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
-        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null"
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null"
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -169,7 +179,7 @@ export function generate(ir, openapi, outDir) {
     }
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??"")].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
@@ -178,7 +188,8 @@ export function generate(ir, openapi, outDir) {
   copy("src/main/resources/application.properties","application.properties");
   const resources=entities.map(entity=>({
     entity,view:entity.view??entity.name,
-    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health").map(op=>[
+    transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
+    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
   }));
