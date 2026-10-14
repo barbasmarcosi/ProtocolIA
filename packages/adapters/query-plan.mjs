@@ -67,3 +67,26 @@ export function buildQueryPlan(ir,operation){
  });
  return {projection,source,order,filters,ddl};
 }
+
+/** Verify the official TypeSpec/OpenAPI query surface against compiled allowlisted IR. */
+export function assertQueryOpenApi(spec,operation){
+ const endpoint=spec?.paths?.[operation.path]?.[operation.method.toLowerCase()];
+ if(!endpoint||endpoint.requestBody)throw Error("Unresolved query OpenAPI operation");
+ const ref=value=>value?.$ref?value.$ref.split("/").slice(1).reduce((x,k)=>x?.[k],spec):value;
+ const entries=(endpoint.parameters??[]).map(ref);
+ const fields=operation.behavior.filters;
+ const allowed=new Set(["limit","offset",...fields.map(x=>x.parameter)]);
+ const actual=entries.filter(p=>p?.in==="query");
+ if(actual.length!==allowed.size||actual.some(p=>!allowed.has(p.name))||
+    new Set(actual.map(p=>p.name)).size!==actual.length)
+   throw Error("Query parameters differ from canonical IR");
+ for(const filter of fields){
+   const param=actual.find(p=>p.name===filter.parameter);
+   const schema=ref(param?.schema);
+   if(!param||param.required===true||!schema||
+      (filter.type==="utcDateTime"&&!(schema.type==="string"&&schema.format==="date-time"))||
+      (filter.type==="int32"&&schema.type!=="integer")||
+      (filter.type==="string"&&schema.type!=="string"))
+     throw Error("Unbound or incompatible OpenAPI query filter "+filter.parameter);
+ }
+}
