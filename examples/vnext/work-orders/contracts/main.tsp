@@ -67,6 +67,32 @@ namespace WorkOrders {
   op closeWorkOrder(@path code: string):
     WorkOrder | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
 
+  model AuditEntry {
+    id: string;
+    actor: string;
+    entityName: string;
+    resourceId: string;
+    operationName: string;
+    fieldName: string;
+    beforeValue: string | null;
+    afterValue: string | null;
+    occurredAt: utcDateTime;
+  }
+  model AuditPage {
+    items: AuditEntry[];
+    @minValue(1) @maxValue(50) limit: int32;
+    @minValue(0) offset: int32;
+    @minValue(0) total: int32;
+  }
+
+  @route("/api/work-orders/{code}/audit")
+  @get @behavior("auditPage", "WorkOrder") @capability("orders.audit")
+  op listWorkOrderAudit(
+    @path code: string,
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
+  ): AuditPage | NotFound | BadRequest | Unauthorized | Forbidden;
+
   @route("/health")
   @get @behavior("health", "WorkOrder") @capability("public")
   op health(): Health;
