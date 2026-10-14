@@ -85,6 +85,7 @@ public class DomainRuntime {
       case "create" -> result = create(entity, matched, body);
       case "get" -> result = row(entity, publicKey);
       case "listPage" -> result = page(entity, query, matched);
+      case "queryPage" -> result = queryPage(entity, query, matched);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
@@ -246,6 +247,62 @@ public class DomainRuntime {
     List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
     Number count = jdbc.queryForObject("SELECT COUNT(*) FROM " + e.table(), new MapSqlParameterSource(), Number.class);
     return Map.of("items", items, "total", count.intValue(), "limit", limit, "offset", offset);
+  }
+
+  private Map<String,Object> queryPage(Manifest.Entity entity,Map<String,String> query,Manifest.Op operation) {
+    Manifest.QuerySpec plan=Manifest.QUERIES.get(operation.name());
+    if(plan==null)throw new IllegalStateException("Unresolved generated query");
+    var allowed=new java.util.HashSet<String>();
+    allowed.add("limit");allowed.add("offset");
+    for(var f:plan.filters())allowed.add(f.name());
+    if(!allowed.containsAll(query.keySet()))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown filter");
+    int limit,offset;
+    try {
+      limit=Integer.parseInt(query.getOrDefault("limit",String.valueOf(operation.limitDefault())));
+      offset=Integer.parseInt(query.getOrDefault("offset",String.valueOf(operation.offsetDefault())));
+    } catch(NumberFormatException ex) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid pagination");
+    }
+    if(limit<operation.limitMin()||limit>operation.limitMax()||offset<0||offset>operation.offsetMax())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Page out of bounds");
+    var args=new MapSqlParameterSource().addValue("limit",limit).addValue("offset",offset);
+    var where=new StringBuilder(" WHERE TRUE");
+    for(var filter:plan.filters()){
+      if(!query.containsKey(filter.name()))continue;
+      String value=query.get(filter.name());
+      Object parsed;
+      if(filter.type().equals("string")){
+        if(value==null||value.isBlank()||
+           (filter.minLength()!=null&&value.length()<filter.minLength())||
+           (filter.maxLength()!=null&&value.length()>filter.maxLength()))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid text filter");
+        parsed=value;
+      }else if(filter.type().equals("int32")){
+        try {
+          int number=Integer.parseInt(value);
+          if((filter.min()!=null&&number<filter.min())||
+             (filter.max()!=null&&number>filter.max()))
+            throw new NumberFormatException();
+          parsed=number;
+        }catch(NumberFormatException ex){
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid integer filter");
+        }
+      }else if(filter.type().equals("utcDateTime")){
+        try {parsed=OffsetDateTime.parse(value);}
+        catch(RuntimeException ex){
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid timestamp filter");
+        }
+      }else throw new IllegalStateException("Unsupported declared filter");
+      args.addValue(filter.name(),parsed);
+      where.append(" AND ").append(filter.expression()).append(" ")
+          .append(filter.comparator()).append(" :").append(filter.name());
+    }
+    var rows=jdbc.queryForList(plan.projection()+plan.source()+where+plan.order()+
+      " LIMIT :limit OFFSET :offset",args);
+    Number total=jdbc.queryForObject("SELECT COUNT(*) "+plan.source()+where,args,Number.class);
+    var items=rows.stream().map(row->serialized(row,entity)).toList();
+    return Map.of("items",items,"total",total.intValue(),"limit",limit,"offset",offset);
   }
 
   private Map<String,Object> auditPage(Manifest.Entity e,String key,Map<String,String> query,Manifest.Op op) {
