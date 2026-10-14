@@ -5,6 +5,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {generate as spring} from "../../packages/adapters/modular/generate.mjs";
 import {generate as nest} from "../../packages/adapters/nest/generate.mjs";
+import {diffContracts,validateOpenApiEvolution} from "../../packages/cli/regeneration.mjs";
 
 const tmp=()=>mkdtempSync(join(tmpdir(),"protocolia-a14-"));
 const id=(name)=>({name,type:"string",required:true,nullable:false,unique:true,minLength:1,maxLength:40});
@@ -85,5 +86,35 @@ test("A14 reject reassignment without FK, audit, protected capability, safe stat
   const broken=structuredClone(ir);mutate(broken);
   assert.throws(()=>spring(broken,api,tmp()));
   assert.throws(()=>nest(broken,api,tmp()));
+ }
+});
+
+test("A14 zero-DDL evolution accepts a single audited FK reassignment but not privilege or semantic drift",()=>{
+ const before=structuredClone(ir);
+ before.operations=before.operations.filter(x=>x.behavior.kind!=="reassignReference");
+ const plan=diffContracts(before,ir);
+ assert.equal(plan.compatible,true,JSON.stringify(plan.blockers));
+ assert.deepEqual(plan.changes.map(x=>x.kind),["addOperation"]);
+ const oldApi={openapi:"3.1.0",paths:structuredClone(api.paths),components:{schemas:{}}};
+ const newApi=structuredClone(oldApi);
+ newApi.components.schemas.AssignRequest={type:"object",required:["expected","assignedBadge"],
+  properties:{expected:{type:"string"},assignedBadge:{type:"string"}}};
+ newApi.paths["/api/workitems/{number}/assignee"]={patch:{requestBody:{content:{
+  "application/json":{schema:{$ref:"#/components/schemas/AssignRequest"}}
+ }},responses:{"200":{description:"Assigned"}}}};
+ assert.deepEqual(validateOpenApiEvolution(oldApi,newApi,before,ir,plan),[]);
+ const changed=structuredClone(newApi);
+ changed.paths["/api/workitems"].get.parameters[0].schema.maximum=999;
+ assert.ok(validateOpenApiEvolution(oldApi,changed,before,ir,plan).length>0);
+ for(const mutate of [
+  x=>{x.operations[6].capability="workitems.write";},
+  x=>{x.operations[6].capability="workitems.audit";},
+  x=>{delete x.operations[6].behavior.audit;},
+  x=>{delete x.entities[1].fields[1].reference;},
+  x=>{x.operations[6].path="/api/workitems/{number}/{assignedBadge}";},
+  x=>{x.operations[6].behavior.field="number";}
+ ]){
+  const wrong=structuredClone(ir);mutate(wrong);
+  assert.equal(diffContracts(before,wrong).compatible,false);
  }
 });
