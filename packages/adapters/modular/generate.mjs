@@ -91,6 +91,15 @@ export function generate(ir, openapi, outDir) {
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
+    if(op.behavior.audit){
+      const a=op.behavior.audit;
+      if(!Array.isArray(a)||a.length<1||a.length>8||new Set(a).size!==a.length||
+         !["create","transition"].includes(op.behavior.kind)||
+         a.some(field=>!bound.fields.some(f=>f.name===field))||
+         (op.behavior.kind==="transition"&&(a.length!==1||a[0]!==op.behavior.field))||
+         (op.behavior.kind==="create"&&a.includes(bound.publicIdentity)))
+        throw Error("Invalid audited mutation "+op.name);
+    }
     if(op.behavior.reserve){
       const r=op.behavior.reserve,stock=entityMap.get(r.stockEntity);
       const available=stock?.fields.find(x=>x.name===r.availableField);
@@ -183,7 +192,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
@@ -231,7 +240,7 @@ export function generate(ir, openapi, outDir) {
     }
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
@@ -290,6 +299,13 @@ export function generate(ir, openapi, outDir) {
       snake(f.name)+" FOREIGN KEY ("+snake(f.name)+") REFERENCES "+
       snake(parent.name)+" ("+snake(parent.publicIdentity)+") ON DELETE RESTRICT;");
   }
+  if(ops.some(op=>op.behavior.audit))sql.push(
+    "CREATE TABLE protocolia_audit_event (id BIGSERIAL PRIMARY KEY, "+
+    "actor VARCHAR(255) NOT NULL, entity_name VARCHAR(128) NOT NULL, "+
+    "resource_id VARCHAR(255) NOT NULL, operation_name VARCHAR(128) NOT NULL, "+
+    "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
+    "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+    "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
