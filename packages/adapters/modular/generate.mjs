@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, exis
 import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
+import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -312,6 +313,7 @@ export function generate(ir, openapi, outDir) {
   ]) copy("web/"+file,"web/"+file);
   for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
     copy(file,file);
+  const overdueRules=compileOverduePolicies(ir);
   const sql=[];
   for(const e of entities){
     const table=snake(e.name),key=e.publicIdentity;
@@ -357,6 +359,9 @@ export function generate(ir, openapi, outDir) {
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   const queryIndexDdl=new Set(queryPlans.flatMap(x=>x.plan.ddl));
   sql.push(...queryIndexDdl);
+  sql.push(...overdueSchemaSql(overdueRules));
+  if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
+    overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+

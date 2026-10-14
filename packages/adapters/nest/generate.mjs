@@ -1,5 +1,6 @@
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
+import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -216,6 +217,7 @@ export function generate(ir,spec,out){
     const full=join(out,p);mkdirSync(dirname(full),{recursive:true});
     copyFileSync(source,full);contents.push(p);
   };
+  const overdueRules=compileOverduePolicies(ir);
   const schema=[];
   for(const e of ir.entities){
     const fields=e.fields.map(f=>{
@@ -250,6 +252,7 @@ export function generate(ir,spec,out){
   for(const op of ir.operations.filter(op=>op.behavior.kind==="queryPage"))
     for(const ddl of buildQueryPlan(ir,op).ddl)queryIndexDdl.add(ddl);
   schema.push(...queryIndexDdl);
+  schema.push(...overdueSchemaSql(overdueRules));
   if(ir.operations.some(op=>op.behavior.audit))schema.push(
     "CREATE TABLE protocolia_audit_event (id BIGSERIAL PRIMARY KEY, "+
     "actor VARCHAR(255) NOT NULL, entity_name VARCHAR(128) NOT NULL, "+
@@ -263,6 +266,8 @@ export function generate(ir,spec,out){
     operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
+  if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
+    overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   mkdirSync(join(out,"src/migrations"),{recursive:true});
   copy("src/main.ts",join(root,"templates/main.ts"));
   write("package.json",JSON.stringify({name:"protocolia-nest-generated",
