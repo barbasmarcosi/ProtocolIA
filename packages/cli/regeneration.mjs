@@ -103,6 +103,26 @@ export function diffContracts(oldIr,nextIr){
       }else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
       continue;
     }
+    if(b.kind==="reassignReference"){
+      const entity=oldIr.entities.find(e=>e.name===op.entity);
+      const relation=entity?.fields.find(f=>f.name===b.field);
+      const existing=oldIr.operations.filter(x=>x.entity===op.entity);
+      const oldCapabilities=new Set(existing.map(x=>x.capability));
+      const routeInUse=oldIr.operations.some(x=>x.method===op.method&&x.path===op.path);
+      const pathKeys=[...op.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      if(!entity||!relation?.reference||relation.type!=="string"||!relation.required||
+         relation.nullable||relation.initial!==undefined||b.field===entity.publicIdentity||
+         b.input!==relation.name||!Array.isArray(b.audit)||b.audit.length!==1||
+         b.audit[0]!==relation.name||b.reserve||b.release||b.from||b.to||
+         op.method!=="PATCH"||pathKeys.length!==1||pathKeys[0]!==entity.publicIdentity||
+         !op.path.startsWith("/api/")||routeInUse||
+         ![200,400,404,409].every(code=>op.statuses.includes(code))||
+         !op.capability||op.capability==="public"||oldCapabilities.has(op.capability)||
+         existing.some(x=>x.behavior.kind==="reassignReference")){
+        blockers.push("Unsafe guarded FK reassignment addition: "+op.name);
+      }else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
+      continue;
+    }
     if(!field||b.kind!=="transition"||!release||!linked||!parentWrite||
        b.from!==field.field.initial||b.to===b.from||
        op.method!=="POST"||!op.statuses.includes(200)||!op.statuses.includes(409)||
@@ -163,7 +183,7 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     if(!endpoint){
       issues.push("New operation missing from OpenAPI: "+op.name);continue;
     }
-    if(op.behavior.kind==="auditPage")gatherRefs(endpoint);
+    if(["auditPage","reassignReference"].includes(op.behavior.kind))gatherRefs(endpoint);
     delete next.paths[op.path][op.method.toLowerCase()];
     if(Object.keys(next.paths[op.path]).length===0)delete next.paths[op.path];
   }
