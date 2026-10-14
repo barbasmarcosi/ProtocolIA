@@ -125,6 +125,8 @@ public class DomainRuntime {
       var f = e.fields().stream().filter(x -> x.name().equals(input.getKey())).findFirst()
           .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown field"));
       Object v = input.getValue();
+      if (create && f.initial() != null && !f.initial().equals(v))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only the initial state can be created");
       if (v == null) {
         if (!f.nullable()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Null is not allowed");
         continue;
