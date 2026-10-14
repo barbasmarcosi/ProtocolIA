@@ -219,6 +219,14 @@ export function generate(ir, openapi, outDir) {
         checks.push("CHECK (char_length(btrim("+col+")) > 0)");
       if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
       if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
+      if(f.initial!==undefined){
+        const values=new Set([f.initial,...ops.filter(op=>
+          op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)
+          .flatMap(op=>[op.behavior.from,op.behavior.to])]);
+        if(values.size<2||[...values].some(x=>typeof x!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(x)))
+          throw Error("Unresolved finite state values "+e.name+"."+f.name);
+        checks.push("CHECK ("+col+" IN ("+[...values].sort().map(x=>"'"+x+"'").join(",")+"))");
+      }
       return "  "+col+" "+type+" "+checks.join(" ");
     });
     sql.push("CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);");
