@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+const base="http://127.0.0.1:8080";
+const w="Basic "+Buffer.from("manager:test-manager-only-2026").toString("base64");
+const r="Basic "+Buffer.from("reader:test-reader-only-2026").toString("base64");
+const path="/api/allocations/R-MAX";
+const cancel=await fetch(base+path+"/cancel",{method:"POST",headers:{Authorization:w}});
+assert.equal(cancel.status,200,await cancel.text());
+const stock=await fetch(base+"/api/parts/P-MAX",{headers:{Authorization:r}});
+assert.equal((await stock.json()).available,2147483647);
+const duplicate=await fetch(base+path+"/cancel",{method:"POST",headers:{Authorization:w}});
+assert.equal(duplicate.status,409);
+console.log("A8_OVERFLOW_RECOVERY_CORRECT_ONE_TIME_CREDIT_PASS");
