@@ -19,6 +19,7 @@ export const $lib = createTypeSpecLibrary({
     capability: {description:"ProtocolIA capability contract metadata"},
     queryFilter: {description:"Explicit typed HTTP query filter on an entity or one FK hop"},
     queryOrder: {description:"Deterministic declared query ordering"},
+    overdueAlert: {description:"Persistent overdue inbox rule; no external delivery implied"},
   },
 });
 
@@ -81,6 +82,12 @@ function queryOrder(context: DecoratorContext, target: Operation, field: string,
   context.program.stateMap($lib.stateKeys.queryOrder).set(target,{field,direction});
 }
 
+function overdueAlert(context: DecoratorContext, target: Model, dueField: string,
+  stateField: string, terminalState: string, recipientField: string, channel: string): void {
+  context.program.stateMap($lib.stateKeys.overdueAlert).set(target,
+    {dueField,stateField,terminalState,recipientField,channel});
+}
+
 export const $decorators = {
   "ProtocolIA.Domain": {
     entity,
@@ -97,6 +104,7 @@ export const $decorators = {
     capability,
     queryFilter,
     queryOrder,
+    overdueAlert,
   },
 };
 

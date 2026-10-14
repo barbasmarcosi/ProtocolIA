@@ -17,5 +17,7 @@ namespace ProtocolIA.Domain {
     entity: valueof string, field?: valueof string, input?: valueof string);
   extern dec queryFilter(target: ModelProperty, path: valueof string, operator: valueof string);
   extern dec queryOrder(target: Operation, field: valueof string, direction: valueof string);
+  extern dec overdueAlert(target: Model, dueField: valueof string, stateField: valueof string,
+    terminalState: valueof string, recipientField: valueof string, channel: valueof string);
   extern dec capability(target: Operation, name: valueof string);
 }

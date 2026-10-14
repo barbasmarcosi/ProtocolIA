@@ -20,6 +20,9 @@ export interface IrEntity {
   publicIdentity: string;
   fields: IrField[];
   view?: string;
+  overdueAlert?: {
+    dueField:string;stateField:string;terminalState:string;recipientField:string;channel:"inbox";
+  };
 }
 export interface IrOperation {
   name: string;

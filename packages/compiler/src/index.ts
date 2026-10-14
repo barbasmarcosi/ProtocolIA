@@ -97,9 +97,30 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("identity",m.name+" public key must be unique, non-null and required",m);
       continue;
     }
+    const alert=metadata(p,"overdueAlert",m);
+    if(alert){
+      const due=fields.find(f=>f.name===alert.dueField);
+      const state=fields.find(f=>f.name===alert.stateField);
+      const recipient=fields.find(f=>f.name===alert.recipientField);
+      const terminal=String(alert.terminalState??"");
+      if(!due||due.type!=="utcDateTime"||!state||state.type!=="string"||
+          !state.required||state.nullable||!state.initial||!recipient?.reference||
+          recipient.type!=="string"||!recipient.required||recipient.nullable||
+          recipient.reference.target===m.name||
+          !/^[a-z][a-z0-9_-]{0,63}$/.test(terminal)||
+          alert.channel!=="inbox"||due.name===state.name||due.name===recipient.name||
+          state.name===recipient.name){
+        reject("invalid-overdue-alert",m.name+" requires a UTC due field, finite-state field, terminal state, required recipient FK and inbox channel",m);
+      }
+    }
     entities.push({
       name:m.name,publicIdentity:identity.name,fields,
       ...(metadata(p,"view",m)?.label !== undefined ? {view:String(metadata(p,"view",m)?.label)} : {}),
+      ...(alert ? {overdueAlert:{
+        dueField:String(alert.dueField),stateField:String(alert.stateField),
+        terminalState:String(alert.terminalState),recipientField:String(alert.recipientField),
+        channel:"inbox" as const
+      }} : {}),
     });
   }
   for (const entity of entities) {
@@ -428,6 +449,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("release-invariant",op.name+
         " must have exactly one matching @reserve create operation and a terminal destination state",
         ops.find(x=>x.name===op.name)!);
+    }
+  }
+  // A143: terminal state must be a real TypeSpec transition target.
+  for(const e of entities.filter(e=>e.overdueAlert)){
+    const policy=e.overdueAlert!;
+    if(!operations.some(op=>op.entity===e.name&&op.behavior.kind==="transition"&&
+         op.behavior.field===policy.stateField&&op.behavior.to===policy.terminalState)){
+      reject("overdue-terminal",e.name+" overdue terminal state must be declared by a transition",
+        models.find(m=>m.name===e.name)!);
     }
   }
   if (invalid) return undefined;
