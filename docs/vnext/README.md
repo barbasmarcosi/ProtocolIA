@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva, A8 cancelación/reintegro y A9 upgrade A7→A8 con filas persistidas + React Chromium PASS acotados en Spring+Nest con PostgreSQL real.  
+**Estado actualizado 2026-10-14:** A0–A12 PASS dentro de sus perfiles acotados; A2 mantiene pendiente el arranque Compose con Docker Engine. A13: **prueba independiente de cliente 13/16 requisitos (81,25 %) PASS Spring/Nest HTTP, PostgreSQL y Chromium**, tres capacidades aún no soportadas; aplicación generada publicada externamente con PostgreSQL durable aún pendiente. [Estado ejecutivo](../EXECUTION_STATE.md) · [Evidencia A13](evidence/A13.md).
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -85,9 +85,10 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A7 — Reserva transaccional multi-entidad | PASS HTTP/PostgreSQL acotado | [A7](evidence/A7.md): stock debit+insert atómicos Spring/Nest, 7 éxitos+3 conflictos concurrentes, rollback de duplicados y conformance genérica; UI E2E específica pendiente |
 | A8 — Cancelación/reintegro compensatorio | PASS PostgreSQL acotado Spring+Nest | [A8](evidence/A8.md): `@release` sobre `@transition` original, una sola devolución en 10 cancelaciones concurrentes, rechazo por overflow con rollback, reintento y conformance genérica; Chromium A8 específico pendiente |
 | A9 — Migración A7→A8 y UI Chromium | PASS HTTP/PG/browser acotado Spring+Nest | [A9](evidence/A9.md): backfill V2 `active` sobre DB con reservas existentes, V1 intacta, DTO antiguo compatible, dos reinicios, diario Flyway/Nest y cancelación UI de registros históricos |
-| A10 — Auditoría contractual de mutaciones | Código+41 unitarios PASS; PostgreSQL funcional en verificación | [A10](evidence/A10.md): `@audit` con campos permitidos en create/transitions, actor y before/after, journal transaccional Spring+Nest; rollback provocado mediante trigger PostgreSQL |
+| A10 — Auditoría contractual de mutaciones | PASS HTTP/PostgreSQL transaccional Spring+Nest | [A10](evidence/A10.md): `@audit` con campos permitidos en create/transitions, actor y before/after, journal transaccional Spring+Nest; rollback provocado mediante trigger PostgreSQL |
 | A11 — Historial auditable HTTP/React | **PASS acotado Spring+Nest PostgreSQL/Chromium** | [A11](evidence/A11.md): nueva operación `auditPage` con capacidad independiente, paginación/404/400, reader 403 y pantalla historial React móvil; aún sin upgrade A10→A11 in-place |
 | A12 — Upgrade A10→A11 sin cambiar datos | **PASS Spring+Nest HTTP/PG/Chromium**, 46/46 Node, Render LIVE | [A12](evidence/A12.md): plan/evolve read-only, SQL V1 preservado, 2 órdenes y 6 eventos intactos, migraciones sin V2, reinicio e idempotencia |
+| A13 — Prueba independiente con 4 recursos y 16 requisitos | **13/16 PASS (81,25 %) ×2**, HTTP/PG/Chromium | [Requisitos congelados](evidence/A13_REQUIREMENTS.md), [A13](evidence/A13.md): cadena de FK, doble selector, concurrencia y auditoría; filtros, reasignación y alertas UNSUPPORTED; hosting persistente pendiente |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -156,6 +157,12 @@ Spring y Nest devuelven un historial `{items,total,limit,offset}` con usuario, o
 A partir de una aplicación A10 ya poblada, el comando `protocolia plan` permite declarar una **única lectura de auditoría nueva** desde TypeSpec (operación `auditPage`, con capacidad independiente). `protocolia evolve` conserva exactamente los contratos de escritura, las migraciones V1 existentes, los eventos auditados y las extensiones propias, mientras reemplaza el código generado y la interfaz con respaldo y sellado de integridad.
 
 La evolución es **sin SQL nuevo**, porque A10 ya creó `protocolia_audit_event`; no es una migración de datos. El validador OpenAPI admite solamente los esquemas de respuesta alcanzables desde la nueva lectura, sin permitir cambios ocultos de los DTO existentes. La prueba de aceptación usa PostgreSQL persistente antes/después y Chrome móvil en Spring y NestJS. [Detalle y evidencia A12](evidence/A12.md). **Estado A12: PASS** — upgrade real Spring/Nest PostgreSQL con datos y eventos históricos intactos; no-DDL, HTTP/Chromium y regresiones integrales. Render `dep-db7glj49v7es73c0moa0` LIVE, fuente funcional `b441474331653930e8c0681f6ee8c1291b4547f4`.
+
+## A13 — Evaluación independiente de producto
+
+El cliente ficticio de mantenimiento de instalaciones pidió [16 requisitos](evidence/A13_REQUIREMENTS.md) **antes de compilar** el contrato `examples/vnext/facility-maintenance`: cuatro recursos, múltiples relaciones, tickets con técnico y máquina, estados, permisos, auditoría, formularios móviles, filtros, reasignaciones y avisos de vencimiento. El código fuente del contrato y los generadores/plantillas quedaron congelados mediante SHA Git, sin adaptaciones posteriores al dominio. Spring y Nest se generaron con los mismos hashes de contrato, IR y OpenAPI.
+
+**Resultado medido: 13/16 (81,25 %)** sobre PostgreSQL, HTTP y Chromium reales, incluyendo persistencia tras reinicio en los dos targets. Tres requisitos son **UNSUPPORTED** en el perfil de contratos actual: reasignación auditada, filtros combinados y notificaciones automáticas. La URL pública de Render no sirve una aplicación generada; aloja solo el marcador de build. El despliegue externo con almacenamiento durable y prueba de uso humano es otro gate, aún pendiente. [Evidencia A13](evidence/A13.md).
 
 ## Historial preservado
 
