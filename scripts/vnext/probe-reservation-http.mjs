@@ -24,18 +24,18 @@ await verify(201,"POST",stock,writer,{sku:"P-001",name:"Steel bolt",available:10
 await verify(400,"POST",stock,writer,{sku:"P-BAD",name:"bad",available:-1});
 const before=await get();
 assert.equal(before.available,10);
-await verify(403,"POST",alloc,reader,{number:"R-DENY",partSku:"P-001",units:1});
-await verify(400,"POST",alloc,writer,{number:"R-NO-STOCK",partSku:"MISSING",units:1});
-await verify(400,"POST",alloc,writer,{number:"R-ZERO",partSku:"P-001",units:0});
-await verify(400,"POST",alloc,writer,{number:"R-UNKNOWN",partSku:"P-001",units:1,rogue:true});
+await verify(403,"POST",alloc,reader,{number:"R-DENY",partSku:"P-001",units:1,status:"active"});
+await verify(400,"POST",alloc,writer,{number:"R-NO-STOCK",partSku:"MISSING",units:1,status:"active"});
+await verify(400,"POST",alloc,writer,{number:"R-ZERO",partSku:"P-001",units:0,status:"active"});
+await verify(400,"POST",alloc,writer,{number:"R-UNKNOWN",partSku:"P-001",units:1,status:"active",rogue:true});
 assert.equal((await get()).available,10);
-const created=await verify(201,"POST",alloc,writer,{number:"R-001",partSku:"P-001",units:3});
-assert.equal(created.partSku,"P-001");assert.equal(created.units,3);
+const created=await verify(201,"POST",alloc,writer,{number:"R-001",partSku:"P-001",units:3,status:"active"});
+assert.equal(created.partSku,"P-001");assert.equal(created.units,3);assert.equal(created.status,"active");
 assert.equal((await get()).available,7);
 // Database insert of a duplicate must roll back the already-executed stock debit.
-await verify(409,"POST",alloc,writer,{number:"R-001",partSku:"P-001",units:2});
+await verify(409,"POST",alloc,writer,{number:"R-001",partSku:"P-001",units:2,status:"active"});
 assert.equal((await get()).available,7);
-await verify(409,"POST",alloc,writer,{number:"R-OVER",partSku:"P-001",units:8});
+await verify(409,"POST",alloc,writer,{number:"R-OVER",partSku:"P-001",units:8,status:"active"});
 assert.equal((await get()).available,7);
 // Distinct reservation identities compete over the same row. No overselling.
 const requests=Array.from({length:10},(_,i)=>call("POST",alloc,writer,{
@@ -47,7 +47,7 @@ assert.equal(outcomes.filter(x=>x.status===409).length,3,JSON.stringify(outcomes
 assert.equal((await get()).available,0);
 assert.equal((await verify(200,"GET",alloc+"/R-001",reader)).units,3);
 await verify(404,"GET",alloc+"/MISSING",reader);
-await verify(409,"POST",alloc,writer,{number:"R-TOO-LATE",partSku:"P-001",units:1});
+await verify(409,"POST",alloc,writer,{number:"R-TOO-LATE",partSku:"P-001",units:1,status:"active"});
 const page=await verify(200,"GET",alloc+"?limit=25&offset=0",reader);
 assert.equal(page.total,8);
 console.log("A7_RESERVE_DEBIT_INSERT_ROLLBACK_AND_TEN_WAY_RACE_PASS");
