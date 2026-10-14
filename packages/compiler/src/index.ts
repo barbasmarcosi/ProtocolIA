@@ -146,7 +146,40 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "atomicIncrement" && entity.fields.find((x)=>x.name===f)?.type !== "int32") {
       reject("atomic-type",op.name+" atomicIncrement requires an int32 field",op);continue;
     }
-    if (kind === "transition") {
+    const reservation = metadata(p,"reserve",op);
+    if (reservation) {
+      if (kind !== "create" || f !== undefined || input !== undefined) {
+        reject("reserve-behavior",op.name+" @reserve must annotate a create operation",op);
+        continue;
+      }
+      const stock = declared.get(String(reservation.stockEntity));
+      const available = stock?.fields.find(x=>x.name===reservation.availableField);
+      const relation = entity.fields.find(x=>x.name===reservation.referenceField);
+      const amount = entity.fields.find(x=>x.name===reservation.quantityField);
+      const payload = op.parameters.properties.get("input")?.type;
+      const requestAmount = payload?.kind === "Model" ?
+        payload.properties.get(String(reservation.quantityField)) : undefined;
+      const requestRelation = payload?.kind === "Model" ?
+        payload.properties.get(String(reservation.referenceField)) : undefined;
+      const requestIdentity = payload?.kind === "Model" ?
+        payload.properties.get(entity.publicIdentity) : undefined;
+      if (!stock || stock===entity || !available || available.type!=="int32" ||
+          !available.required || available.nullable || (available.min??-1)<0 ||
+          !relation || relation.type!=="string" || !relation.reference ||
+          relation.reference.target!==stock.name || !relation.required || relation.nullable ||
+          !amount || amount.type!=="int32" || !amount.required || amount.nullable ||
+          (amount.min??-1)<1 || payload?.kind!=="Model" ||
+          !requestAmount || requestAmount.optional || typeOfField(requestAmount)?.type!=="int32" ||
+          (getMinValue(p,requestAmount)??-1)<1 || !requestRelation ||
+          requestRelation.optional || typeOfField(requestRelation)?.type!=="string" ||
+          !requestIdentity || requestIdentity.optional ||
+          typeOfField(requestIdentity)?.type!=="string") {
+        reject("invalid-reserve",op.name+
+          " must bind a required positive reservation amount and FK to a nonnegative stock field, with matching request inputs",op);
+        continue;
+      }
+      // No arbitrary SQL or business expressions: only validated identifiers and integer fields.
+    }
       const state = f ? entity.fields.find((x)=>x.name===f) : undefined;
       const trans = metadata(p,"transition",op);
       const from = trans?.from, to = trans?.to;
@@ -194,6 +227,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
          http.parameters.body !== undefined)) {
       reject("transition-http",op.name+" must POST without request body and return 200",op);continue;
     }
+    if (reservation && (!statuses.includes(400) || !statuses.includes(409) ||
+         http.parameters.body?.bodyKind!=="single")) {
+      reject("reserve-http",op.name+" requires POST body with declared 201, 400 and 409 responses",op);
+      continue;
+    }
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
     }
@@ -203,7 +241,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
-        } : {})},
+        } : {}),
+        ...(reservation ? {reserve:{
+          stockEntity:String(reservation.stockEntity),
+          availableField:String(reservation.availableField),
+          referenceField:String(reservation.referenceField),
+          quantityField:String(reservation.quantityField)
+        }} : {})},
       capability:String(cap.name), statuses,
       ...(http.parameters.body?.bodyKind === "single" &&
         http.parameters.body.type.kind === "Model" ?
