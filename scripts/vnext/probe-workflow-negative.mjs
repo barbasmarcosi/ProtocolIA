@@ -13,8 +13,8 @@ const variants=[
     s=>s.replace('@initial("draft") @minLength(1) @maxLength(20)','@minLength(1) @maxLength(20)'),
     "protocolia-invalid-transition"],
   ["unprotected-write",
-    s=>s.replace('@transition("draft", "approved")\n  @capability("orders.write")',
-      '@transition("draft", "approved")\n  @capability("public")'),
+    s=>s.replace('@transition("draft", "approved")\n  @audit("status")\n  @capability("orders.write")',
+      '@transition("draft", "approved")\n  @audit("status")\n  @capability("public")'),
     "protocolia-public-write"],
 ];
 const original=resolve("examples/vnext");
