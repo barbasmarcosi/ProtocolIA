@@ -146,6 +146,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "atomicIncrement" && entity.fields.find((x)=>x.name===f)?.type !== "int32") {
       reject("atomic-type",op.name+" atomicIncrement requires an int32 field",op);continue;
     }
+    const release = metadata(p,"release",op);
+    if (release) {
+      const stock = declared.get(String(release.stockEntity));
+      const available = stock?.fields.find(x=>x.name===release.availableField);
+      const relation = entity.fields.find(x=>x.name===release.referenceField);
+      const amount = entity.fields.find(x=>x.name===release.quantityField);
+      const state = entity.fields.find(x=>x.name===f);
+      const trans = metadata(p,"transition",op);
+      if (kind!=="transition" || !state || !state.initial || trans?.from!==state.initial ||
+          !stock || stock===entity || !available || available.type!=="int32" ||
+          !available.required || available.nullable || (available.min??-1)<0 ||
+          !relation || !relation.reference || relation.reference.target!==stock.name ||
+          relation.type!=="string" || !relation.required || relation.nullable ||
+          !amount || amount.type!=="int32" || !amount.required || amount.nullable ||
+          (amount.min??-1)<1) {
+        reject("invalid-release",op.name+" must release an initial-state reservation with positive units and a declared stock FK",op);
+        continue;
+      }
+    }
     const reservation = metadata(p,"reserve",op);
     if (reservation) {
       if (kind !== "create" || f !== undefined || input !== undefined) {
@@ -243,6 +262,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
         } : {}),
+        ...(release ? {release:{
+          stockEntity:String(release.stockEntity),
+          availableField:String(release.availableField),
+          referenceField:String(release.referenceField),
+          quantityField:String(release.quantityField)
+        }} : {}),
         ...(reservation ? {reserve:{
           stockEntity:String(reservation.stockEntity),
           availableField:String(reservation.availableField),
@@ -268,6 +293,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
         if(names.has(key))reject("duplicate-transition",entity.name+"."+state.name+" has duplicated "+key,models.find((m)=>m.name===entity.name)!);
         names.add(key);
       }
+    }
+  }
+  for (const op of operations.filter(o=>o.behavior.release)) {
+    const release=op.behavior.release!;
+    const matchingCreates=operations.filter(o=>o.entity===op.entity &&
+      o.behavior.kind==="create" && o.behavior.reserve &&
+      Object.entries(release).every(([key,value])=>
+        (o.behavior.reserve as unknown as Record<string,string>)[key]===value));
+    const reverse=operations.find(o=>o.entity===op.entity &&
+      o.behavior.kind==="transition" && o.behavior.field===op.behavior.field &&
+      o.behavior.from===op.behavior.to);
+    if (matchingCreates.length!==1 || reverse) {
+      reject("release-invariant",op.name+
+        " must have exactly one matching @reserve create operation and a terminal destination state",
+        ops.find(x=>x.name===op.name)!);
     }
   }
   if (invalid) return undefined;
