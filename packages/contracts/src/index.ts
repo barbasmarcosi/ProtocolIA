@@ -17,6 +17,8 @@ export const $lib = createTypeSpecLibrary({
     audit: {description:"Auditable, explicitly allowlisted business fields; no request payload logging"},
     behavior: {description:"ProtocolIA behavior contract metadata"},
     capability: {description:"ProtocolIA capability contract metadata"},
+    queryFilter: {description:"Explicit typed HTTP query filter on an entity or one FK hop"},
+    queryOrder: {description:"Deterministic declared query ordering"},
   },
 });
 
@@ -72,6 +74,13 @@ function capability(context: DecoratorContext, target: Operation, name: string):
   context.program.stateMap($lib.stateKeys.capability).set(target, { name });
 }
 
+function queryFilter(context: DecoratorContext, target: ModelProperty, path: string, operator: string): void {
+  context.program.stateMap($lib.stateKeys.queryFilter).set(target,{path,operator});
+}
+function queryOrder(context: DecoratorContext, target: Operation, field: string, direction: string): void {
+  context.program.stateMap($lib.stateKeys.queryOrder).set(target,{field,direction});
+}
+
 export const $decorators = {
   "ProtocolIA.Domain": {
     entity,
@@ -86,6 +95,8 @@ export const $decorators = {
     audit,
     behavior,
     capability,
+    queryFilter,
+    queryOrder,
   },
 };
 

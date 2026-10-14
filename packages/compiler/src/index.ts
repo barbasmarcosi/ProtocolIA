@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","queryPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -263,6 +263,45 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    let queryFilters: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte";type:IrField["type"]}[]|undefined;
+    let querySort: {field:string;direction:"asc"|"desc"}|undefined;
+    if(kind==="queryPage"){
+      const sort=metadata(p,"queryOrder",op);
+      const sortField=entity.fields.find(x=>x.name===sort?.field);
+      const filterProperties=[...op.parameters.properties.values()].filter(x=>!!metadata(p,"queryFilter",x));
+      const allowed=new Set(["limit","offset",...filterProperties.map(x=>x.name)]);
+      if(f!==undefined||input!==undefined||auditMeta||reservation||release||
+         metadata(p,"transition",op)||op.parameters.properties.has("input")||
+         !sortField||!["asc","desc"].includes(String(sort?.direction))||
+         !filterProperties.length||filterProperties.length>8||
+         !op.parameters.properties.has("limit")||!op.parameters.properties.has("offset")||
+         [...op.parameters.properties.keys()].some(key=>!allowed.has(key))||
+         filterProperties.some(prop=>!prop.optional)){
+        reject("query-shape",op.name+" must be read-only, sorted and bind 1–8 optional typed query filters",op);
+        continue;
+      }
+      queryFilters=[];
+      for(const prop of filterProperties){
+        const meta=metadata(p,"queryFilter",prop);
+        const segments=String(meta?.path??"").split(".");
+        const operator=String(meta?.operator??"");
+        const via=segments.length===2?entity.fields.find(x=>x.name===segments[0]):undefined;
+        const target=via?.reference?declared.get(via.reference.target):undefined;
+        const actual=(segments.length===1?entity:target)?.fields.find(x=>x.name===segments.at(-1));
+        const propertyType=typeOfField(prop);
+        if(segments.length>2||!["eq","gte","lte"].includes(operator)||!actual||
+           (segments.length===2&&(!via?.reference||!target))||
+           propertyType?.type!==actual.type||propertyType?.nullable||
+           (operator!=="eq"&&!["int32","utcDateTime"].includes(actual.type))){
+          reject("query-filter",op.name+"."+prop.name+" is not a typed, whitelisted local/one-hop FK filter",op);
+          break;
+        }
+        queryFilters.push({parameter:prop.name,field:actual.name,
+          ...(via?{via:via.name}:{}),operator:operator as "eq"|"gte"|"lte",type:actual.type});
+      }
+      if(queryFilters.length!==filterProperties.length)continue;
+      querySort={field:sortField.name,direction:sort?.direction as "asc"|"desc"};
+    }
     if(kind==="auditPage"){
       if(f!==undefined||input!==undefined||op.parameters.properties.has("input")||
          metadata(p,"transition",op)||metadata(p,"reserve",op)||
@@ -279,6 +318,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if(kind==="queryPage" && (http.verb!=="get"||http.parameters.body!==undefined||
+         http.path.includes("{")||!statuses.includes(200)||!statuses.includes(400))){
+      reject("query-http",op.name+" must be bounded GET with 200/400 and no body/path keys",op);
+      continue;
     }
     if(kind==="auditPage"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
@@ -316,6 +360,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
       behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
+        ...(queryFilters?{filters:queryFilters,sort:querySort}:{}),
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
