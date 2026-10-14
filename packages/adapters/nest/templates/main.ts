@@ -8,9 +8,9 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string}};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;field?:string;input?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -49,6 +49,7 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
   for(const [key,value] of Object.entries(body)){
     const f=e.fields.find(x=>x.name===key);
     if(!f)throw new Problem(400,"Unknown field");
+    if(create&&f.initial!==undefined&&value!==f.initial)throw new Problem(400,"Invalid initial state");
     if(value===null){if(!f.nullable)throw new Problem(400,"Null not allowed");continue;}
     if(f.type==="string"&&!checkString(value,f))throw new Problem(400,"Invalid string");
     if(f.type==="int32"&&(!Number.isInteger(value)||(value as number)<-2147483648||
@@ -207,6 +208,16 @@ class RuntimeService{
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
     return this.row(e,key);
   }
+  private async transition(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
+    if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
+      throw new Problem(400,"Transition does not accept input");
+    const field=e.fields.find(f=>f.name===op.field)!;
+    const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+      e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
+      [op.to,key,op.from]);
+    if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Transition precondition failed");}
+    return this.row(e,key);
+  }
   private async remove(e:Entity,key:string):Promise<void>{
     try{
       const deleted=await this.pool.query("DELETE FROM "+e.table+
@@ -231,6 +242,7 @@ class RuntimeService{
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
+        case "transition":data=await this.transition(entity,op,identity,req.body);break;
         case "delete":await this.remove(entity,identity);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }
