@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {buildQueryPlan} from "../query-plan.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -57,9 +58,9 @@ export function generate(ir,spec,out){
       (f.maxLength??255)<(targetField.maxLength??255))
       throw Error("Unsupported FK: "+e.name+"."+f.name);
   }
-  const methods={create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",
+  const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
-  const ok={create:201,get:200,listPage:200,auditPage:200,patchFields:200,
+  const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,patchFields:200,
     atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
@@ -67,7 +68,7 @@ export function generate(ir,spec,out){
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchFields","atomicIncrement","auditPage","reassignReference","delete"])
+    for(const kind of ["patchFields","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
     const read=of("get",e.name)[0].capability,write=of("create",e.name)[0].capability;
     if(!read||!write||read===write||read==="public"||write==="public")
@@ -100,6 +101,7 @@ export function generate(ir,spec,out){
       const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
+      if(kind==="queryPage")buildQueryPlan(ir,op);
       if(kind==="auditPage"&&(b.audit||b.reserve||b.release||b.field||b.input||
          !op.statuses.includes(400)||!op.statuses.includes(404)))
         throw Error("Invalid read-only auditPage metadata "+op.name);
@@ -191,11 +193,12 @@ export function generate(ir,spec,out){
           stockWriteCapability:write.capability
         };
       }
-      if(kind==="listPage"||kind==="auditPage"){
+      if(["listPage","queryPage","auditPage"].includes(kind)){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
           offsetDefault:o.default,offsetMax:o.maximum});
       }
+      if(kind==="queryPage")item.query=buildQueryPlan(ir,op);
       if(kind==="atomicIncrement"){
         const n=numberSchema(spec,op);
         Object.assign(item,{inputMin:n.minimum,inputMax:n.maximum});
@@ -243,6 +246,10 @@ export function generate(ir,spec,out){
       snake(f.name)+" FOREIGN KEY ("+snake(f.name)+") REFERENCES "+
       snake(parent.name)+" ("+snake(parent.publicIdentity)+") ON DELETE RESTRICT;");
   }
+  const queryIndexDdl=new Set();
+  for(const op of ir.operations.filter(op=>op.behavior.kind==="queryPage"))
+    for(const ddl of buildQueryPlan(ir,op).ddl)queryIndexDdl.add(ddl);
+  schema.push(...queryIndexDdl);
   if(ir.operations.some(op=>op.behavior.audit))schema.push(
     "CREATE TABLE protocolia_audit_event (id BIGSERIAL PRIMARY KEY, "+
     "actor VARCHAR(255) NOT NULL, entity_name VARCHAR(128) NOT NULL, "+
