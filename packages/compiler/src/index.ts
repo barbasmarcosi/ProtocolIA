@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","queryPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -115,6 +115,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     entities.push({
       name:m.name,publicIdentity:identity.name,fields,
+      ...(metadata(p,"recipientIdentity",m)?{recipientIdentity:true}:{}),
       ...(metadata(p,"view",m)?.label !== undefined ? {view:String(metadata(p,"view",m)?.label)} : {}),
       ...(alert ? {overdueAlert:{
         dueField:String(alert.dueField),stateField:String(alert.stateField),
@@ -350,6 +351,20 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("query-http",op.name+" must be bounded GET with 200/400 and no body/path keys",op);
       continue;
     }
+    if(kind==="inboxPage"||kind==="ackNotification"){
+      const read=kind==="inboxPage";
+      const allowed=read?["limit","offset"]:["notificationId"];
+      const params=[...op.parameters.properties.keys()];
+      const expected="/api/notifications/"+entity.name.replace(/([a-z0-9])([A-Z])/g,"$1_$2").toLowerCase()+
+        (read?"":"/{notificationId}/ack");
+      if(!entity.recipientIdentity||f||input||Object.keys(behavior).some(k=>!["kind","entity","field","input"].includes(k))||
+         auditMeta||reservation||release||metadata(p,"transition",op)||metadata(p,"queryOrder",op)||
+         http.parameters.body||http.verb!==(read?"get":"post")||http.path!==expected||
+         params.length!==allowed.length||params.some(k=>!allowed.includes(k))||
+         ![200,400,401,403,...(read?[]:[404])].every(code=>statuses.includes(code))){
+        reject("recipient-inbox-shape",op.name+" requires explicit recipient identity and bounded inbox/ack HTTP binding",op);continue;
+      }
+    }
     if(kind==="auditPage"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const allowedParams=new Set(["limit","offset",entity.publicIdentity]);
@@ -408,6 +423,18 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  const inboxKinds=["inboxPage","ackNotification"];
+  for(const entity of entities){
+    const inboxOps=operations.filter(o=>o.entity===entity.name&&inboxKinds.includes(o.behavior.kind));
+    if(!entity.recipientIdentity&&!inboxOps.length)continue;
+    const pages=inboxOps.filter(o=>o.behavior.kind==="inboxPage"),acks=inboxOps.filter(o=>o.behavior.kind==="ackNotification");
+    const source=entities.some(e=>e.overdueAlert&&e.fields.find(f=>f.name===e.overdueAlert?.recipientField)?.reference?.target===entity.name);
+    if(!entity.recipientIdentity||!source||pages.length!==1||acks.length!==1||
+       inboxOps.some(o=>o.capability==="public"||operations.some(other=>!inboxKinds.includes(other.behavior.kind)&&other.capability===o.capability))||
+       pages[0]?.capability===acks[0]?.capability){
+      reject("recipient-inbox-permissions",entity.name+" needs one independently authorized inbox/ack pair and a recipient source",models.find(m=>m.name===entity.name)!);
+    }
   }
   for(const entity of entities){
     const auditPages=operations.filter(o=>o.entity===entity.name&&o.behavior.kind==="auditPage");

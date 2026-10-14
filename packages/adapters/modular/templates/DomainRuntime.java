@@ -103,6 +103,7 @@ public class DomainRuntime {
       case "get" -> result = row(entity, publicKey);
       case "listPage" -> result = page(entity, query, matched);
       case "queryPage" -> result = queryPage(entity, query, matched);
+      case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
@@ -132,6 +133,43 @@ public class DomainRuntime {
     }
     int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
     return ResponseEntity.status(status).body(result);
+  }
+
+  private Object inbox(Manifest.Entity entity,Manifest.Op op,String id,Map<String,String> query,
+      Map<String,Object> body,Authentication user,HttpServletRequest request) {
+    if(user==null||!user.isAuthenticated())throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+    boolean read=op.kind().equals("inboxPage");
+    if(body!=null||query.keySet().stream().anyMatch(k->!read||!Set.of("limit","offset").contains(k))||
+        request.getParameterMap().values().stream().anyMatch(values->values.length!=1))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    var args=new MapSqlParameterSource().addValue("issuer","demo-basic").addValue("subject",user.getName());
+    String suffix;
+    if(read){
+      int limit,offset;
+      try{
+        String l=query.getOrDefault("limit","25"),o=query.getOrDefault("offset","0");
+        if(!l.matches("[0-9]+")||!o.matches("[0-9]+"))throw new NumberFormatException();
+        limit=Integer.parseInt(l);offset=Integer.parseInt(o);
+      }catch(NumberFormatException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST);}
+      if(limit<1||limit>50||offset<0||offset>1000000)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+      args.addValue("limit",limit).addValue("offset",offset);
+      suffix="_page(:issuer,:subject,:limit,:offset)";
+    }else{
+      try{
+        if(id==null||!id.matches("[1-9][0-9]{0,18}"))throw new NumberFormatException();
+        args.addValue("id",Long.parseLong(id));
+      }catch(NumberFormatException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST);}
+      suffix="_ack(:issuer,:subject,:id)";
+    }
+    try{
+      String json=jdbc.queryForObject("SELECT protocolia_inbox_"+entity.table()+suffix+"::text",args,String.class);
+      return new tools.jackson.databind.json.JsonMapper().readValue(json,Map.class);
+    }catch(org.springframework.dao.DataAccessException ex){
+      if(constraintSqlState(ex,"42501"))throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+      if(constraintSqlState(ex,"P0002"))throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      if(constraintSqlState(ex,"22023"))throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+      throw ex;
+    }
   }
 
   private String selectSql(Manifest.Entity e) {

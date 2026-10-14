@@ -83,6 +83,8 @@ class RuntimeService{
       for(const key of ["PROTOCOLIA_READER_USERNAME","PROTOCOLIA_READER_PASSWORD",
         "PROTOCOLIA_MANAGER_USERNAME","PROTOCOLIA_MANAGER_PASSWORD"])
         if(!process.env[key])throw Error("Missing demo credential: "+key);
+    if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true"&&process.env.PROTOCOLIA_READER_USERNAME?.toLowerCase()===process.env.PROTOCOLIA_MANAGER_USERNAME?.toLowerCase())
+      throw Error("Demo subjects must be distinct");
     for(const e of spec.entities){
       safeIdentifier(e.table);safeIdentifier(e.identityColumn);
       for(const f of e.fields)safeIdentifier(f.column);
@@ -162,6 +164,38 @@ class RuntimeService{
   }
   me(req:any,res:any):void{
     try{res.status(200).json(this.login(req));}catch(e){sendProblem(res,e);}
+  }
+  private async inbox(e:Entity,op:Operation,req:any,subject:string):Promise<unknown>{
+    const read=op.kind==="inboxPage",query=req.query??{};
+    if(req.body!==undefined&&req.body!==null||Object.keys(query).some(k=>!read||!["limit","offset"].includes(k)))
+      throw new Problem(400,"Unexpected inbox input");
+    const values:unknown[]=["demo-basic",subject];
+    let suffix:string;
+    if(read){
+      const integer=(raw:unknown,fallback:number)=>{
+        if(raw===undefined)return fallback;
+        if(typeof raw!=="string"||!/^[0-9]+$/.test(raw))throw new Problem(400,"Invalid pagination");
+        const n=Number(raw);if(!Number.isSafeInteger(n))throw new Problem(400,"Invalid pagination");return n;
+      };
+      const limit=integer(query.limit,25),offset=integer(query.offset,0);
+      if(limit<1||limit>50||offset<0||offset>1000000)throw new Problem(400,"Invalid pagination");
+      values.push(limit,offset);suffix="_page($1::text,$2::text,$3::integer,$4::integer)";
+    }else{
+      const id=req.params?.notificationId;
+      if(typeof id!=="string"||!/^[1-9][0-9]{0,18}$/.test(id)||BigInt(id)>9223372036854775807n)
+        throw new Problem(400,"Invalid notification id");
+      values.push(id);suffix="_ack($1::text,$2::text,$3::bigint)";
+    }
+    try{
+      const result=await this.pool.query("SELECT protocolia_inbox_"+e.table+suffix+" AS value",values);
+      return result.rows[0].value;
+    }catch(error){
+      const code=(error as {code?:string}).code;
+      if(code==="42501")throw new Problem(403,"Recipient identity is not provisioned");
+      if(code==="P0002")throw new Problem(404,"Notification not found");
+      if(code==="22023")throw new Problem(400,"Invalid inbox input");
+      throw error;
+    }
   }
   private select(e:Entity):string{
     return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+" FROM "+e.table;
@@ -454,6 +488,7 @@ class RuntimeService{
         case "get":data=await this.row(entity,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
+        case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;

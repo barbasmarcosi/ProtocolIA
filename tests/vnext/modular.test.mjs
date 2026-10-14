@@ -32,7 +32,7 @@ const scratch=()=>mkdtempSync(join(tmpdir(),"protocolia-modular-fixture-"));
 test("independent Gauge fixture derives SQL and Java without Tool hardcodes",()=>{
   const root=scratch();
   const result=generate(ir,spec,root);
-  assert.equal(result.files.length,19);
+  assert.equal(result.files.length,20);
   const sql=readFileSync(join(root,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
   assert.equal(existsSync(join(root,"src/main/resources/schema.sql")),false);
   const java=readFileSync(join(root,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8");

@@ -6,7 +6,9 @@ on:
     paths:
       - '.github/workflows/vnext-a143-generated-worker.yml'
       - 'Dockerfile.a143-runtime'
-      - 'scripts/vnext/probe-a143-worker-postgres.sh'
+      - 'scripts/vnext/probe-a143-*.sh'
+      - 'scripts/vnext/probe-a143-*.mjs'
+      - 'tests/vnext/a143-*.test.mjs'
       - 'packages/**'
       - 'examples/vnext/facility-maintenance-a143/**'
   workflow_dispatch:

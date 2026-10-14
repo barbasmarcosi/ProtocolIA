@@ -98,6 +98,45 @@ SQL
    "SELECT (SELECT COUNT(*) FROM protocolia_notification_outbox)||':'||(SELECT COUNT(*) FROM protocolia_notification_inbox)")"
  test "$state" = '1:1' || { echo "A143_WORKER_DUPLICATE_AFTER_RESTART $target $state";exit 1; }
  echo "A143_$target"_OPT_IN_AUTOMATIC_WORKER_POSTGRES_RESTART_PASS
+ node scripts/vnext/probe-a143-recipient-http.mjs unbound
+ gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" <<'SQL'
+INSERT INTO technician (badge,name,skill) VALUES ('U','Second recipient','other');
+INSERT INTO protocolia_identity_technician(issuer,subject,recipient_key)
+ VALUES ('demo-basic','manager','T'),('demo-basic','reader','U');
+INSERT INTO ticket(number,machine_tag,technician_badge,title,severity,due_at,status)
+ SELECT 'NOTICE-'||n,'M','T','Due task','high','2001-01-01T00:00:00Z','reported' FROM generate_series(1,12) n;
+INSERT INTO ticket(number,machine_tag,technician_badge,title,severity,due_at,status)
+ VALUES ('READER-ONLY','M','U','Private other notice','high','2001-01-01T00:00:00Z','reported');
+SELECT * FROM protocolia_tick_notifications(CURRENT_TIMESTAMP,100);
+DO $test$
+BEGIN
+ BEGIN
+  PERFORM protocolia_inbox_technician_page('wrong-issuer','manager',25,0);
+  RAISE EXCEPTION 'Issuer confusion';
+ EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ BEGIN
+  INSERT INTO protocolia_identity_technician(issuer,subject,recipient_key) VALUES ('demo-basic','forged','MISSING');
+  RAISE EXCEPTION 'Missing FK validation';
+ EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+ BEGIN
+  INSERT INTO protocolia_identity_technician(issuer,subject,recipient_key) VALUES ('demo-basic','manager','U');
+  RAISE EXCEPTION 'Ambiguous binding accepted';
+ EXCEPTION WHEN unique_violation THEN NULL; END;
+ BEGIN
+  PERFORM protocolia_inbox_technician_ack('demo-basic','manager',
+   (SELECT outbox_id FROM protocolia_notification_inbox WHERE recipient_key='U'));
+  RAISE EXCEPTION 'Cross-recipient database ack allowed';
+ EXCEPTION WHEN no_data_found THEN NULL; END;
+ IF (SELECT read_at FROM protocolia_notification_inbox WHERE recipient_key='U') IS NOT NULL THEN
+  RAISE EXCEPTION 'Cross-recipient mutation'; END IF;
+END $test$;
+SQL
+ node scripts/vnext/probe-a143-recipient-http.mjs bound
+ node scripts/vnext/probe-a143-recipient-browser.mjs
+ stop_app
+ start_app "$target" "$db" false
+ node scripts/vnext/probe-a143-recipient-http.mjs restart
+ echo "A143_$target"_RECIPIENT_HTTP_POSTGRES_CHROMIUM_RESTART_PASS
  stop_app
 done
 echo A143_BOTH_TARGETS_OPT_IN_WORKER_COMPILED_HTTP_PG_PASS

@@ -26,6 +26,8 @@ public class SecurityConfig {
   UserDetailsService users() {
     if (!"true".equals(System.getenv("PROTOCOLIA_ALLOW_DEMO_AUTH")))
       throw new IllegalStateException("Demo Basic authentication requires explicit isolated profile opt-in");
+    if(required("PROTOCOLIA_READER_USERNAME").equalsIgnoreCase(required("PROTOCOLIA_MANAGER_USERNAME")))
+      throw new IllegalStateException("Demo subjects must be distinct");
     var encoder = new BCryptPasswordEncoder();
     var reader = User.withUsername(required("PROTOCOLIA_READER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_READER_PASSWORD")))

@@ -1,6 +1,7 @@
 import "../dist/index.js";
 using TypeSpec.Reflection;
 namespace ProtocolIA.Domain {
+  extern dec recipientIdentity(target: Model);
   extern dec entity(target: Model);
   extern dec publicIdentity(target: ModelProperty);
   extern dec unique(target: ModelProperty);

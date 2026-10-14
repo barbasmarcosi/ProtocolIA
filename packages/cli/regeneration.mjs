@@ -36,6 +36,8 @@ export function diffContracts(oldIr,nextIr){
     // A14.3: generated durable inbox DDL cannot be applied through the
     // earlier add-operation-only evolution profile. Block instead of silently
     // swapping binaries while skipping policy tables/functions on populated DBs.
+    if(!same(previous.recipientIdentity??null,next.recipientIdentity??null))
+      blockers.push("Recipient identity migration needs a dedicated additive evolution profile: "+previous.name);
     if(!same(previous.overdueAlert??null,next.overdueAlert??null))
       blockers.push("Overdue policy migration needs a dedicated additive evolution profile: "+previous.name);
     if(previous.view!==next.view)

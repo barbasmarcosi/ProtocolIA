@@ -1,3 +1,4 @@
+import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
@@ -59,9 +60,11 @@ export function generate(ir,spec,out){
       (f.maxLength??255)<(targetField.maxLength??255))
       throw Error("Unsupported FK: "+e.name+"."+f.name);
   }
-  const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",patchFields:"PATCH",
+  const inboxes=compileRecipientInboxes(ir);
+  for(const op of ir.operations)assertInboxOpenApi(spec,op);
+  const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
-  const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,patchFields:200,
+  const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,
     atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
@@ -94,13 +97,13 @@ export function generate(ir,spec,out){
         throw Error("Verb/status mismatch "+op.name);
       const cap=kind==="health"?"public":
         ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
-      if(kind!=="auditPage"&&kind!=="reassignReference"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
+      if(kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
       const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(kind);
-      if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
+      if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
       if(kind==="auditPage"&&(b.audit||b.reserve||b.release||b.field||b.input||
@@ -194,7 +197,7 @@ export function generate(ir,spec,out){
           stockWriteCapability:write.capability
         };
       }
-      if(["listPage","queryPage","auditPage"].includes(kind)){
+      if(["listPage","queryPage","auditPage","inboxPage"].includes(kind)){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
           offsetDefault:o.default,offsetMax:o.maximum});
@@ -207,6 +210,8 @@ export function generate(ir,spec,out){
       compiled.push(item);
     }
   }
+  reads.push(...new Set(inboxes.map(r=>r.readCapability)));
+  assignments.push(...new Set(inboxes.map(r=>r.ackCapability)));
   if(reads.some(x=>writes.includes(x))||audits.some(x=>reads.includes(x)||writes.includes(x))||assignments.some(x=>reads.includes(x)||writes.includes(x)||audits.includes(x)))throw Error("Ambiguous read/write/audit authority");
   const contents=[];
   const write=(p,t)=>{
@@ -260,6 +265,7 @@ export function generate(ir,spec,out){
     "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
     "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
+  schema.push(...recipientInboxSql(inboxes));
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
@@ -284,7 +290,7 @@ export function generate(ir,spec,out){
     strict:false,esModuleInterop:true,experimentalDecorators:true,
     emitDecoratorMetadata:true,resolveJsonModule:true,skipLibCheck:true},
     include:["src/**/*.ts"]},null,2)+"\n");
-  for(const f of ["package.json","index.html","src/main.jsx","src/App.jsx","src/style.css"])
+  for(const f of ["package.json","index.html","src/main.jsx","src/App.jsx","src/NotificationInbox.jsx","src/style.css"])
     copy("web/"+f,join(uiRoot,f));
   write("web/vite.config.mjs",'import {defineConfig} from "vite";\n'+
     'export default defineConfig({base:"/",build:{outDir:"../dist/static",emptyOutDir:false}});\n');

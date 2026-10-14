@@ -52,6 +52,7 @@ namespace FacilityMaintenance {
   }
   @entity
   @view("Técnicos")
+  @recipientIdentity
   model Technician {
     @publicIdentity @unique @minLength(1) @maxLength(40)
     badge: string;
@@ -254,6 +255,34 @@ namespace FacilityMaintenance {
     @query @minValue(1) @maxValue(50) limit?: int32 = 25,
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
   ): AuditPage | NotFound | BadRequest | Unauthorized | Forbidden;
+
+  model Notification {
+    id: string;
+    ruleKey: string;
+    entityName: string;
+    resourceId: string;
+    recipientKey: string;
+    eventAt: utcDateTime;
+    notifiedAt: utcDateTime;
+    readAt: utcDateTime | null;
+  }
+  model NotificationPage {
+    items: Notification[];
+    total: int32;
+    limit: int32;
+    offset: int32;
+  }
+  @route("/api/notifications/technician")
+  @get @behavior("inboxPage","Technician") @capability("notifications.read")
+  op notifications(
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
+  ): NotificationPage | BadRequest | Unauthorized | Forbidden;
+
+  @route("/api/notifications/technician/{notificationId}/ack")
+  @post @behavior("ackNotification","Technician") @capability("notifications.ack")
+  op acknowledgeNotification(@path notificationId:string):
+    Notification | BadRequest | Unauthorized | Forbidden | NotFound;
 
   @route("/health")
   @get @behavior("health","Site") @capability("public")

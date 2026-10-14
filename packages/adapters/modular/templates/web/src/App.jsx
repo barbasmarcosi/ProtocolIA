@@ -1,3 +1,4 @@
+import NotificationInbox from "./NotificationInbox.jsx";
 import React,{useEffect,useMemo,useState} from "react";
 
 function route(operation, code) {
@@ -223,6 +224,8 @@ export default function App(){
       <label className="field"><span>Contraseña</span><input data-testid="password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
       <button type="submit" disabled={loginBusy}>{loginBusy?"Verificando…":"Entrar"}</button></form></section>:
       <>
+      {(config.resources??[]).filter(r=>r.operations.inboxPage).map(r=><NotificationInbox
+        key={auth+":"+r.entity.name} operations={r.operations} auth={auth} capabilities={capabilities}/>)}
       {(config.resources?.length??0)>1&&<nav className="resource-nav" aria-label="Recursos">
         {config.resources.map((r,i)=><button key={r.entity.name}
           className={resourceIndex===i?"":"ghost"}

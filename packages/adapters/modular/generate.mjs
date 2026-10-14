@@ -1,3 +1,4 @@
+import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
@@ -69,10 +70,12 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
   const ops = ir.operations;
+  const inboxes=compileRecipientInboxes(ir);
+  for(const op of ops)assertInboxOpenApi(openapi,op);
   const routes = new Set();
   for(const op of ops){
     if(!supported.has(op.behavior.kind)) throw Error("Unsupported operation " + op.behavior.kind);
@@ -87,7 +90,7 @@ export function generate(ir, openapi, outDir) {
     const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
-    if(!requiresKey && placeholders.length!==0)
+    if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
       throw Error("Unexpected route placeholders in " + op.name);
     const routeKey=op.method+" "+op.path;
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
@@ -199,11 +202,13 @@ export function generate(ir, openapi, outDir) {
       if(!assignmentCaps.includes(op.capability))assignmentCaps.push(op.capability);
     }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
-      if(["auditPage","reassignReference"].includes(op.behavior.kind))continue;
+      if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
       const expected=["create","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
       if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
+  readCaps.push(...new Set(inboxes.map(r=>r.readCapability)));
+  assignmentCaps.push(...new Set(inboxes.map(r=>r.ackCapability)));
   if(readCaps.some(x=>writeCaps.includes(x))||auditCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x))||assignmentCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x)||auditCaps.includes(x)))throw Error("Read/write/audit authorities cannot overlap");
   if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
   const base="src/main/java/dev/protocolia/modular/";
@@ -265,7 +270,7 @@ export function generate(ir, openapi, outDir) {
     if(b.kind==="atomicIncrement"){
       const range=inputBounds(openapi,op);mn=range.minimum;mx=range.maximum;
     }
-    if(["listPage","queryPage","auditPage"].includes(b.kind)){
+    if(["listPage","queryPage","auditPage","inboxPage"].includes(b.kind)){
       const l=queryParameter(openapi,op,"limit");
       const o=queryParameter(openapi,op,"offset");
       ld=l.default;lmin=l.minimum;lmax=l.maximum;od=o.default;om=o.maximum;
@@ -311,7 +316,7 @@ export function generate(ir, openapi, outDir) {
   },null,2)+"\n");
   for(const file of [
     "package.json","index.html","vite.config.mjs",
-    "src/main.jsx","src/App.jsx","src/style.css"
+    "src/main.jsx","src/App.jsx","src/NotificationInbox.jsx","src/style.css"
   ]) copy("web/"+file,"web/"+file);
   for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
     copy(file,file);
@@ -360,7 +365,7 @@ export function generate(ir, openapi, outDir) {
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   const queryIndexDdl=new Set(queryPlans.flatMap(x=>x.plan.ddl));
   sql.push(...queryIndexDdl);
-  sql.push(...overdueSchemaSql(overdueRules));
+  sql.push(...overdueSchemaSql(overdueRules),...recipientInboxSql(inboxes));
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");

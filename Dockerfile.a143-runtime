@@ -15,6 +15,9 @@ WORKDIR /work
 COPY . .
 RUN bash -n scripts/vnext/probe-a143-worker-postgres.sh
 RUN npm ci --ignore-scripts --no-audit --no-fund
+RUN npm run check:vnext && bash tests/vnext/negative-check.sh
+RUN npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.64.0
+RUN npx playwright install --with-deps chromium
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a143 \
   --target modular-spring --out /work/dist/a143-spring-app
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a143 \
