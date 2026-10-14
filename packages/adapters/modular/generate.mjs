@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
+import {buildQueryPlan} from "../query-plan.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -67,9 +68,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
   const ops = ir.operations;
   const routes = new Set();
   for(const op of ops){
@@ -91,6 +92,7 @@ export function generate(ir, openapi, outDir) {
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
+    if(op.behavior.kind==="queryPage")buildQueryPlan(ir,op);
     if(op.behavior.kind==="auditPage"){
       const history=ops.filter(x=>x.entity===bound.name&&x.behavior.audit?.length);
       const create=ops.find(x=>x.entity===bound.name&&x.behavior.kind==="create");
@@ -175,7 +177,7 @@ export function generate(ir, openapi, outDir) {
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchFields","atomicIncrement","auditPage","reassignReference","delete"])
+    for(const kind of ["patchFields","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const read=byKind("get",e.name)[0].capability;
     const write=byKind("create",e.name)[0].capability;
@@ -217,6 +219,7 @@ export function generate(ir, openapi, outDir) {
     copyFileSync(join(toolRoot,source),full);
     outputs.push(path);
   }
+  const queryPlans=ops.filter(op=>op.behavior.kind==="queryPage").map(op=>({op,plan:buildQueryPlan(ir,op)}));
   const classes=[
     "package dev.protocolia.modular;",
     "import java.util.List;",
@@ -225,6 +228,17 @@ export function generate(ir, openapi, outDir) {
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
+    "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max) {}",
+    "  public record QuerySpec(String projection,String source,String order,List<QueryFilter> filters) {}",
+    "  public static final java.util.Map<String,QuerySpec> QUERIES=java.util.Map.ofEntries(",
+    queryPlans.map(({op,plan})=>"    java.util.Map.entry("+j(op.name)+",new QuerySpec("+
+      [j(plan.projection),j(plan.source),j(plan.order),"List.of("+
+        plan.filters.map(f=>"new QueryFilter("+[
+          j(f.name),j(f.expression),j(f.comparator),j(f.type),
+          n(f.minLength),n(f.maxLength),n(f.min),n(f.max)
+        ].join(",")+")").join(",")+")"].join(",")+
+      "))").join(",\n"),
+    "  );",
     "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
@@ -248,7 +262,7 @@ export function generate(ir, openapi, outDir) {
     if(b.kind==="atomicIncrement"){
       const range=inputBounds(openapi,op);mn=range.minimum;mx=range.maximum;
     }
-    if(b.kind==="listPage"||b.kind==="auditPage"){
+    if(["listPage","queryPage","auditPage"].includes(b.kind)){
       const l=queryParameter(openapi,op,"limit");
       const o=queryParameter(openapi,op,"offset");
       ld=l.default;lmin=l.minimum;lmax=l.maximum;od=o.default;om=o.maximum;
@@ -341,6 +355,8 @@ export function generate(ir, openapi, outDir) {
     "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
     "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
+  const queryIndexDdl=new Set(queryPlans.flatMap(x=>x.plan.ddl));
+  sql.push(...queryIndexDdl);
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
