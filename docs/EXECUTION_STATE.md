@@ -27,7 +27,9 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | A4 — Independent multi-entity system | **PASS acotado (E-01..E-08)** — dos entidades con FK restrict, HTTP 201/400/409/204, React relacional Chromium, roles independientes; segunda variante TypeSpec con etiqueta y fecha opcional recompilada y ejecutada contra DB nueva | [Evidencia A4](vnext/evidence/A4.md); no confundir con migración V2 segura de A5 |
 | A5 — Safe evolution/MVP | **PASS aditivo acotado Spring y Nest; producción NO** — `plan/evolve`, ownership SHA, V1 inmutable + V2 sobre PostgreSQL poblado, historiales Flyway/Nest y rechazo de drift de SQL aplicado; extensiones y filas preservadas | [Evidencia A5](vnext/evidence/A5.md); Compose Engine, backups, IAM productivo y migraciones complejas pendientes |
 
-**Última validación integral vNext:** fuente `47379090898e2f16e9a1533ae5d42e61a03124a7`, Render Free `srv-db6t203rjlhs7395vjn0` deploy `dep-db7do367bikc73agk63g` LIVE (marcador de build, no app pública). 31/31 pruebas Node, Nest Taller/Gauge/Equipment-Inspection, HTTP/PostgreSQL/Chromium, P-06 Nest V1→V2 con checksum negativo, y regresiones Spring A4/A5 PASS. CI GitHub no utilizada; `docker compose up` con daemon real pendiente. PR #52 abierto, `main` sin modificaciones.\n\n**Unchanged historical facts:** G5 Books passed its bounded checks;
+**Última validación integral vNext:** fuente `47379090898e2f16e9a1533ae5d42e61a03124a7`, Render Free `srv-db6t203rjlhs7395vjn0` deploy `dep-db7do367bikc73agk63g` LIVE (marcador de build, no app pública). 31/31 pruebas Node, Nest Taller/Gauge/Equipment-Inspection, HTTP/PostgreSQL/Chromium, P-06 Nest V1→V2 con checksum negativo, y regresiones Spring A4/A5 PASS. CI GitHub no utilizada; `docker compose up` con daemon real pendiente. PR #52 abierto, `main` sin modificaciones.
+
+**Unchanged historical facts:** G5 Books passed its bounded checks;
 the Taller manually integrated branch has a real Render Free demo
 (PostgreSQL and HTTP smoke), but is **not** a generic application
 generator. P3 executor and P4 economy work are separate research
