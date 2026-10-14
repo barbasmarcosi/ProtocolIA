@@ -91,6 +91,24 @@ public class DomainRuntime {
       case "delete" -> result = delete(entity, publicKey);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
+    if(!matched.audit().isEmpty()){
+      if(user==null || !user.isAuthenticated())
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+      @SuppressWarnings("unchecked")
+      var updated=(Map<String,Object>)result;
+      String id=String.valueOf(updated.get(entity.identity()));
+      for(String field:matched.audit()){
+        Object after=updated.get(field);
+        String before=matched.kind().equals("transition")?matched.fromState():null;
+        jdbc.update("INSERT INTO protocolia_audit_event "+
+          "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+          "VALUES (:actor,:entity,:id,:op,:field,:before,:after)",
+          new MapSqlParameterSource().addValue("actor",user.getName())
+          .addValue("entity",entity.name()).addValue("id",id)
+          .addValue("op",matched.name()).addValue("field",field)
+          .addValue("before",before).addValue("after",after==null?null:String.valueOf(after)));
+      }
+    }
     int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
     return ResponseEntity.status(status).body(result);
   }
