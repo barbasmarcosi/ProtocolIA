@@ -6,7 +6,7 @@ function route(operation, code) {
 function label(field){return field.name.replace(/([a-z])([A-Z])/g,"$1 $2");}
 function createEmpty(fields){
   return Object.fromEntries(fields.map(field=>[field.name,
-    field.type==="int32"?0:""]));
+    field.initial??(field.type==="int32"?0:"")]));
 }
 function normalizePayload(fields,values){
   const result={};
@@ -33,7 +33,7 @@ function FormField({field,value,onChange,choices}){
     <input type={field.type==="int32"?"number":"text"} required={field.required}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
-      value={value??""} onChange={event=>onChange(field.name,event.target.value)}/>
+      value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
   </label>;
 }
 export default function App(){
@@ -64,10 +64,11 @@ export default function App(){
   }).then(c=>{setConfig(c);setForm(createEmpty(c.entity.fields));}).catch(e=>setStartupError(e.message));},[]);
   const active=config?.resources?.[resourceIndex]??config;
   const operations=useMemo(()=>active?.operations??{},[active]);
+  const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
 
   async function request(kind,{body,code,query}={}){
-    const operation=operations[kind];
+    const operation=operations[kind]??transitions.find(x=>x.name===kind);
     if(!operation)throw Error("Operation is not in the contract: "+kind);
     const suffix=query?"?"+new URLSearchParams(query):"";
     const response=await fetch(route(operation,code)+suffix,{
@@ -216,6 +217,12 @@ export default function App(){
           {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[active.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>}
+          {transitions.filter(op=>capabilities.includes(op.capability) &&
+            selected[op.behavior.field]===op.behavior.from).map(op=>
+            <button type="button" className="ghost" key={op.name} data-testid={"transition-"+op.name}
+              disabled={loading} onClick={()=>act(op.name,{code:selected[active.entity.publicIdentity]})}>
+              {label({name:op.name})}: {op.behavior.to}
+            </button>)}
         </div>
         {can("delete")&&<button className="ghost" disabled={loading} onClick={()=>{
           if(!window.confirm("¿Eliminar "+selected[active.entity.publicIdentity]+"?"))return;
