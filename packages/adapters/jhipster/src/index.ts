@@ -27,7 +27,7 @@ export interface IrOperation {
   method: string;
   path: string;
   behavior: {
-    kind: "create" | "get" | "listPage" | "patchFields" | "atomicIncrement" | "transition" | "delete" | "health";
+    kind: "create" | "get" | "listPage" | "patchFields" | "atomicIncrement" | "transition" | "auditPage" | "delete" | "health";
     field?: string;
     input?: string;
     from?: string;
