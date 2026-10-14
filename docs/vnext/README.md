@@ -87,6 +87,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A9 — Migración A7→A8 y UI Chromium | PASS HTTP/PG/browser acotado Spring+Nest | [A9](evidence/A9.md): backfill V2 `active` sobre DB con reservas existentes, V1 intacta, DTO antiguo compatible, dos reinicios, diario Flyway/Nest y cancelación UI de registros históricos |
 | A10 — Auditoría contractual de mutaciones | Código+41 unitarios PASS; PostgreSQL funcional en verificación | [A10](evidence/A10.md): `@audit` con campos permitidos en create/transitions, actor y before/after, journal transaccional Spring+Nest; rollback provocado mediante trigger PostgreSQL |
 | A11 — Historial auditable HTTP/React | **PASS acotado Spring+Nest PostgreSQL/Chromium** | [A11](evidence/A11.md): nueva operación `auditPage` con capacidad independiente, paginación/404/400, reader 403 y pantalla historial React móvil; aún sin upgrade A10→A11 in-place |
+| A12 — Upgrade A10→A11 sin cambiar datos | **PASS Spring+Nest HTTP/PG/Chromium**, 46/46 Node, Render LIVE | [A12](evidence/A12.md): plan/evolve read-only, SQL V1 preservado, 2 órdenes y 6 eventos intactos, migraciones sin V2, reinicio e idempotencia |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -154,7 +155,7 @@ Spring y Nest devuelven un historial `{items,total,limit,offset}` con usuario, o
 
 A partir de una aplicación A10 ya poblada, el comando `protocolia plan` permite declarar una **única lectura de auditoría nueva** desde TypeSpec (operación `auditPage`, con capacidad independiente). `protocolia evolve` conserva exactamente los contratos de escritura, las migraciones V1 existentes, los eventos auditados y las extensiones propias, mientras reemplaza el código generado y la interfaz con respaldo y sellado de integridad.
 
-La evolución es **sin SQL nuevo**, porque A10 ya creó `protocolia_audit_event`; no es una migración de datos. El validador OpenAPI admite solamente los esquemas de respuesta alcanzables desde la nueva lectura, sin permitir cambios ocultos de los DTO existentes. La prueba de aceptación usa PostgreSQL persistente antes/después y Chrome móvil en Spring y NestJS. [Detalle y evidencia A12](evidence/A12.md). **Estado: en validación empírica.**
+La evolución es **sin SQL nuevo**, porque A10 ya creó `protocolia_audit_event`; no es una migración de datos. El validador OpenAPI admite solamente los esquemas de respuesta alcanzables desde la nueva lectura, sin permitir cambios ocultos de los DTO existentes. La prueba de aceptación usa PostgreSQL persistente antes/después y Chrome móvil en Spring y NestJS. [Detalle y evidencia A12](evidence/A12.md). **Estado A12: PASS** — upgrade real Spring/Nest PostgreSQL con datos y eventos históricos intactos; no-DDL, HTTP/Chromium y regresiones integrales. Render `dep-db7glj49v7es73c0moa0` LIVE, fuente funcional `b441474331653930e8c0681f6ee8c1291b4547f4`.
 
 ## Historial preservado
 
