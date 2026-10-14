@@ -274,8 +274,10 @@ A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 
 | A14-ATOMIC | Inject failed audit insertion; rollback FK and audit, then recover | **PASS ×2** real HTTP/PostgreSQL |
 | A14-UI | Generated React 390×844 selector; user with read-only capability cannot assign or see audit | **PASS ×2** Chromium |
 | A14-RESTART | Reassigned FK and audit remain after backend restart | **PASS ×2** same persisted PostgreSQL |
-| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **NOT RUN** for new evolution fixture; guarded CLI implementation and tests committed |
+| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **BLOCKED** by Render `pipeline_minutes_exhausted`; guarded CLI and PostgreSQL probes committed, not executed |
 | C15 / A14.2 | Declarative combined search by Site, state, due time | **UNSUPPORTED**, reuse assessment documented |
 | C16 / A14.3 | Durable overdue detection and notifications | **UNSUPPORTED**, reuse assessment documented |
 
 **Evidence:** Render build logs for deploy `dep-db7hofc9v7es73c4dqvg`, generator unit tests and `scripts/vnext/probe-a14-reassign-postgres.sh`; see [A14 evidence](evidence/A14.md). PASS here is limited to exercised features on isolated development PostgreSQL, not general production readiness, external IAM, deliverability, or an always-on publicly hosted generated application.
+
+**Build publication distinction:** Render `dep-db7hofc9v7es73c4dqvg` completed Docker build successfully (48/48 Node and A14 C14 parity), but its deploy was canceled before LIVE. Attempts `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` were rejected by exhausted build-minute quota. C14 code acceptance remains PASS based on build/test logs, while A14 in-place upgrade is BLOCKED and latest branch build has not run.

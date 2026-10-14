@@ -430,3 +430,11 @@ persistent storage remain open. Preserve G1–G3 Basic demo separately.
 ### G5 acceptance refresh — clean fresh DB suite on latest runnable code (2026-10-12)
 
 Real G5 test source SHA `4273715d6127a965c63dfa04109eb67d475a543a`, Render Free deploy `dep-db6n3vcs728c73clei60` **LIVE**: generated Java diff zero; PostgreSQL 16.10 + Flyway migration; Maven `BUILD SUCCESS`, **10/10 JUnit**; negative PATCH quantity 0 returned 400 and did not alter stock; the next Java process read the persisted book at stock 9. Source change to restart test forced the database test layer to run rather than reusing its previous cached result. `G5_DURABLE_ROW_COUNT=9`. [Full evidence](G5_POSTGRESQL_PERSISTENCE_EVIDENCE.md). Published Render service remains health-only; G5 broader schema-evolution and managed persistence gates still OPEN.
+
+### vNext A13 closure and A14.1 scoped implementation (2026-10-14)
+
+A13 immutable contract blob `298d95e7ab6c1b1588454921ab71d52ee2d599fd`, score `13/16 PASS`. Original Render marker deploy `dep-db7h1pjbc2fs73f6mshg` confirmed LIVE. Main unchanged, PR #52 open; feature secondary synchronized by safe fast-forward.
+
+A14 adds a generic `reassignReference` TypeSpec/IR primitive with isolated assignment authority, compare-and-swap FK update, transactionally audited before/after history and generated React relationship picker. Render build for `4912859d22694469e1639a754112649dec38f7e7` **succeeded** with **48/48 Node PASS**; actual Spring and NestJS PostgreSQL HTTP fault-injected audit rollback, 10-way race, authorization, Chromium 390×844 and restart probes each **PASS**. Deployment did not reach LIVE: it was canceled in the update phase. No generated app is publicly served with durable PostgreSQL.
+
+Subsequent code adds fail-closed A13→A14 operation evolution without DDL and separate seeded PostgreSQL upgrade checks; this extra code and its newer Node test are **NOT RUN / BLOCKED**. Render service events for deploys `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` explicitly show `pipeline_minutes_exhausted`; further free builds cannot run until quota becomes usable. No Actions or paid services used. C15 search and C16 notifications remain UNSUPPORTED, with externally reusable implementations assessed in `docs/vnext/evidence/A14.md`.
