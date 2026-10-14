@@ -4,6 +4,7 @@ import {mkdtempSync,readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {buildQueryPlan} from "../../packages/adapters/query-plan.mjs";
+import {diffContracts,additiveSql,validateOpenApiEvolution} from "../../packages/cli/regeneration.mjs";
 import {generate as spring} from "../../packages/adapters/modular/generate.mjs";
 import {generate as nest} from "../../packages/adapters/nest/generate.mjs";
 
@@ -92,4 +93,28 @@ test("A14.2 declarative plan refuses injection, unsupported joins, unsafe sort, 
  assert.throws(()=>spring(wrong,openapi,tmp()));assert.throws(()=>nest(wrong,openapi,tmp()));
  const unbounded=structuredClone(ir);unbounded.operations.find(o=>o.behavior.kind==="queryPage").statuses=[200];
  assert.throws(()=>spring(unbounded,openapi,tmp()));assert.throws(()=>nest(unbounded,openapi,tmp()));
+});
+
+test("A14.2 read-only queryPage evolves populated contract with only additive indexes and untouched CRUD",()=>{
+ const oldIr=structuredClone(ir);
+ oldIr.operations=oldIr.operations.filter(o=>o.behavior.kind!=="queryPage");
+ const plan=diffContracts(oldIr,ir);
+ assert.equal(plan.compatible,true,JSON.stringify(plan.blockers));
+ assert.deepEqual(plan.changes.map(x=>x.kind),["addOperation"]);
+ assert.match(additiveSql(plan),/CREATE INDEX IF NOT EXISTS/);
+ assert.equal(additiveSql(plan).split("\n").length,3);
+ assert.doesNotMatch(additiveSql(plan),/DROP|ALTER TABLE|DELETE FROM/i);
+ const oldApi=structuredClone(openapi);oldApi.openapi="3.1.0";
+ delete oldApi.paths["/api/tickets/query/filtered"];
+ const newApi=structuredClone(openapi);newApi.openapi="3.1.0";
+ assert.deepEqual(validateOpenApiEvolution(oldApi,newApi,oldIr,ir,plan),[]);
+ const polluted=structuredClone(newApi);
+ polluted.paths["/api/tickets"].get.parameters[0].schema.maximum=999;
+ assert.ok(validateOpenApiEvolution(oldApi,polluted,oldIr,ir,plan).length>0);
+ const bad=structuredClone(ir);
+ bad.operations.find(o=>o.behavior.kind==="queryPage").capability="tickets.write";
+ assert.equal(diffContracts(oldIr,bad).compatible,false);
+ const removed=structuredClone(ir);
+ removed.entities[2].fields=removed.entities[2].fields.filter(f=>f.name!=="status");
+ assert.equal(diffContracts(oldIr,removed).compatible,false);
 });
