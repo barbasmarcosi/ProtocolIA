@@ -195,11 +195,11 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | ID | Contract-level test | Status |
 | --- | --- | --- |
 | F10-01 | Declare `@audit("title,status")` on create and `@audit("status")` on transition | IR + Spring/Nest emitters generated; 41/41 Node PASS |
-| F10-02 | Bad audit selections (duplicate, unknown, identity on create, use on read) | Adapter negative PASS; TypeSpec negative build pending |
-| F10-03 | Successful create and guarded state changes append authenticated field-level entries | Real PostgreSQL HTTP proof pending |
-| F10-04 | Duplicate, unauthorized and wrong-state operations do not append audit entries | Real PostgreSQL proof pending |
-| F10-05 | PostgreSQL audit trigger failure rolls back CREATE atomically | Fault-injection proof pending |
-| F10-06 | PostgreSQL audit trigger failure rolls back guarded transition atomically | Fault-injection proof pending |
+| F10-02 | Bad audit selections (duplicate, unknown, identity on create, use on read) | PASS adapters + TypeSpec compiler negative |
+| F10-03 | Successful create and guarded state changes append authenticated field-level entries | PASS HTTP/psql ×2; 4 audited events with actor, timestamps and before/after |
+| F10-04 | Duplicate, unauthorized and wrong-state operations do not append audit entries | PASS ×2 |
+| F10-05 | PostgreSQL audit trigger failure rolls back CREATE atomically | PASS ×2 — no created domain row |
+| F10-06 | PostgreSQL audit trigger failure rolls back guarded transition atomically | PASS ×2 — state remains draft |
 | F10-07 | A0–A9 regressions unaffected on both backend targets | Complete Render build pending |
 
-**Bottleneck:** `dep-db7fkidg1s2s73abvlj0` on source `ed7e12e7a7ca1eb17df33062d8181c96afb014ea` running. Code and tests committed; no unverified PASS claims on F10-02 TypeSpec or F10-03–07. [A10 evidence](evidence/A10.md). Data is append-only through generated API, not tamper-proof.
+**Empirical:** corrected source `9cf1032817b98088616f1838b9d7419c6c204e24`, Render build `dep-db7fp2u7bikc73anp7ug`. F10-01–F10-06 PASS bounded; F10-07 full-regression and Render LIVE require separate confirmation. Earlier builds found and repaired a legacy negative-test string mutation and the SQL fault-injection script; neither was a failure of the audited transaction. [A10 evidence](evidence/A10.md). Data is append-only through generated API, not tamper-proof.
