@@ -13,3 +13,6 @@ node_modules/
 **/tsp-output/
 **/.jhipster/
 **/target/
+
+# Local Codespaces run logs may contain ephemeral test credentials; never stage them.
+.protocolia-evidence/

@@ -20,7 +20,7 @@ The runner detects an incorrect branch or unavailable Docker daemon *before* att
 - A14.1 guarded FK reassignment: PostgreSQL, HTTP audit rollback, CAS concurrency, Chromium 390×844, restart and historical A13-to-A14.1 in-place evolution.
 - A14.2 typed search by a one-hop FK, status and UTC interval: PostgreSQL, HTTP, rejected filters, indexes, read roles, Chromium 390×844, restart and A13-to-A14.2 additive evolution with original rows/audit intact.
 
-The Dockerfile orders **A13 generation before the evolution tests**, unlike the earlier Render Dockerfile order. PostgreSQL is temporary and local to each Docker RUN; no external database is modified. Browser/API listeners use the container's loopback only.
+The Dockerfile orders **A13 generation before the evolution tests**, the same order now enforced in the Render Dockerfile. PostgreSQL is temporary and local to each Docker RUN; no external database is modified. Browser/API listeners use the container's loopback only.
 
 ## Trustworthy evidence
 

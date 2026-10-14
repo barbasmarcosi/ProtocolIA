@@ -282,3 +282,13 @@ A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 
 
 **Build publication distinction:** Render `dep-db7hofc9v7es73c4dqvg` completed Docker build successfully (48/48 Node and A14 C14 parity), but its deploy was canceled before LIVE. Attempts `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` were rejected by exhausted build-minute quota. C14 code acceptance remains PASS based on build/test logs, while A14 in-place upgrade is BLOCKED and latest branch build has not run.
 \n## 19. A14.2 — Query implementation (new separate contract)\n\nSee [A14.2 evidence](evidence/A14_2.md). New typed scalar equality and UTC range filters, outgoing one-hop FK join, stable ordering, bounded paging, parameter binding, derived indexes and React filter controls are implemented in adapters; the independent synthetic generator projection completed in-memory. The actual new TypeSpec compilation, both backend builds, HTTP/PostgreSQL, populated evolution and Chromium are **BLOCKED/NOT RUN**, not PASS. No production IAM or hosted durable generated app.\n
+## 20. Codespaces acceptance runner
+
+| Gate | State | Evidence |
+| --- | --- | --- |
+| A14-CODESPACES-CONFIG | **PREPARED** | `.devcontainer/devcontainer.json`, `Dockerfile.codespaces-a14`, shell runner, `.dockerignore` |
+| A14-CODESPACES-ACTIONS | **PASS (static source check only)** | No Actions workflows or prebuild configuration in the new runner |
+| A14-CODESPACES-EXECUTION | **NOT RUN** | No Codespaces remote terminal/create tool attached to this chat |
+| A14-CODESPACES-PG/HTTP/CHROMIUM | **NOT RUN** | Run `bash scripts/vnext/run-codespaces-a14.sh` inside the PR branch's Codespace |
+
+See [Codespaces instructions](CODESPACES.md). An installed runner or committed probe is not empirical proof of a successful test.
