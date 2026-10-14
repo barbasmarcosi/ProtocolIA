@@ -9,8 +9,18 @@ rm -rf "$PGDATA_DIR";mkdir -p "$PGDATA_DIR";chown postgres:postgres "$PGDATA_DIR
 gosu postgres initdb -D "$PGDATA_DIR" --auth-local=trust --auth-host=trust >/tmp/a142-upgrade-init.log
 gosu postgres pg_ctl -D "$PGDATA_DIR" -o "-c listen_addresses=127.0.0.1" -l /tmp/a142-upgrade-postgres.log start >/dev/null
 pid=""
-stop_app(){if [[ -n "$pid" ]];then kill "$pid" 2>/dev/null || true;wait "$pid" 2>/dev/null || true;pid="";fi;}
-cleanup(){stop_app;gosu postgres pg_ctl -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1 || true;rm -rf "$PGDATA_DIR";}
+stop_app(){
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    pid=""
+  fi
+}
+cleanup(){
+  stop_app
+  gosu postgres pg_ctl -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1 || true
+  rm -rf "$PGDATA_DIR"
+}
 trap cleanup EXIT
 start_app(){
  local target="$1" db="$2" folder="$3"
@@ -42,11 +52,13 @@ for target in spring nest;do
  gosu postgres createdb -h 127.0.0.1 "$db"
  start_app "$target" "$db" "$folder"
  node scripts/vnext/probe-a14-evolution-http.mjs seed
- before="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sha256sum | cut -d' ' -f1)"
+ # Read-only contract addition must preserve pre-existing table and audit DDL.
+ # The only permitted new DDL is idx_pia_* query indexes, asserted separately below.
+ before="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\\{12\\} ON /d' | sha256sum | cut -d' ' -f1)"
  stop_app
  node packages/cli/protocolia.mjs plan examples/vnext/facility-maintenance-a142 "$folder"
  node packages/cli/protocolia.mjs evolve examples/vnext/facility-maintenance-a142 "$folder"
- after="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sha256sum | cut -d' ' -f1)"
+ after="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\\{12\\} ON /d' | sha256sum | cut -d' ' -f1)"
  test "$before" = "$after" || { echo "A14_EVOLUTION_UNEXPECTED_DDL";exit 1; }
  start_app "$target" "$db" "$folder"
  node scripts/vnext/probe-a14-evolution-http.mjs verify

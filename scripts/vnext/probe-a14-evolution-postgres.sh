@@ -9,8 +9,18 @@ rm -rf "$PGDATA_DIR";mkdir -p "$PGDATA_DIR";chown postgres:postgres "$PGDATA_DIR
 gosu postgres initdb -D "$PGDATA_DIR" --auth-local=trust --auth-host=trust >/tmp/a14-upgrade-init.log
 gosu postgres pg_ctl -D "$PGDATA_DIR" -o "-c listen_addresses=127.0.0.1" -l /tmp/a14-upgrade-postgres.log start >/dev/null
 pid=""
-stop_app(){if [[ -n "$pid" ]];then kill "$pid" 2>/dev/null || true;wait "$pid" 2>/dev/null || true;pid="";fi;}
-cleanup(){stop_app;gosu postgres pg_ctl -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1 || true;rm -rf "$PGDATA_DIR";}
+stop_app(){
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    pid=""
+  fi
+}
+cleanup(){
+  stop_app
+  gosu postgres pg_ctl -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1 || true
+  rm -rf "$PGDATA_DIR"
+}
 trap cleanup EXIT
 start_app(){
  local target="$1" db="$2" folder="$3"

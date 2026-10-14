@@ -20,6 +20,11 @@ COPY . .
 
 # Guard against silently using a Codespace's host toolchain/version.
 RUN node --version && java -version && mvn -version && postgres --version
+# Fail fast on shell syntax BEFORE downloading dependencies or building backends.
+# A real Codespaces run previously spent compile time only to discover a Bash syntax error.
+RUN for file in scripts/vnext/*.sh tests/vnext/*.sh; do \
+      [ ! -f "$file" ] || bash -n "$file" || exit 1; \
+    done && echo A14_ALL_SHELL_SCRIPTS_SYNTAX_PASS
 RUN npm ci --ignore-scripts --no-audit --no-fund
 
 # Compile official TypeSpec/IR, run all compiler and generator unit tests,
@@ -44,12 +49,6 @@ RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a
     --target modular-spring --out /work/dist/a142-spring
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 \
     --target nestjs --out /work/dist/a142-nest
-
-RUN bash -n scripts/vnext/probe-a13-maintenance-postgres.sh \
-    && bash -n scripts/vnext/probe-a14-reassign-postgres.sh \
-    && bash -n scripts/vnext/probe-a14-evolution-postgres.sh \
-    && bash -n scripts/vnext/probe-a14-query-postgres.sh \
-    && bash -n scripts/vnext/probe-a142-evolution-postgres.sh
 
 # These scripts allocate real local PostgreSQL instances; the images remain
 # isolated from public network ports. A failed gate aborts the build.

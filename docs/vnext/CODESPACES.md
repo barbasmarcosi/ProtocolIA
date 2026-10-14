@@ -57,3 +57,9 @@ The Dockerfile orders **A13 generation before the evolution tests**, the same or
 The default 2-core Codespace has limited compute and disk. A large multi-stage Docker build can require significant storage and elapsed time; if it fails due to disk/memory, record **BLOCKED by resources**, not a product FAIL. We cannot assume the Codespaces account is connected to our current GitHub tool's shell: the GitHub connector can edit and inspect the repository but does **not** currently expose a Codespaces create/SSH/exec operation. Initial creation and terminal invocation therefore require the repository owner's account.
 
 No GitHub Actions workflows, paid CI runners, Render deployments, new managed databases, or prebuilds are requested by this configuration. Codespaces usage is billed/offset against **Codespaces' separate allowance**, so keep the environment stopped when unused.
+
+## First empirical run and next run
+
+On 2026-10-14 the owner ran the suite at commit `a2a123d`: all Spring/Nest/React/TypeSpec A14.2 builds completed successfully; Docker failed before DB probes on Bash syntax in the A14.1 evolution script. Two probe function definitions are now fixed, A14.2 index-only migrations are handled in the schema preservation check, and **all** shell scripts are linted near the start of the Docker build. These changes need a fresh real run; do not count the DB/HTTP/Chromium gates as PASS yet.
+
+The existing Codespace does **not** need rebuilding for these repository-only changes: `git pull --ff-only`, then rerun `bash scripts/vnext/run-codespaces-a14.sh`. Docker's cached build layers should avoid repeating unchanged successful stages when possible.
