@@ -88,6 +88,19 @@ export function generate(ir,spec,out){
       const keyed=["get","patchFields","atomicIncrement","transition","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
+      if(b.reserve){
+        const stock=entities.get(b.reserve.stockEntity);
+        const available=stock?.fields.find(f=>f.name===b.reserve.availableField);
+        const relation=e.fields.find(f=>f.name===b.reserve.referenceField);
+        const amount=e.fields.find(f=>f.name===b.reserve.quantityField);
+        if(kind!=="create"||!stock||stock===e||!available||
+           available.type!=="int32"||!available.required||available.nullable||
+           (available.min??-1)<0||!relation||relation.type!=="string"||
+           !relation.required||relation.nullable||relation.reference?.target!==stock.name||
+           !amount||amount.type!=="int32"||!amount.required||amount.nullable||
+           (amount.min??-1)<1||!op.statuses?.includes(400)||!op.statuses?.includes(409))
+          throw Error("Invalid atomic reserve "+op.name);
+      }
       if(kind==="transition"){
         const field=e.fields.find(f=>f.name===b.field);
         const safe=x=>typeof x==="string" && /^[a-z][a-z0-9_-]{0,63}$/.test(x) &&
@@ -106,6 +119,16 @@ export function generate(ir,spec,out){
       const item={name:op.name,method:op.method,path:op.path,entity:e.name,
         kind,capability:op.capability,...(b.field?{field:b.field}:{}),
         ...(b.input?{input:b.input}:{}),...(kind==="transition"?{from:b.from,to:b.to}:{})};
+      if(b.reserve){
+        const stock=entities.get(b.reserve.stockEntity);
+        const stockCreate=of("create",stock.name)[0];
+        if(!stockCreate||stockCreate.capability==="public")throw Error("Missing stock writer capability");
+        item.reserve={
+          stockTable:snake(stock.name),stockKeyColumn:snake(stock.publicIdentity),
+          availableColumn:snake(b.reserve.availableField),referenceField:b.reserve.referenceField,
+          quantityField:b.reserve.quantityField,stockWriteCapability:stockCreate.capability
+        };
+      }
       if(kind==="listPage"){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
