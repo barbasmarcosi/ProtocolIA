@@ -193,11 +193,11 @@ class RuntimeService{
     if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
       throw new Problem(400,"Invalid audit page bounds");
     await this.row(e,key); // Enforce not-found only after audit capability authentication.
-    const selection="SELECT id::text AS \\"id\\", actor, entity_name AS \\"entityName\\", "+
-      "resource_id AS \\"resourceId\\", operation_name AS \\"operationName\\", "+
-      "field_name AS \\"fieldName\\", before_value AS \\"beforeValue\\", "+
-      "after_value AS \\"afterValue\\", "+
-      "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"') AS \\"occurredAt\\" "+
+    const selection="SELECT id::text AS \"id\", actor, entity_name AS \"entityName\", "+
+      "resource_id AS \"resourceId\", operation_name AS \"operationName\", "+
+      "field_name AS \"fieldName\", before_value AS \"beforeValue\", "+
+      "after_value AS \"afterValue\", "+
+      "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS.MS\\"Z\\"') AS \"occurredAt\" "+
       "FROM protocolia_audit_event WHERE entity_name=$1 AND resource_id=$2";
     const [records,amount]=await Promise.all([
       this.pool.query(selection+" ORDER BY id DESC LIMIT $3 OFFSET $4",[e.name,key,limit,offset]),
