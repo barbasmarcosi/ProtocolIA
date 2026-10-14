@@ -67,9 +67,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","patchFields","atomicIncrement","transition","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,patchFields:200,atomicIncrement:200,transition:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,delete:204,health:200};
   const ops = ir.operations;
   const routes = new Set();
   for(const op of ops){
@@ -82,7 +82,7 @@ export function generate(ir, openapi, outDir) {
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0)
@@ -91,6 +91,16 @@ export function generate(ir, openapi, outDir) {
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
+    if(op.behavior.kind==="auditPage"){
+      const history=ops.filter(x=>x.entity===bound.name&&x.behavior.audit?.length);
+      const create=ops.find(x=>x.entity===bound.name&&x.behavior.kind==="create");
+      const get=ops.find(x=>x.entity===bound.name&&x.behavior.kind==="get");
+      if(!history.length||op.capability==="public"||
+         op.capability===create?.capability||op.capability===get?.capability||
+         !op.statuses.includes(400)||!op.statuses.includes(404)||
+         op.behavior.field||op.behavior.input||op.behavior.audit||op.behavior.reserve||op.behavior.release)
+        throw Error("Invalid independently authorized audit query "+op.name);
+    }
     if(op.behavior.audit){
       const a=op.behavior.audit;
       if(!Array.isArray(a)||a.length<1||a.length>8||new Set(a).size!==a.length||
@@ -151,11 +161,11 @@ export function generate(ir, openapi, outDir) {
   }
   const byKind=(kind,entity)=>ops.filter(o=>o.behavior.kind===kind&&(!entity||o.entity===entity));
   if(byKind("health").length!==1)throw Error("Exactly one health operation required");
-  const readCaps=[],writeCaps=[];
+  const readCaps=[],writeCaps=[],auditCaps=[];
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchFields","atomicIncrement","delete"])
+    for(const kind of ["patchFields","atomicIncrement","auditPage","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const read=byKind("get",e.name)[0].capability;
     const write=byKind("create",e.name)[0].capability;
@@ -163,12 +173,20 @@ export function generate(ir, openapi, outDir) {
       throw Error("Invalid capabilities on "+e.name);
     if(!readCaps.includes(read))readCaps.push(read);
     if(!writeCaps.includes(write))writeCaps.push(write);
+    const auditRead=byKind("auditPage",e.name)[0];
+    if(auditRead){
+      if(auditRead.capability===read||auditRead.capability===write||
+         !ops.some(x=>x.entity===e.name&&x.behavior.audit?.length))
+        throw Error("Audit view must have an independent capability and source events");
+      if(!auditCaps.includes(auditRead.capability))auditCaps.push(auditRead.capability);
+    }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
+      if(op.behavior.kind==="auditPage")continue;
       const expected=["create","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind)?write:read;
       if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
-  if(readCaps.some(x=>writeCaps.includes(x)))throw Error("Read/write authorities cannot overlap");
+  if(readCaps.some(x=>writeCaps.includes(x))||auditCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x)))throw Error("Read/write/audit authorities cannot overlap");
   if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
   const base="src/main/java/dev/protocolia/modular/";
   const outputs=[];
@@ -195,6 +213,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
+    "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
@@ -213,7 +232,7 @@ export function generate(ir, openapi, outDir) {
     if(b.kind==="atomicIncrement"){
       const range=inputBounds(openapi,op);mn=range.minimum;mx=range.maximum;
     }
-    if(b.kind==="listPage"){
+    if(b.kind==="listPage"||b.kind==="auditPage"){
       const l=queryParameter(openapi,op,"limit");
       const o=queryParameter(openapi,op,"offset");
       ld=l.default;lmin=l.minimum;lmax=l.maximum;od=o.default;om=o.maximum;
