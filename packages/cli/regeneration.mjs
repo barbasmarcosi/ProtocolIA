@@ -44,7 +44,14 @@ export function diffContracts(oldIr,nextIr){
     }
     for(const field of next.fields){
       if(oldFields.has(field.name))continue;
-      if(field.required||!field.nullable||field.unique||field.reference)
+      if(field.initial!==undefined){
+        if(field.type!=="string"||!field.required||field.nullable||field.unique||
+           field.reference||!/^([a-z][a-z0-9_-]{0,63})$/.test(field.initial)||
+           (field.minLength??1)>field.initial.length||
+           (field.maxLength??255)<field.initial.length)
+          blockers.push("Invalid required initial-state addition: "+previous.name+"."+field.name);
+        else changes.push({kind:"addInitialState",entity:previous.name,field:structuredClone(field)});
+      }else if(field.required||!field.nullable||field.unique||field.reference)
         blockers.push("New field must be optional, nullable, nonunique and non-reference: "+
           previous.name+"."+field.name);
       else if(!["string","int32","utcDateTime"].includes(field.type))
@@ -57,8 +64,40 @@ export function diffContracts(oldIr,nextIr){
   }
   for(const next of nextIr.entities)
     if(!before.has(next.name))blockers.push("New entity needs a separate migration profile: "+next.name);
-  if(!same(oldIr.operations,nextIr.operations))
-    blockers.push("Operation/routing/capability changed; requires separate reviewed migration");
+  const previousOperations=new Map(oldIr.operations.map(op=>[op.name,op]));
+  const futureOperations=new Map(nextIr.operations.map(op=>[op.name,op]));
+  if(previousOperations.size!==oldIr.operations.length||futureOperations.size!==nextIr.operations.length)
+    blockers.push("Duplicate operation name");
+  for(const oldOp of oldIr.operations){
+    if(!same(oldOp,futureOperations.get(oldOp.name)))
+      blockers.push("Operation/routing/capability changed: "+oldOp.name);
+  }
+  const additions=nextIr.operations.filter(op=>!previousOperations.has(op.name));
+  const initialStates=changes.filter(c=>c.kind==="addInitialState");
+  for(const op of additions){
+    const field=initialStates.find(c=>c.entity===op.entity&&c.field.name===op.behavior.field);
+    const b=op.behavior,release=b.release;
+    const source=oldIr.operations.find(x=>x.entity===op.entity&&x.behavior.kind==="create");
+    const linked=source?.behavior.reserve;
+    const parent=linked?oldIr.entities.find(e=>e.name===linked.stockEntity):undefined;
+    const parentWrite=oldIr.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="create");
+    if(!field||b.kind!=="transition"||!release||!linked||!parentWrite||
+       b.from!==field.field.initial||b.to===b.from||
+       op.method!=="POST"||!op.statuses.includes(200)||!op.statuses.includes(409)||
+       op.capability!==source.capability||
+       !Object.entries(linked).every(([k,v])=>release[k]===v)||
+       !/^[a-z][a-z0-9_-]{0,63}$/.test(b.to)||
+       (field.field.minLength??1)>b.to.length||
+       (field.field.maxLength??255)<b.to.length)
+      blockers.push("Unsupported new operation (requires exactly one matching stock cancellation): "+op.name);
+    else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
+  }
+  for(const state of initialStates){
+    const itsOperations=changes.filter(c=>c.kind==="addOperation" &&
+      c.entity===state.entity&&c.operation.behavior.field===state.field.name);
+    if(itsOperations.length!==1)blockers.push("Required initial-state addition must have one safe cancellation transition: "+
+      state.entity+"."+state.field.name);
+  }
   return {compatible:blockers.length===0,changes,blockers};
 }
 function canonical(value){
@@ -79,6 +118,42 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
   const next=structuredClone(newApi);
   const beforeSchemas=oldApi.components?.schemas??{};
   const nextSchemas=next.components?.schemas??{};
+  for(const change of plan.changes.filter(c=>c.kind==="addOperation")){
+    const op=change.operation;
+    if(oldApi.paths?.[op.path]?.[op.method.toLowerCase()]){
+      issues.push("New operation overrides an existing route: "+op.name);continue;
+    }
+    const endpoint=next.paths?.[op.path]?.[op.method.toLowerCase()];
+    if(!endpoint){
+      issues.push("New operation missing from OpenAPI: "+op.name);continue;
+    }
+    delete next.paths[op.path][op.method.toLowerCase()];
+    if(Object.keys(next.paths[op.path]).length===0)delete next.paths[op.path];
+  }
+  for(const change of plan.changes.filter(c=>c.kind==="addInitialState")){
+    const entity=change.entity,field=change.field.name;
+    const operation=oldIr.operations.find(op=>op.entity===entity&&op.behavior.kind==="create");
+    const request=operation?.request;
+    const nextEntity=nextSchemas[entity],nextRequest=nextSchemas[request];
+    const previousEntity=beforeSchemas[entity],previousRequest=beforeSchemas[request];
+    if(!request||!nextEntity?.properties?.[field]||!nextRequest?.properties?.[field]||
+       previousEntity?.properties?.[field]||previousRequest?.properties?.[field]||
+       nextRequest.required?.includes(field)||
+       !nextEntity.required?.includes(field)){
+      issues.push("Unsafe initial-state property in entity or legacy request schema: "+entity+"."+field);
+      continue;
+    }
+    // The entity must expose this required field, while the existing CREATE DTO
+    // stays backward compatible by accepting omission and filling it server-side.
+    const nextValue=nextEntity.properties[field],requestValue=nextRequest.properties[field];
+    if(!same(canonical(nextValue),canonical(requestValue))){
+      issues.push("Initial-state request/entity validators diverged: "+entity+"."+field);
+      continue;
+    }
+    delete nextEntity.properties[field];
+    nextEntity.required=nextEntity.required.filter(x=>x!==field);
+    delete nextRequest.properties[field];
+  }
   for(const change of plan.changes.filter(c=>c.kind==="addField")){
     const entity=change.entity,field=change.field.name;
     const op=nextIr.operations.find(x=>x.entity===entity&&x.behavior.kind==="create");
@@ -117,9 +192,20 @@ function fieldDdl(field){
 }
 export function additiveSql(plan){
   if(!plan.compatible)throw Error("Refusing destructive migration: "+plan.blockers.join("; "));
-  return plan.changes.filter(x=>x.kind==="addField")
-    .map(x=>"ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(x.field)+";")
-    .join("\n");
+  return plan.changes.filter(x=>["addField","addInitialState"].includes(x.kind))
+    .map(x=>{
+      if(x.kind==="addField")return "ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(x.field)+";";
+      const field=x.field,initial=field.initial;
+      const values=new Set([initial,...plan.changes.filter(c=>c.kind==="addOperation"&&
+        c.entity===x.entity&&c.operation.behavior.field===field.name)
+        .flatMap(c=>[c.operation.behavior.from,c.operation.behavior.to])]);
+      if(!initial||values.size<2||[...values].some(value=>
+          typeof value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(value)))
+        throw Error("Unresolved safe cancellation states on "+x.entity+"."+field.name);
+      const allowed=[...values].sort().map(value=>"'"+value+"'").join(",");
+      return "ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(field)+
+        " DEFAULT '"+initial+"' NOT NULL CHECK ("+snake(field.name)+" IN ("+allowed+"));";
+    }).join("\n");
 }
 function run(command,args,options={}){
   const p=spawnSync(command,args,{stdio:"inherit",timeout:600000,...options});
