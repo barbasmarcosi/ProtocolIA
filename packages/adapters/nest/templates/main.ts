@@ -46,7 +46,7 @@ function parseTimestamp(value:unknown):string{
 function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):Record<string,unknown>{
   if(!isRecord(body))throw new Problem(400,"Expected JSON object");
   if(Object.keys(body).some(key=>!writable.includes(key)))throw new Problem(400,"Unknown field");
-  if(create&&e.fields.some(f=>f.required&&!Object.hasOwn(body,f.name)))
+  if(create&&e.fields.some(f=>f.required&&f.initial===undefined&&!Object.hasOwn(body,f.name)))
     throw new Problem(400,"Missing required field");
   for(const [key,value] of Object.entries(body)){
     const f=e.fields.find(x=>x.name===key);
@@ -180,7 +180,9 @@ class RuntimeService{
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
   private async create(e:Entity,op:Operation,body:unknown):Promise<Record<string,unknown>>{
-    const input=validateInput(e,body,e.fields.map(f=>f.name),true);
+    const input={...validateInput(e,body,e.fields.map(f=>f.name),true)};
+    for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
+      input[f.name]=f.initial;
     const cols=e.fields.map(f=>f.column);
     const params=e.fields.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
