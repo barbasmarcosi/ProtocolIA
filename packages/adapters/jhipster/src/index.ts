@@ -34,6 +34,7 @@ export interface IrOperation {
     to?: string;
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
+    audit?: string[];
   };
   capability: string;
   request?: string;
