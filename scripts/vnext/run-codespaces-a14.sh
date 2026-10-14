@@ -3,12 +3,26 @@
 # Run from the repository root inside GitHub Codespaces. No extra remote account.
 set -Eeuo pipefail
 cd "$(git rev-parse --show-toplevel)"
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  echo 'BLOCKED: Docker daemon not accessible. Check Codespaces Docker feature.' >&2
+if ! command -v git >/dev/null 2>&1; then
+  echo 'BLOCKED: git unavailable.' >&2
   exit 2
 fi
-if ! command -v git >/dev/null 2>&1; then
-  echo 'BLOCKED: git unavailable.' >&2; exit 2
+if ! command -v docker >/dev/null 2>&1; then
+  echo 'BLOCKED: Docker CLI unavailable in Codespace; rebuild with Docker-in-Docker v4.' >&2
+  bash scripts/vnext/codespaces-doctor.sh >&2 || true
+  exit 2
+fi
+# Docker-in-Docker may still be starting when a terminal first opens.
+# Retry only the daemon readiness check, never the costly acceptance build.
+ready=0
+for attempt in $(seq 1 10); do
+  if docker info >/dev/null 2>&1; then ready=1; break; fi
+  sleep 2
+done
+if [[ "$ready" -ne 1 ]]; then
+  echo 'BLOCKED: Docker engine unreachable; no tests started and no PASS claimed.' >&2
+  bash scripts/vnext/codespaces-doctor.sh >&2 || true
+  exit 2
 fi
 branch="$(git branch --show-current)"
 if [[ "$branch" != feature/vnext-a0-typespec-jhipster-spike && "$branch" != feature/vnext-a3-nest-relations-a5-evolution ]]; then

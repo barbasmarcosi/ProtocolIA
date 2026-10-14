@@ -11,7 +11,28 @@ This is a **local cloud development environment**, NOT GitHub Actions and NOT a 
 bash scripts/vnext/run-codespaces-a14.sh
 ```
 
-The runner detects an incorrect branch or unavailable Docker daemon *before* attempting builds. Creation only runs a lightweight Docker readiness check; **heavy compilation is never started automatically or repeated after every resume**. The devcontainer reuses the host Docker socket; no prebuild and no Actions workflow are configured.
+The runner detects an incorrect branch or unavailable Docker daemon *before* attempting builds. Creation only runs a lightweight Docker readiness check; **heavy compilation is never started automatically or repeated after every resume**. The devcontainer uses the **Docker-in-Docker v4** feature with an independent daemon, rather than depending on a forwarded host socket; no prebuild and no Actions workflow are configured.
+
+## Repairing an existing Codespace after `BLOCKED: Docker daemon not accessible`
+
+The original configuration used `docker-outside-of-docker`, which depends on a functioning host Docker socket. The corrected configuration uses the official `ghcr.io/devcontainers/features/docker-in-docker:4` with its own engine and a small, Ubuntu 24.04 base image.
+
+In the terminal of the **existing** Codespace:
+
+```bash
+git pull --ff-only
+```
+
+Then in the VS Code browser/editor command palette choose **Codespaces: Rebuild Container**. This is **required**: merely pulling the new devcontainer file does not install the Docker daemon into a container that is already running. Rebuilding preserves files under `/workspaces`. Once it reopens, run:
+
+```bash
+bash scripts/vnext/codespaces-doctor.sh
+bash scripts/vnext/run-codespaces-a14.sh
+```
+
+The doctor prints Docker CLI version, socket presence and the daemon's concrete error. The launcher retries only the daemon check during startup. If it remains blocked, share the doctor output, not a speculative product failure. These commands do **not** use GitHub Actions or Render.
+
+GitHub's instructions on rebuilding: https://docs.github.com/en/codespaces/developing-in-a-codespace/rebuilding-the-container-in-a-codespace
 
 ## What the command actually tests
 
@@ -35,4 +56,4 @@ The Dockerfile orders **A13 generation before the evolution tests**, the same or
 
 The default 2-core Codespace has limited compute and disk. A large multi-stage Docker build can require significant storage and elapsed time; if it fails due to disk/memory, record **BLOCKED by resources**, not a product FAIL. We cannot assume the Codespaces account is connected to our current GitHub tool's shell: the GitHub connector can edit and inspect the repository but does **not** currently expose a Codespaces create/SSH/exec operation. Initial creation and terminal invocation therefore require the repository owner's account.
 
-No GitHub Actions workflows, paid CI runners, Render deployments, new managed databases, or prebuilds are requested by this configuration.
+No GitHub Actions workflows, paid CI runners, Render deployments, new managed databases, or prebuilds are requested by this configuration. Codespaces usage is billed/offset against **Codespaces' separate allowance**, so keep the environment stopped when unused.

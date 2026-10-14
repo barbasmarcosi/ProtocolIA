@@ -292,3 +292,7 @@ A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 
 | A14-CODESPACES-PG/HTTP/CHROMIUM | **NOT RUN** | Run `bash scripts/vnext/run-codespaces-a14.sh` inside the PR branch's Codespace |
 
 See [Codespaces instructions](CODESPACES.md). An installed runner or committed probe is not empirical proof of a successful test.
+
+### 2026-10-14 — First real Codespace invocation
+
+The user actually started `run-codespaces-a14.sh` and hit the Docker daemon preflight: **BLOCKED by Codespace infrastructure** before any Docker build. The configuration was changed to Docker-in-Docker v4 and a diagnostics script was added. **A14 suite remains NOT RUN**, requires Codespace rebuild and retry. This does not overturn previously demonstrated isolated A14.1 PASS. No Actions minutes consumed by the runner.
