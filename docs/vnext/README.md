@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring PASS funcional acotado (P-06 pendiente); A5 evolución aditiva PASS acotado; A4 relacional PASS acotado (E-01..E-08 sobre base nueva).  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado de negocio en Spring y Nest PASS HTTP/PostgreSQL acotado.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -34,6 +34,8 @@ npm run app:build -- examples/vnext/taller --target modular-spring --out dist/ta
 npm run app:build -- examples/vnext/gauge --target modular-spring --out dist/gauge
 # Entidades relacionadas, clave foránea restrict y selector React:
 npm run app:build -- examples/vnext/equipment-inspections --target modular-spring --out dist/relations
+# Lógica de negocio: draft -> approved -> closed sin código por entidad:
+npm run app:build -- examples/vnext/work-orders --target nestjs --out dist/work-orders
 ```
 
 La CLI realiza TypeSpec → IR → validación de capacidades → generación Spring/React → OpenAPI Generator 7.26 → compilación Maven y produce `protocolia-build.json` con hashes de origen. Rechaza sobrescribir directorios con archivos previos o generar dentro del árbol del contrato. No escribe código Java/SQL/React por entidad.
@@ -75,11 +77,28 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A0 — Tecnología y contrato canónico | PASS acotado | [A0](evidence/A0.md), JHipster NO-GO contractual, fallback GO |
 | A1 — Persistencia/operaciones/capacidades | PASS acotado | [A1](evidence/A1.md), migración Flyway + HTTP/DB/roles/atomicidad |
 | A2 — CLI/UI/empaquetado | PARCIAL | CLI compila Taller, Gauge y app multientidad; navegador/DB y conformance genérica PASS; Compose `config` PASS, arranque Compose sin Docker Engine sigue pendiente |
-| A3 — Segundo backend NestJS | PASS funcional acotado | [A3](evidence/A3.md): mismo TypeSpec/IR/OpenAPI y suites HTTP/PG/Chromium Taller+Gauge; Nest P-06 evolución in-place no implementada |
+| A3 — Segundo backend NestJS | PASS funcional acotado | [A3](evidence/A3.md): Taller/Gauge+Equipment/Inspection HTTP/PG/Chromium; P-06 Nest V1→V2 aditivo verificado |
 | A4 — Dos entidades y relaciones FK | PASS acotado | [A4](evidence/A4.md): 2 entidades/FK, selector React y evolución de contrato regenerada y ejecutada en DB nueva |
-| A5 — Regeneración/evolución segura | PASS núcleo aditivo acotado | [A5](evidence/A5.md): Flyway V1→V2 sobre DB poblada, ownership y extensiones preservados; OpenAPI diff/validaciones y migración PostgreSQL V1→V2 verificados |
+| A5 — Regeneración/evolución segura | PASS aditivo acotado Spring+Nest | [A5](evidence/A5.md): Flyway y migraciones Nest checksummed V1→V2 en DB poblada; baseline, ownership y datos preservados |
 
-**Límites actuales:** un recurso por aplicación, operaciones declaradas conocidas, sin OIDC/JWT de producción ni migraciones compatibles automáticas. Hay avisos npm por revisar antes de distribuir.
+| A6 — Operaciones de negocio por contrato | PASS HTTP/PG acotado | [A6](evidence/A6.md): estado inicial + transiciones PostgreSQL atómicas, 10 carreras concurrentes por destino, React manifest generado; botones Chromium específicos pendientes |
+
+**Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
+
+## A6 — Estado y operaciones de negocio declarativas
+
+El contrato `examples/vnext/work-orders/contracts/main.tsp` expresa una propiedad `@initial("draft")` y operaciones de transición como:
+
+```typespec
+@route("/api/work-orders/{code}/approve")
+@post
+@behavior("transition", "WorkOrder", "status")
+@transition("draft", "approved")
+@capability("orders.write")
+op approveWorkOrder(@path code: string): WorkOrder | Conflict | NotFound | Unauthorized | Forbidden;
+```
+
+La fuente de verdad es TypeSpec → IR; ambos adaptadores emiten una actualización PostgreSQL condicionada por el estado original, con resultado HTTP 409 cuando la precondición falla. El frontend deriva botones desde el manifiesto `transitions[]`, sin lógica por nombre de entidad. El perfil actual es deliberadamente finito: cadenas de estado y guardas por igualdad; no orquesta flujos externos ni integra un proveedor IAM. [Evidencia A6](evidence/A6.md).
 
 ## Historial preservado
 
