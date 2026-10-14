@@ -81,6 +81,28 @@ export function diffContracts(oldIr,nextIr){
     const linked=source?.behavior.reserve;
     const parent=linked?oldIr.entities.find(e=>e.name===linked.stockEntity):undefined;
     const parentWrite=oldIr.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="create");
+    if(b.kind==="auditPage"){
+      const existing=oldIr.operations.filter(x=>x.entity===op.entity);
+      const baseEntity=oldIr.entities.find(e=>e.name===op.entity);
+      const readers=existing.filter(x=>["get","listPage"].includes(x.behavior.kind));
+      const writers=existing.filter(x=>["create","transition","patchFields","atomicIncrement","delete"].includes(x.behavior.kind));
+      const identity=baseEntity?.publicIdentity;
+      const tokens=[...op.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const previouslyAudited=existing.some(x=>["create","transition"].includes(x.behavior.kind)&&
+        Array.isArray(x.behavior.audit)&&x.behavior.audit.length>0);
+      const distinct=[...new Set([...readers,...writers].map(x=>x.capability))];
+      const oldRoute=oldIr.operations.some(x=>x.method===op.method&&x.path===op.path);
+      if(!baseEntity||!previouslyAudited||existing.some(x=>x.behavior.kind==="auditPage")||
+         op.method!=="GET"||tokens.length!==1||tokens[0]!==identity||
+         !op.path.startsWith("/api/")||!op.path.endsWith("/audit")||oldRoute||
+         !op.statuses.includes(200)||!op.statuses.includes(400)||!op.statuses.includes(404)||
+         !op.statuses.includes(401)||!op.statuses.includes(403)||
+         !op.capability||op.capability==="public"||distinct.includes(op.capability)||
+         Object.keys(b).length!==1){
+        blockers.push("Unsafe audit reader addition (separate authority, unchanged audited source, GET identity and 200/400/401/403/404 required): "+op.name);
+      }else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
+      continue;
+    }
     if(!field||b.kind!=="transition"||!release||!linked||!parentWrite||
        b.from!==field.field.initial||b.to===b.from||
        op.method!=="POST"||!op.statuses.includes(200)||!op.statuses.includes(409)||
@@ -118,6 +140,20 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
   const next=structuredClone(newApi);
   const beforeSchemas=oldApi.components?.schemas??{};
   const nextSchemas=next.components?.schemas??{};
+  const reachableSchemas=new Set();
+  function gatherRefs(value,seen=new Set()){
+    if(!value||typeof value!=="object"||seen.has(value))return;
+    seen.add(value);
+    if(typeof value.$ref==="string"&&value.$ref.startsWith("#/components/schemas/")){
+      const name=value.$ref.slice("#/components/schemas/".length).replace(/~1/g,"/").replace(/~0/g,"~");
+      if(!Object.hasOwn(beforeSchemas,name)&&Object.hasOwn(nextSchemas,name)&&
+         !reachableSchemas.has(name)){
+        reachableSchemas.add(name);
+        gatherRefs(nextSchemas[name],seen);
+      }
+    }
+    for(const item of Object.values(value))gatherRefs(item,seen);
+  }
   for(const change of plan.changes.filter(c=>c.kind==="addOperation")){
     const op=change.operation;
     if(oldApi.paths?.[op.path]?.[op.method.toLowerCase()]){
@@ -127,6 +163,7 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     if(!endpoint){
       issues.push("New operation missing from OpenAPI: "+op.name);continue;
     }
+    if(op.behavior.kind==="auditPage")gatherRefs(endpoint);
     delete next.paths[op.path][op.method.toLowerCase()];
     if(Object.keys(next.paths[op.path]).length===0)delete next.paths[op.path];
   }
@@ -173,6 +210,7 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     delete nextSchemas[entity].properties[field];
     delete nextSchemas[request].properties[field];
   }
+  for(const name of reachableSchemas)delete nextSchemas[name];
   if(!same(canonical(oldApi),canonical(next)))
     issues.push("Undeclared OpenAPI model/validation/routing change");
   return issues;
