@@ -230,20 +230,53 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> page(Manifest.Entity e, Map<String,String> query, Manifest.Op op) {
-    if (!query.keySet().stream().allMatch(k -> k.equals("limit") || k.equals("offset")))
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    var declared=op.filters().stream().map(Manifest.Filter::query).collect(java.util.stream.Collectors.toSet());
+    if (!query.keySet().stream().allMatch(k -> k.equals("limit") || k.equals("offset") || declared.contains(k)))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown listing query");
     int limit, offset;
     try {
       limit = Integer.parseInt(query.getOrDefault("limit", String.valueOf(op.limitDefault())));
       offset = Integer.parseInt(query.getOrDefault("offset", String.valueOf(op.offsetDefault())));
-    } catch (NumberFormatException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST); }
-    if (limit < op.limitMin() || limit > op.limitMax() || offset < 0 || offset > op.offsetMax())
+    } catch(NumberFormatException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST);}
+    if(limit<op.limitMin()||limit>op.limitMax()||offset<0||offset>op.offsetMax())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-    var args = Map.<String,Object>of("limit", limit, "offset", offset);
-    var result = jdbc.queryForList(selectSql(e) + " ORDER BY " + e.identityColumn() + " LIMIT :limit OFFSET :offset", args);
-    List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
-    Number count = jdbc.queryForObject("SELECT COUNT(*) FROM " + e.table(), new MapSqlParameterSource(), Number.class);
-    return Map.of("items", items, "total", count.intValue(), "limit", limit, "offset", offset);
+    var args=new MapSqlParameterSource().addValue("limit",limit).addValue("offset",offset);
+    var predicates=new java.util.ArrayList<String>();
+    for(var filter:op.filters()){
+      String raw=query.get(filter.query());
+      if(raw==null)continue;
+      if(raw.isBlank()||raw.length()>255)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid filter value");
+      Object value;
+      try{
+        value=switch(filter.type()){
+          case "string" -> raw;
+          case "int32" -> Integer.valueOf(raw);
+          case "utcDateTime" -> OffsetDateTime.parse(raw);
+          default -> throw new IllegalStateException("Unsupported generated filter type");
+        };
+      }catch(IllegalArgumentException ex){
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid filter scalar");
+      }
+      String operator=switch(filter.operator()){
+        case "eq" -> "=";case "gte" -> ">=";case "lte" -> "<=";
+        default -> throw new IllegalStateException("Unsupported generated filter operator");
+      };
+      args.addValue(filter.query(),value);
+      if(filter.referenceTable()!=null){
+        predicates.add("EXISTS (SELECT 1 FROM "+filter.referenceTable()+" filter_ref WHERE "+
+          "filter_ref."+filter.referenceKey()+"="+e.table()+"."+filter.referenceColumn()+
+          " AND filter_ref."+filter.column()+operator+":"+filter.query()+")");
+      }else{
+        predicates.add(e.table()+"."+filter.column()+operator+":"+filter.query());
+      }
+    }
+    String where=predicates.isEmpty()?"":" WHERE "+String.join(" AND ",predicates);
+    var rows=jdbc.queryForList(selectSql(e)+where+" ORDER BY "+e.identityColumn()+
+      " LIMIT :limit OFFSET :offset",args);
+    List<Map<String,Object>> items=rows.stream().map(r->serialized(r,e)).toList();
+    Number count=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+where,args,Number.class);
+    return Map.of("items",items,"total",count.intValue(),"limit",limit,"offset",offset);
   }
 
   private Map<String,Object> auditPage(Manifest.Entity e,String key,Map<String,String> query,Manifest.Op op) {
