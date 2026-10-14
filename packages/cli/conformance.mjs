@@ -175,12 +175,28 @@ async function runMulti(){
       assert.ok(field?.initial, "Transition requires an initial-state field");
       const current=await run(resource,"get",reader,{key});
       if(current.data[field.name]!==op.behavior.from)continue;
+      const release=op.behavior.release;
+      const stockResource=release?resources.find(x=>x.entity.name===release.stockEntity):undefined;
+      const stockKey=release?current.data[release.referenceField]:undefined;
+      const beforeRelease=release?await run(stockResource,"get",reader,{key:stockKey}):undefined;
+      if(release)assert.equal(beforeRelease.status,200);
       assert.equal((await run(resource,op,reader,{key})).status,403);
       assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
       const results=await Promise.all(Array.from({length:10},()=>run(resource,op,writer,{key})));
       assert.equal(results.filter(x=>x.status===200).length,1);
       assert.equal(results.filter(x=>x.status===409).length,9);
       assert.equal((await run(resource,"get",reader,{key})).data[field.name],op.behavior.to);
+      if(release){
+        const credited=await run(stockResource,"get",reader,{key:stockKey});
+        assert.equal(credited.status,200);
+        assert.equal(credited.data[release.availableField],
+          beforeRelease.data[release.availableField]+current.data[release.quantityField],
+          "A8 cancellation must credit exactly once across concurrent requests");
+        assert.equal((await run(resource,op,writer,{key})).status,409);
+        const afterDuplicate=await run(stockResource,"get",reader,{key:stockKey});
+        assert.equal(afterDuplicate.data[release.availableField],credited.data[release.availableField],
+          "A8 repeated cancellation cannot re-credit stock");
+      }
       executed++;
     }
     if((resource.transitions??[]).length)assert.ok(executed>0,"No declared transition was executable");
@@ -205,7 +221,8 @@ async function runMulti(){
     assert.equal((await run(resource,"get",reader,{key})).status,404);
   }
   console.log((resources.some(r=>r.operations.create?.behavior?.reserve)?
-    "PROTOCOLIA_TRANSACTIONAL_CONFORMANCE_PASS ":
+    (resources.some(r=>(r.transitions??[]).some(t=>t.behavior.release))?
+      "PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS ":"PROTOCOLIA_TRANSACTIONAL_CONFORMANCE_PASS "):
     resources.some(r=>(r.transitions??[]).length)?"PROTOCOLIA_STATEFUL_CONFORMANCE_PASS ":
     "PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS ")+
     JSON.stringify({entities:resources.map(r=>r.entity.name),references:resources.flatMap(r=>
