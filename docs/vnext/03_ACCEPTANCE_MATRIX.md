@@ -296,3 +296,7 @@ See [Codespaces instructions](CODESPACES.md). An installed runner or committed p
 ### 2026-10-14 — First real Codespace invocation
 
 The user actually started `run-codespaces-a14.sh` and hit the Docker daemon preflight: **BLOCKED by Codespace infrastructure** before any Docker build. The configuration was changed to Docker-in-Docker v4 and a diagnostics script was added. **A14 suite remains NOT RUN**, requires Codespace rebuild and retry. This does not overturn previously demonstrated isolated A14.1 PASS. No Actions minutes consumed by the runner.
+
+### 2026-10-14 — Actual Codespaces log and next revision
+
+Commit `a2a123d` completed official TypeSpec, OpenAPI, Spring Boot 4 Java 21, Nest TypeScript and React/Vite builds for A14.2; **BUILD PASS** on both target adapters. The overall Docker runner **FAIL** occurred at script shell validation before any A14.1/A14.2 PostgreSQL or Chromium probe. Both evolution probes were repaired, and all scripts are now syntax-checked at the start of the Docker build, before dependencies. A separate generated React TDZ runtime bug was fixed with a source-level regression test. **All corrected runtime/DB/browser gates remain NOT RUN**.
