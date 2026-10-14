@@ -235,3 +235,30 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | H12-08 | A0–A11 full regression and Render Free deploy LIVE | **PASS**, 46/46 Node; Render `dep-db7glj49v7es73c0moa0` LIVE |
 
 Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7glj49v7es73c0moa0`. [Evidence A12](evidence/A12.md). The public Render service remains a build marker, not the upgraded app.
+
+## 17. A13 — Frozen independent four-resource customer scenario (blind product trial)
+
+**Customer requirements were frozen before generating code.** [16 customer requirements](evidence/A13_REQUIREMENTS.md), [actual evidence](evidence/A13.md). Contract Git blob SHA `298d95e7ab6c1b1588454921ab71d52ee2d599fd`; freeze reference `dc591a00da6f98b2724188ab2cc9b14c89256a63`. No generator/compiler/React template changed after contract freeze.
+
+| ID | Customer capability | Empirical result |
+| --- | --- | --- |
+| C01 | Site registration/uniqueness/input validation | PASS ×2 PostgreSQL/HTTP |
+| C02 | Machine→Site FK, restrict orphan and parent delete | PASS ×2 |
+| C03 | Technician directory and duplicate detection | PASS ×2 |
+| C04 | Ticket with Machine **and** Technician FK | PASS ×2; 2 real ticket FKs verified in psql |
+| C05 | Title, severity and optional UTC deadline | PASS ×2 |
+| C06 | Reported→planned→completed state machine | PASS ×2; guarded 409 on wrong or repeated transitions |
+| C07 | Concurrent 10-way ticket planning | PASS ×2; exactly 1 success/9 conflicts |
+| C08 | Selected-field audited mutations | PASS ×2, 4 ordered entries per closed ticket |
+| C09 | Roles on all resource reads/writes | PASS ×2; anonymous 401 and reader write 403 |
+| C10 | Independently authorized history | PASS ×2; reader 403 and manager sees filtered history |
+| C11 | Mobile Site picker and **two** reference selectors when creating a ticket | PASS ×2 Chromium 390×844 |
+| C12 | Mobile UI state actions/audit visible to manager, hidden from reader | PASS ×2 Chromium 390×844 |
+| C13 | All resources, state and audit survive backend restart on same DB | PASS ×2 real PostgreSQL |
+| C14 | Reassign technician after initial ticket filing, audited | **UNSUPPORTED**: no audited FK mutation contract primitive |
+| C15 | Filter/search tickets by site/state/deadline | **UNSUPPORTED**: listPage only supports bounded limit/offset |
+| C16 | Overdue work alerts and notifications | **UNSUPPORTED**: no scheduled/notification primitive |
+
+**A13 bounded customer score: 13/16 = 81.25%** in both generated targets, all from one frozen TypeSpec contract. Independent probes `probe-a13-maintenance-http.mjs`, `probe-a13-maintenance-browser.mjs`, `probe-a13-maintenance-postgres.sh`. Both targets generated matching contract/IR/OpenAPI SHA256.
+
+**Separate nonfunctional/product gate:** the existing Render Free service runs the actual app only *during the Docker build* and publicly hosts a build marker; a persistent, externally accessible generated application **is not yet proven**. Do not mark this gate PASS based on Render build LIVE or ephemeral DB. This is an automated user-journey test, not proof of human usability or production security. Further A0–A12 regression and final Render status are tracked independently.
