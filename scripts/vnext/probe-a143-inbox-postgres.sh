@@ -97,3 +97,74 @@ for target in spring nest; do
  test "$receipt" = 1 || { echo "A143_INBOX_RECEIPT_LOST_AFTER_RESTART $target";exit 1; }
 done
 echo A143_BOTH_TARGETS_DELIVERED_INBOX_SURVIVES_PG_RESTART_PASS
+
+# S2b: a single clock-injected, bounded and atomic tick. No scheduler claimed.
+gosu postgres createuser -h 127.0.0.1 pia_untrusted
+for target in spring nest; do
+ db="a143_$target"
+ for signature in \
+    'protocolia_tick_notifications(timestamp with time zone,integer)' \
+    'protocolia_dispatch_inbox(integer)' \
+    'protocolia_materialize_ticket_overdue(timestamp with time zone)'; do
+  grant="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+    "SELECT has_function_privilege('pia_untrusted','$signature','EXECUTE')")"
+  test "$grant" = f || { echo "A143_PUBLIC_MUTATOR_EXECUTE $target $signature"; exit 1; }
+ done
+ gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" <<'SQL' >/tmp/a143-tick-seed.log
+INSERT INTO ticket (number,machine_tag,technician_badge,title,severity,due_at,status) VALUES
+ ('TK-TICK','M','T','Tick ready','high','2026-10-21T12:00:00Z','reported'),
+ ('TK-LATER','M','T','Future due','low','2026-10-25T12:00:00Z','reported'),
+ ('TK-TICK-DONE','M','T','Already done','low','2026-10-21T12:00:00Z','completed');
+SQL
+ tick="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',10)")"
+ test "$tick" = '1|1' || { echo "A143_TICK_COUNTERS $target $tick"; exit 1; }
+ again="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',10)")"
+ test "$again" = '0|0' || { echo "A143_TICK_DUPLICATE $target $again"; exit 1; }
+ count="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT (SELECT COUNT(*) FROM protocolia_notification_outbox)||':'||(SELECT COUNT(*) FROM protocolia_notification_inbox)")"
+ test "$count" = '2:2' || { echo "A143_TICK_COUNT $target $count"; exit 1; }
+ for query in \
+   'SELECT * FROM protocolia_tick_notifications(NULL,10)' \
+   "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',0)" \
+   "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',101)"; do
+  if gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" \
+     -At -c "$query" >/tmp/a143-invalid-tick.log 2>&1; then
+   echo "A143_TICK_INVALID_BOUNDS_ACCEPTED $target"; exit 1
+  fi
+ done
+ gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" <<'SQL' >/tmp/a143-tick-trigger.log
+INSERT INTO ticket (number,machine_tag,technician_badge,title,severity,due_at,status)
+VALUES ('TK-ATOMIC','M','T','Atomic tick','high','2026-10-20T11:00:00Z','reported');
+CREATE FUNCTION protocolia_fail_tick_inbox() RETURNS trigger LANGUAGE plpgsql AS $pia_test$
+BEGIN RAISE EXCEPTION 'simulated downstream inbox failure'; END;
+$pia_test$;
+CREATE TRIGGER protocolia_tick_fail BEFORE INSERT ON protocolia_notification_inbox
+FOR EACH ROW EXECUTE FUNCTION protocolia_fail_tick_inbox();
+SQL
+ if gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" \
+    -At -c "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',10)" \
+     >/tmp/a143-failed-tick.log 2>&1; then
+  echo "A143_TICK_FAILED_TO_ROLLBACK $target"; exit 1
+ fi
+ rolled="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT COUNT(*) FROM protocolia_notification_outbox WHERE resource_id='TK-ATOMIC'")"
+ test "$rolled" = 0 || { echo "A143_TICK_PARTIAL_COMMIT $target"; exit 1; }
+ gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" -c \
+   'DROP TRIGGER protocolia_tick_fail ON protocolia_notification_inbox; DROP FUNCTION protocolia_fail_tick_inbox();' >/dev/null
+ recovered="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT * FROM protocolia_tick_notifications('2026-10-22T00:00:00Z',10)")"
+ test "$recovered" = '1|1' || { echo "A143_TICK_NOT_RECOVERED $target $recovered"; exit 1; }
+ echo "A143_$target"_BOUNDED_ATOMIC_TICK_PUBLIC_REVOKE_AND_RECOVERY_PASS
+done
+gosu postgres pg_ctl -D "$DATA" stop -m immediate >/dev/null
+gosu postgres pg_ctl -D "$DATA" -o "-c listen_addresses=127.0.0.1" \
+   -l /tmp/a143-tick-restart.log start >/dev/null
+for target in spring nest; do
+ db="a143_$target"
+ stored="$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
+   "SELECT COUNT(*) FROM protocolia_notification_inbox")"
+ test "$stored" = 3 || { echo "A143_TICK_RECEIPTS_LOST $target $stored"; exit 1; }
+done
+echo A143_BOTH_TARGETS_ATOMIC_TICK_PG_RESTART_PASS

@@ -70,3 +70,17 @@ test("A14.3 rejects silent policy introduction during legacy populated-app evolu
  assert.match(plan.blockers.join(" "),/Overdue policy migration needs a dedicated additive evolution profile/);
  assert.equal(diffContracts(after,after).compatible,true);
 });
+
+test("A14.3 tick is bounded, atomic and explicitly not executable by PUBLIC",()=>{
+ const sql=overdueSchemaSql(compileOverduePolicies(sample())).join("\n");
+ assert.match(sql,/CREATE OR REPLACE FUNCTION protocolia_tick_notifications\(as_of TIMESTAMPTZ, batch_size INTEGER\)/);
+ assert.match(sql,/RETURNS TABLE\(enqueued INTEGER,dispatched INTEGER\)/);
+ assert.match(sql,/as_of IS NULL OR batch_size IS NULL OR batch_size < 1 OR batch_size > 100/);
+ assert.match(sql,/SELECT protocolia_materialize_issue_overdue\(as_of\) INTO step_count/);
+ assert.match(sql,/SELECT protocolia_dispatch_inbox\(batch_size\) INTO dispatched/);
+ for(const fn of ["protocolia_tick_notifications(TIMESTAMPTZ,INTEGER)",
+                   "protocolia_dispatch_inbox(INTEGER)",
+                   "protocolia_materialize_issue_overdue(TIMESTAMPTZ)"])
+  assert.ok(sql.includes("REVOKE ALL ON FUNCTION "+fn+" FROM PUBLIC;"));
+ assert.doesNotMatch(sql,/SECURITY DEFINER/);
+});
