@@ -33,6 +33,11 @@ export function diffContracts(oldIr,nextIr){
     if(!next){blockers.push("Removed entity "+previous.name);continue;}
     if(previous.publicIdentity!==next.publicIdentity)
       blockers.push("Public identity changed on "+previous.name);
+    // A14.3: generated durable inbox DDL cannot be applied through the
+    // earlier add-operation-only evolution profile. Block instead of silently
+    // swapping binaries while skipping policy tables/functions on populated DBs.
+    if(!same(previous.overdueAlert??null,next.overdueAlert??null))
+      blockers.push("Overdue policy migration needs a dedicated additive evolution profile: "+previous.name);
     if(previous.view!==next.view)
       changes.push({kind:"view",entity:previous.name,from:previous.view??null,to:next.view??null});
     const oldFields=new Map(previous.fields.map(f=>[f.name,f]));
