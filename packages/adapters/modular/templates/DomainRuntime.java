@@ -260,11 +260,11 @@ public class DomainRuntime {
     String where=" WHERE entity_name=:entity AND resource_id=:key";
     var args=new MapSqlParameterSource().addValue("entity",e.name()).addValue("key",key)
         .addValue("limit",limit).addValue("offset",offset);
-    String projection="SELECT id::text AS \\"id\\", actor, entity_name AS \\"entityName\\", "+
-        "resource_id AS \\"resourceId\\", operation_name AS \\"operationName\\", "+
-        "field_name AS \\"fieldName\\", before_value AS \\"beforeValue\\", "+
-        "after_value AS \\"afterValue\\", "+
-        "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"') AS \\"occurredAt\\" "+
+    String projection="SELECT id::text AS \"id\", actor, entity_name AS \"entityName\", "+
+        "resource_id AS \"resourceId\", operation_name AS \"operationName\", "+
+        "field_name AS \"fieldName\", before_value AS \"beforeValue\", "+
+        "after_value AS \"afterValue\", "+
+        "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\"T\\"HH24:MI:SS.MS\\"Z\\"') AS \"occurredAt\" "+
         "FROM protocolia_audit_event";
     var rows=jdbc.queryForList(projection+where+" ORDER BY id DESC LIMIT :limit OFFSET :offset",args);
     Number total=jdbc.queryForObject("SELECT COUNT(*) FROM protocolia_audit_event"+where,args,Number.class);
