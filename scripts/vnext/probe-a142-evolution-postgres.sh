@@ -54,11 +54,11 @@ for target in spring nest;do
  node scripts/vnext/probe-a14-evolution-http.mjs seed
  # Read-only contract addition must preserve pre-existing table and audit DDL.
  # The only permitted new DDL is idx_pia_* query indexes, asserted separately below.
- before="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\\{12\\} ON /d' | sha256sum | cut -d' ' -f1)"
+ before="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\{12\} ON /d' | sha256sum | cut -d' ' -f1)"
  stop_app
  node packages/cli/protocolia.mjs plan examples/vnext/facility-maintenance-a142 "$folder"
  node packages/cli/protocolia.mjs evolve examples/vnext/facility-maintenance-a142 "$folder"
- after="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\\{12\\} ON /d' | sha256sum | cut -d' ' -f1)"
+ after="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\{12\} ON /d' | sha256sum | cut -d' ' -f1)"
  test "$before" = "$after" || { echo "A14_EVOLUTION_UNEXPECTED_DDL";exit 1; }
  start_app "$target" "$db" "$folder"
  node scripts/vnext/probe-a14-evolution-http.mjs verify
