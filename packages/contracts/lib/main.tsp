@@ -10,6 +10,8 @@ namespace ProtocolIA.Domain {
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
+  extern dec release(target: Operation, stockEntity: valueof string,
+    availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
   extern dec behavior(target: Operation, kind: valueof string,
     entity: valueof string, field?: valueof string, input?: valueof string);
   extern dec capability(target: Operation, name: valueof string);
