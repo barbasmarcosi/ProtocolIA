@@ -86,5 +86,8 @@ SQL
   test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c \
     "SELECT count(*) FROM protocolia_audit_event WHERE resource_id='W-AUDFAIL'")" = 2
   echo "A10_${target}_AUDIT_FAILURE_ATOMIC_ROLLBACK_PASS"
+  node scripts/vnext/probe-a11-audit-http.mjs || { tail -n 80 "/tmp/workflow-$target.log"; exit 1; }
+  node scripts/vnext/probe-a11-audit-browser.mjs || { tail -n 80 "/tmp/workflow-$target.log"; exit 1; }
+  echo "A11_${target}_AUDIT_HTTP_AUTH_PAGINATION_CHROMIUM_PASS"
   stop_app
 done
