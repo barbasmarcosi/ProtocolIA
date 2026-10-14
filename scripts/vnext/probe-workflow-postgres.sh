@@ -62,9 +62,9 @@ for target in spring nest; do
     "SELECT count(*) FROM protocolia_audit_event WHERE resource_id IN ('W-BAD','W-BAD-2','W-MISSING','W-DENY')")" = 0
   echo "A10_${target}_IMMUTABLE_AUTHENTICATED_AUDIT_SEQUENCE_PASS"
   gosu postgres psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -d "$db" <<'SQL' >/tmp/a10-fault.log
-CREATE FUNCTION protocolia_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $
+CREATE FUNCTION protocolia_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $audit$
 BEGIN RAISE EXCEPTION 'A10 intentional audit insert failure'; END;
-$;
+$audit$;
 CREATE TRIGGER protocolia_fault_audit BEFORE INSERT ON protocolia_audit_event
 FOR EACH ROW EXECUTE FUNCTION protocolia_fail_audit();
 SQL
