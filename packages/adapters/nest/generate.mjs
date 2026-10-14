@@ -28,7 +28,7 @@ export function generate(ir,spec,out){
     ir.entities.length<1||ir.entities.length>8||!Array.isArray(ir.operations))
     throw Error("Unsupported canonical contract IR for NestJS");
   if(existsSync(out)&&readdirSync(out).length)throw Error("Output not empty; refusing overwrite");
-  const entities=new Map(),tables=new Set(),reads=[],writes=[],compiled=[];
+  const entities=new Map(),tables=new Set(),reads=[],writes=[],audits=[],compiled=[];
   for(const e of ir.entities){
     safe(e.name);safe(e.publicIdentity);
     if(entities.has(e.name)||tables.has(snake(e.name)))throw Error("Duplicate entity/table");
@@ -57,9 +57,9 @@ export function generate(ir,spec,out){
       (f.maxLength??255)<(targetField.maxLength??255))
       throw Error("Unsupported FK: "+e.name+"."+f.name);
   }
-  const methods={create:"POST",get:"GET",listPage:"GET",patchFields:"PATCH",
+  const methods={create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
-  const ok={create:201,get:200,listPage:200,patchFields:200,
+  const ok={create:201,get:200,listPage:200,auditPage:200,patchFields:200,
     atomicIncrement:200,transition:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
@@ -67,27 +67,37 @@ export function generate(ir,spec,out){
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchFields","atomicIncrement","delete"])
+    for(const kind of ["patchFields","atomicIncrement","auditPage","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
     const read=of("get",e.name)[0].capability,write=of("create",e.name)[0].capability;
     if(!read||!write||read===write||read==="public"||write==="public")
       throw Error("Invalid read/write capabilities");
     if(!reads.includes(read))reads.push(read);
     if(!writes.includes(write))writes.push(write);
+    const auditRead=of("auditPage",e.name)[0];
+    if(auditRead){
+      if(auditRead.capability==="public"||auditRead.capability===read||auditRead.capability===write||
+         !ir.operations.some(x=>x.entity===e.name&&x.behavior.audit?.length))
+        throw Error("Audit reader requires own capability and source events");
+      if(!audits.includes(auditRead.capability))audits.push(auditRead.capability);
+    }
     for(const op of ir.operations.filter(o=>o.entity===e.name)){
       const b=op.behavior,kind=b?.kind;
       if(!methods[kind]||op.method!==methods[kind]||!op.statuses?.includes(ok[kind]))
         throw Error("Verb/status mismatch "+op.name);
       const cap=kind==="health"?"public":
         ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
-      if(op.capability!==cap)throw Error("Wrong capability "+op.name);
+      if(kind!=="auditPage"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","patchFields","atomicIncrement","transition","delete"].includes(kind);
+      const keyed=["get","auditPage","patchFields","atomicIncrement","transition","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
+      if(kind==="auditPage"&&(b.audit||b.reserve||b.release||b.field||b.input||
+         !op.statuses.includes(400)||!op.statuses.includes(404)))
+        throw Error("Invalid read-only auditPage metadata "+op.name);
       if(b.audit){
         const fields=b.audit;
         if(!Array.isArray(fields)||fields.length===0||fields.length>8||
@@ -167,7 +177,7 @@ export function generate(ir,spec,out){
           stockWriteCapability:write.capability
         };
       }
-      if(kind==="listPage"){
+      if(kind==="listPage"||kind==="auditPage"){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
           offsetDefault:o.default,offsetMax:o.maximum});
@@ -179,7 +189,7 @@ export function generate(ir,spec,out){
       compiled.push(item);
     }
   }
-  if(reads.some(x=>writes.includes(x)))throw Error("Ambiguous read/write authority");
+  if(reads.some(x=>writes.includes(x))||audits.some(x=>reads.includes(x)||writes.includes(x)))throw Error("Ambiguous read/write/audit authority");
   const contents=[];
   const write=(p,t)=>{
     const full=join(out,p);mkdirSync(dirname(full),{recursive:true});
@@ -229,7 +239,7 @@ export function generate(ir,spec,out){
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
-    operations:compiled,readCapabilities:reads,writeCapabilities:writes};
+    operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
   mkdirSync(join(out,"src/migrations"),{recursive:true});
