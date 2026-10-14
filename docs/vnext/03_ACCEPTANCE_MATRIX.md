@@ -262,3 +262,20 @@ Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7
 **A13 bounded customer score: 13/16 = 81.25%** in both generated targets, all from one frozen TypeSpec contract. Independent probes `probe-a13-maintenance-http.mjs`, `probe-a13-maintenance-browser.mjs`, `probe-a13-maintenance-postgres.sh`. Both targets generated matching contract/IR/OpenAPI SHA256.
 
 **Separate nonfunctional/product gate:** the existing Render Free service runs the actual app only *during the Docker build* and publicly hosts a build marker; a persistent, externally accessible generated application **is not yet proven**. Do not mark this gate PASS based on Render build LIVE or ephemeral DB. This is an automated user-journey test, not proof of human usability or production security. A0–A12 bounded regression suite PASS (46/46 Node and historical PostgreSQL/HTTP/Chromium/migration probes), Render verification service `dep-db7h1pjbc2fs73f6mshg` **LIVE**. **A public generated application with durable PostgreSQL and real human trial is still NOT RUN.**
+
+## 18. A14 — New contract capabilities after the frozen A13 customer result
+
+A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 uses a distinct contract fixture under `examples/vnext/facility-maintenance-a14`; no retroactive change to A13's score.
+
+| ID | Acceptance | Empirical result |
+| --- | --- | --- |
+| C14 / A14.1 | Contract-driven guarded FK reassignment, independent assign privilege and old/new audit | **PASS ×2**, new TypeSpec→IR/OpenAPI→Spring/Nest |
+| A14-CAS | Ten concurrent PATCH requests with the same expected FK; one success, nine conflicts | **PASS ×2** real HTTP/PostgreSQL |
+| A14-ATOMIC | Inject failed audit insertion; rollback FK and audit, then recover | **PASS ×2** real HTTP/PostgreSQL |
+| A14-UI | Generated React 390×844 selector; user with read-only capability cannot assign or see audit | **PASS ×2** Chromium |
+| A14-RESTART | Reassigned FK and audit remain after backend restart | **PASS ×2** same persisted PostgreSQL |
+| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **NOT RUN** for new evolution fixture; guarded CLI implementation and tests committed |
+| C15 / A14.2 | Declarative combined search by Site, state, due time | **UNSUPPORTED**, reuse assessment documented |
+| C16 / A14.3 | Durable overdue detection and notifications | **UNSUPPORTED**, reuse assessment documented |
+
+**Evidence:** Render build logs for deploy `dep-db7hofc9v7es73c4dqvg`, generator unit tests and `scripts/vnext/probe-a14-reassign-postgres.sh`; see [A14 evidence](evidence/A14.md). PASS here is limited to exercised features on isolated development PostgreSQL, not general production readiness, external IAM, deliverability, or an always-on publicly hosted generated application.
