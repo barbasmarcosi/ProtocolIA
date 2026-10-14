@@ -88,6 +88,15 @@ export function generate(ir,spec,out){
       const keyed=["get","patchFields","atomicIncrement","transition","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
+      if(b.audit){
+        const fields=b.audit;
+        if(!Array.isArray(fields)||fields.length===0||fields.length>8||
+           new Set(fields).size!==fields.length||!["create","transition"].includes(kind)||
+           fields.some(x=>!e.fields.some(f=>f.name===x))||
+           (kind==="transition"&&(fields.length!==1||fields[0]!==b.field))||
+           (kind==="create"&&fields.includes(e.publicIdentity)))
+          throw Error("Invalid audited operation "+op.name);
+      }
       if(b.reserve){
         const stock=entities.get(b.reserve.stockEntity);
         const available=stock?.fields.find(f=>f.name===b.reserve.availableField);
@@ -135,7 +144,7 @@ export function generate(ir,spec,out){
           throw Error("Unsupported mutation "+op.name);
       }
       const item={name:op.name,method:op.method,path:op.path,entity:e.name,
-        kind,capability:op.capability,...(b.field?{field:b.field}:{}),
+        kind,capability:op.capability,...(b.audit?{audit:b.audit}:{}),...(b.field?{field:b.field}:{}),
         ...(b.input?{input:b.input}:{}),...(kind==="transition"?{from:b.from,to:b.to}:{})};
       if(b.reserve){
         const stock=entities.get(b.reserve.stockEntity);
@@ -210,6 +219,13 @@ export function generate(ir,spec,out){
       snake(f.name)+" FOREIGN KEY ("+snake(f.name)+") REFERENCES "+
       snake(parent.name)+" ("+snake(parent.publicIdentity)+") ON DELETE RESTRICT;");
   }
+  if(ir.operations.some(op=>op.behavior.audit))schema.push(
+    "CREATE TABLE protocolia_audit_event (id BIGSERIAL PRIMARY KEY, "+
+    "actor VARCHAR(255) NOT NULL, entity_name VARCHAR(128) NOT NULL, "+
+    "resource_id VARCHAR(255) NOT NULL, operation_name VARCHAR(128) NOT NULL, "+
+    "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
+    "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+    "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
