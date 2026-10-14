@@ -10,6 +10,8 @@ export const $lib = createTypeSpecLibrary({
     unique: {description:"ProtocolIA unique contract metadata"},
     reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
+    initial: {description:"Initial immutable state for a finite-state field"},
+    transition: {description:"Atomic business state transition with guarded source/target"},
     behavior: {description:"ProtocolIA behavior contract metadata"},
     capability: {description:"ProtocolIA capability contract metadata"},
   },
@@ -35,6 +37,14 @@ function view(context: DecoratorContext, target: Model, label: string): void {
   context.program.stateMap($lib.stateKeys.view).set(target, { label });
 }
 
+function initial(context: DecoratorContext, target: ModelProperty, value: string): void {
+  context.program.stateMap($lib.stateKeys.initial).set(target, {value});
+}
+
+function transition(context: DecoratorContext, target: Operation, from: string, to: string): void {
+  context.program.stateMap($lib.stateKeys.transition).set(target, {from, to});
+}
+
 function behavior(context: DecoratorContext, target: Operation, kind: string, entity: string, field?: string, input?: string): void {
   context.program.stateMap($lib.stateKeys.behavior).set(target, { kind, entity, field, input });
 }
@@ -50,6 +60,8 @@ export const $decorators = {
     unique,
     reference,
     view,
+    initial,
+    transition,
     behavior,
     capability,
   },
