@@ -173,3 +173,19 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | D-10 | Interacción UI de cancelación específica en Chromium | **NOT RUN** |
 
 **D-01–D-09 PASS acotado**, fuente `a6141c989da41128115d1de70972a591d805f8c5`, Render `dep-db7ekstg1s2s73a8amlg` **LIVE**. Se validaron realmente dos bases PostgreSQL efímeras con Spring y Nest en Docker build. No implica upgrades A7→A8 de bases existentes ni un motor de flujos distribuidos. [Evidencia A8](evidence/A8.md).
+
+## 13. A9 — Upgrade A7→A8 with populated DB and real Chromium
+
+| ID | Contract-derived acceptance test | Verified |
+| --- | --- | --- |
+| E9-01 | Original A7 TypeSpec generates and seeds two reservations with no status | PASS ×2: Spring and Nest |
+| E9-02 | app:plan accepts only required initial state + matching compensating transition | PASS; 2 changes, 0 blockers |
+| E9-03 | app:evolve preserves byte-identical V1, owned extensions and ownership seals | PASS ×2 |
+| E9-04 | Flyway/Nest V2 on same populated PostgreSQL backfills historic rows active and preserves stock | PASS ×2 |
+| E9-05 | Previous A7 POST without new status still creates active reservation | PASS ×2 |
+| E9-06 | Cancel historical reservation, stock restored once and subsequent restart preserves rows | PASS ×2 |
+| E9-07 | Chromium at mobile 390×844: manager cancel, state and stock reflected, reader denied action | PASS ×2 |
+| E9-08 | Reject disallowed validator changes, unsafe state/backfill, altered capabilities or routes | PASS Node unit negative tests |
+| E9-09 | Docker Engine Compose-up; rolling mixed-version deploy; backup/restore production | NOT RUN / OUT OF PROFILE |
+
+**E9-01–E9-08 PASS bounded**. Exact functional code SHA `913bcb318724cf2a0bcd12cedf1e609da0c03075`; Render resumed build `dep-db7euknavr4c73809dmg` checks out `49c63d7a68370376f4e3afe6b8c0f87b88a8943e`; 39/39 Node PASS and both real PostgreSQL/Chromium/upgrade probes PASS. [Evidence A9](evidence/A9.md). Final deployment status is recorded separately.
