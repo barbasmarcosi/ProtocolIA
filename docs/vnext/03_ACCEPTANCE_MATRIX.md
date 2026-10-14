@@ -124,3 +124,18 @@ El `evidence.json` por ejecución debe registrar contract SHA, IR SHA, toolchain
 ## 9. Validación complementaria Nest A3 multientidad / A5 (2026-10-13)
 
 Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d42e61a03124a7`** en Render Free `srv-db6t203rjlhs7395vjn0`: Nest Equipment/Inspection PostgreSQL 400/409/204, roles/paginación y selector React Chromium más conformance genérica PASS; Nest V1→V2 con registros existentes, `checkedAt`, historia/checksum V2, sello/extension preservados y manipulación de SQL aplicada rechazada PASS. Regresiones Spring A4/A5 y Taller/Gauge PASS. `docker compose up` Docker Engine, backup real e IAM de producción permanecen NOT RUN.
+
+## 10. A6 — Finite-state business behavior from TypeSpec (additional profile)
+
+| ID | Acceptance scenario | Expected |
+| --- | --- | --- |
+| B-01 | Entity field `@initial("draft")` and operations `@transition(from,to)` | Canonical IR preserved, same TypeSpec/IR/OpenAPI digest for both adapters |
+| B-02 | Create WorkOrder in `approved` or unknown state | HTTP 400; cannot skip contract transition via create |
+| B-03 | Approve from draft; then close from approved | HTTP 200 with persisted state and correct subsequent GET |
+| B-04 | Wrong source state, repeated approve/close or close before approve | HTTP 409, persisted state unchanged |
+| B-05 | Ten simultaneous approvals of same draft row | Exactly one HTTP 200 and nine HTTP 409, final persisted state approved |
+| B-06 | Anonymous read/reader mutation and invalid body | 401, 403, 400 as appropriate |
+| B-07 | Mutated TypeSpec same-state transition, orphan source field, public write | Compile rejects; no supported false success |
+| B-08 | Generate shared React state-action controls | Manifest/UI bundle PASS; targeted Chromium action test **NOT RUN** |
+
+**A6 B-01–B-07 verified** on `86684c9e1db5af88097dff1718805967a92a58e3`, Render `dep-db7e4rbbc2fs73es6ab0`, both real Spring and Nest servers against disposable PostgreSQL. Generic suite `PROTOCOLIA_STATEFUL_CONFORMANCE_PASS` also passed separately in both. B-08 UI browser portion remains explicitly NOT RUN. See [A6](evidence/A6.md).
