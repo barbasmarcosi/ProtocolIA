@@ -180,6 +180,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       // No arbitrary SQL or business expressions: only validated identifiers and integer fields.
     }
+    if (kind === "transition") {
       const state = f ? entity.fields.find((x)=>x.name===f) : undefined;
       const trans = metadata(p,"transition",op);
       const from = trans?.from, to = trans?.to;
