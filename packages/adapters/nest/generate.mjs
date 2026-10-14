@@ -177,6 +177,26 @@ export function generate(ir,spec,out){
           stockWriteCapability:write.capability
         };
       }
+      if(b.filters){
+        if(kind!=="listPage")throw Error("Filters only permitted for listPage");
+        item.filters=b.filters.map(filter=>{
+          const [root,target]=filter.fieldPath.split(".");
+          const direct=e.fields.find(x=>x.name===root);
+          const parent=target?entities.get(direct?.reference?.target):null;
+          const field=target?parent?.fields.find(x=>x.name===target):direct;
+          const param=deref(spec,spec.paths[op.path]?.[op.method.toLowerCase()]?.parameters?.map(p=>deref(spec,p)).find(p=>p?.name===filter.query&&p.in==="query")?.schema);
+          if(!direct||!field||field.type!==filter.type||
+             target&&!direct.reference||target&&!parent||
+             !["eq","gte","lte"].includes(filter.operator)||
+             (filter.operator!=="eq"&&filter.type==="string")||
+             !param||param.type!==(filter.type==="int32"?"integer":"string")||
+             (filter.type==="utcDateTime"&&param.format!=="date-time"))
+            throw Error("Invalid compiled A14 list filter "+filter.query);
+          return {query:filter.query,column:snake(field.name),operator:filter.operator,type:filter.type,
+            ...(parent?{referenceTable:snake(parent.name),referenceColumn:snake(direct.name),
+              referenceKey:snake(parent.publicIdentity)}:{})};
+        });
+      }
       if(kind==="listPage"||kind==="auditPage"){
         const l=numberSchema(spec,op,"limit"),o=numberSchema(spec,op,"offset");
         Object.assign(item,{limitMin:l.minimum,limitMax:l.maximum,limitDefault:l.default,
