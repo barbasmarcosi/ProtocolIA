@@ -45,7 +45,7 @@ test("A14 independent two-entity contract: both generators emit audited CAS FK r
  const javaSecurity=readFileSync(join(a,"src/main/java/dev/protocolia/modular/SecurityConfig.java"),"utf8");
  const nestRuntime=readFileSync(join(b,"src/main.ts"),"utf8");
  const manifest=JSON.parse(readFileSync(join(b,"src/manifest.json"),"utf8"));
- assert.match(java,/ASSIGN_CAPABILITIES=List.of\\("workitems.assign"\\)/);
+ assert.ok(java.includes('ASSIGN_CAPABILITIES=List.of("workitems.assign")'));
  assert.match(javaSecurity,/ASSIGN_CAPABILITIES/);
  assert.deepEqual(manifest.assignmentCapabilities,["workitems.assign"]);
  assert.ok(!manifest.writeCapabilities.includes("workitems.assign"));
