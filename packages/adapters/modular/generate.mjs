@@ -67,9 +67,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",auditPage:"GET",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,auditPage:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
   const ops = ir.operations;
   const routes = new Set();
   for(const op of ops){
@@ -82,7 +82,7 @@ export function generate(ir, openapi, outDir) {
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0)
@@ -104,9 +104,9 @@ export function generate(ir, openapi, outDir) {
     if(op.behavior.audit){
       const a=op.behavior.audit;
       if(!Array.isArray(a)||a.length<1||a.length>8||new Set(a).size!==a.length||
-         !["create","transition"].includes(op.behavior.kind)||
+         !["create","transition","reassignReference"].includes(op.behavior.kind)||
          a.some(field=>!bound.fields.some(f=>f.name===field))||
-         (op.behavior.kind==="transition"&&(a.length!==1||a[0]!==op.behavior.field))||
+         (["transition","reassignReference"].includes(op.behavior.kind)&&(a.length!==1||a[0]!==op.behavior.field))||
          (op.behavior.kind==="create"&&a.includes(bound.publicIdentity)))
         throw Error("Invalid audited mutation "+op.name);
     }
@@ -141,6 +141,16 @@ export function generate(ir, openapi, outDir) {
            x.behavior.field===state.name&&x.behavior.from===op.behavior.to))
         throw Error("Invalid exactly-once stock release "+op.name);
     }
+    if(op.behavior.kind==="reassignReference"){
+      const f=bound.fields.find(x=>x.name===op.behavior.field);
+      if(!f?.reference||f.type!=="string"||!f.required||f.nullable||
+         f.initial!==undefined||op.behavior.input!==f.name||
+         !op.behavior.audit||op.behavior.audit.length!==1||
+         op.behavior.audit[0]!==f.name||
+         ![400,404,409].every(status=>op.statuses.includes(status))||
+         op.behavior.reserve||op.behavior.release||op.behavior.from||op.behavior.to)
+        throw Error("Invalid guarded FK reassignment "+op.name);
+    }
     if(op.behavior.kind==="transition"){
       const f=bound.fields.find(x=>x.name===op.behavior.field);
       const b=op.behavior;
@@ -161,11 +171,11 @@ export function generate(ir, openapi, outDir) {
   }
   const byKind=(kind,entity)=>ops.filter(o=>o.behavior.kind===kind&&(!entity||o.entity===entity));
   if(byKind("health").length!==1)throw Error("Exactly one health operation required");
-  const readCaps=[],writeCaps=[],auditCaps=[];
+  const readCaps=[],writeCaps=[],auditCaps=[],assignmentCaps=[];
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchFields","atomicIncrement","auditPage","delete"])
+    for(const kind of ["patchFields","atomicIncrement","auditPage","reassignReference","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const read=byKind("get",e.name)[0].capability;
     const write=byKind("create",e.name)[0].capability;
@@ -180,13 +190,18 @@ export function generate(ir, openapi, outDir) {
         throw Error("Audit view must have an independent capability and source events");
       if(!auditCaps.includes(auditRead.capability))auditCaps.push(auditRead.capability);
     }
+    for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind==="reassignReference")){
+      if(op.capability==="public"||op.capability===read||op.capability===write||op.capability===auditRead?.capability)
+        throw Error("Reference reassignment needs a separate capability");
+      if(!assignmentCaps.includes(op.capability))assignmentCaps.push(op.capability);
+    }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
-      if(op.behavior.kind==="auditPage")continue;
-      const expected=["create","patchFields","atomicIncrement","transition","delete"].includes(op.behavior.kind)?write:read;
+      if(["auditPage","reassignReference"].includes(op.behavior.kind))continue;
+      const expected=["create","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
       if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
-  if(readCaps.some(x=>writeCaps.includes(x))||auditCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x)))throw Error("Read/write/audit authorities cannot overlap");
+  if(readCaps.some(x=>writeCaps.includes(x))||auditCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x))||assignmentCaps.some(x=>readCaps.includes(x)||writeCaps.includes(x)||auditCaps.includes(x)))throw Error("Read/write/audit authorities cannot overlap");
   if(existsSync(outDir) && readdirSync(outDir,{withFileTypes:true}).length>0)throw Error("Output is not empty; refusing to overwrite consumer files");
   const base="src/main/java/dev/protocolia/modular/";
   const outputs=[];
@@ -214,6 +229,7 @@ export function generate(ir, openapi, outDir) {
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
+    "  public static final List<String> ASSIGN_CAPABILITIES=List.of("+assignmentCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
