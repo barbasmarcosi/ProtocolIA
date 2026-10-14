@@ -129,3 +129,10 @@ test("A14.2 read-only queryPage evolves populated contract with only additive in
  removed.entities[2].fields=removed.entities[2].fields.filter(f=>f.name!=="status");
  assert.equal(diffContracts(oldIr,removed).compatible,false);
 });
+
+test("A14.2 generated React action flow cannot shadow the listing query builder (TDZ regression)",()=>{
+ const source=readFileSync(new URL("../../packages/adapters/modular/templates/web/src/App.jsx",import.meta.url),"utf8");
+ assert.match(source,/const args=listing\(\);\s+const pageResult=await request\(args.kind/);
+ assert.doesNotMatch(source,/const args=listing\(\);\s+const listing\s*=/);
+ assert.match(source,/setItems\(pageResult.items\);setTotal\(pageResult.total\)/);
+});

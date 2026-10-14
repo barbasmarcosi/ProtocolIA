@@ -205,8 +205,10 @@ export default function App(){
       }
       setNotice("Operación confirmada: "+kind);
       const args=listing();
-      const listing=await request(args.kind,{query:args.query});
-      setItems(listing.items);setTotal(listing.total);
+      const pageResult=await request(args.kind,{query:args.query});
+      if(!Array.isArray(pageResult.items)||!Number.isInteger(pageResult.total))
+        throw Error("Invalid paginated response");
+      setItems(pageResult.items);setTotal(pageResult.total);
       return data;
     }catch(e){setError(e.message);return null;}finally{setLoading(false);}
   }
