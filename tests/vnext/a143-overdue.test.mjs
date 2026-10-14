@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {compileOverduePolicies,overdueSchemaSql} from "../../packages/adapters/overdue-policy.mjs";
+import {diffContracts} from "../../packages/cli/regeneration.mjs";
 
 const field=(name,type="string",extra={})=>({name,type,required:true,nullable:false,...extra});
 function sample(){
@@ -58,4 +59,13 @@ test("A14.3 is opt-in and deterministic across repeated projections",()=>{
  assert.deepEqual(compileOverduePolicies(prior),[]);
  assert.deepEqual(overdueSchemaSql([]),[]);
  assert.deepEqual(compileOverduePolicies(ir),compileOverduePolicies(ir));
+});
+
+test("A14.3 rejects silent policy introduction during legacy populated-app evolution",()=>{
+ const before=sample(),after=structuredClone(before);
+ delete before.entities[1].overdueAlert;
+ const plan=diffContracts(before,after);
+ assert.equal(plan.compatible,false);
+ assert.match(plan.blockers.join(" "),/Overdue policy migration needs a dedicated additive evolution profile/);
+ assert.equal(diffContracts(after,after).compatible,true);
 });
