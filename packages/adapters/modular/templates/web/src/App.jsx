@@ -52,6 +52,11 @@ export default function App(){
   const [offset,setOffset]=useState(0);
   const [limit]=useState(25);
   const [selected,setSelected]=useState(null);
+  const [auditItems,setAuditItems]=useState([]);
+  const [auditTotal,setAuditTotal]=useState(0);
+  const [auditOffset,setAuditOffset]=useState(0);
+  const [auditBusy,setAuditBusy]=useState(false);
+  const [auditError,setAuditError]=useState("");
   const [form,setForm]=useState({});
   const [rename,setRename]=useState("");
   const [increment,setIncrement]=useState(1);
@@ -103,6 +108,7 @@ export default function App(){
     if(!active)return;
     setForm(createEmpty(active.entity.fields));
     setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});
+    setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
   },[active?.entity.name]);
   useEffect(()=>{if(active&&auth)refresh();},[active?.entity.name,auth,offset]);
   useEffect(()=>{
@@ -136,6 +142,22 @@ export default function App(){
     loadReferences().catch(e=>{if(valid)setError(e.message);});
     return ()=>{valid=false;};
   },[active?.entity.name,auth,capabilities.join("|")]);
+  useEffect(()=>{
+    const audit=active?.operations?.auditPage;
+    const code=selected?.[active?.entity?.publicIdentity];
+    if(!auth||!audit||!capabilities.includes(audit.capability)||!code){
+      setAuditItems([]);setAuditTotal(0);setAuditError("");return;
+    }
+    let valid=true;
+    setAuditBusy(true);setAuditError("");
+    request("auditPage",{code,query:{limit:10,offset:auditOffset}}).then(data=>{
+      if(!valid)return;
+      if(!Array.isArray(data.items)||!Number.isInteger(data.total))throw Error("Invalid audit response");
+      setAuditItems(data.items);setAuditTotal(data.total);
+    }).catch(e=>{if(valid){setAuditItems([]);setAuditError(e.message);}})
+      .finally(()=>{if(valid)setAuditBusy(false);});
+    return ()=>{valid=false;};
+  },[auth,active?.entity.name,selected,auditOffset,capabilities.join("|")]);
   async function logIn(event){
     event.preventDefault();
     setLoginBusy(true);setLoginError("");setError("");setNotice("");
@@ -154,7 +176,7 @@ export default function App(){
     }finally{setLoginBusy(false);}
   }
   function logOut(){
-    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setItems([]);setError("");setNotice("");
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
@@ -193,7 +215,7 @@ export default function App(){
         <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" onClick={()=>{setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));}}>Detalle</button></td>
+          <td><button className="ghost" onClick={()=>{setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
@@ -224,6 +246,26 @@ export default function App(){
               {label({name:op.name})}: {op.behavior.to}
             </button>)}
         </div>
+        {can("auditPage")&&<section className="audit-history" data-testid="audit-history">
+          <div className="heading"><h3>Historial de cambios <span className="muted">({auditTotal})</span></h3></div>
+          {auditBusy&&<p aria-live="polite">Cargando historial…</p>}
+          {auditError&&<p role="alert" className="message error">{auditError}</p>}
+          {!auditBusy&&!auditError&&<div className="scroll"><table aria-label="Historial de cambios">
+            <thead><tr><th>Fecha</th><th>Usuario</th><th>Operación</th><th>Campo</th><th>Antes</th><th>Después</th></tr></thead>
+            <tbody>{auditItems.map(entry=><tr key={entry.id}>
+              <td>{entry.occurredAt}</td><td>{entry.actor}</td><td>{entry.operationName}</td>
+              <td>{entry.fieldName}</td><td>{entry.beforeValue??"—"}</td><td>{entry.afterValue??"—"}</td>
+            </tr>)}</tbody>
+          </table></div>}
+          {!auditBusy&&!auditError&&auditTotal===0&&<p>No hay cambios registrados.</p>}
+          <div className="paging">
+            <button className="ghost" data-testid="audit-prev" disabled={auditBusy||auditOffset===0}
+              onClick={()=>setAuditOffset(Math.max(0,auditOffset-10))}>Anterior</button>
+            <span>{auditTotal===0?0:auditOffset+1}–{Math.min(auditOffset+10,auditTotal)} de {auditTotal}</span>
+            <button className="ghost" data-testid="audit-next" disabled={auditBusy||auditOffset+10>=auditTotal}
+              onClick={()=>setAuditOffset(auditOffset+10)}>Siguiente</button>
+          </div>
+        </section>}
         {can("delete")&&<button className="ghost" disabled={loading} onClick={()=>{
           if(!window.confirm("¿Eliminar "+selected[active.entity.publicIdentity]+"?"))return;
           act("delete",{code:selected[active.entity.publicIdentity]});
