@@ -15,7 +15,7 @@ type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type Operation={query?:QuerySpec;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[]};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
 function sendProblem(res:any,error:unknown):void{
@@ -87,6 +87,14 @@ class RuntimeService{
       safeIdentifier(e.table);safeIdentifier(e.identityColumn);
       for(const f of e.fields)safeIdentifier(f.column);
     }
+  }
+  // Opt-in in-process poller. Persisted inbox/outbox survive process downtime;
+  // hosting which sleeps needs an external wake-up source for delivery SLAs.
+  async tickOverdueInbox():Promise<void>{
+    const result=await this.pool.query(
+      "SELECT enqueued,dispatched FROM protocolia_tick_notifications($1::timestamptz,$2::integer)",
+      [new Date().toISOString(),25]);
+    console.log("PROTOCOLIA_ALERT_TICK "+JSON.stringify(result.rows[0]));
   }
   async init():Promise<void>{
     const connection=await this.pool.connect();
@@ -491,6 +499,17 @@ async function bootstrap(){
   const engine=app.get(RuntimeService);
   await engine.init();
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
+  if(spec.hasOverdueRules && process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"){
+    const delay=Number(process.env.PROTOCOLIA_ALERT_INTERVAL_MS??"60000");
+    if(!Number.isSafeInteger(delay)||delay<1000||delay>3600000)
+      throw Error("Invalid PROTOCOLIA_ALERT_INTERVAL_MS (1000..3600000)");
+    // Every application replica may attempt a scan, but PostgreSQL unique
+    // keys and SKIP LOCKED keep internal delivery idempotent.
+    const tick=()=>{void engine.tickOverdueInbox().catch(error=>
+      console.error("PROTOCOLIA_ALERT_TICK_FAILED",error));};
+    tick();
+    setInterval(tick,delay).unref();
+  }
   console.log("PROTOCOLIA_NEST_STARTED "+JSON.stringify({
     operations:spec.operations.length,entities:spec.entities.map(e=>e.name)
   }));

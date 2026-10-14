@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,6 +35,22 @@ import org.springframework.web.server.ResponseStatusException;
 public class DomainRuntime {
   private final NamedParameterJdbcTemplate jdbc;
   public DomainRuntime(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+  // Opt-in worker. Failed ticks are retried in later polls using durable rows.
+  @Scheduled(fixedDelayString="${PROTOCOLIA_ALERT_INTERVAL_MS:60000}",
+             initialDelayString="${PROTOCOLIA_ALERT_INITIAL_DELAY_MS:2000}")
+  public void tickOverdueInbox() {
+    if(!Manifest.HAS_OVERDUE_RULES ||
+        !"true".equals(System.getenv("PROTOCOLIA_ALERT_WORKER_ENABLED"))) return;
+    try {
+      var result=jdbc.queryForMap(
+        "SELECT enqueued,dispatched FROM protocolia_tick_notifications(:asOf,:batch)",
+        Map.of("asOf",OffsetDateTime.now(),"batch",25));
+      System.out.println("PROTOCOLIA_ALERT_TICK "+result);
+    } catch(RuntimeException error) {
+      System.err.println("PROTOCOLIA_ALERT_TICK_FAILED "+error.getClass().getSimpleName());
+    }
+  }
 
   @GetMapping("/health")
   public Map<String, String> health() { return Map.of("status", "UP"); }

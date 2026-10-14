@@ -220,12 +220,14 @@ export function generate(ir, openapi, outDir) {
     copyFileSync(join(toolRoot,source),full);
     outputs.push(path);
   }
+  const overdueRules=compileOverduePolicies(ir);
   const queryPlans=ops.filter(op=>op.behavior.kind==="queryPage").map(op=>({op,plan:buildQueryPlan(ir,op)}));
   const classes=[
     "package dev.protocolia.modular;",
     "import java.util.List;",
     "public final class Manifest {",
     "  private Manifest() {}",
+    "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
@@ -313,7 +315,6 @@ export function generate(ir, openapi, outDir) {
   ]) copy("web/"+file,"web/"+file);
   for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
     copy(file,file);
-  const overdueRules=compileOverduePolicies(ir);
   const sql=[];
   for(const e of entities){
     const table=snake(e.name),key=e.publicIdentity;

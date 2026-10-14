@@ -263,7 +263,8 @@ export function generate(ir,spec,out){
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
-    operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments};
+    operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments,
+    hasOverdueRules:overdueRules.length>0};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
