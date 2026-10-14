@@ -104,6 +104,24 @@ export function generate(ir, openapi, outDir) {
          (amount.min??-1)<1 || !op.statuses.includes(400)||!op.statuses.includes(409))
         throw Error("Invalid atomic cross-entity reserve "+op.name);
     }
+    if(op.behavior.release){
+      const r=op.behavior.release,stock=entityMap.get(r.stockEntity);
+      const available=stock?.fields.find(x=>x.name===r.availableField);
+      const relation=bound.fields.find(x=>x.name===r.referenceField);
+      const amount=bound.fields.find(x=>x.name===r.quantityField);
+      const state=bound.fields.find(x=>x.name===op.behavior.field);
+      const matching=ops.filter(x=>x.entity===bound.name && x.behavior.kind==="create" &&
+        x.behavior.reserve && Object.keys(r).every(k=>x.behavior.reserve[k]===r[k]));
+      if(op.behavior.kind!=="transition"||!state?.initial||
+         op.behavior.from!==state.initial||!stock||stock===bound||
+         !available||available.type!=="int32"||!available.required||available.nullable||(available.min??-1)<0||
+         !relation||relation.reference?.target!==stock.name||relation.type!=="string"||!relation.required||relation.nullable||
+         !amount||amount.type!=="int32"||!amount.required||amount.nullable||(amount.min??-1)<1||
+         matching.length!==1||
+         ops.some(x=>x.entity===bound.name&&x.behavior.kind==="transition"&&
+           x.behavior.field===state.name&&x.behavior.from===op.behavior.to))
+        throw Error("Invalid exactly-once stock release "+op.name);
+    }
     if(op.behavior.kind==="transition"){
       const f=bound.fields.find(x=>x.name===op.behavior.field);
       const b=op.behavior;
@@ -165,7 +183,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<Entity> ENTITIES=List.of(",
@@ -201,9 +219,19 @@ export function generate(ir, openapi, outDir) {
         j(b.reserve.referenceField),j(b.reserve.quantityField),j(stockWrite)
       ].join(",")+")";
     }
+    let release="null";
+    if(b.release){
+      const stock=entityMap.get(b.release.stockEntity);
+      const stockWrite=byKind("create",stock.name)[0]?.capability;
+      if(!stockWrite||stockWrite==="public")throw Error("Missing stock write capability");
+      release="new Reserve("+[
+        j(snake(stock.name)),j(snake(stock.publicIdentity)),j(snake(b.release.availableField)),
+        j(b.release.referenceField),j(b.release.quantityField),j(stockWrite)
+      ].join(",")+")";
+    }
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
