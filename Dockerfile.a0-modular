@@ -27,6 +27,10 @@ RUN bash scripts/vnext/probe-nest-postgres.sh
 # A3 multi-entity Nest parity and A5 transactional, checksummed V1-to-V2 on persisted Nest DB.
 RUN node packages/cli/protocolia.mjs build examples/vnext/equipment-inspections --target nestjs --out /work/dist/nest-relations
 RUN PROTOCOLIA_DB_PASSWORD=only-compose-test PROTOCOLIA_READER_PASSWORD=only-compose-test PROTOCOLIA_MANAGER_PASSWORD=only-compose-test docker-compose -f /work/dist/nest-relations/compose.yaml config --quiet
+# A5 consumes the optional checkedAt fixture produced by this A4 contract-variant probe.
+# Generate it before Nest V1→V2 rather than relying on a later Docker layer.
+RUN node scripts/vnext/probe-a4-evolution.mjs
+RUN test -f examples/vnext/a4-contract-evolution-test/contracts/main.tsp
 RUN bash scripts/vnext/probe-nest-relations-evolution.sh
 RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/modular/compose.yaml config --quiet
 RUN echo A2_TALLER_COMPOSE_CONFIG_VERIFIED
@@ -38,7 +42,6 @@ RUN bash scripts/vnext/probe-gauge-postgres.sh
 # A4: third, independent two-entity TypeSpec contract with a PostgreSQL FK.
 RUN node packages/cli/protocolia.mjs build examples/vnext/equipment-inspections --target modular-spring --out /work/dist/relations
 RUN bash scripts/vnext/probe-a4-postgres.sh
-RUN node scripts/vnext/probe-a4-evolution.mjs
 RUN sed -e 's|/work/dist/relations/|/work/dist/relations-evolved/|g' -e 's|protocolia_a4|protocolia_a4evolved|g' scripts/vnext/probe-a4-postgres.sh > /tmp/a4-evolved-probe.sh \
   && A4_VARIANT=true bash /tmp/a4-evolved-probe.sh
 RUN bash scripts/vnext/probe-a5-postgres.sh
