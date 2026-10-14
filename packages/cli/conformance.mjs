@@ -120,11 +120,28 @@ async function runMulti(){
     assert.equal(typeof key,"string");
     assert.equal((await run(resource,"get",null,{key})).status,401);
     assert.equal((await run(resource,"create",reader,{body})).status,403);
+    const reserve=resource.operations.create.behavior.reserve;
+    const parent=reserve?resources.find(r=>r.entity.name===reserve.stockEntity):undefined;
+    const beforeStock=reserve?await run(parent,"get",reader,{key:body[reserve.referenceField]}):undefined;
+    if(reserve)assert.equal(beforeStock.status,200,"Stock parent is required by reservation");
     const created=await run(resource,"create",writer,{body});
     assert.equal(created.status,201,e.name+": "+JSON.stringify(created.data));
     assert.equal(created.data[identity],key);
     assert.equal(Object.hasOwn(created.data,"id"),false);
+    if(reserve){
+      const afterStock=await run(parent,"get",reader,{key:body[reserve.referenceField]});
+      assert.equal(afterStock.status,200);
+      assert.equal(afterStock.data[reserve.availableField],
+        beforeStock.data[reserve.availableField]-body[reserve.quantityField],
+        "Atomic reservation must debit exactly the amount specified by the contract");
+    }
     assert.equal((await run(resource,"create",writer,{body})).status,409);
+    if(reserve){
+      const afterDuplicate=await run(parent,"get",reader,{key:body[reserve.referenceField]});
+      assert.equal(afterDuplicate.data[reserve.availableField],
+        beforeStock.data[reserve.availableField]-body[reserve.quantityField],
+        "Duplicate reservation must not retain a stock debit");
+    }
     assert.equal((await run(resource,"get",reader,{key})).status,200);
     const page=await run(resource,"listPage",reader,{query:{limit:1,offset:0}});
     assert.equal(page.status,200);
@@ -187,7 +204,10 @@ async function runMulti(){
     assert.equal((await run(resource,"delete",writer,{key})).status,204);
     assert.equal((await run(resource,"get",reader,{key})).status,404);
   }
-  console.log((resources.some(r=>(r.transitions??[]).length)?"PROTOCOLIA_STATEFUL_CONFORMANCE_PASS ":"PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS ")+
+  console.log((resources.some(r=>r.operations.create?.behavior?.reserve)?
+    "PROTOCOLIA_TRANSACTIONAL_CONFORMANCE_PASS ":
+    resources.some(r=>(r.transitions??[]).length)?"PROTOCOLIA_STATEFUL_CONFORMANCE_PASS ":
+    "PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS ")+
     JSON.stringify({entities:resources.map(r=>r.entity.name),references:resources.flatMap(r=>
       r.entity.fields.filter(f=>f.reference).map(f=>r.entity.name+"."+f.name+"->"+f.reference.target))}));
 }
