@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Matriz de aceptación y conformance
 
-**Estado:** MATRIZ NORMATIVA CON EVIDENCIAS PARCIALES REALES: A0/A1/A4/A5 PASS acotado, A3 paridad funcional Taller/Gauge PASS ([A3](evidence/A3.md)), A2 Docker Engine NOT RUN y A3 P-06 Nest evolution NOT RUN.  
+**Estado:** MATRIZ NORMATIVA CON EVIDENCIAS PARCIALES REALES: A0/A1/A4/A5 PASS acotado, A3 paridad funcional Taller/Gauge PASS ([A3](evidence/A3.md)), A2 Docker Engine NOT RUN y A3 P-06 Nest evolution PASS aditivo acotado.  
 **Fecha:** 2026-10-13. **Fuente de requisitos:** [00](00_PRODUCT_REQUIREMENTS.md); **plan:** [02](02_IMPLEMENTATION_PLAN.md).  
 **Principio:** generar código o arrancar Spring/NestJS **no equivale** a construir el sistema declarado.
 
@@ -118,5 +118,9 @@ El `evidence.json` por ejecución debe registrar contract SHA, IR SHA, toolchain
 - **P-03 PASS acotado:** JSON desconocido, validaciones, protegido 401/403; fuzzing HTTP no incluido.
 - **P-04 PASS acotado:** PostgreSQL real, tablas y semántica persistente equivalente; Nest usa su propio historial de esquema, no Flyway.
 - **P-05 PASS:** preflight NestJS rechaza operaciones, tipos, rutas, identidad y permisos incoherentes.
-- **P-06 NOT RUN:** Nest no posee `app:evolve` in-place: rechaza fail-closed. No extrapolar A5 Spring.
+- **P-06 PASS aditivo acotado:** Nest `app:plan/evolve` aplica V2 sobre base poblada; comprueba baseline, historial SHA-256, filas y extensions conservados, drift rechazado. No implica migraciones destructivas/productivas.
 - Build `dep-db79nmq5b2lc73f3cnq0`, código fuente `e1f004c0576a41b5fb5b2008368fa2bb283c58d9`, Render Free marker-only; 31/31 tests Node, POST/GET/PATCH/DELETE del Taller/Gauge, React Chromium y regresiones Spring/A4/A5 PASS. Véase [A3](evidence/A3.md).
+
+## 9. Validación complementaria Nest A3 multientidad / A5 (2026-10-13)
+
+Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d42e61a03124a7`** en Render Free `srv-db6t203rjlhs7395vjn0`: Nest Equipment/Inspection PostgreSQL 400/409/204, roles/paginación y selector React Chromium más conformance genérica PASS; Nest V1→V2 con registros existentes, `checkedAt`, historia/checksum V2, sello/extension preservados y manipulación de SQL aplicada rechazada PASS. Regresiones Spring A4/A5 y Taller/Gauge PASS. `docker compose up` Docker Engine, backup real e IAM de producción permanecen NOT RUN.
