@@ -136,3 +136,15 @@ test("A14.2 generated React action flow cannot shadow the listing query builder 
  assert.doesNotMatch(source,/const args=listing\(\);\s+const listing\s*=/);
  assert.match(source,/setItems\(pageResult.items\);setTotal\(pageResult.total\)/);
 });
+
+test("A14 upgrades compare repeatable full pg_dump snapshots rather than random restrict keys",()=>{
+ for(const name of ["probe-a14-evolution-postgres.sh","probe-a142-evolution-postgres.sh"]){
+  const source=readFileSync(new URL("../../scripts/vnext/"+name,import.meta.url),"utf8");
+  assert.match(source,/pg_dump --restrict-key=ProtocolIASchemaFingerprint/);
+  assert.match(source,/before="\$\(schema_digest\)"/);
+  assert.match(source,/after="\$\(schema_digest\)"/);
+  assert.match(source,/test "\$before" = "\$repeat"/);
+  assert.match(source,/test "\$before" = "\$after"/);
+  assert.doesNotMatch(source,/pg_dump[^\n]*\| sed/);
+ }
+});

@@ -53,8 +53,9 @@ RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a
 # These scripts allocate real local PostgreSQL instances; the images remain
 # isolated from public network ports. A failed gate aborts the build.
 RUN bash scripts/vnext/probe-a14-reassign-postgres.sh
-RUN bash scripts/vnext/probe-a14-evolution-postgres.sh
+# Test typed A14.2 search before the more expensive upgrade simulations.
 RUN bash scripts/vnext/probe-a14-query-postgres.sh
+RUN bash scripts/vnext/probe-a14-evolution-postgres.sh
 RUN bash scripts/vnext/probe-a142-evolution-postgres.sh
 
 RUN printf 'A14_CODESPACES_POSTGRES_CHROMIUM_BOTH_TARGETS_PASS\n'

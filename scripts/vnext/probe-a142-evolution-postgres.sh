@@ -22,6 +22,14 @@ cleanup(){
   rm -rf "$PGDATA_DIR"
 }
 trap cleanup EXIT
+# Same schema must produce the same fingerprint. PostgreSQL 16's plain pg_dump
+# emits a random \restrict key unless --restrict-key is pinned for testing.
+# This dump is READ-ONLY and never fed to psql.
+schema_digest(){
+ gosu postgres pg_dump --restrict-key=ProtocolIASchemaFingerprint \
+   -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event \
+   | sha256sum | cut -d' ' -f1
+}
 start_app(){
  local target="$1" db="$2" folder="$3"
  if [[ "$target" == spring ]];then
@@ -52,13 +60,14 @@ for target in spring nest;do
  gosu postgres createdb -h 127.0.0.1 "$db"
  start_app "$target" "$db" "$folder"
  node scripts/vnext/probe-a14-evolution-http.mjs seed
- # Read-only contract addition must preserve pre-existing table and audit DDL.
- # The only permitted new DDL is idx_pia_* query indexes, asserted separately below.
- before="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\{12\} ON /d' | sha256sum | cut -d' ' -f1)"
+# Full snapshot must stay identical UNTIL app restart; new indexes are installed on startup and checked separately.
+ before="$(schema_digest)"
+ repeat="$(schema_digest)"
+ test "$before" = "$repeat" || { echo "A14_PGDUMP_NONDETERMINISTIC_SNAPSHOT"; exit 1; }
  stop_app
  node packages/cli/protocolia.mjs plan examples/vnext/facility-maintenance-a142 "$folder"
  node packages/cli/protocolia.mjs evolve examples/vnext/facility-maintenance-a142 "$folder"
- after="$(gosu postgres pg_dump -s -h 127.0.0.1 -d "$db" -t ticket -t protocolia_audit_event | sed '/^CREATE INDEX idx_pia_[a-f0-9]\{12\} ON /d' | sha256sum | cut -d' ' -f1)"
+ after="$(schema_digest)"
  test "$before" = "$after" || { echo "A14_EVOLUTION_UNEXPECTED_DDL";exit 1; }
  start_app "$target" "$db" "$folder"
  node scripts/vnext/probe-a14-evolution-http.mjs verify
