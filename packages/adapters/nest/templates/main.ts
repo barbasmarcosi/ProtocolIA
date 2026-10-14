@@ -12,7 +12,7 @@ type Field={name:string;column:string;type:string;required:boolean;nullable:bool
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -179,7 +179,17 @@ class RuntimeService{
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
-  private async create(e:Entity,op:Operation,body:unknown):Promise<Record<string,unknown>>{
+  private async recordAudit(client:any,e:Entity,op:Operation,key:string,actor:string,
+    before:Record<string,unknown>|null,after:Record<string,unknown>):Promise<void>{
+    for(const field of op.audit??[]){
+      const old=before?.[field],next=after[field];
+      await client.query("INSERT INTO protocolia_audit_event "+
+        "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+        "VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
+    }
+  }
+  private async create(e:Entity,op:Operation,body:unknown,actor:string):Promise<Record<string,unknown>>{
     const input={...validateInput(e,body,e.fields.map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
@@ -188,15 +198,17 @@ class RuntimeService{
       parseTimestamp(input[f.name]):input[f.name]??null);
     const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
       cols.map((_,i)=>"$"+(i+1)).join(",")+")";
-    if(op.reserve){
+    if(op.reserve||op.audit?.length){
       const reservation=op.reserve;
-      const stock=input[reservation.referenceField],amount=input[reservation.quantityField];
-      if(typeof stock!=="string"||!Number.isInteger(amount)||(amount as number)<1)
+      const stock=reservation?input[reservation.referenceField]:undefined;
+      const amount=reservation?input[reservation.quantityField]:undefined;
+      if(reservation&&(typeof stock!=="string"||!Number.isInteger(amount)||(amount as number)<1))
         throw new Problem(400,"Invalid reservation input");
-      // A single pinned connection is mandatory: UPDATE + INSERT commit or rollback as one unit.
+      // Audit and domain effects always commit or roll back on the same pinned connection.
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        if(reservation){
         const debit=await client.query("UPDATE "+reservation.stockTable+" SET "+
           reservation.availableColumn+"="+reservation.availableColumn+"-$1 WHERE "+
           reservation.stockKeyColumn+"=$2 AND "+reservation.availableColumn+">=$1",
@@ -207,7 +219,9 @@ class RuntimeService{
           throw new Problem(existing.rowCount?409:400,
             existing.rowCount?"Insufficient stock":"Stock item not found");
         }
+        }
         await client.query(insert,params);
+        if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
         await client.query("COMMIT");
       }catch(error){
         await client.query("ROLLBACK");
@@ -238,7 +252,7 @@ class RuntimeService{
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
     return this.row(e,key);
   }
-  private async transition(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
+  private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string):Promise<Record<string,unknown>>{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
@@ -261,11 +275,31 @@ class RuntimeService{
           release.stockKeyColumn+"=$2 AND "+release.availableColumn+"<=2147483647-$1",
           [amount,stock]);
         if(credited.rowCount!==1)throw new Problem(409,"Cannot restore stock");
+        if(op.audit?.length)await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
         await client.query("COMMIT");
       }catch(error){
         await client.query("ROLLBACK");
         throw error;
       }finally{client.release();}
+      return this.row(e,key);
+    }
+    if(op.audit?.length){
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+          e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
+          [op.to,key,op.from]);
+        if(!changed.rowCount){
+          const exists=await client.query("SELECT 1 FROM "+e.table+" WHERE "+
+            e.identityColumn+"=$1",[key]);
+          throw new Problem(exists.rowCount?409:404,"Transition precondition failed");
+        }
+        await this.recordAudit(client,e,op,key,actor,{[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
       return this.row(e,key);
     }
     const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
@@ -297,12 +331,12 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body);break;
+        case "create": data=await this.create(entity,op,req.body,session.username);break;
         case "get":data=await this.row(entity,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
-        case "transition":data=await this.transition(entity,op,identity,req.body);break;
+        case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
         case "delete":await this.remove(entity,identity);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }
