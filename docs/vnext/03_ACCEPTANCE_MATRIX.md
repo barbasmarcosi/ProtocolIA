@@ -139,3 +139,20 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | B-08 | Generate shared React state-action controls | Manifest/UI bundle PASS; targeted Chromium action test **NOT RUN** |
 
 **A6 B-01–B-07 verified** on `86684c9e1db5af88097dff1718805967a92a58e3`, Render `dep-db7e4rbbc2fs73es6ab0` **LIVE**, both real Spring and Nest servers against disposable PostgreSQL. Generic suite `PROTOCOLIA_STATEFUL_CONFORMANCE_PASS` also passed separately in both. B-08 UI browser portion remains explicitly NOT RUN. See [A6](evidence/A6.md).
+
+## 11. A7 — Atomic cross-entity inventory reservation (bounded)
+
+| ID | Acceptance scenario | Actual |
+| --- | --- | --- |
+| C-01 | One TypeSpec contract + `@reserve` into Spring and Nest with identical IR hashes | PASS |
+| C-02 | Create Part and Allocation: decrement matching stock atomically and persist FK child | PASS in both, PostgreSQL |
+| C-03 | Unknown FK, quantity 0, unknown JSON properties | HTTP 400; no inventory debit |
+| C-04 | Insufficient available stock | HTTP 409; no child creation |
+| C-05 | Duplicate Allocation identity after conditional debit | HTTP 409; entire transaction rolled back, stock unchanged |
+| C-06 | Ten independent 1-unit allocations competing for 7 remaining units | Exactly 7×201 + 3×409, stock 0, 8 total allocations |
+| C-07 | Anonymous/reader unauthorized writes | 401/403, no state changes |
+| C-08 | Generic conformance derived from UI resource/IR metadata, independently of entity name | `PROTOCOLIA_TRANSACTIONAL_CONFORMANCE_PASS` on both |
+| C-09 | Invalid reserve adapter metadata and safe identifiers | Unit negative tests PASS |
+| C-10 | A7 Chrome frontend relation selector and stock changes from UI | **NOT RUN specifically for A7** |
+
+**C-01–C-09 PASS bounded** using source `ad34b7f2d33c123cfd404d30e12fe18d58ab4a97`, deploy `dep-db7eck8473hc73d32jjg`, service `srv-db6t203rjlhs7395vjn0`. See [A7](evidence/A7.md). This is one transaction with one stock debit + one child insert, not arbitrary multi-entity business rule generation.
