@@ -188,4 +188,4 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | E9-08 | Reject disallowed validator changes, unsafe state/backfill, altered capabilities or routes | PASS Node unit negative tests |
 | E9-09 | Docker Engine Compose-up; rolling mixed-version deploy; backup/restore production | NOT RUN / OUT OF PROFILE |
 
-**E9-01–E9-08 PASS bounded**. Exact functional code SHA `913bcb318724cf2a0bcd12cedf1e609da0c03075`; Render resumed build `dep-db7euknavr4c73809dmg` checks out `49c63d7a68370376f4e3afe6b8c0f87b88a8943e`; 39/39 Node PASS and both real PostgreSQL/Chromium/upgrade probes PASS. [Evidence A9](evidence/A9.md). Final deployment status is recorded separately.
+**E9-01–E9-08 PASS bounded**. Exact functional code SHA `913bcb318724cf2a0bcd12cedf1e609da0c03075`; Render resumed build `dep-db7euknavr4c73809dmg` checks out `49c63d7a68370376f4e3afe6b8c0f87b88a8943e`; 39/39 Node PASS and both real PostgreSQL/Chromium/upgrade probes PASS. [Evidence A9](evidence/A9.md). Final Render deployment `dep-db7euknavr4c73809dmg` **LIVE**; complete A0–A8 regression suite PASS.
