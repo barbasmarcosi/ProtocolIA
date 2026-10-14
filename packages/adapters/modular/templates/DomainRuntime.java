@@ -85,6 +85,7 @@ public class DomainRuntime {
       case "create" -> result = create(entity, matched, body);
       case "get" -> result = row(entity, publicKey);
       case "listPage" -> result = page(entity, query, matched);
+      case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
@@ -243,6 +244,31 @@ public class DomainRuntime {
     List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
     Number count = jdbc.queryForObject("SELECT COUNT(*) FROM " + e.table(), new MapSqlParameterSource(), Number.class);
     return Map.of("items", items, "total", count.intValue(), "limit", limit, "offset", offset);
+  }
+
+  private Map<String,Object> auditPage(Manifest.Entity e,String key,Map<String,String> query,Manifest.Op op) {
+    if(key==null||!query.keySet().stream().allMatch(k -> k.equals("limit") || k.equals("offset")))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    int limit,offset;
+    try{
+      limit=Integer.parseInt(query.getOrDefault("limit",String.valueOf(op.limitDefault())));
+      offset=Integer.parseInt(query.getOrDefault("offset",String.valueOf(op.offsetDefault())));
+    }catch(NumberFormatException ex){throw new ResponseStatusException(HttpStatus.BAD_REQUEST);}
+    if(limit<op.limitMin()||limit>op.limitMax()||offset<0||offset>op.offsetMax())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    row(e,key); // Preserve resource 404 after capability enforcement; do not disclose other resources.
+    String where=" WHERE entity_name=:entity AND resource_id=:key";
+    var args=new MapSqlParameterSource().addValue("entity",e.name()).addValue("key",key)
+        .addValue("limit",limit).addValue("offset",offset);
+    String projection="SELECT id::text AS \\"id\\", actor, entity_name AS \\"entityName\\", "+
+        "resource_id AS \\"resourceId\\", operation_name AS \\"operationName\\", "+
+        "field_name AS \\"fieldName\\", before_value AS \\"beforeValue\\", "+
+        "after_value AS \\"afterValue\\", "+
+        "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"') AS \\"occurredAt\\" "+
+        "FROM protocolia_audit_event";
+    var rows=jdbc.queryForList(projection+where+" ORDER BY id DESC LIMIT :limit OFFSET :offset",args);
+    Number total=jdbc.queryForObject("SELECT COUNT(*) FROM protocolia_audit_event"+where,args,Number.class);
+    return Map.of("items",rows,"total",total.intValue(),"limit",limit,"offset",offset);
   }
 
   private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
