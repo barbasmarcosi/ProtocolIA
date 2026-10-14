@@ -13,7 +13,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
 type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
 function sendProblem(res:any,error:unknown):void{
@@ -147,7 +147,7 @@ class RuntimeService{
     const manager=equalSecrets(username,m)&&equalSecrets(password,process.env.PROTOCOLIA_MANAGER_PASSWORD!);
     const reader=equalSecrets(username,r)&&equalSecrets(password,process.env.PROTOCOLIA_READER_PASSWORD!);
     if(!manager&&!reader)throw new Problem(401,"Invalid credentials");
-    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities])].sort():
+    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[])])].sort():
       [...spec.readCapabilities].sort()};
   }
   me(req:any,res:any):void{
@@ -178,6 +178,33 @@ class RuntimeService{
       this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
+  }
+  private async auditPage(e:Entity,key:string,op:Operation,query:Record<string,unknown>):Promise<unknown>{
+    if(typeof key!=="string"||Object.keys(query).some(x=>!["limit","offset"].includes(x)))
+      throw new Problem(400,"Invalid audit query");
+    const parse=(v:unknown,fallback:number)=>{
+      if(v===undefined)return fallback;
+      if(typeof v!=="string"||!/^[0-9]+$/.test(v))throw new Problem(400,"Invalid audit page bounds");
+      const n=Number(v);
+      if(!Number.isSafeInteger(n))throw new Problem(400,"Invalid audit page bounds");
+      return n;
+    };
+    const limit=parse(query.limit,op.limitDefault??25),offset=parse(query.offset,op.offsetDefault??0);
+    if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
+      throw new Problem(400,"Invalid audit page bounds");
+    await this.row(e,key); // Enforce not-found only after audit capability authentication.
+    const selection="SELECT id::text AS \\"id\\", actor, entity_name AS \\"entityName\\", "+
+      "resource_id AS \\"resourceId\\", operation_name AS \\"operationName\\", "+
+      "field_name AS \\"fieldName\\", before_value AS \\"beforeValue\\", "+
+      "after_value AS \\"afterValue\\", "+
+      "to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"') AS \\"occurredAt\\" "+
+      "FROM protocolia_audit_event WHERE entity_name=$1 AND resource_id=$2";
+    const [records,amount]=await Promise.all([
+      this.pool.query(selection+" ORDER BY id DESC LIMIT $3 OFFSET $4",[e.name,key,limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM protocolia_audit_event "+
+        "WHERE entity_name=$1 AND resource_id=$2",[e.name,key])
+    ]);
+    return {items:records.rows,total:amount.rows[0].total,limit,offset};
   }
   private async recordAudit(client:any,e:Entity,op:Operation,key:string,actor:string,
     before:Record<string,unknown>|null,after:Record<string,unknown>):Promise<void>{
@@ -334,6 +361,7 @@ class RuntimeService{
         case "create": data=await this.create(entity,op,req.body,session.username);break;
         case "get":data=await this.row(entity,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
+        case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
