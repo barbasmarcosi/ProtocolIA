@@ -263,6 +263,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    if(kind!=="queryPage"&&(metadata(p,"queryOrder",op)||
+       [...op.parameters.properties.values()].some(prop=>metadata(p,"queryFilter",prop)))){
+      reject("orphan-query-decorator",op.name+" applies query decorators to a non-query operation",op);
+      continue;
+    }
     let queryFilters: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte";type:IrField["type"]}[]|undefined;
     let querySort: {field:string;direction:"asc"|"desc"}|undefined;
     if(kind==="queryPage"){

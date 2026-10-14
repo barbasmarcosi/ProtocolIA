@@ -199,6 +199,7 @@ class RuntimeService{
       throw new Problem(400,"Invalid pagination");
     const values:unknown[]=[];
     let clause=" WHERE TRUE";
+    const lower=new Map<string,number>(),upper=new Map<string,number>();
     for(const filter of plan.filters){
       if(!Object.hasOwn(query,filter.name))continue;
       const raw=query[filter.name];
@@ -218,8 +219,15 @@ class RuntimeService{
       }else if(filter.type==="utcDateTime"){
         value=parseTimestamp(raw);
       }else throw new Error("Invalid generated query type");
+      if(filter.comparator===">=")lower.set(filter.expression,
+        filter.type==="utcDateTime"?Date.parse(String(value)):Number(value));
+      if(filter.comparator==="<=")upper.set(filter.expression,
+        filter.type==="utcDateTime"?Date.parse(String(value)):Number(value));
       values.push(value);
       clause+=" AND "+filter.expression+" "+filter.comparator+" $"+values.length;
+    }
+    for(const [column,start] of lower){
+      if(upper.has(column)&&start>upper.get(column)!)throw new Problem(400,"Inverted query range");
     }
     const [items,count]=await Promise.all([
       this.pool.query(plan.projection+plan.source+clause+plan.order+

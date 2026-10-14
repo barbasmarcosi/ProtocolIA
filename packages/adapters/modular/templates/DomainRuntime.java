@@ -268,6 +268,8 @@ public class DomainRuntime {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Page out of bounds");
     var args=new MapSqlParameterSource().addValue("limit",limit).addValue("offset",offset);
     var where=new StringBuilder(" WHERE TRUE");
+    var lower=new java.util.HashMap<String,Comparable>();
+    var upper=new java.util.HashMap<String,Comparable>();
     for(var filter:plan.filters()){
       if(!query.containsKey(filter.name()))continue;
       String value=query.get(filter.name());
@@ -294,9 +296,15 @@ public class DomainRuntime {
           throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid timestamp filter");
         }
       }else throw new IllegalStateException("Unsupported declared filter");
+      if(filter.comparator().equals(">="))lower.put(filter.expression(),(Comparable)parsed);
+      if(filter.comparator().equals("<="))upper.put(filter.expression(),(Comparable)parsed);
       args.addValue(filter.name(),parsed);
       where.append(" AND ").append(filter.expression()).append(" ")
           .append(filter.comparator()).append(" :").append(filter.name());
+    }
+    for(var key:lower.keySet()){
+      if(upper.containsKey(key)&&lower.get(key).compareTo(upper.get(key))>0)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Inverted query range");
     }
     var rows=jdbc.queryForList(plan.projection()+plan.source()+where+plan.order()+
       " LIMIT :limit OFFSET :offset",args);
