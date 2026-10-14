@@ -85,6 +85,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A7 — Reserva transaccional multi-entidad | PASS HTTP/PostgreSQL acotado | [A7](evidence/A7.md): stock debit+insert atómicos Spring/Nest, 7 éxitos+3 conflictos concurrentes, rollback de duplicados y conformance genérica; UI E2E específica pendiente |
 | A8 — Cancelación/reintegro compensatorio | PASS PostgreSQL acotado Spring+Nest | [A8](evidence/A8.md): `@release` sobre `@transition` original, una sola devolución en 10 cancelaciones concurrentes, rechazo por overflow con rollback, reintento y conformance genérica; Chromium A8 específico pendiente |
 | A9 — Migración A7→A8 y UI Chromium | PASS HTTP/PG/browser acotado Spring+Nest | [A9](evidence/A9.md): backfill V2 `active` sobre DB con reservas existentes, V1 intacta, DTO antiguo compatible, dos reinicios, diario Flyway/Nest y cancelación UI de registros históricos |
+| A10 — Auditoría contractual de mutaciones | Código+41 unitarios PASS; PostgreSQL funcional en verificación | [A10](evidence/A10.md): `@audit` con campos permitidos en create/transitions, actor y before/after, journal transaccional Spring+Nest; rollback provocado mediante trigger PostgreSQL |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -133,6 +134,12 @@ npm run app:evolve -- examples/vnext/inventory-reservations dist/inventory-app
 ```
 
 Los clientes A7 pueden seguir creando reservas sin enviar `status`; Spring y Nest aplican el estado inicial de forma segura. El flujo generado React permite cancelar y reintegrar el stock de registros históricos, verificado en Chromium a ancho móvil. Es una migración *forward-only*, no un esquema general de migraciones arbitrarias ni un procedimiento probado de despliegue sin downtime. **Hacer backup de una DB real antes de cualquier evolución.** [Evidencia A9](evidence/A9.md).
+
+## A10 — Auditoría de operaciones de negocio
+
+`@audit("campo1,campo2")` permite seleccionar de forma explícita campos de una operación `create`, o el estado auditado de una `transition`. ProtocolIA agrega un diario PostgreSQL que registra usuario autenticado, entidad, identificador, operación, campo, valor anterior/nuevo y momento de commit. En Spring y Nest la escritura ocurre dentro de la transacción de negocio: si no se puede escribir la auditoría, la operación falla y se revierte.
+
+El ejemplo `examples/vnext/work-orders/contracts/main.tsp` lo ejerce sin crear servicios particulares por dominio. **Límites:** no se almacenan cuerpos completos por defecto; el autor debe evitar seleccionar secretos, no hay endpoint ni UI de consulta todavía y los administradores de base pueden alterar registros. [Evidencia A10](evidence/A10.md).
 
 ## Historial preservado
 
