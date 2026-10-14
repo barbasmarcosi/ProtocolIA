@@ -26,6 +26,8 @@ export function compileOverduePolicies(ir){
      !/^[a-z][a-z0-9_-]{0,63}$/.test(terminal)||
      !ir.operations.some(op=>op.entity===entity.name&&op.behavior.kind==="transition"&&
        op.behavior.field===policy.stateField&&op.behavior.to===terminal)||
+     ir.operations.some(op=>op.entity===entity.name&&op.behavior.kind==="transition"&&
+       op.behavior.field===policy.stateField&&op.behavior.from===terminal)||
      policy.channel!=="inbox"||
      new Set([policy.dueField,policy.stateField,policy.recipientField]).size!==3)
     throw Error("Invalid overdue inbox rule "+entity.name);

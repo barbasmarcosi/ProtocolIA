@@ -46,7 +46,8 @@ test("A14.3 rejects invalid due, state, identity binding, terminal, audience and
   a=>a.entities[1].overdueAlert.dueField="dueAt); --",
   a=>a.entities[1].name="Issue;drop",
   a=>a.entities[1].overdueAlert.stateField="personBadge",
-  a=>a.operations[0].behavior.to="planned"
+  a=>a.operations[0].behavior.to="planned",
+  a=>a.operations.push({entity:"Issue",behavior:{kind:"transition",field:"status",from:"completed",to:"reported"}})
  ];
  for(const mutate of mutations){
   const ir=sample();mutate(ir);

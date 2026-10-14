@@ -455,7 +455,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
   for(const e of entities.filter(e=>e.overdueAlert)){
     const policy=e.overdueAlert!;
     if(!operations.some(op=>op.entity===e.name&&op.behavior.kind==="transition"&&
-         op.behavior.field===policy.stateField&&op.behavior.to===policy.terminalState)){
+         op.behavior.field===policy.stateField&&op.behavior.to===policy.terminalState)||
+       operations.some(op=>op.entity===e.name&&op.behavior.kind==="transition"&&
+         op.behavior.field===policy.stateField&&op.behavior.from===policy.terminalState)){
       reject("overdue-terminal",e.name+" overdue terminal state must be declared by a transition",
         models.find(m=>m.name===e.name)!);
     }
