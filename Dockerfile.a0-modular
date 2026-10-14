@@ -13,16 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /work
 COPY . .
 RUN node --version && java -version && mvn -version && postgres --version
-RUN bash -n scripts/vnext/probe-nest-relations-evolution.sh && bash -n scripts/vnext/probe-workflow-postgres.sh && bash -n scripts/vnext/probe-reservation-postgres.sh && echo A3_A5_A6_A7_PROBE_SHELL_SYNTAX_PASS
+RUN bash -n scripts/vnext/probe-nest-relations-evolution.sh && bash -n scripts/vnext/probe-workflow-postgres.sh && bash -n scripts/vnext/probe-reservation-postgres.sh && echo A3_A5_A6_A7_A8_PROBE_SHELL_SYNTAX_PASS
 RUN npm ci --ignore-scripts
 RUN npm run check:vnext && bash tests/vnext/negative-check.sh
 # The same single CLI builds both unrelated applications from their respective TypeSpec contracts.
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
-# A7: atomic cross-entity stock reservation and insert from the same TypeSpec contract.
+# A7+A8: atomic cross-entity reserve, state-guarded cancellation and exactly-once stock restoration.
 RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations --target modular-spring --out /work/dist/a7-spring
 RUN node scripts/vnext/verify-reservation-ir.mjs
+RUN node scripts/vnext/probe-cancellation-negative.mjs
 RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations --target nestjs --out /work/dist/a7-nest
 RUN bash scripts/vnext/probe-reservation-postgres.sh
 # A6: declarative guarded business state transitions, two targets, identical HTTP/PG test.
