@@ -70,16 +70,16 @@ test("A14 independent two-entity contract: both generators emit audited CAS FK r
 test("A14 reject reassignment without FK, audit, protected capability, safe status and valid binding in both targets",()=>{
  const mutations=[
   x=>{delete x.entities[1].fields[1].reference;},
-  x=>{delete x.operations[7].behavior.audit;},
-  x=>{x.operations[7].capability="workitems.write";},
-  x=>{x.operations[7].capability="workitems.read";},
-  x=>{x.operations[7].capability="workitems.audit";},
-  x=>{x.operations[7].capability="public";},
-  x=>{x.operations[7].statuses=[200,400,404];},
-  x=>{x.operations[7].behavior.input="number";},
-  x=>{x.operations[7].behavior.field="number";},
-  x=>{x.operations[7].method="POST";},
-  x=>{x.operations[7].behavior.audit=["number"];},
+  x=>{delete x.operations[6].behavior.audit;},
+  x=>{x.operations[6].capability="workitems.write";},
+  x=>{x.operations[6].capability="workitems.read";},
+  x=>{x.operations[6].capability="workitems.audit";},
+  x=>{x.operations[6].capability="public";},
+  x=>{x.operations[6].statuses=[200,400,404];},
+  x=>{x.operations[6].behavior.input="number";},
+  x=>{x.operations[6].behavior.field="number";},
+  x=>{x.operations[6].method="POST";},
+  x=>{x.operations[6].behavior.audit=["number"];},
  ];
  for(const mutate of mutations){
   const broken=structuredClone(ir);mutate(broken);
