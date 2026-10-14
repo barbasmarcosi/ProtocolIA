@@ -200,3 +200,9 @@ npm run app:build -- examples/vnext/gauge --target nestjs --out dist/nest-gauge
 El target NestJS crea controladores Nest a partir de operaciones del IR, servidor de PostgreSQL con consultas parametrizadas, SQL DDL, verificación de huella de esquema al iniciar, la misma React/Vite generada, Compose local y snapshot del contrato/OpenAPI con ownership. **No exige Java ni Maven.** La conformance genérica detecta automáticamente dónde está el manifiesto según el backend. Contrato, IR y OpenAPI conservan hashes iguales al target Spring.
 
 [Ver evidencia A3](evidence/A3.md) para HTTP, Postgres y Chromium ejecutados en ambos sistemas. **Límite:** `app:evolve` permite adiciones opcionales no destructivas sobre PostgreSQL poblada tanto en Spring (Flyway) como en Nest (migraciones SQL con checksum, transacción y advisory lock). Otros cambios se rechazan. La prueba real de `docker compose up` sigue pendiente en ambos destinos porque falta Docker Engine.
+
+## A14.2 — Declarative searches (experimental, not fully validated)
+
+A contract can now attach `@queryFilter("machineTag.siteCode","eq")` to an optional `@query` parameter and `@queryOrder("dueAt","asc")` to a `@behavior("queryPage","Ticket")` GET operation. The canonical IR compiles the filter allowlist; Spring and Nest use the same bound SQL query plan with one-hop FK joins, nullable-date ordering and index DDL. The generated React presents the search filters. See the isolated test contract under `examples/vnext/facility-maintenance-a142`.
+
+**Gate:** Source and test probes exist, but actual TypeSpec compilation, PostgreSQL HTTP, Chromium and in-place upgrade of this new functionality are blocked by Render minutes. [A14.2 ledger](evidence/A14_2.md). Do not mark it production-ready or C15 PASS.
