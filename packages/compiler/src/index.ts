@@ -264,7 +264,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("http-status",op.name+" is missing a success status",op);continue;
     }
     if(kind==="auditPage"){
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const allowedParams=new Set(["limit","offset",entity.publicIdentity]);
       if(http.verb!=="get"||http.parameters.body!==undefined||
          !statuses.includes(200)||!statuses.includes(400)||!statuses.includes(404)||
