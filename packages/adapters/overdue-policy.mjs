@@ -98,6 +98,26 @@ export function overdueSchemaSql(rules){
     "  WHERE id IN (SELECT outbox_id FROM delivered);\n"+
     "  GET DIAGNOSTICS moved = ROW_COUNT;\n"+
     "  RETURN moved;\nEND;\n$pia$ LANGUAGE plpgsql;",
-  ...rules.map(rule=>rule.ddl)
+  ...rules.map(rule=>rule.ddl),
+  // Explicit invocation boundary: the actual scheduler/worker is not yet wired.
+  // One call does a clock-injected scan + bounded internal delivery atomically.
+  "CREATE OR REPLACE FUNCTION protocolia_tick_notifications(as_of TIMESTAMPTZ, batch_size INTEGER) "+
+    "RETURNS TABLE(enqueued INTEGER,dispatched INTEGER) AS $pia$\n"+
+    "DECLARE step_count INTEGER;\nBEGIN\n"+
+    "  IF as_of IS NULL OR batch_size IS NULL OR batch_size < 1 OR batch_size > 100 THEN\n"+
+    "    RAISE EXCEPTION 'Invalid tick bounds' USING ERRCODE='22023';\n"+
+    "  END IF;\n"+
+    "  enqueued := 0;\n"+
+    rules.map(rule=>
+      "  SELECT "+rule.functionName+"(as_of) INTO step_count;\n"+
+      "  enqueued := enqueued + step_count;\n").join("")+
+    "  SELECT protocolia_dispatch_inbox(batch_size) INTO dispatched;\n"+
+    "  RETURN NEXT;\nEND;\n$pia$ LANGUAGE plpgsql;",
+  // PostgreSQL grants EXECUTE to PUBLIC on functions by default. These are
+  // internal side-effectful functions; no HTTP user may invoke them by default.
+  "REVOKE ALL ON FUNCTION protocolia_dispatch_inbox(INTEGER) FROM PUBLIC;",
+  ...rules.map(rule=>
+    "REVOKE ALL ON FUNCTION "+rule.functionName+"(TIMESTAMPTZ) FROM PUBLIC;"),
+  "REVOKE ALL ON FUNCTION protocolia_tick_notifications(TIMESTAMPTZ,INTEGER) FROM PUBLIC;"
  ];
 }
