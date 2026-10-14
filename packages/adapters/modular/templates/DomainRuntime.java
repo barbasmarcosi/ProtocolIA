@@ -253,16 +253,20 @@ public class DomainRuntime {
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
     if (op.release()!=null) {
       var release=op.release();
+      String referenceColumn=e.fields().stream().filter(f -> f.name().equals(release.referenceField()))
+          .findFirst().orElseThrow().column();
+      String amountColumn=e.fields().stream().filter(f -> f.name().equals(release.amountField()))
+          .findFirst().orElseThrow().column();
       var rows=jdbc.queryForList("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
           e.identityColumn()+"=:key AND "+col+"=:source RETURNING "+
-          release.referenceField()+", "+release.amountField(),
+          referenceColumn+", "+amountColumn,
           Map.of("key",id,"source",op.fromState(),"target",op.toState()));
       if (rows.isEmpty()) {
         row(e,id);
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Reservation already processed");
       }
-      String stock=(String)rows.get(0).get(release.referenceField());
-      Number amount=(Number)rows.get(0).get(release.amountField());
+      String stock=(String)rows.get(0).get(referenceColumn);
+      Number amount=(Number)rows.get(0).get(amountColumn);
       int credited=jdbc.update("UPDATE "+release.stockTable()+" SET "+
           release.availableColumn()+"="+release.availableColumn()+"+:amount WHERE "+
           release.stockKeyColumn()+"=:stock AND "+
