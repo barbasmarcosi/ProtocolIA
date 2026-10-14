@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","delete","health"];
+  ["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -151,10 +151,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (auditMeta) {
       const list = typeof auditMeta.fields==="string" ? auditMeta.fields.split(",") : [];
       const allowed = new Set(entity.fields.map(x=>x.name));
-      if (!["create","transition"].includes(kind) || !list.length || list.length>8 ||
+      if (!["create","transition","reassignReference"].includes(kind) || !list.length || list.length>8 ||
           list.some(x=>x.length===0 || x.trim()!==x || !allowed.has(x)) ||
           new Set(list).size!==list.length ||
-          (kind==="transition" && (list.length!==1 || list[0]!==f)) ||
+          (["transition","reassignReference"].includes(kind) && (list.length!==1 || list[0]!==f)) ||
           (kind==="create" && list.includes(entity.publicIdentity))) {
         reject("invalid-audit",op.name+" must explicitly allowlist 1–8 supported entity fields (transition: state field only)",op);
         continue;
@@ -246,6 +246,23 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("increment-input",op.name+" amount must be positive int32",op);continue;
       }
     }
+    if(kind==="reassignReference"){
+      const relation=f?entity.fields.find(x=>x.name===f):undefined;
+      const payload=op.parameters.properties.get("input")?.type;
+      const expected=payload?.kind==="Model"?payload.properties.get("expected"):undefined;
+      const target=payload?.kind==="Model"?payload.properties.get(input??""):undefined;
+      if(!relation?.reference||relation.type!=="string"||!relation.required||relation.nullable||
+          f===entity.publicIdentity||input!==f||relation.initial!==undefined||
+          payload?.kind!=="Model"||payload.properties.size!==2||!expected||!target||
+          expected.optional||target.optional||typeOfField(expected)?.type!=="string"||
+          typeOfField(target)?.type!=="string"||!auditFields||
+          auditFields.length!==1||auditFields[0]!==f||
+          metadata(p,"transition",op)||metadata(p,"reserve",op)||metadata(p,"release",op)){
+        reject("invalid-reference-reassignment",op.name+
+          " requires an existing required FK, one audited field and a body with required expected/current FK values",op);
+        continue;
+      }
+    }
     if(kind==="auditPage"){
       if(f!==undefined||input!==undefined||op.parameters.properties.has("input")||
          metadata(p,"transition",op)||metadata(p,"reserve",op)||
@@ -273,6 +290,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
          !op.parameters.properties.has("limit")||!op.parameters.properties.has("offset")){
         reject("audit-query-http",op.name+" requires bounded GET audit page, identity path, 200/400/404 and no body",op);continue;
       }
+    }
+    if(kind==="reassignReference" && (http.verb!=="patch"||
+        http.parameters.body?.bodyKind!=="single"||
+        ![200,400,404,409].every(status=>statuses.includes(status))||
+        [...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]).join(",")!==entity.publicIdentity)){
+      reject("reassign-http",op.name+" requires PATCH by identity, a JSON body and 200/400/404/409 responses",op);
+      continue;
     }
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
