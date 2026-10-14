@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado de negocio en Spring y Nest PASS HTTP/PostgreSQL acotado.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva transaccional entre entidades PASS acotado en Spring+Nest con PostgreSQL real.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -82,6 +82,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A5 — Regeneración/evolución segura | PASS aditivo acotado Spring+Nest | [A5](evidence/A5.md): Flyway y migraciones Nest checksummed V1→V2 en DB poblada; baseline, ownership y datos preservados |
 
 | A6 — Operaciones de negocio por contrato | PASS HTTP/PG acotado | [A6](evidence/A6.md): estado inicial + transiciones PostgreSQL atómicas, 10 carreras concurrentes por destino, React manifest generado; botones Chromium específicos pendientes |
+| A7 — Reserva transaccional multi-entidad | PASS HTTP/PostgreSQL acotado | [A7](evidence/A7.md): stock debit+insert atómicos Spring/Nest, 7 éxitos+3 conflictos concurrentes, rollback de duplicados y conformance genérica; UI E2E específica pendiente |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -99,6 +100,17 @@ op approveWorkOrder(@path code: string): WorkOrder | Conflict | NotFound | Unaut
 ```
 
 La fuente de verdad es TypeSpec → IR; ambos adaptadores emiten una actualización PostgreSQL condicionada por el estado original, con resultado HTTP 409 cuando la precondición falla. El frontend deriva botones desde el manifiesto `transitions[]`, sin lógica por nombre de entidad. El perfil actual es deliberadamente finito: cadenas de estado y guardas por igualdad; no orquesta flujos externos ni integra un proveedor IAM. [Evidencia A6](evidence/A6.md).
+
+## A7 — Reservas atómicas entre entidades
+
+El contrato `examples/vnext/inventory-reservations/contracts/main.tsp` describe stock y asignaciones, incluyendo `@reserve("Part", "available", "partSku", "units")` sobre la operación `create Allocation`. El mismo TypeSpec genera Spring Boot/JDBC o NestJS/`pg`, y ambos realizan una actualización de stock condicionada y la inserción de la reserva en **una única transacción**, con rollback y HTTP 409 si falta disponibilidad. El frontend compartido conserva el selector de relación y la creación de recursos; este ejemplo todavía no tiene prueba Chromium específica.
+
+```bash
+npm run app:build -- examples/vnext/inventory-reservations --target modular-spring --out dist/reservation-spring
+npm run app:build -- examples/vnext/inventory-reservations --target nestjs --out dist/reservation-nest
+```
+
+[Resultados y limitaciones A7](evidence/A7.md): verificación con PostgreSQL real, rollback por duplicado, diez solicitudes concurrentes y conformance genérica sin hardcodes de dominio. El perfil todavía no contempla cancelar/restaurar stock, multi-línea ni flujos distribuidos.
 
 ## Historial preservado
 
