@@ -59,6 +59,7 @@ export default function App(){
   const [auditError,setAuditError]=useState("");
   const [form,setForm]=useState({});
   const [rename,setRename]=useState("");
+  const [reassigned,setReassigned]=useState("");
   const [increment,setIncrement]=useState(1);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
@@ -183,7 +184,10 @@ export default function App(){
     try{
       const data=await request(kind,params);
       if(kind==="delete")setSelected(null);
-      else if(data?.[active.entity.publicIdentity])setSelected(data);
+      else if(data?.[active.entity.publicIdentity]){
+        setSelected(data);
+        if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
+      }
       setNotice("Operación confirmada: "+kind);
       const listing=await request("listPage",{query:{limit,offset}});
       setItems(listing.items);setTotal(listing.total);
@@ -215,7 +219,7 @@ export default function App(){
         <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" onClick={()=>{setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));}}>Detalle</button></td>
+          <td><button className="ghost" onClick={()=>{setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
@@ -236,6 +240,22 @@ export default function App(){
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Guardar cambios</button></form>}
+          {can("reassignReference")&&<form data-testid="reassign-reference" onSubmit={e=>{
+              e.preventDefault();
+              const field=operations.reassignReference.behavior.field;
+              act("reassignReference",{code:selected[active.entity.publicIdentity],
+                body:{expected:selected[field],[field]:reassigned}});
+            }}>
+            <label className="field"><span>Reasignar {label({name:operations.reassignReference.behavior.field})}</span>
+              <select required value={reassigned} onChange={e=>setReassigned(e.target.value)}>
+                <option value="">Elegir responsable</option>
+                {(referenceOptions[operations.reassignReference.behavior.field]??[]).map(item=>
+                  <option key={item.key} value={item.key}>{item.label}</option>)}
+              </select>
+            </label>
+            <button type="submit" disabled={loading||!referenceOptions[operations.reassignReference.behavior.field]||
+              reassigned===selected[operations.reassignReference.behavior.field]}>Reasignar</button>
+          </form>}
           {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[active.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Incrementar</button></form>}

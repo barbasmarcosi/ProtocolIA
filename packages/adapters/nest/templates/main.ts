@@ -13,7 +13,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
 type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[]};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
 function sendProblem(res:any,error:unknown):void{
@@ -147,7 +147,7 @@ class RuntimeService{
     const manager=equalSecrets(username,m)&&equalSecrets(password,process.env.PROTOCOLIA_MANAGER_PASSWORD!);
     const reader=equalSecrets(username,r)&&equalSecrets(password,process.env.PROTOCOLIA_READER_PASSWORD!);
     if(!manager&&!reader)throw new Problem(401,"Invalid credentials");
-    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[])])].sort():
+    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[])])].sort():
       [...spec.readCapabilities].sort()};
   }
   me(req:any,res:any):void{
@@ -336,6 +336,32 @@ class RuntimeService{
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Transition precondition failed");}
     return this.row(e,key);
   }
+  private async reassignReference(e:Entity,op:Operation,key:string,body:unknown,actor:string):Promise<Record<string,unknown>>{
+    if(!isRecord(body)||Object.keys(body).length!==2||
+       !Object.hasOwn(body,"expected")||!Object.hasOwn(body,op.input!))
+      throw new Problem(400,"Expected previous and new reference");
+    const field=e.fields.find(f=>f.name===op.field)!;
+    const previous=body.expected,next=body[op.input!];
+    validateInput(e,{[field.name]:previous},[field.name],false);
+    validateInput(e,{[field.name]:next},[field.name],false);
+    if(previous===next)throw new Problem(409,"Relation is unchanged");
+    const client=await this.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const changed=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+        e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
+        [next,key,previous]);
+      if(!changed.rowCount){
+        const exists=await client.query("SELECT 1 FROM "+e.table+" WHERE "+
+          e.identityColumn+"=$1",[key]);
+        throw new Problem(exists.rowCount?409:404,"Reference changed or resource not found");
+      }
+      await this.recordAudit(client,e,op,key,actor,{[field.name]:previous},{[field.name]:next});
+      await client.query("COMMIT");
+    }catch(error){await client.query("ROLLBACK");throw error;}
+    finally{client.release();}
+    return this.row(e,key);
+  }
   private async remove(e:Entity,key:string):Promise<void>{
     try{
       const deleted=await this.pool.query("DELETE FROM "+e.table+
@@ -366,6 +392,7 @@ class RuntimeService{
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
+        case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
         case "delete":await this.remove(entity,identity);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }

@@ -35,7 +35,8 @@ public class SecurityConfig {
         .authorities(java.util.stream.Stream.concat(
           java.util.stream.Stream.concat(Manifest.READ_CAPABILITIES.stream(),
               Manifest.WRITE_CAPABILITIES.stream()),
-          Manifest.AUDIT_CAPABILITIES.stream()).distinct().toArray(String[]::new)).build();
+          java.util.stream.Stream.concat(Manifest.AUDIT_CAPABILITIES.stream(),
+              Manifest.ASSIGN_CAPABILITIES.stream())).distinct().toArray(String[]::new)).build();
     return new InMemoryUserDetailsManager(reader, manager);
   }
   @Bean

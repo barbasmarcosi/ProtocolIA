@@ -89,6 +89,7 @@ public class DomainRuntime {
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
+      case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
       case "delete" -> result = delete(entity, publicKey);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
@@ -100,7 +101,8 @@ public class DomainRuntime {
       String id=String.valueOf(updated.get(entity.identity()));
       for(String field:matched.audit()){
         Object after=updated.get(field);
-        String before=matched.kind().equals("transition")?matched.fromState():null;
+        String before=matched.kind().equals("transition")?matched.fromState():
+            matched.kind().equals("reassignReference")?String.valueOf(body.get("expected")):null;
         jdbc.update("INSERT INTO protocolia_audit_event "+
           "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
           "VALUES (:actor,:entity,:id,:op,:field,:before,:after)",
@@ -280,6 +282,32 @@ public class DomainRuntime {
     int changed = jdbc.update("UPDATE " + e.table() + " SET " + col + "=:value WHERE " + e.identityColumn() + "=:key", params);
     if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return row(e, id);
+  }
+
+  private Map<String,Object> reassignReference(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
+    if(id==null||body==null||body.size()!=2||!body.containsKey("expected")||!body.containsKey(op.input()))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected previous and new reference");
+    var previous=body.get("expected");
+    var next=body.get(op.input());
+    if(previous==null||next==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    validate(e,Map.of(op.input(),previous),false,Set.of(op.input()));
+    validate(e,Map.of(op.input(),next),false,Set.of(op.input()));
+    if(previous.equals(next))throw new ResponseStatusException(HttpStatus.CONFLICT,"Relation is unchanged");
+    String col=e.fields().stream().filter(f->f.name().equals(op.field())).findFirst().orElseThrow().column();
+    try {
+      int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:next WHERE "+
+          e.identityColumn()+"=:key AND "+col+"=:expected",
+          Map.of("key",id,"expected",previous,"next",next));
+      if(changed==0){
+        row(e,id);
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Reference changed concurrently");
+      }
+    }catch(DataIntegrityViolationException ex){
+      if(constraintSqlState(ex,"23503"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Referenced resource does not exist");
+      throw ex;
+    }
+    return row(e,id);
   }
 
   private Object delete(Manifest.Entity e, String id) {
