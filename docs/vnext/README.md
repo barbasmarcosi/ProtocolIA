@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva transaccional entre entidades PASS acotado en Spring+Nest con PostgreSQL real.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva transaccional y A8 cancelación con reintegro atómico de stock PASS acotado en Spring+Nest con PostgreSQL real.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -83,6 +83,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 
 | A6 — Operaciones de negocio por contrato | PASS HTTP/PG acotado | [A6](evidence/A6.md): estado inicial + transiciones PostgreSQL atómicas, 10 carreras concurrentes por destino, React manifest generado; botones Chromium específicos pendientes |
 | A7 — Reserva transaccional multi-entidad | PASS HTTP/PostgreSQL acotado | [A7](evidence/A7.md): stock debit+insert atómicos Spring/Nest, 7 éxitos+3 conflictos concurrentes, rollback de duplicados y conformance genérica; UI E2E específica pendiente |
+| A8 — Cancelación/reintegro compensatorio | PASS PostgreSQL acotado Spring+Nest | [A8](evidence/A8.md): `@release` sobre `@transition` original, una sola devolución en 10 cancelaciones concurrentes, rechazo por overflow con rollback, reintento y conformance genérica; Chromium A8 específico pendiente |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -111,6 +112,14 @@ npm run app:build -- examples/vnext/inventory-reservations --target nestjs --out
 ```
 
 [Resultados y limitaciones A7](evidence/A7.md): verificación con PostgreSQL real, rollback por duplicado, diez solicitudes concurrentes y conformance genérica sin hardcodes de dominio. El perfil todavía no contempla cancelar/restaurar stock, multi-línea ni flujos distribuidos.
+
+## A8 — Cancelación transaccional y devolución única
+
+`examples/vnext/inventory-reservations/contracts/main.tsp` vincula la creación con `@reserve("Part","available","partSku","units")` y una nueva ruta `cancelAllocation` con `@transition("active","cancelled")` y `@release("Part","available","partSku","units")`.
+
+En ambos targets, una sola transacción cambia el estado de la reserva **solo si sigue activa** y devuelve las unidades al stock, con comprobación de overflow. Una segunda cancelación responde 409, no devuelve unidades. La precondición fallida revierte también el cambio de estado. Se rechazan las transiciones de vuelta al estado inicial o sin reserva original compatible. [Evidencia A8](evidence/A8.md).
+
+**Importante:** el ejemplo A8 se prueba en bases nuevas. El campo de estado obligatorio añadido no es compatible con el perfil actual de migración aditiva A5; no afirmar que una aplicación A7 previamente desplegada pueda actualizarse in place sin una migración/backfill controlados.
 
 ## Historial preservado
 
