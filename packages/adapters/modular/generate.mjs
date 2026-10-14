@@ -210,7 +210,8 @@ export function generate(ir, openapi, outDir) {
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit) {}",
+    "  public record Filter(String query,String column,String operator,String type,String referenceTable,String referenceColumn,String referenceKey) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit,List<Filter> filters) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
@@ -257,9 +258,28 @@ export function generate(ir, openapi, outDir) {
         j(b.release.referenceField),j(b.release.quantityField),j(stockWrite)
       ].join(",")+")";
     }
+    const filters=(b.filters??[]).map(x=>{
+      const [root,joined]=x.fieldPath.split(".");
+      const reference=entityMap.get(op.entity).fields.find(f=>f.name===root);
+      const parent=joined?entityMap.get(reference?.reference?.target):null;
+      if(!reference||joined&&(!parent||!parent.fields.some(f=>f.name===joined)))
+        throw Error("Unsafe compiled list filter path "+x.fieldPath);
+      const field=joined?parent.fields.find(f=>f.name===joined):reference;
+      if(field.type!==x.type||!["eq","gte","lte"].includes(x.operator)||
+         (x.operator!=="eq"&&x.type==="string"))
+        throw Error("Unsafe compiled list filter comparator");
+      const schema=resolveRef(openapi,openapi.paths[op.path]?.[op.method.toLowerCase()]?.parameters?.map(p=>resolveRef(openapi,p)).find(p=>p?.name===x.query&&p.in==="query")?.schema);
+      if(!schema||schema.type!==(x.type==="int32"?"integer":"string")||
+         (x.type==="utcDateTime"&&schema.format!=="date-time"))
+        throw Error("A14 query parameter missing from official OpenAPI "+op.name+"."+x.query);
+      return "new Filter("+[j(x.query),j(snake(field.name)),j(x.operator),j(x.type),
+        parent?j(snake(parent.name)):"null",parent?j(snake(reference.name)):"null",
+        parent?j(snake(parent.publicIdentity)):"null"].join(",")+")";
+    });
+    if(b.filters&&b.kind!=="listPage")throw Error("Filter metadata only supported on listPage");
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,"List.of("+(b.audit??[]).map(j).join(",")+")","List.of("+filters.join(",")+")"].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
