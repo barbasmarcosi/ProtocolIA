@@ -7,6 +7,7 @@ import {copyFileSync,cpSync,existsSync,mkdirSync,mkdtempSync,readFileSync,
 import {basename,dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {sealApp,verifyApp} from "./ownership.mjs";
+import {buildQueryPlan} from "../adapters/query-plan.mjs";
 
 const shaTag=()=>randomBytes(7).toString("hex");
 const safeName=value=> {
@@ -103,6 +104,25 @@ export function diffContracts(oldIr,nextIr){
       }else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
       continue;
     }
+    if(b.kind==="queryPage"){
+      const entity=oldIr.entities.find(e=>e.name===op.entity);
+      const oldRead=oldIr.operations.find(o=>o.entity===op.entity&&o.behavior.kind==="listPage");
+      const reused=oldIr.operations.some(o=>o.entity===op.entity&&o.behavior.kind==="queryPage");
+      const routeBusy=oldIr.operations.some(o=>o.method===op.method&&o.path===op.path);
+      if(!entity||!oldRead||reused||routeBusy||op.capability!==oldRead.capability||
+         op.capability==="public"||!op.path.startsWith("/api/")){
+        blockers.push("Unsafe additive queryPage or privilege change: "+op.name);
+      }else{
+        try {
+          const query=buildQueryPlan(nextIr,op);
+          changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op),
+            indexes:query.ddl});
+        }catch(error){
+          blockers.push("Invalid new typed query "+op.name+": "+String(error));
+        }
+      }
+      continue;
+    }
     if(b.kind==="reassignReference"){
       const entity=oldIr.entities.find(e=>e.name===op.entity);
       const relation=entity?.fields.find(f=>f.name===b.field);
@@ -183,7 +203,7 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     if(!endpoint){
       issues.push("New operation missing from OpenAPI: "+op.name);continue;
     }
-    if(["auditPage","reassignReference"].includes(op.behavior.kind))gatherRefs(endpoint);
+    if(["auditPage","reassignReference","queryPage"].includes(op.behavior.kind))gatherRefs(endpoint);
     delete next.paths[op.path][op.method.toLowerCase()];
     if(Object.keys(next.paths[op.path]).length===0)delete next.paths[op.path];
   }
@@ -250,7 +270,7 @@ function fieldDdl(field){
 }
 export function additiveSql(plan){
   if(!plan.compatible)throw Error("Refusing destructive migration: "+plan.blockers.join("; "));
-  return plan.changes.filter(x=>["addField","addInitialState"].includes(x.kind))
+  const additiveFields=plan.changes.filter(x=>["addField","addInitialState"].includes(x.kind))
     .map(x=>{
       if(x.kind==="addField")return "ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(x.field)+";";
       const field=x.field,initial=field.initial;
@@ -263,7 +283,10 @@ export function additiveSql(plan){
       const allowed=[...values].sort().map(value=>"'"+value+"'").join(",");
       return "ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(field)+
         " DEFAULT '"+initial+"' NOT NULL CHECK ("+snake(field.name)+" IN ("+allowed+"));";
-    }).join("\n");
+    });
+  const additiveIndexes=plan.changes.filter(x=>x.kind==="addOperation"&&
+    x.operation.behavior.kind==="queryPage").flatMap(x=>x.indexes??[]);
+  return [...additiveFields,...new Set(additiveIndexes)].join("\n");
 }
 function run(command,args,options={}){
   const p=spawnSync(command,args,{stdio:"inherit",timeout:600000,...options});
