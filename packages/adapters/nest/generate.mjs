@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {buildQueryPlan} from "../query-plan.mjs";
+import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -101,7 +101,7 @@ export function generate(ir,spec,out){
       const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0)
         throw Error("Public identity mismatch "+op.name);
-      if(kind==="queryPage")buildQueryPlan(ir,op);
+      if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
       if(kind==="auditPage"&&(b.audit||b.reserve||b.release||b.field||b.input||
          !op.statuses.includes(400)||!op.statuses.includes(404)))
         throw Error("Invalid read-only auditPage metadata "+op.name);

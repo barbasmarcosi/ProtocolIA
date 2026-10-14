@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
-import {buildQueryPlan} from "../query-plan.mjs";
+import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -92,7 +92,7 @@ export function generate(ir, openapi, outDir) {
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
     routes.add(routeKey);
     if(op.capability==="public" && op.behavior.kind!=="health") throw Error("Anonymous operations not supported in this A0 profile");
-    if(op.behavior.kind==="queryPage")buildQueryPlan(ir,op);
+    if(op.behavior.kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(openapi,op);}
     if(op.behavior.kind==="auditPage"){
       const history=ops.filter(x=>x.entity===bound.name&&x.behavior.audit?.length);
       const create=ops.find(x=>x.entity===bound.name&&x.behavior.kind==="create");
