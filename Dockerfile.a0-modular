@@ -29,6 +29,7 @@ RUN bash -n scripts/vnext/probe-a14-reassign-postgres.sh && bash scripts/vnext/p
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target nestjs --out /work/dist/a13-nest
 RUN bash -n scripts/vnext/probe-a13-maintenance-postgres.sh && bash scripts/vnext/probe-a13-maintenance-postgres.sh
+RUN bash -n scripts/vnext/probe-a14-evolution-postgres.sh && bash scripts/vnext/probe-a14-evolution-postgres.sh
 # A7+A8: atomic cross-entity reserve, state-guarded cancellation and exactly-once stock restoration.
 RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations --target modular-spring --out /work/dist/a7-spring
 RUN node scripts/vnext/verify-reservation-ir.mjs
