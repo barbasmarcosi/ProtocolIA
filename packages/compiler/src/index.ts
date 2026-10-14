@@ -146,6 +146,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "atomicIncrement" && entity.fields.find((x)=>x.name===f)?.type !== "int32") {
       reject("atomic-type",op.name+" atomicIncrement requires an int32 field",op);continue;
     }
+    const auditMeta = metadata(p,"audit",op);
+    let auditFields: string[] | undefined;
+    if (auditMeta) {
+      const list = typeof auditMeta.fields==="string" ? auditMeta.fields.split(",") : [];
+      const allowed = new Set(entity.fields.map(x=>x.name));
+      if (!["create","transition"].includes(kind) || !list.length || list.length>8 ||
+          list.some(x=>x.length===0 || x.trim()!==x || !allowed.has(x)) ||
+          new Set(list).size!==list.length ||
+          (kind==="transition" && (list.length!==1 || list[0]!==f)) ||
+          (kind==="create" && list.includes(entity.publicIdentity))) {
+        reject("invalid-audit",op.name+" must explicitly allowlist 1–8 supported entity fields (transition: state field only)",op);
+        continue;
+      }
+      auditFields=list;
+    }
     const release = metadata(p,"release",op);
     if (release) {
       const stock = declared.get(String(release.stockEntity));
@@ -257,7 +272,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
-      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),
+      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
