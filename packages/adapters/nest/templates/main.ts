@@ -11,7 +11,8 @@ import contract from "./manifest.json";
 type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;reserve?:Reserve;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -239,6 +240,32 @@ class RuntimeService{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(op.release){
+      const release=op.release;
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const result=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+          e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
+          release.referenceColumn+" AS reference, "+release.amountColumn+" AS amount",
+          [op.to,key,op.from]);
+        if(!result.rowCount){
+          const old=await client.query("SELECT 1 FROM "+e.table+" WHERE "+e.identityColumn+"=$1",[key]);
+          throw new Problem(old.rowCount?409:404,old.rowCount?"Already processed":"Not found");
+        }
+        const stock=result.rows[0].reference, amount=result.rows[0].amount;
+        const credited=await client.query("UPDATE "+release.stockTable+" SET "+
+          release.availableColumn+"="+release.availableColumn+"+$1 WHERE "+
+          release.stockKeyColumn+"=$2 AND "+release.availableColumn+"<=2147483647-$1",
+          [amount,stock]);
+        if(credited.rowCount!==1)throw new Problem(409,"Cannot restore stock");
+        await client.query("COMMIT");
+      }catch(error){
+        await client.query("ROLLBACK");
+        throw error;
+      }finally{client.release();}
+      return this.row(e,key);
+    }
     const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
       e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
       [op.to,key,op.from]);
@@ -260,6 +287,8 @@ class RuntimeService{
       const session=this.login(req);
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
+        throw new Problem(403,"Insufficient stock write capability");
+      if(op.release&&!session.capabilities.includes(op.release.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
       const entity=this.entities.get(op.entity);
       if(!entity)throw new Error("Unknown generated entity");
