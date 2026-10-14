@@ -216,7 +216,7 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | G11-06 | Manager views four chronological reverse-order events with actor and before/after, limit/offset and total | PASS ×2 |
 | G11-07 | No leak of another resource's audit rows | PASS ×2 |
 | G11-08 | Chromium 390×844 React history visible to manager and hidden from reader | PASS ×2 |
-| G11-09 | A10 fault-injection rollback, A6 transitions and A0–A10 regressions | A6/A10 PASS ×2; broad A0–A10 build still in progress |
+| G11-09 | A10 fault-injection rollback, A6 transitions and A0–A10 regressions | A6/A10 PASS ×2; full A0–A10 Docker regression PASS |
 | G11-10 | Render deploy LIVE, real Compose Engine, production IAM/backups | LIVE pending; Compose/production controls NOT RUN |
 
 **Source:** `f3bea045f033fd66d485a996dfda11bc81799acc`; Render Free deploy `dep-db7gataj9qps73cbub60`. [A11 evidence](evidence/A11.md). The generated event journal remains append-only via generated APIs only, not cryptographically tamper-proof.
