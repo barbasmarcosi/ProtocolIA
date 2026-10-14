@@ -134,7 +134,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (!supported.includes(kind) || !entity) {
       reject("unsupported-behavior",op.name+" references unknown entity/behavior",op);continue;
     }
-    if (cap.name === "public" && !["get","listPage","health"].includes(kind)) {
+    if (cap.name === "public" && !["get","listPage","auditPage","health"].includes(kind)) {
       reject("public-write",op.name+" cannot expose mutation as public",op);continue;
     }
     const f = typeof behavior.field==="string" ? behavior.field : undefined;
