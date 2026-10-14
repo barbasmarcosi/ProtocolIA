@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","patchFields","atomicIncrement","delete","health"];
+  ["create","get","listPage","patchFields","atomicIncrement","transition","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -38,6 +38,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
+    ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
       target:String(metadata(p,"reference",prop)?.entity),
       onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
@@ -78,6 +79,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if (value.initial !== undefined &&
+          (value.type !== "string" || !value.required || value.nullable ||
+           value.unique || value.reference || !value.initial.trim() ||
+           value.initial.length < (value.minLength ?? 1) ||
+           value.initial.length > (value.maxLength ?? 255))) {
+        reject("invalid-initial",m.name+"."+prop.name+" requires a valid required string state field",prop);
+      }
       fields.push(value);
     }
     if (publicKeys.length !== 1) {
@@ -138,6 +146,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "atomicIncrement" && entity.fields.find((x)=>x.name===f)?.type !== "int32") {
       reject("atomic-type",op.name+" atomicIncrement requires an int32 field",op);continue;
     }
+    if (kind === "transition") {
+      const state = f ? entity.fields.find((x)=>x.name===f) : undefined;
+      const trans = metadata(p,"transition",op);
+      const from = trans?.from, to = trans?.to;
+      const validValue = (value: unknown) => typeof value === "string" &&
+        value.trim().length > 0 && value.length >= (state?.minLength ?? 1) &&
+        value.length <= (state?.maxLength ?? 255);
+      if (!state || state.type !== "string" || !state.initial ||
+          state.nullable || !state.required || !validValue(from) || !validValue(to) ||
+          from === to || input !== undefined || op.parameters.properties.has("input")) {
+        reject("invalid-transition",op.name+" must declare @transition(from,to) on an @initial string field, without a request body",op);
+        continue;
+      }
+    }
+    if (kind === "patchFields" && entity.fields.find((x)=>x.name===f)?.initial !== undefined) {
+      reject("state-bypass",op.name+" cannot patch an @initial state field; use @transition",op);continue;
+    }
+    if (metadata(p,"transition",op) && kind !== "transition") {
+      reject("orphan-transition",op.name+" uses @transition without transition behavior",op);continue;
+    }
     if (kind === "atomicIncrement" || kind === "patchFields") {
       const payload = op.parameters.properties.get("input")?.type;
       if (payload?.kind !== "Model" || !payload.properties.has(input!)) {
@@ -162,17 +190,40 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
+    if (kind === "transition" && (!statuses.includes(200) || http.verb !== "post" ||
+         http.parameters.body !== undefined)) {
+      reject("transition-http",op.name+" must POST without request body and return 200",op);continue;
+    }
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
     }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
       behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{})},
+        ...(kind==="transition" ? {
+          from:String(metadata(p,"transition",op)?.from),
+          to:String(metadata(p,"transition",op)?.to)
+        } : {})},
       capability:String(cap.name), statuses,
       ...(http.parameters.body?.bodyKind === "single" &&
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  for (const entity of entities) {
+    for (const state of entity.fields.filter((x)=>x.initial !== undefined)) {
+      const transitions=operations.filter((o)=>o.entity===entity.name &&
+        o.behavior.kind==="transition" && o.behavior.field===state.name);
+      if (!transitions.length) {
+        reject("orphan-initial",entity.name+"."+state.name+" has @initial but no transitions",models.find((m)=>m.name===entity.name)!);
+      }
+      const names=new Set<string>();
+      for (const operation of transitions) {
+        const key=operation.behavior.from+"->"+operation.behavior.to;
+        if(names.has(key))reject("duplicate-transition",entity.name+"."+state.name+" has duplicated "+key,models.find((m)=>m.name===entity.name)!);
+        names.add(key);
+      }
+    }
   }
   if (invalid) return undefined;
   return {
