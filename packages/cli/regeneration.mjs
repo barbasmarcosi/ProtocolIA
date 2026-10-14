@@ -109,7 +109,7 @@ export function diffContracts(oldIr,nextIr){
       const existing=oldIr.operations.filter(x=>x.entity===op.entity);
       const oldCapabilities=new Set(existing.map(x=>x.capability));
       const routeInUse=oldIr.operations.some(x=>x.method===op.method&&x.path===op.path);
-      const pathKeys=[...op.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const pathKeys=[...op.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       if(!entity||!relation?.reference||relation.type!=="string"||!relation.required||
          relation.nullable||relation.initial!==undefined||b.field===entity.publicIdentity||
          b.input!==relation.name||!Array.isArray(b.audit)||b.audit.length!==1||
