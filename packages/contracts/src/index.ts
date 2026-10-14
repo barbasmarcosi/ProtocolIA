@@ -15,6 +15,7 @@ export const $lib = createTypeSpecLibrary({
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
     release: {description:"Exactly-once guarded cancellation and transactional stock restoration"},
     audit: {description:"Auditable, explicitly allowlisted business fields; no request payload logging"},
+    filterBy: {description:"Contract-declared typed equality/range filter on page readers"},
     behavior: {description:"ProtocolIA behavior contract metadata"},
     capability: {description:"ProtocolIA capability contract metadata"},
   },
@@ -60,6 +61,12 @@ function release(context: DecoratorContext, target: Operation, stockEntity: stri
     {stockEntity,availableField,referenceField,quantityField});
 }
 
+function filterBy(context: DecoratorContext,target: Operation, queryName:string, fieldPath:string, comparison?:string):void{
+  const store=context.program.stateMap($lib.stateKeys.filterBy);
+  const old=store.get(target) as {filters:Array<{query:string;fieldPath:string;operator:string}>}|undefined;
+  store.set(target,{filters:[...(old?.filters??[]),{query:queryName,fieldPath,operator:comparison??"eq"}]});
+}
+
 function audit(context: DecoratorContext, target: Operation, fields: string): void {
   context.program.stateMap($lib.stateKeys.audit).set(target, {fields});
 }
@@ -84,6 +91,7 @@ export const $decorators = {
     reserve,
     release,
     audit,
+    filterBy,
     behavior,
     capability,
   },
