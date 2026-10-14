@@ -225,13 +225,13 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 
 | ID | Acceptance | Status |
 | --- | --- | --- |
-| H12-01 | Existing A10 TypeSpec compiled into both standalone Spring/Nest apps | Pending Render |
-| H12-02 | In-place add exactly one separately authorized auditPage with new reachable response schemas | 3 new Node unit tests PASS; empirical CLI pending |
-| H12-03 | Reject old audited writer changes, capability reuse, wrong route/verb, hidden schema drift | Node PASS; negative sealed app pending |
-| H12-04 | Preserve 2 original WorkOrder rows and 6 original journal entries (ids, before/after, actor), old SQL baseline, consumer extensions | Pending real PostgreSQL |
-| H12-05 | No Flyway V2 or Nest V2; schema history unchanged after upgrade and restart | Pending real PostgreSQL |
-| H12-06 | Evolved app audit API authorization/pagination/isolation and mobile React history both targets | Pending HTTP/Chromium |
-| H12-07 | Repeated plan/evolve and second restart no-op, rows/events preserved | Pending |
+| H12-01 | Existing A10 TypeSpec compiled into both standalone Spring/Nest apps | PASS ×2 |
+| H12-02 | In-place add exactly one separately authorized auditPage with new reachable response schemas | PASS ×2 real CLI plan/evolve + 3 unit tests |
+| H12-03 | Reject old audited writer changes, capability reuse, wrong route/verb, hidden schema drift | PASS Node + rejected real sealed upgrade ×2 |
+| H12-04 | Preserve 2 original WorkOrder rows and 6 original journal entries (ids, before/after, actor), old SQL baseline, consumer extensions | PASS ×2 real persisted PostgreSQL |
+| H12-05 | No Flyway V2 or Nest V2; schema history unchanged after upgrade and restart | PASS ×2 baseline bytes/migration ledger |
+| H12-06 | Evolved app audit API authorization/pagination/isolation and mobile React history both targets | PASS ×2 real HTTP/Chromium 390×844 |
+| H12-07 | Repeated plan/evolve and second restart no-op, rows/events preserved | PASS ×2 `PROTOCOLIA_EVOLUTION_NO_CHANGES` |
 | H12-08 | A0–A11 full regression and Render Free deploy LIVE | Pending |
 
 Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7glj49v7es73c0moa0`. [Evidence A12](evidence/A12.md). The public Render service remains a build marker, not the upgraded app.
