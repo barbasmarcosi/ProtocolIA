@@ -23,6 +23,7 @@ RUN npx playwright install --with-deps chromium
 # A6: declarative guarded business state transitions, two targets, identical HTTP/PG test.
 RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target modular-spring --out /work/dist/workflow-spring
 RUN node scripts/vnext/verify-workflow-ir.mjs
+RUN node scripts/vnext/probe-workflow-negative.mjs
 RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target nestjs --out /work/dist/workflow-nest
 RUN bash scripts/vnext/probe-workflow-postgres.sh
 # A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
