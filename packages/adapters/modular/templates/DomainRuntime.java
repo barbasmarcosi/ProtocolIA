@@ -75,6 +75,9 @@ public class DomainRuntime {
     if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.release()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.release().stockWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(authorized.entity())).findFirst()
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
@@ -248,6 +251,26 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    if (op.release()!=null) {
+      var release=op.release();
+      var rows=jdbc.queryForList("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
+          e.identityColumn()+"=:key AND "+col+"=:source RETURNING "+
+          release.referenceField()+", "+release.amountField(),
+          Map.of("key",id,"source",op.fromState(),"target",op.toState()));
+      if (rows.isEmpty()) {
+        row(e,id);
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Reservation already processed");
+      }
+      String stock=(String)rows.get(0).get(release.referenceField());
+      Number amount=(Number)rows.get(0).get(release.amountField());
+      int credited=jdbc.update("UPDATE "+release.stockTable()+" SET "+
+          release.availableColumn()+"="+release.availableColumn()+"+:amount WHERE "+
+          release.stockKeyColumn()+"=:stock AND "+
+          release.availableColumn()+"<=2147483647-:amount",
+          Map.of("stock",stock,"amount",amount.intValue()));
+      if (credited!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot restore stock");
+      return row(e,id);
+    }
     int changed = jdbc.update("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
         e.identityColumn()+"=:key AND "+col+"=:source",
         Map.of("key",id,"source",op.fromState(),"target",op.toState()));
