@@ -20,7 +20,6 @@ try{
  assert.match(await audit.innerText(),/draft/);
  assert.match(await audit.innerText(),/approved/);
  assert.match(await audit.innerText(),/closed/);
- await item.getByRole("button",{name:"Detalle"}).click();
  await page.getByRole("button",{name:"Salir"}).click();
  await page.locator('[data-testid="username"]').fill("reader");
  await page.locator('[data-testid="password"]').fill("test-reader-only-2026");
