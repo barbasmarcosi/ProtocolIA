@@ -51,6 +51,8 @@ export default function App(){
   const [total,setTotal]=useState(0);
   const [offset,setOffset]=useState(0);
   const [limit]=useState(25);
+  const [draftFilters,setDraftFilters]=useState({});
+  const [appliedFilters,setAppliedFilters]=useState({});
   const [selected,setSelected]=useState(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
@@ -72,6 +74,17 @@ export default function App(){
   const operations=useMemo(()=>active?.operations??{},[active]);
   const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
+  const searchFilters=operations.queryPage?.behavior?.filters??[];
+  function listing(){
+    const kind=can("queryPage")?"queryPage":"listPage";
+    const query={limit,offset};
+    if(kind==="queryPage")for(const filter of searchFilters){
+      const value=appliedFilters[filter.parameter];
+      if(value===undefined||value==="")continue;
+      query[filter.parameter]=filter.type==="utcDateTime"?new Date(value).toISOString():value;
+    }
+    return {kind,query};
+  }
 
   async function request(kind,{body,code,query}={}){
     const operation=operations[kind]??transitions.find(x=>x.name===kind);
@@ -100,7 +113,8 @@ export default function App(){
     if(!config||!auth)return;
     setLoading(true);setError("");
     try{
-      const data=await request("listPage",{query:{limit,offset}});
+      const args=listing();
+      const data=await request(args.kind,{query:args.query});
       if(!Array.isArray(data.items))throw Error("Invalid paginated response");
       setItems(data.items);setTotal(data.total);
     }catch(e){setError(e.message);}finally{setLoading(false);}
@@ -110,8 +124,9 @@ export default function App(){
     setForm(createEmpty(active.entity.fields));
     setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
+    setDraftFilters({});setAppliedFilters({});
   },[active?.entity.name]);
-  useEffect(()=>{if(active&&auth)refresh();},[active?.entity.name,auth,offset]);
+  useEffect(()=>{if(active&&auth)refresh();},[active?.entity.name,auth,offset,JSON.stringify(appliedFilters)]);
   useEffect(()=>{
     if(!config||!active||!auth)return;
     let valid=true;
@@ -189,7 +204,8 @@ export default function App(){
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
       }
       setNotice("Operación confirmada: "+kind);
-      const listing=await request("listPage",{query:{limit,offset}});
+      const args=listing();
+      const listing=await request(args.kind,{query:args.query});
       setItems(listing.items);setTotal(listing.total);
       return data;
     }catch(e){setError(e.message);return null;}finally{setLoading(false);}
@@ -213,6 +229,23 @@ export default function App(){
       </nav>}
       {error&&<p className="message error" role="alert">{error}</p>}
       {notice&&<p className="message" role="status">{notice}</p>}
+      {can("queryPage")&&<section className="panel" data-testid="query-filters">
+        <h2>Buscar y filtrar</h2>
+        <form onSubmit={event=>{event.preventDefault();setOffset(0);setAppliedFilters({...draftFilters});}}>
+          <div className="fields">{searchFilters.map(filter=>
+            <label className="field" key={filter.parameter}>
+              <span>{label({name:filter.parameter})}</span>
+              <input aria-label={filter.parameter} type={filter.type==="utcDateTime"?"datetime-local":
+                filter.type==="int32"?"number":"text"} value={draftFilters[filter.parameter]??""}
+                onChange={event=>setDraftFilters(old=>({...old,[filter.parameter]:event.target.value}))}/>
+            </label>)}
+          </div>
+          <div className="actions"><button type="submit">Filtrar</button>
+            <button type="button" className="ghost" onClick={()=>{
+              setDraftFilters({});setOffset(0);setAppliedFilters({});}}>Limpiar filtros</button>
+          </div>
+        </form>
+      </section>}
       <section className="panel">
         <div className="heading"><h2>Listado <span className="muted">({total})</span></h2><button className="ghost" onClick={refresh}>Actualizar</button></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
