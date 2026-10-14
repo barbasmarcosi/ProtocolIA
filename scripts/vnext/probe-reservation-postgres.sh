@@ -49,5 +49,21 @@ for target in spring nest; do
   test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT available FROM part WHERE sku='P-001'")" = "0"
   test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT count(*) FROM allocation WHERE part_sku='P-001'")" = "8"
   echo "A7_${target}_POSTGRES_CONSISTENCY_AND_GENERIC_CONFORMANCE_PASS"
+  node scripts/vnext/probe-cancellation-http.mjs || { tail -n 120 "/tmp/a7-$target.log"; exit 1; }
+  node scripts/vnext/probe-cancellation-overflow-setup.mjs
+  # Fault injection: concurrent external inventory correction makes the restore overflow.
+  gosu postgres psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -d "$db" -c \
+    "UPDATE part SET available=2147483647 WHERE sku='P-MAX';" >/tmp/a8-overflow-inject.log
+  node scripts/vnext/probe-cancellation-overflow.mjs || { tail -n 120 "/tmp/a7-$target.log"; exit 1; }
+  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT status FROM allocation WHERE number='R-MAX'")" = "active"
+  # Roll back the artificial correction; retry succeeds once.
+  gosu postgres psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -d "$db" -c \
+    "UPDATE part SET available=2147483646 WHERE sku='P-MAX';" >/tmp/a8-overflow-clear.log
+  node scripts/vnext/probe-cancellation-recovery.mjs || { tail -n 120 "/tmp/a7-$target.log"; exit 1; }
+  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT available FROM part WHERE sku='P-001'")" = "0"
+  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT count(*) FROM allocation WHERE part_sku='P-001'")" = "9"
+  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT status FROM allocation WHERE number='R-001'")" = "cancelled"
+  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT status FROM allocation WHERE number='R-MAX'")" = "cancelled"
+  echo "A8_${target}_ONCE_ONLY_CANCEL_REFUND_OVERFLOW_ROLLBACK_PASS"
   stop_app
 done
