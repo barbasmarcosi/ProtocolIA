@@ -81,7 +81,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
       if (value.initial !== undefined &&
           (value.type !== "string" || !value.required || value.nullable ||
-           value.unique || value.reference || !value.initial.trim() ||
+           value.unique || value.reference || !/^[a-z][a-z0-9_-]{0,63}$/.test(value.initial) ||
            value.initial.length < (value.minLength ?? 1) ||
            value.initial.length > (value.maxLength ?? 255))) {
         reject("invalid-initial",m.name+"."+prop.name+" requires a valid required string state field",prop);
@@ -151,7 +151,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const trans = metadata(p,"transition",op);
       const from = trans?.from, to = trans?.to;
       const validValue = (value: unknown) => typeof value === "string" &&
-        value.trim().length > 0 && value.length >= (state?.minLength ?? 1) &&
+        /^[a-z][a-z0-9_-]{0,63}$/.test(value) && value.length > 0 && value.length >= (state?.minLength ?? 1) &&
         value.length <= (state?.maxLength ?? 255);
       if (!state || state.type !== "string" || !state.initial ||
           state.nullable || !state.required || !validValue(from) || !validValue(to) ||
@@ -190,7 +190,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
-    if (kind === "transition" && (!statuses.includes(200) || http.verb !== "post" ||
+    if (kind === "transition" && (!statuses.includes(200) || !statuses.includes(409) || http.verb !== "post" ||
          http.parameters.body !== undefined)) {
       reject("transition-http",op.name+" must POST without request body and return 200",op);continue;
     }
