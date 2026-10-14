@@ -232,6 +232,6 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | H12-05 | No Flyway V2 or Nest V2; schema history unchanged after upgrade and restart | PASS ×2 baseline bytes/migration ledger |
 | H12-06 | Evolved app audit API authorization/pagination/isolation and mobile React history both targets | PASS ×2 real HTTP/Chromium 390×844 |
 | H12-07 | Repeated plan/evolve and second restart no-op, rows/events preserved | PASS ×2 `PROTOCOLIA_EVOLUTION_NO_CHANGES` |
-| H12-08 | A0–A11 full regression and Render Free deploy LIVE | Pending |
+| H12-08 | A0–A11 full regression and Render Free deploy LIVE | **PASS**, 46/46 Node; Render `dep-db7glj49v7es73c0moa0` LIVE |
 
 Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7glj49v7es73c0moa0`. [Evidence A12](evidence/A12.md). The public Render service remains a build marker, not the upgraded app.
