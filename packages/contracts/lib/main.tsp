@@ -15,5 +15,7 @@ namespace ProtocolIA.Domain {
   extern dec audit(target: Operation, fields: valueof string);
   extern dec behavior(target: Operation, kind: valueof string,
     entity: valueof string, field?: valueof string, input?: valueof string);
+  extern dec queryFilter(target: ModelProperty, path: valueof string, operator: valueof string);
+  extern dec queryOrder(target: Operation, field: valueof string, direction: valueof string);
   extern dec capability(target: Operation, name: valueof string);
 }
