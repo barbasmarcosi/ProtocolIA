@@ -258,6 +258,48 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (diagnostics.length) {
       reject("http",op.name+" has invalid TypeSpec HTTP binding",op);continue;
     }
+    // A14 filters are declared explicitly and bound only to optional TypeSpec query
+    // parameters. No caller-controlled SQL identifier/path is ever accepted.
+    const filterMeta=metadata(p,"filterBy",op);
+    let filters:NonNullable<IrOperation["behavior"]["filters"]>|undefined;
+    if(filterMeta){
+      const definitions=filterMeta.filters as Array<{query:string;fieldPath:string;operator:string}>|undefined;
+      if(kind!=="listPage"||!Array.isArray(definitions)||definitions.length<1||definitions.length>8){
+        reject("filter-shape",op.name+" may declare filters only on listPage, 1–8 filters",op);continue;
+      }
+      const seen=new Set<string>(),allowed=new Set(["limit","offset"]);
+      const compiled:NonNullable<IrOperation["behavior"]["filters"]>=[];
+      let invalidFilter=false;
+      for(const entry of definitions){
+        const param=op.parameters.properties.get(entry.query);
+        const path=entry.fieldPath.split(".");
+        const direct=entity.fields.find(x=>x.name===path[0]);
+        const related=path.length===2&&direct?.reference?
+          declared.get(direct.reference.target)?.fields.find(x=>x.name===path[1]):undefined;
+        const target=path.length===1?direct:path.length===2?related:undefined;
+        const inputType=param?typeOfField(param):null;
+        if(!/^[A-Za-z][A-Za-z0-9_]*$/.test(entry.query)||
+           !/^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?$/.test(entry.fieldPath)||
+           seen.has(entry.query)||allowed.has(entry.query)||
+           !param||!param.optional||!inputType||inputType.nullable||
+           !target||target.type!==inputType.type||
+           !["eq","gte","lte"].includes(entry.operator)||
+           (entry.operator!=="eq"&&target.type==="string")){
+          reject("invalid-filter",op.name+" has unsafe or mismatched filter "+String(entry.query)+" on "+String(entry.fieldPath),op);
+          invalidFilter=true;break;
+        }
+        seen.add(entry.query);allowed.add(entry.query);
+        compiled.push({query:entry.query,fieldPath:entry.fieldPath,
+          operator:entry.operator as "eq"|"gte"|"lte",type:target.type});
+      }
+      if(invalidFilter)continue;
+      if([...op.parameters.properties.keys()].some(x=>!allowed.has(x))||
+         !op.parameters.properties.has("limit")||!op.parameters.properties.has("offset")){
+        reject("filter-parameters",op.name+" has undeclared or missing listing query parameters",op);
+        continue;
+      }
+      filters=compiled;
+    }
     const statuses = http.responses.map((x)=>x.statusCodes).filter(
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
@@ -291,7 +333,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
-      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
+      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),...(filters?{filters}:{}),
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
