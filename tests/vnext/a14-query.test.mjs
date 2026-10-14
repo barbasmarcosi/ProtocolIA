@@ -45,7 +45,14 @@ const limits={parameters:[
  {name:"offset",in:"query",schema:{type:"integer",minimum:0,maximum:1000000,default:0}}
 ]};
 const openapi={paths:Object.fromEntries(ir.operations.filter(o=>["listPage","queryPage"].includes(o.behavior.kind))
- .map(o=>[o.path,{get:limits}]))};
+ .map(o=>[o.path,{get:{parameters:[
+   ...limits.parameters,
+   ...(o.behavior.kind==="queryPage"?filters.map(x=>({
+     name:x.parameter,in:"query",required:false,
+     schema:x.type==="utcDateTime"?{type:"string",format:"date-time"}:
+       x.type==="int32"?{type:"integer"}:{type:"string"}
+   })):[]
+ )]}}]))};
 
 test("A14.2 independently compiles one-hop FK/equality/date-range search, sorted pagination and indexes for both targets",()=>{
  const a=tmp(),b=tmp();spring(ir,openapi,a);nest(ir,openapi,b);
@@ -89,6 +96,10 @@ test("A14.2 declarative plan refuses injection, unsupported joins, unsafe sort, 
   assert.throws(()=>spring(altered,openapi,tmp()));
   assert.throws(()=>nest(altered,openapi,tmp()));
  }
+ const badApi=structuredClone(openapi);
+ badApi.paths["/api/tickets/query/filtered"].get.parameters.find(p=>p.name==="dueFrom").schema.type="integer";
+ assert.throws(()=>spring(ir,badApi,tmp()));
+ assert.throws(()=>nest(ir,badApi,tmp()));
  const wrong=structuredClone(ir);wrong.operations.find(o=>o.behavior.kind==="queryPage").capability="tickets.write";
  assert.throws(()=>spring(wrong,openapi,tmp()));assert.throws(()=>nest(wrong,openapi,tmp()));
  const unbounded=structuredClone(ir);unbounded.operations.find(o=>o.behavior.kind==="queryPage").statuses=[200];
