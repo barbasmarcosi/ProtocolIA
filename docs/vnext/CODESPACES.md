@@ -63,3 +63,11 @@ No GitHub Actions workflows, paid CI runners, Render deployments, new managed da
 On 2026-10-14 the owner ran the suite at commit `a2a123d`: all Spring/Nest/React/TypeSpec A14.2 builds completed successfully; Docker failed before DB probes on Bash syntax in the A14.1 evolution script. Two probe function definitions are now fixed, A14.2 index-only migrations are handled in the schema preservation check, and **all** shell scripts are linted near the start of the Docker build. These changes need a fresh real run; do not count the DB/HTTP/Chromium gates as PASS yet.
 
 The existing Codespace does **not** need rebuilding for these repository-only changes: `git pull --ff-only`, then rerun `bash scripts/vnext/run-codespaces-a14.sh`. Docker's cached build layers should avoid repeating unchanged successful stages when possible.
+
+## Replaced as primary CI by public GitHub Actions (2026-10-14)
+
+This Codespaces path remains an **optional local fallback**. ProtocolIA is public, and standard GitHub-hosted runners are free irrespective of the private repositories' monthly minutes; the current repository has already run successful `quality` Actions on this feature branch. The new `.github/workflows/vnext-a14-conformance.yml` automatically executes the identical `Dockerfile.codespaces-a14` on trusted pushes of the vNext feature branch. The GitHub connector can read the resulting workflow status, job steps and logs, which allows the assistant to fix source failures and retrigger a new CI run by committing changes. No terminal or log copying by the owner is expected for this path.
+
+The workflow has read-only permissions, runs only on relevant source changes and manual dispatch, excludes fork PR triggers, cancels superseded executions, and uses a standard `ubuntu-24.04` runner, never a paid larger runner. This is **not a permanent hosted service**; it is disposable per-commit end-to-end testing. Do not confuse CI acceptance with public demo hosting. The new Actions route is only considered active when GitHub reports its first concrete run.
+
+Official billing rule: https://docs.github.com/en/billing/concepts/product-billing/github-actions
