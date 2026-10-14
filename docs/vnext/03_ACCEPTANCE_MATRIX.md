@@ -156,3 +156,20 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | C-10 | A7 Chrome frontend relation selector and stock changes from UI | **NOT RUN specifically for A7** |
 
 **C-01–C-09 PASS bounded** using source `ad34b7f2d33c123cfd404d30e12fe18d58ab4a97`, deploy `dep-db7eck8473hc73d32jjg` **LIVE**, service `srv-db6t203rjlhs7395vjn0`. See [A7](evidence/A7.md). This is one transaction with one stock debit + one child insert, not arbitrary multi-entity business rule generation.
+
+## 12. A8 — Compensación transaccional exactamente una vez (perfil acotado)
+
+| ID | Escenario | Resultado empírico |
+| --- | --- | --- |
+| D-01 | `@release` en una transición de estado original, vinculada al `@reserve` de CREATE | IR canónico idéntico, Spring+Nest compilados |
+| D-02 | Cancelación sin auth, con rol solo lector, cuerpo inesperado, reserva inexistente | HTTP 401/403/400/404 |
+| D-03 | 10 solicitudes simultáneas de cancelación de reserva activa | 1×200 y 9×409, reintegro **una sola vez** |
+| D-04 | Repetir la cancelación, o crear una reserva directamente cancelada | HTTP 409/400 sin modificar el inventario |
+| D-05 | Volver a reservar unidades restituidas | 201; decremento correcto, reserva nueva |
+| D-06 | Stock alterado externamente a INT32_MAX; cancelación causaría overflow | HTTP 409; reserva continúa active y stock intacto |
+| D-07 | Corregir overflow y reintentar | 200 una sola vez, stock final INT32_MAX |
+| D-08 | `@release` con referencia/campo incorrecto, transición de origen inválido o sin `@reserve` | Rechazo explícito en compilador TypeSpec |
+| D-09 | Conformance genérica desde manifiesto contra PostgreSQL en ambos destinos | `PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS` ×2 |
+| D-10 | Interacción UI de cancelación específica en Chromium | **NOT RUN** |
+
+**D-01–D-09 PASS acotado**, fuente `a6141c989da41128115d1de70972a591d805f8c5`, Render `dep-db7ekstg1s2s73a8amlg`. Se validaron realmente dos bases PostgreSQL efímeras con Spring y Nest en Docker build. No implica upgrades A7→A8 de bases existentes ni un motor de flujos distribuidos. [Evidencia A8](evidence/A8.md).
