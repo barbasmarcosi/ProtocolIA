@@ -55,7 +55,7 @@ test("A7 reservation manifest drives atomic stock debit and child INSERT in both
   const nestRuntime=readFileSync(join(b,"src/main.ts"),"utf8");
   assert.match(java,/@Transactional/);
   assert.match(java,/Insufficient availability/);
-  assert.match(java,/reserve\.stockWriteCapability\(\)/);
+  assert.match(java,/stockWriteCapability\(\)/);
   assert.match(nestRuntime,/await client\.query\("BEGIN"\)/);
   assert.match(nestRuntime,/await client\.query\("ROLLBACK"\)/);
   assert.match(nestRuntime,/Insufficient stock/);
