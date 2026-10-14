@@ -150,6 +150,12 @@ Spring y Nest devuelven un historial `{items,total,limit,offset}` con usuario, o
 
 **Evidencia:** [A11](evidence/A11.md). Perfil acotado: generación sobre base nueva, historial no criptográficamente inmutable, autenticación demo Basic, y sin garantías de evolución in-place A10→A11 todavía.
 
+## A12 — Evolución del historial auditado sin reinicializar PostgreSQL
+
+A partir de una aplicación A10 ya poblada, el comando `protocolia plan` permite declarar una **única lectura de auditoría nueva** desde TypeSpec (operación `auditPage`, con capacidad independiente). `protocolia evolve` conserva exactamente los contratos de escritura, las migraciones V1 existentes, los eventos auditados y las extensiones propias, mientras reemplaza el código generado y la interfaz con respaldo y sellado de integridad.
+
+La evolución es **sin SQL nuevo**, porque A10 ya creó `protocolia_audit_event`; no es una migración de datos. El validador OpenAPI admite solamente los esquemas de respuesta alcanzables desde la nueva lectura, sin permitir cambios ocultos de los DTO existentes. La prueba de aceptación usa PostgreSQL persistente antes/después y Chrome móvil en Spring y NestJS. [Detalle y evidencia A12](evidence/A12.md). **Estado: en validación empírica.**
+
 ## Historial preservado
 
 - [G0–G5, Books](../G5_CONTRACT_EVOLUTION_PROGRESS.md) — piloto completo dentro de su alcance, no general.
