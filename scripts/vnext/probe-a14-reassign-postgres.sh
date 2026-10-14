@@ -50,6 +50,9 @@ for target in spring nest;do
  gosu postgres createdb -h 127.0.0.1 "$db"
  start_app "$target" "$db"
  node scripts/vnext/probe-a14-reassign-http.mjs seed
+ gosu postgres psql -h 127.0.0.1 -d "$db" -v ON_ERROR_STOP=1 -f tests/vnext/a14-audit-failure.sql >/dev/null
+ node scripts/vnext/probe-a14-reassign-http.mjs fail-audit
+ gosu postgres psql -h 127.0.0.1 -d "$db" -v ON_ERROR_STOP=1 -c "DROP TRIGGER protocolia_a14_test_audit_failure ON protocolia_audit_event; DROP FUNCTION protocolia_a14_test_block_audit();" >/dev/null
  node scripts/vnext/probe-a14-reassign-http.mjs recover
  node scripts/vnext/probe-a14-reassign-browser.mjs
  test "$(gosu postgres psql -h 127.0.0.1 -d "$db" -At -c "SELECT technician_badge FROM ticket WHERE number='TK-A14'")" = TE-A
