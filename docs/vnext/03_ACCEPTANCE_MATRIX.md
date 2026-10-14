@@ -203,3 +203,20 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | F10-07 | A0–A9 regressions unaffected on both backend targets | PASS; complete Render build and deploy LIVE |
 
 **Empirical:** corrected source `9cf1032817b98088616f1838b9d7419c6c204e24`, Render build `dep-db7fp2u7bikc73anp7ug`. F10-01–F10-06 PASS bounded; F10-07 full-regression and Render LIVE **confirmed** on `dep-db7fp2u7bikc73anp7ug` (source `9cf1032817b98088616f1838b9d7419c6c204e24`). Earlier builds found and repaired a legacy negative-test string mutation and the SQL fault-injection script; neither was a failure of the audited transaction. [A10 evidence](evidence/A10.md). Data is append-only through generated API, not tamper-proof.
+
+## 15. A11 — Contract-governed audit history
+
+| ID | Acceptance requirement | Empirical result |
+| --- | --- | --- |
+| G11-01 | TypeSpec auditPage with entity identity GET and separate nonpublic authority | PASS, compiler + both generators |
+| G11-02 | Reused read/write/public audit authority, mutated verb or malformed contract fail closed | PASS, four TypeSpec negatives |
+| G11-03 | Independent ServiceCase source generates Spring/Nest manifests, API and React config | PASS in 43/43 Node tests |
+| G11-04 | Unauthorized 401 and reader 403 before identity lookup | PASS ×2 real HTTP/PostgreSQL |
+| G11-05 | Invalid pagination/unknown query 400, missing resource 404 for authorized role | PASS ×2 |
+| G11-06 | Manager views four chronological reverse-order events with actor and before/after, limit/offset and total | PASS ×2 |
+| G11-07 | No leak of another resource's audit rows | PASS ×2 |
+| G11-08 | Chromium 390×844 React history visible to manager and hidden from reader | PASS ×2 |
+| G11-09 | A10 fault-injection rollback, A6 transitions and A0–A10 regressions | A6/A10 PASS ×2; broad A0–A10 build still in progress |
+| G11-10 | Render deploy LIVE, real Compose Engine, production IAM/backups | LIVE pending; Compose/production controls NOT RUN |
+
+**Source:** `f3bea045f033fd66d485a996dfda11bc81799acc`; Render Free deploy `dep-db7gataj9qps73cbub60`. [A11 evidence](evidence/A11.md). The generated event journal remains append-only via generated APIs only, not cryptographically tamper-proof.
