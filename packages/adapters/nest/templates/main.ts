@@ -10,7 +10,8 @@ import contract from "./manifest.json";
 
 type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;reserve?:Reserve;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -177,13 +178,39 @@ class RuntimeService{
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
-  private async create(e:Entity,body:unknown):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown):Promise<Record<string,unknown>>{
     const input=validateInput(e,body,e.fields.map(f=>f.name),true);
     const cols=e.fields.map(f=>f.column);
     const params=e.fields.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
-    await this.pool.query("INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
-      cols.map((_,i)=>"$"+(i+1)).join(",")+")",params);
+    const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
+      cols.map((_,i)=>"$"+(i+1)).join(",")+")";
+    if(op.reserve){
+      const reservation=op.reserve;
+      const stock=input[reservation.referenceField],amount=input[reservation.quantityField];
+      if(typeof stock!=="string"||!Number.isInteger(amount)||(amount as number)<1)
+        throw new Problem(400,"Invalid reservation input");
+      // A single pinned connection is mandatory: UPDATE + INSERT commit or rollback as one unit.
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const debit=await client.query("UPDATE "+reservation.stockTable+" SET "+
+          reservation.availableColumn+"="+reservation.availableColumn+"-$1 WHERE "+
+          reservation.stockKeyColumn+"=$2 AND "+reservation.availableColumn+">=$1",
+          [amount,stock]);
+        if(!debit.rowCount){
+          const existing=await client.query("SELECT 1 FROM "+reservation.stockTable+
+            " WHERE "+reservation.stockKeyColumn+"=$1",[stock]);
+          throw new Problem(existing.rowCount?409:400,
+            existing.rowCount?"Insufficient stock":"Stock item not found");
+        }
+        await client.query(insert,params);
+        await client.query("COMMIT");
+      }catch(error){
+        await client.query("ROLLBACK");
+        throw error;
+      }finally{client.release();}
+    }else await this.pool.query(insert,params);
     return this.row(e,String(input[e.publicIdentity]));
   }
   private async patch(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
@@ -232,12 +259,14 @@ class RuntimeService{
     try{
       const session=this.login(req);
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
+      if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
+        throw new Problem(403,"Insufficient stock write capability");
       const entity=this.entities.get(op.entity);
       if(!entity)throw new Error("Unknown generated entity");
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,req.body);break;
+        case "create": data=await this.create(entity,op,req.body);break;
         case "get":data=await this.row(entity,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
