@@ -20,6 +20,11 @@ RUN npm run check:vnext && bash tests/vnext/negative-check.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
 RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
 RUN npx playwright install --with-deps chromium
+# A13 baseline must exist before running either A13->A14 evolution probe.
+# A13 BLIND PRODUCT TRIAL — original customer contract frozen before generator invocation.
+# No source modifications to generators/adapters/templates for this trial. Fail is a product finding.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target nestjs --out /work/dist/a13-nest
 # A14 new customer contract: tested separately; frozen A13 stays unchanged.
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target modular-spring --out /work/dist/a14-spring
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target nestjs --out /work/dist/a14-nest
@@ -29,10 +34,6 @@ RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 --target nestjs --out /work/dist/a142-nest
 RUN bash -n scripts/vnext/probe-a14-query-postgres.sh && bash scripts/vnext/probe-a14-query-postgres.sh
 RUN bash -n scripts/vnext/probe-a142-evolution-postgres.sh && bash scripts/vnext/probe-a142-evolution-postgres.sh
-# A13 BLIND PRODUCT TRIAL — original customer contract frozen before generator invocation.
-# No source modifications to generators/adapters/templates for this trial. Fail is a product finding.
-RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
-RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target nestjs --out /work/dist/a13-nest
 RUN bash -n scripts/vnext/probe-a13-maintenance-postgres.sh && bash scripts/vnext/probe-a13-maintenance-postgres.sh
 RUN bash -n scripts/vnext/probe-a14-evolution-postgres.sh && bash scripts/vnext/probe-a14-evolution-postgres.sh
 # A7+A8: atomic cross-entity reserve, state-guarded cancellation and exactly-once stock restoration.
