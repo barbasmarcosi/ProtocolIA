@@ -158,7 +158,7 @@ A partir de una aplicación A10 ya poblada, el comando `protocolia plan` permite
 
 La evolución es **sin SQL nuevo**, porque A10 ya creó `protocolia_audit_event`; no es una migración de datos. El validador OpenAPI admite solamente los esquemas de respuesta alcanzables desde la nueva lectura, sin permitir cambios ocultos de los DTO existentes. La prueba de aceptación usa PostgreSQL persistente antes/después y Chrome móvil en Spring y NestJS. [Detalle y evidencia A12](evidence/A12.md). **Estado A12: PASS** — upgrade real Spring/Nest PostgreSQL con datos y eventos históricos intactos; no-DDL, HTTP/Chromium y regresiones integrales. Render `dep-db7glj49v7es73c0moa0` LIVE, fuente funcional `b441474331653930e8c0681f6ee8c1291b4547f4`.
 
-## A13 — Evaluación independiente de producto
+La corrida integral A13 sobre el servicio de verificación Render `dep-db7h1pjbc2fs73f6mshg` terminó **LIVE** y pasó 46/46 tests Node y las regresiones históricas. **Esto no habilita todavía una URL pública de la aplicación generada ni almacenamiento de datos durable.**\n\n## A13 — Evaluación independiente de producto
 
 El cliente ficticio de mantenimiento de instalaciones pidió [16 requisitos](evidence/A13_REQUIREMENTS.md) **antes de compilar** el contrato `examples/vnext/facility-maintenance`: cuatro recursos, múltiples relaciones, tickets con técnico y máquina, estados, permisos, auditoría, formularios móviles, filtros, reasignaciones y avisos de vencimiento. El código fuente del contrato y los generadores/plantillas quedaron congelados mediante SHA Git, sin adaptaciones posteriores al dominio. Spring y Nest se generaron con los mismos hashes de contrato, IR y OpenAPI.
 
