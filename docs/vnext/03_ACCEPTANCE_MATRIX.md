@@ -172,4 +172,4 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | D-09 | Conformance genérica desde manifiesto contra PostgreSQL en ambos destinos | `PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS` ×2 |
 | D-10 | Interacción UI de cancelación específica en Chromium | **NOT RUN** |
 
-**D-01–D-09 PASS acotado**, fuente `a6141c989da41128115d1de70972a591d805f8c5`, Render `dep-db7ekstg1s2s73a8amlg`. Se validaron realmente dos bases PostgreSQL efímeras con Spring y Nest en Docker build. No implica upgrades A7→A8 de bases existentes ni un motor de flujos distribuidos. [Evidencia A8](evidence/A8.md).
+**D-01–D-09 PASS acotado**, fuente `a6141c989da41128115d1de70972a591d805f8c5`, Render `dep-db7ekstg1s2s73a8amlg` **LIVE**. Se validaron realmente dos bases PostgreSQL efímeras con Spring y Nest en Docker build. No implica upgrades A7→A8 de bases existentes ni un motor de flujos distribuidos. [Evidencia A8](evidence/A8.md).
