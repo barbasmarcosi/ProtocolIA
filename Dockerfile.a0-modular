@@ -34,6 +34,7 @@ RUN bash scripts/vnext/probe-a9-in-place.sh
 RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target modular-spring --out /work/dist/workflow-spring
 RUN node scripts/vnext/verify-workflow-ir.mjs
 RUN node scripts/vnext/probe-workflow-negative.mjs
+RUN node scripts/vnext/probe-a10-audit-negative.mjs
 RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target nestjs --out /work/dist/workflow-nest
 RUN bash scripts/vnext/probe-workflow-postgres.sh
 # A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
