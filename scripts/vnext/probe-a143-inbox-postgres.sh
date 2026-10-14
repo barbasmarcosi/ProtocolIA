@@ -55,9 +55,9 @@ echo A143_BOTH_TARGETS_PERSISTED_INBOX_AFTER_POSTGRES_RESTART_PASS
 for target in spring nest; do
  db="a143_$target"
  gosu postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d "$db" <<'SQL' >/tmp/a143-trigger.log
-CREATE FUNCTION protocolia_fail_inbox_insert() RETURNS trigger LANGUAGE plpgsql AS $
+CREATE FUNCTION protocolia_fail_inbox_insert() RETURNS trigger LANGUAGE plpgsql AS $pia_test$
 BEGIN RAISE EXCEPTION 'simulated inbox write failure'; END;
-$;
+$pia_test$;
 CREATE TRIGGER protocolia_test_failure BEFORE INSERT ON protocolia_notification_inbox
 FOR EACH ROW EXECUTE FUNCTION protocolia_fail_inbox_insert();
 SQL
