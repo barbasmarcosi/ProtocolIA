@@ -87,7 +87,7 @@ export function diffContracts(oldIr,nextIr){
       const readers=existing.filter(x=>["get","listPage"].includes(x.behavior.kind));
       const writers=existing.filter(x=>["create","transition","patchFields","atomicIncrement","delete"].includes(x.behavior.kind));
       const identity=baseEntity?.publicIdentity;
-      const tokens=[...op.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const tokens=[...op.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const previouslyAudited=existing.some(x=>["create","transition"].includes(x.behavior.kind)&&
         Array.isArray(x.behavior.audit)&&x.behavior.audit.length>0);
       const distinct=[...new Set([...readers,...writers].map(x=>x.capability))];
