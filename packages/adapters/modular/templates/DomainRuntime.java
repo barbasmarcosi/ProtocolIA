@@ -125,7 +125,8 @@ public class DomainRuntime {
   private void validate(Manifest.Entity e, Map<String,Object> body, boolean create, Set<String> writable) {
     if (body == null || !writable.containsAll(body.keySet())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown input property");
     if (create) {
-      for (var f : e.fields()) if (f.required() && !body.containsKey(f.name())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required input");
+      for (var f : e.fields()) if (f.required() && !body.containsKey(f.name()) && f.initial()==null)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required input");
     }
     for (var input : body.entrySet()) {
       var f = e.fields().stream().filter(x -> x.name().equals(input.getKey())).findFirst()
@@ -168,6 +169,9 @@ public class DomainRuntime {
   private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body) {
     Set<String> fields = e.fields().stream().map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
+    body = new java.util.LinkedHashMap<>(body);
+    for (var f : e.fields()) if (f.initial()!=null && !body.containsKey(f.name()))
+      body.put(f.name(),f.initial());
     // dispatch() is @Transactional: failure inserting the child rolls back this debit.
     if (op.reserve()!=null) {
       var reserve=op.reserve();
