@@ -220,3 +220,18 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | G11-10 | Render deploy LIVE, real Compose Engine, production IAM/backups | Render LIVE confirmed; Compose/production controls NOT RUN |
 
 **Source:** `f3bea045f033fd66d485a996dfda11bc81799acc`; Render Free deploy `dep-db7gataj9qps73cbub60`. [A11 evidence](evidence/A11.md). The generated event journal remains append-only via generated APIs only, not cryptographically tamper-proof.
+
+## 16. A12 — A10 → A11 existing-database audit reader evolution
+
+| ID | Acceptance | Status |
+| --- | --- | --- |
+| H12-01 | Existing A10 TypeSpec compiled into both standalone Spring/Nest apps | Pending Render |
+| H12-02 | In-place add exactly one separately authorized auditPage with new reachable response schemas | 3 new Node unit tests PASS; empirical CLI pending |
+| H12-03 | Reject old audited writer changes, capability reuse, wrong route/verb, hidden schema drift | Node PASS; negative sealed app pending |
+| H12-04 | Preserve 2 original WorkOrder rows and 6 original journal entries (ids, before/after, actor), old SQL baseline, consumer extensions | Pending real PostgreSQL |
+| H12-05 | No Flyway V2 or Nest V2; schema history unchanged after upgrade and restart | Pending real PostgreSQL |
+| H12-06 | Evolved app audit API authorization/pagination/isolation and mobile React history both targets | Pending HTTP/Chromium |
+| H12-07 | Repeated plan/evolve and second restart no-op, rows/events preserved | Pending |
+| H12-08 | A0–A11 full regression and Render Free deploy LIVE | Pending |
+
+Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7glj49v7es73c0moa0`. [Evidence A12](evidence/A12.md). The public Render service remains a build marker, not the upgraded app.
