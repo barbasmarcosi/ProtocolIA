@@ -12,6 +12,7 @@ export const $lib = createTypeSpecLibrary({
     view: {description:"ProtocolIA view contract metadata"},
     initial: {description:"Initial immutable state for a finite-state field"},
     transition: {description:"Atomic business state transition with guarded source/target"},
+    reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
     behavior: {description:"ProtocolIA behavior contract metadata"},
     capability: {description:"ProtocolIA capability contract metadata"},
   },
@@ -45,6 +46,12 @@ function transition(context: DecoratorContext, target: Operation, from: string, 
   context.program.stateMap($lib.stateKeys.transition).set(target, {from, to});
 }
 
+function reserve(context: DecoratorContext, target: Operation, stockEntity: string,
+    availableField: string, referenceField: string, quantityField: string): void {
+  context.program.stateMap($lib.stateKeys.reserve).set(target,
+    {stockEntity,availableField,referenceField,quantityField});
+}
+
 function behavior(context: DecoratorContext, target: Operation, kind: string, entity: string, field?: string, input?: string): void {
   context.program.stateMap($lib.stateKeys.behavior).set(target, { kind, entity, field, input });
 }
@@ -62,6 +69,7 @@ export const $decorators = {
     view,
     initial,
     transition,
+    reserve,
     behavior,
     capability,
   },
