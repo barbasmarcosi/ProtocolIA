@@ -199,7 +199,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
-      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{})},
+      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
           to:String(metadata(p,"transition",op)?.to)
