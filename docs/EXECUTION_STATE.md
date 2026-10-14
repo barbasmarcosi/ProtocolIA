@@ -4,7 +4,7 @@ Historical baseline updated 2026-10-10. G0–G5 bounded full-stack pilot closeou
 
 ## Product vNext — current authoritative plan (2026-10-13)
 
-**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 portabilidad Spring/NestJS y relación multientidad PASS acotadas; P-06 Nest evolution V1→V2 PASS aditivo con PostgreSQL poblada; A5 PASS aditivo Spring y Nest (V1→V2, checksums y datos preservados); A4 PASS acotado en ambos destinos para dos entidades/FK/UI.** The user wants **usable systems
+**Direction approved; A0 y A1 PASARON en perfil modular mononentidad (2026-10-13). A2 PARCIAL; A3 portabilidad Spring/NestJS y relación multientidad PASS acotadas; P-06 Nest evolution V1→V2 PASS aditivo con PostgreSQL poblada; A5 PASS aditivo Spring y Nest (V1→V2, checksums y datos preservados); A4 PASS acotado en ambos destinos para dos entidades/FK/UI; A6 transiciones contractuales de estado PASS HTTP/PostgreSQL en Spring y Nest (Chromium específico A6 pendiente).** The user wants **usable systems
 from versioned contracts** with no handwritten per-entity backend, SQL or
 React code, not token/agent-cost savings.
 
@@ -26,10 +26,11 @@ adapters; JHipster 9.4 Spring/React/PostgreSQL quedó **NO-GO contractual** tras
 | A3 — NestJS second target | **PASS funcional acotado** — Taller/Gauge T-02…T-15 y Equipment/Inspection FK 400/409/204, roles, paginación, Chromium y conformance genérica; P-06 evolución aditiva Nest PASS | [Evidencia A3](vnext/evidence/A3.md) y [A5](vnext/evidence/A5.md); sin migraciones complejas |
 | A4 — Independent multi-entity system | **PASS acotado (E-01..E-08)** — dos entidades con FK restrict, HTTP 201/400/409/204, React relacional Chromium, roles independientes; segunda variante TypeSpec con etiqueta y fecha opcional recompilada y ejecutada contra DB nueva | [Evidencia A4](vnext/evidence/A4.md); no confundir con migración V2 segura de A5 |
 | A5 — Safe evolution/MVP | **PASS aditivo acotado Spring y Nest; producción NO** — `plan/evolve`, ownership SHA, V1 inmutable + V2 sobre PostgreSQL poblado, historiales Flyway/Nest y rechazo de drift de SQL aplicado; extensiones y filas preservadas | [Evidencia A5](vnext/evidence/A5.md); Compose Engine, backups, IAM productivo y migraciones complejas pendientes |
+| A6 — Declarative business transitions | **PASS HTTP/PG acotado Spring + Nest** — `@initial`/`@transition`, CREATE inicial validado, SQL update condicionada, carreras 1×200+9×409 en 10 solicitudes por destino, 401/403/404/409, UI actions declarativas compiladas | [Evidencia A6](vnext/evidence/A6.md); botones específicos Chromium y semántica compleja pendientes |
 
 **Última validación integral vNext:** fuente `47379090898e2f16e9a1533ae5d42e61a03124a7`, Render Free `srv-db6t203rjlhs7395vjn0` deploy `dep-db7do367bikc73agk63g` LIVE (marcador de build, no app pública). 31/31 pruebas Node, Nest Taller/Gauge/Equipment-Inspection, HTTP/PostgreSQL/Chromium, P-06 Nest V1→V2 con checksum negativo, y regresiones Spring A4/A5 PASS. CI GitHub no utilizada; `docker compose up` con daemon real pendiente. PR #52 abierto, `main` sin modificaciones.
 
-**Unchanged historical facts:** G5 Books passed its bounded checks;
+**Evidencia adicional A6:** fuente funcional `662171295990fce1438dd0d507da85cbce3cca22`, Render Free `dep-db7e1gvavr4c73fssp0g` LIVE; 33/33 pruebas Node, TypeSpec WorkOrder real, backend Spring y Nest sobre DB PostgreSQL separadas, cada uno con transición concurrente 1 éxito/9 conflictos, controles 400/401/403/404/409 y SQL constraint. La conformance genérica stateful y negativos TypeSpec fueron incorporados después; su corrida integral independiente debe registrarse con el SHA correspondiente. HTTP/PG no sustituye el A6 UI/Chromium aún NOT RUN.\n\n**Unchanged historical facts:** G5 Books passed its bounded checks;
 the Taller manually integrated branch has a real Render Free demo
 (PostgreSQL and HTTP smoke), but is **not** a generic application
 generator. P3 executor and P4 economy work are separate research
