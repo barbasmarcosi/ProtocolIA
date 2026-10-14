@@ -1,0 +1,62 @@
+# Independent Codespaces acceptance runner. No GitHub Actions, Render or hosted database.
+# Everything needed by the legacy PostgreSQL/HTTP/Chromium probes runs locally
+# in this throwaway Docker build, including Java 21, Maven and Node 24.
+FROM eclipse-temurin:21-jdk AS java21
+FROM node:24-bookworm AS node24
+FROM maven:3.9.11-eclipse-temurin-21 AS maven39
+FROM postgres:16-bookworm
+
+COPY --from=java21 /opt/java/openjdk /opt/java/openjdk
+COPY --from=node24 /usr/local /usr/local
+COPY --from=maven39 /usr/share/maven /usr/share/maven
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH=/opt/java/openjdk/bin:/usr/local/bin:/usr/share/maven/bin:$PATH
+ENV CI=true
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+COPY . .
+
+# Guard against silently using a Codespace's host toolchain/version.
+RUN node --version && java -version && mvn -version && postgres --version
+RUN npm ci --ignore-scripts --no-audit --no-fund
+
+# Compile official TypeSpec/IR, run all compiler and generator unit tests,
+# including independent A14.2 positive and adversarial cases.
+RUN npm run check:vnext && bash tests/vnext/negative-check.sh
+
+# Playwright is pinned identically to the existing Render Docker test harness.
+RUN npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.64.0
+RUN npx playwright install --with-deps chromium
+
+# Important dependency ordering: generate the FROZEN A13 baseline first,
+# before running any A13->A14.1 or A13->A14.2 in-place upgrade probes.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance \
+    --target modular-spring --out /work/dist/a13-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance \
+    --target nestjs --out /work/dist/a13-nest
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 \
+    --target modular-spring --out /work/dist/a14-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 \
+    --target nestjs --out /work/dist/a14-nest
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 \
+    --target modular-spring --out /work/dist/a142-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 \
+    --target nestjs --out /work/dist/a142-nest
+
+RUN bash -n scripts/vnext/probe-a13-maintenance-postgres.sh \
+    && bash -n scripts/vnext/probe-a14-reassign-postgres.sh \
+    && bash -n scripts/vnext/probe-a14-evolution-postgres.sh \
+    && bash -n scripts/vnext/probe-a14-query-postgres.sh \
+    && bash -n scripts/vnext/probe-a142-evolution-postgres.sh
+
+# These scripts allocate real local PostgreSQL instances; the images remain
+# isolated from public network ports. A failed gate aborts the build.
+RUN bash scripts/vnext/probe-a14-reassign-postgres.sh
+RUN bash scripts/vnext/probe-a14-evolution-postgres.sh
+RUN bash scripts/vnext/probe-a14-query-postgres.sh
+RUN bash scripts/vnext/probe-a142-evolution-postgres.sh
+
+RUN printf 'A14_CODESPACES_POSTGRES_CHROMIUM_BOTH_TARGETS_PASS\n'
+CMD ["bash", "-lc", "echo 'A14 acceptance image (build is the test); no service to publish'"]

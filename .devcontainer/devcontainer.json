@@ -1,0 +1,29 @@
+{
+  "name": "ProtocolIA vNext A14 acceptance (no Actions)",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  },
+  "postCreateCommand": "bash scripts/vnext/codespaces-doctor.sh",
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        "docs/vnext/CODESPACES.md"
+      ]
+    }
+  },
+  "portsAttributes": {
+    "8080": {
+      "label": "ProtocolIA local probe only",
+      "onAutoForward": "ignore",
+      "visibility": "private"
+    }
+  },
+  "remoteEnv": {
+    "PROTOCOLIA_TEST_PROFILE": "codespaces-isolated"
+  }
+}
