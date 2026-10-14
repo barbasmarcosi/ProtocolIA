@@ -32,8 +32,10 @@ public class SecurityConfig {
         .authorities(Manifest.READ_CAPABILITIES.toArray(String[]::new)).build();
     var manager = User.withUsername(required("PROTOCOLIA_MANAGER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_MANAGER_PASSWORD")))
-        .authorities(java.util.stream.Stream.concat(Manifest.READ_CAPABILITIES.stream(),
-            Manifest.WRITE_CAPABILITIES.stream()).distinct(),\n            Manifest.AUDIT_CAPABILITIES.stream()).distinct().toArray(String[]::new)).build();
+        .authorities(java.util.stream.Stream.concat(
+          java.util.stream.Stream.concat(Manifest.READ_CAPABILITIES.stream(),
+              Manifest.WRITE_CAPABILITIES.stream()),
+          Manifest.AUDIT_CAPABILITIES.stream()).distinct().toArray(String[]::new)).build();
     return new InMemoryUserDetailsManager(reader, manager);
   }
   @Bean
