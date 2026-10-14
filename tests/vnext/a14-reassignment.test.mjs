@@ -25,6 +25,7 @@ for(const e of entities){
  ops.push(op(e.name,"get","get"+e.name,"GET",base+"/{"+key+"}",resource+".read",[200]));
  ops.push(op(e.name,"listPage","list"+e.name,"GET",base,resource+".read",[200]));
 }
+ops.find(x=>x.name==="createWorkItem").behavior.audit=["assignedBadge"];
 ops.push(op("WorkItem","reassignReference","reassignWorkItem","PATCH",
  "/api/workitems/{number}/assignee","workitems.assign",[200,400,404,409],
  {field:"assignedBadge",input:"assignedBadge",audit:["assignedBadge"]}));
