@@ -155,4 +155,4 @@ Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d
 | C-09 | Invalid reserve adapter metadata and safe identifiers | Unit negative tests PASS |
 | C-10 | A7 Chrome frontend relation selector and stock changes from UI | **NOT RUN specifically for A7** |
 
-**C-01–C-09 PASS bounded** using source `ad34b7f2d33c123cfd404d30e12fe18d58ab4a97`, deploy `dep-db7eck8473hc73d32jjg`, service `srv-db6t203rjlhs7395vjn0`. See [A7](evidence/A7.md). This is one transaction with one stock debit + one child insert, not arbitrary multi-entity business rule generation.
+**C-01–C-09 PASS bounded** using source `ad34b7f2d33c123cfd404d30e12fe18d58ab4a97`, deploy `dep-db7eck8473hc73d32jjg` **LIVE**, service `srv-db6t203rjlhs7395vjn0`. See [A7](evidence/A7.md). This is one transaction with one stock debit + one child insert, not arbitrary multi-entity business rule generation.
