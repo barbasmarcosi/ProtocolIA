@@ -29,6 +29,7 @@ const b64=(a,b)=>"Basic "+Buffer.from(a+":"+b).toString("base64");
 const writer=b64(managerName,managerPassword), reader=b64(readerName,readerPassword);
 const uuid=randomBytes(9).toString("hex");
 function valueFor(field, identity=false){
+  if(field.initial!==undefined)return field.initial;
   if(field.type==="utcDateTime")return "2026-10-13T00:00:00Z";
   if(field.type==="int32")return Math.max(field.min??0, identity?0:2);
   if(field.type!=="string")throw Error("Unsupported fixture field "+field.name);
@@ -90,7 +91,7 @@ async function runMulti(){
   assert.equal(sessionRes.status,200);
   const session=await sessionRes.json();
   async function run(resource,kind,who,{key,body,query}={}){
-    const op=resource.operations[kind];
+    const op=typeof kind==="string"?resource.operations[kind]:kind;
     assert.ok(op,resource.entity.name+" missing operation "+kind);
     const route=op.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(key));
     const suffix=query?"?"+new URLSearchParams(query).toString():"";
@@ -151,6 +152,21 @@ async function runMulti(){
       const after=await run(resource,"get",reader,{key});
       assert.equal(after.data[op.behavior.field],initial+10);
     }
+    let executed=0;
+    for(const op of resource.transitions??[]){
+      const field=e.fields.find(f=>f.name===op.behavior.field);
+      assert.ok(field?.initial, "Transition requires an initial-state field");
+      const current=await run(resource,"get",reader,{key});
+      if(current.data[field.name]!==op.behavior.from)continue;
+      assert.equal((await run(resource,op,reader,{key})).status,403);
+      assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
+      const results=await Promise.all(Array.from({length:10},()=>run(resource,op,writer,{key})));
+      assert.equal(results.filter(x=>x.status===200).length,1);
+      assert.equal(results.filter(x=>x.status===409).length,9);
+      assert.equal((await run(resource,"get",reader,{key})).data[field.name],op.behavior.to);
+      executed++;
+    }
+    if((resource.transitions??[]).length)assert.ok(executed>0,"No declared transition was executable");
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
         [f.name]:"UNMATCHED-"+uuid};
@@ -171,13 +187,13 @@ async function runMulti(){
     assert.equal((await run(resource,"delete",writer,{key})).status,204);
     assert.equal((await run(resource,"get",reader,{key})).status,404);
   }
-  console.log("PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS "+
+  console.log((resources.some(r=>(r.transitions??[]).length)?"PROTOCOLIA_STATEFUL_CONFORMANCE_PASS ":"PROTOCOLIA_MULTIRESOURCE_CONFORMANCE_PASS ")+
     JSON.stringify({entities:resources.map(r=>r.entity.name),references:resources.flatMap(r=>
       r.entity.fields.filter(f=>f.reference).map(f=>r.entity.name+"."+f.name+"->"+f.reference.target))}));
 }
 
 async function main(){
-  if((config.resources?.length??1)>1)return runMulti();
+  if((config.resources?.length??1)>1||(config.transitions?.length??0)>0)return runMulti();
   const health=await fetch(base.replace(/\/$/,"")+"/health");assert.equal(health.status,200);
   const probe=await fetch(base.replace(/\/$/,"")+"/api/_protocolia/me",{headers:{Authorization:writer}});
   assert.equal(probe.status,200);
