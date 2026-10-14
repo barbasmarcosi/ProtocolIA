@@ -33,6 +33,7 @@ export interface IrOperation {
     from?: string;
     to?: string;
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
+    release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
   };
   capability: string;
   request?: string;
