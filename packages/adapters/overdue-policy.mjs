@@ -69,6 +69,35 @@ export function overdueSchemaSql(rules){
   "UNIQUE(rule_key,resource_id));",
   "CREATE INDEX idx_protocolia_notification_claim "+
     "ON protocolia_notification_outbox (available_at,id) WHERE status='pending';",
+  // S2a: exactly-once INTERNAL inbox materialization per outbox event. This is
+  // one PostgreSQL transaction, not a claim about external email/push delivery.
+  "CREATE TABLE protocolia_notification_inbox ("+
+    "outbox_id BIGINT PRIMARY KEY REFERENCES protocolia_notification_outbox(id) ON DELETE RESTRICT, "+
+    "rule_key VARCHAR(128) NOT NULL, resource_id VARCHAR(255) NOT NULL, "+
+    "recipient_key VARCHAR(255) NOT NULL, "+
+    "notified_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, "+
+    "read_at TIMESTAMPTZ);",
+  "CREATE INDEX idx_protocolia_inbox_recipient_unread "+
+    "ON protocolia_notification_inbox (recipient_key,outbox_id) WHERE read_at IS NULL;",
+  "CREATE OR REPLACE FUNCTION protocolia_dispatch_inbox(batch_size INTEGER) RETURNS INTEGER AS $pia$\n"+
+    "DECLARE moved INTEGER;\nBEGIN\n"+
+    "  IF batch_size IS NULL OR batch_size < 1 OR batch_size > 100 THEN\n"+
+    "    RAISE EXCEPTION 'Invalid bounded batch size' USING ERRCODE = '22023';\n"+
+    "  END IF;\n"+
+    "  WITH eligible AS (\n"+
+    "    SELECT id,rule_key,resource_id,recipient_key FROM protocolia_notification_outbox\n"+
+    "    WHERE status='pending' AND available_at <= CURRENT_TIMESTAMP\n"+
+    "    ORDER BY available_at,id LIMIT batch_size FOR UPDATE SKIP LOCKED\n"+
+    "  ), delivered AS (\n"+
+    "    INSERT INTO protocolia_notification_inbox (outbox_id,rule_key,resource_id,recipient_key)\n"+
+    "    SELECT id,rule_key,resource_id,recipient_key FROM eligible WHERE TRUE\n"+
+    "    ON CONFLICT (outbox_id) DO NOTHING RETURNING outbox_id\n"+
+    "  )\n"+
+    "  UPDATE protocolia_notification_outbox SET status='delivered',"+
+    " delivered_at=CURRENT_TIMESTAMP,attempts=attempts+1\n"+
+    "  WHERE id IN (SELECT outbox_id FROM delivered);\n"+
+    "  GET DIAGNOSTICS moved = ROW_COUNT;\n"+
+    "  RETURN moved;\nEND;\n$pia$ LANGUAGE plpgsql;",
   ...rules.map(rule=>rule.ddl)
  ];
 }
