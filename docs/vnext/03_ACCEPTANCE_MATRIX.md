@@ -274,15 +274,15 @@ A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 
 | A14-ATOMIC | Inject failed audit insertion; rollback FK and audit, then recover | **PASS ×2** real HTTP/PostgreSQL |
 | A14-UI | Generated React 390×844 selector; user with read-only capability cannot assign or see audit | **PASS ×2** Chromium |
 | A14-RESTART | Reassigned FK and audit remain after backend restart | **PASS ×2** same persisted PostgreSQL |
-| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **BLOCKED** by Render `pipeline_minutes_exhausted`; guarded CLI and PostgreSQL probes committed, not executed |
-| C15 / A14.2 | Declarative combined search by Site, state, due time | **BLOCKED** for end-to-end acceptance; TypeSpec/IR/Spring/Nest/React code and tests published, in-memory generator projection PASS, PostgreSQL/Chromium NOT RUN due to Render quota |
+| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **PASS ×2** on GitHub Actions `38648198637`: both Spring/Nest populated A13→A14.1 in-place migrations preserved rows and audit |
+| C15 / A14.2 | Declarative combined search by Site, state, due time | **PASS ×2** GitHub Actions `38648198637`: PostgreSQL+HTTP, combined FK/status/UTC predicates, paging/indexes, Chromium 390×844, reader role, restart |
 | C16 / A14.3 | Durable overdue detection and notifications | **UNSUPPORTED**, reuse assessment documented |
 
 **Evidence:** Render build logs for deploy `dep-db7hofc9v7es73c4dqvg`, generator unit tests and `scripts/vnext/probe-a14-reassign-postgres.sh`; see [A14 evidence](evidence/A14.md). PASS here is limited to exercised features on isolated development PostgreSQL, not general production readiness, external IAM, deliverability, or an always-on publicly hosted generated application.
 
-**Build publication distinction:** Render `dep-db7hofc9v7es73c4dqvg` completed Docker build successfully (48/48 Node and A14 C14 parity), but its deploy was canceled before LIVE. Attempts `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` were rejected by exhausted build-minute quota. C14 code acceptance remains PASS based on build/test logs, while A14 in-place upgrade is BLOCKED and latest branch build has not run.
-\n## 19. A14.2 — Query implementation (new separate contract)\n\nSee [A14.2 evidence](evidence/A14_2.md). New typed scalar equality and UTC range filters, outgoing one-hop FK join, stable ordering, bounded paging, parameter binding, derived indexes and React filter controls are implemented in adapters; the independent synthetic generator projection completed in-memory. The actual new TypeSpec compilation, both backend builds, HTTP/PostgreSQL, populated evolution and Chromium are **BLOCKED/NOT RUN**, not PASS. No production IAM or hosted durable generated app.\n
-## 20. Codespaces acceptance runner
+**Build publication distinction:** Render `dep-db7hofc9v7es73c4dqvg` completed Docker build successfully (48/48 Node and A14 C14 parity), but its deploy was canceled before LIVE. Attempts `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` were rejected by exhausted build-minute quota. That Render-era block was later superseded by the **successful public GitHub Actions A14 full-stack run**: `38648198637` on commit `06aa922`.
+\n## 19. A14.2 — Query implementation (new separate contract)\n\nSee [A14.2 evidence](evidence/A14_2.md). New typed scalar equality and UTC range filters, outgoing one-hop FK join, stable ordering, bounded paging, parameter binding, derived indexes and React filter controls are implemented in adapters; the independent synthetic generator projection completed in-memory. All of these bounded gates are now **PASS ×2** on GitHub Actions `38648198637` at `06aa922`: TypeSpec+OpenAPI, Spring/Nest builds, HTTP/PostgreSQL, seeded A13→A14.2 evolution and Chromium. No production IAM or hosted durable generated app.\n
+## 20. Historical Codespaces acceptance runner (superseded by Actions)
 
 | Gate | State | Evidence |
 | --- | --- | --- |
@@ -314,3 +314,20 @@ The following A13→A14.1 evolution test successfully seeded historical rows/aud
 The user-provided latest Codespaces build log confirms Node **54/54 PASS**, A14.1 both-stack PostgreSQL/HTTP/Chromium PASS, and A14.2 seeded PostgreSQL/HTTP combined FK, status, UTC range and paging **PASS** (on first Spring target). The subsequent A14.2 Chromium assertion `5 !== 1` at `probe-a14-query-browser.mjs:23` occurred because the browser test awaited `K1`, which was *already present in the original unfiltered 5-row listing*, rather than awaiting the filter request and React's new row count. The test now requires the exact filtered HTTP response and waits for the rendered row count to change, checking the response total and reset operation independently. No evidence yet that the updated browser test has passed.
 
 **CI architecture correction:** GitHub reports the repository as PUBLIC and the account's existing `quality` jobs on this PR have completed successfully. Official GitHub billing states standard GitHub-hosted Actions runners are FREE for public repositories regardless of privately-accounted Actions minutes. Therefore `.github/workflows/vnext-a14-conformance.yml` now starts the isolated, identical Dockerfile-based full suite on trusted pushes to the vNext feature branch, with read-only credentials and no fork workflow trigger. The GitHub connector can retrieve its status/logs and publish source fixes without the user typing terminal commands. **First run ID 38648198637 was verified IN_PROGRESS** for commit `06aa92227b2000efe2855a511b8b425b41778be7`. Do not mark the full suite PASS until GitHub reports green; no change to default/main.
+
+## 21. Authoritative A14 acceptance closure — 2026-10-14
+
+**Status: A14.1 + A14.2 BOUNDED ACCEPTANCE PASS, verified from completed GitHub-hosted full-stack job logs.** CI [run 38648198637](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38648198637), exact functional commit `06aa92227b2000efe2855a511b8b425b41778be7` (not the later documentation-only commits), job `TypeSpec > Spring/Nest > PostgreSQL > Chromium > evolution` completed **success**. Node **54/54 PASS**; TypeSpec/IR/OpenAPI, real Maven Java 21 Spring Boot, NestJS TS and React/Vite builds PASS.
+
+| Gate | Spring | NestJS |
+| --- | --- | --- |
+| A14.1 guarded FK reassignment, CAS, audit rollback and permissions, HTTP/PG | PASS | PASS |
+| A14.1 React Chromium 390×844, manager/reader and restart persistence | PASS | PASS |
+| A14.2 combined one-hop FK/status/UTC filters, typed bounded search, indexes, HTTP/PG | PASS | PASS |
+| A14.2 React Chromium 390×844, filter reset and reader read-only, restart | PASS | PASS |
+| Seeded A13→A14.1 in-place contract evolution, original records/audit preserved | PASS | PASS |
+| Seeded A13→A14.2 in-place evolution, original rows/audit preserved, new query indexes | PASS | PASS |
+
+Evidence markers in the logs: `A14_BOTH_TARGETS_REASSIGNMENT_PASS`, `A142_spring_POSTGRESQL_TYPED_FK_FILTERS_CHROMIUM_RESTART_AND_INDEX_PASS`, `A142_nest_POSTGRESQL_TYPED_FK_FILTERS_CHROMIUM_RESTART_AND_INDEX_PASS`, `A14_BOTH_TARGETS_SAFE_IN_PLACE_EVOLUTION_PASS`, `A142_BOTH_TARGETS_SAFE_IN_PLACE_SEARCH_EVOLUTION_PASS`, `A14_CODESPACES_POSTGRES_CHROMIUM_BOTH_TARGETS_PASS`. The last marker is the historical Dockerfile label and **was obtained inside public GitHub Actions**, not Codespaces.
+
+**Boundaries:** A13 remains frozen and its historical 13/16 score is not retroactively changed; C14/C15 are provided by newer separate A14 contracts. C16/A14.3 overdue/notification remains UNSUPPORTED. No public durable production deployment, production IAM/tenant isolation, human UAT, large-scale load test, or real external notification was demonstrated. `main` stays unchanged; PR #52 open. A14 acceptance remains scoped to these test fixtures.
