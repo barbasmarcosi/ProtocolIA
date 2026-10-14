@@ -101,6 +101,24 @@ export function generate(ir,spec,out){
            (amount.min??-1)<1||!op.statuses?.includes(400)||!op.statuses?.includes(409))
           throw Error("Invalid atomic reserve "+op.name);
       }
+      if(b.release){
+        const r=b.release,stock=entities.get(r.stockEntity);
+        const available=stock?.fields.find(f=>f.name===r.availableField);
+        const relation=e.fields.find(f=>f.name===r.referenceField);
+        const amount=e.fields.find(f=>f.name===r.quantityField);
+        const state=e.fields.find(f=>f.name===b.field);
+        const matching=of("create",e.name).filter(x=>x.behavior.reserve &&
+          Object.keys(r).every(k=>x.behavior.reserve[k]===r[k]));
+        if(kind!=="transition"||!state?.initial||b.from!==state.initial||
+           !stock||stock===e||!available||available.type!=="int32"||!available.required||
+           available.nullable||(available.min??-1)<0||!relation||relation.type!=="string"||
+           !relation.required||relation.nullable||relation.reference?.target!==stock.name||
+           !amount||amount.type!=="int32"||!amount.required||amount.nullable||
+           (amount.min??-1)<1||matching.length!==1||
+           ir.operations.some(x=>x.entity===e.name&&x.behavior.kind==="transition"&&
+             x.behavior.field===state.name&&x.behavior.from===b.to))
+          throw Error("Invalid exactly-once release "+op.name);
+      }
       if(kind==="transition"){
         const field=e.fields.find(f=>f.name===b.field);
         const safe=x=>typeof x==="string" && /^[a-z][a-z0-9_-]{0,63}$/.test(x) &&
@@ -127,6 +145,17 @@ export function generate(ir,spec,out){
           stockTable:snake(stock.name),stockKeyColumn:snake(stock.publicIdentity),
           availableColumn:snake(b.reserve.availableField),referenceField:b.reserve.referenceField,
           quantityField:b.reserve.quantityField,stockWriteCapability:stockCreate.capability
+        };
+      }
+      if(b.release){
+        const stock=entities.get(b.release.stockEntity);
+        const write=of("create",stock.name)[0];
+        if(!write||write.capability==="public")throw Error("Missing stock writer capability");
+        item.release={
+          stockTable:snake(stock.name),stockKeyColumn:snake(stock.publicIdentity),
+          availableColumn:snake(b.release.availableField),
+          referenceColumn:snake(b.release.referenceField),amountColumn:snake(b.release.quantityField),
+          stockWriteCapability:write.capability
         };
       }
       if(kind==="listPage"){
