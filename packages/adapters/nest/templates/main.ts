@@ -12,7 +12,8 @@ type Field={name:string;column:string;type:string;required:boolean;nullable:bool
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
-type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Filter={query:string;column:string;operator:"eq"|"gte"|"lte";type:"string"|"int32"|"utcDateTime";referenceTable?:string;referenceColumn?:string;referenceKey?:string};
+type Operation={name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number;filters?:Filter[]};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[]};
 const spec=contract as Manifest;
 class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
@@ -162,7 +163,8 @@ class RuntimeService{
     return response.rows[0];
   }
   private async page(e:Entity,op:Operation,query:Record<string,unknown>):Promise<unknown>{
-    if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
+    const declared=new Set(["limit","offset",...(op.filters??[]).map(x=>x.query)]);
+    if(Object.keys(query).some(k=>!declared.has(k)))throw new Problem(400,"Unknown query");
     function integer(value:unknown,def:number):number{
       if(value===undefined)return def;
       if(typeof value!=="string"||!/^[-]?[0-9]+$/.test(value))throw new Problem(400,"Invalid page bounds");
@@ -173,9 +175,36 @@ class RuntimeService{
     const limit=integer(query.limit,op.limitDefault??25),offset=integer(query.offset,op.offsetDefault??0);
     if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
       throw new Problem(400,"Invalid page bounds");
+    const params:unknown[]=[],predicates:string[]=[];
+    for(const f of op.filters??[]){
+      const raw=query[f.query];
+      if(raw===undefined)continue;
+      if(typeof raw!=="string"||!raw.trim()||raw.length>255)
+        throw new Problem(400,"Invalid filter value");
+      let value:string|number=raw;
+      if(f.type==="int32"){
+        if(!/^-?[0-9]+$/.test(raw)||!Number.isInteger(Number(raw))||
+           Number(raw)<-2147483648||Number(raw)>2147483647)
+          throw new Problem(400,"Invalid numeric filter");
+        value=Number(raw);
+      }else if(f.type==="utcDateTime"){
+        value=parseTimestamp(raw);
+      }
+      const opSymbol=f.operator==="eq"?"=":f.operator==="gte"?">=":f.operator==="lte"?"<=":null;
+      if(!opSymbol)throw Error("Unknown generated filter operator");
+      params.push(value);
+      const parameter="$"+params.length;
+      if(f.referenceTable&&f.referenceColumn&&f.referenceKey){
+        predicates.push("EXISTS (SELECT 1 FROM "+f.referenceTable+" filter_ref WHERE "+
+          "filter_ref."+f.referenceKey+"="+e.table+"."+f.referenceColumn+
+          " AND filter_ref."+f.column+opSymbol+parameter+")");
+      }else predicates.push(e.table+"."+f.column+opSymbol+parameter);
+    }
+    const where=predicates.length?" WHERE "+predicates.join(" AND "):"";
     const [items,count]=await Promise.all([
-      this.pool.query(this.select(e)+" ORDER BY "+e.identityColumn+" LIMIT $1 OFFSET $2",[limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table)
+      this.pool.query(this.select(e)+where+" ORDER BY "+e.identityColumn+
+        " LIMIT $"+(params.length+1)+" OFFSET $"+(params.length+2),[...params,limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+where,params)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
