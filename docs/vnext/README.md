@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Documentación de implementación
 
-**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva transaccional y A8 cancelación con reintegro atómico de stock PASS acotado en Spring+Nest con PostgreSQL real.  
+**Estado verificado 2026-10-13:** A0 y A1 PASS en perfil modular mononentidad; A2 en ejecución (CLI y React+PostgreSQL+Chromium comprobados), A3 paridad NestJS/Spring y P-06 evolución aditiva PASS acotado; A5 Spring+Nest V1→V2 PASS aditivo; A4 relacional PASS acotado; A6 transiciones de estado PASS HTTP/PostgreSQL; A7 reserva, A8 cancelación/reintegro y A9 upgrade A7→A8 con filas persistidas + React Chromium PASS acotados en Spring+Nest con PostgreSQL real.  
 **Objetivo:** obtener aplicaciones funcionales desde contratos TypeSpec, sin programar backend/SQL/React por entidad para las capacidades declaradas como soportadas. **Tokens ahorrados no son el criterio de éxito.**
 
 ## Orden de lectura para implementar
@@ -84,6 +84,7 @@ El puerto predeterminado sólo escucha en `127.0.0.1:8080` y PostgreSQL utiliza 
 | A6 — Operaciones de negocio por contrato | PASS HTTP/PG acotado | [A6](evidence/A6.md): estado inicial + transiciones PostgreSQL atómicas, 10 carreras concurrentes por destino, React manifest generado; botones Chromium específicos pendientes |
 | A7 — Reserva transaccional multi-entidad | PASS HTTP/PostgreSQL acotado | [A7](evidence/A7.md): stock debit+insert atómicos Spring/Nest, 7 éxitos+3 conflictos concurrentes, rollback de duplicados y conformance genérica; UI E2E específica pendiente |
 | A8 — Cancelación/reintegro compensatorio | PASS PostgreSQL acotado Spring+Nest | [A8](evidence/A8.md): `@release` sobre `@transition` original, una sola devolución en 10 cancelaciones concurrentes, rechazo por overflow con rollback, reintento y conformance genérica; Chromium A8 específico pendiente |
+| A9 — Migración A7→A8 y UI Chromium | PASS HTTP/PG/browser acotado Spring+Nest | [A9](evidence/A9.md): backfill V2 `active` sobre DB con reservas existentes, V1 intacta, DTO antiguo compatible, dos reinicios, diario Flyway/Nest y cancelación UI de registros históricos |
 
 **Límites actuales:** máximo 8 entidades por aplicación en el perfil probado, relaciones `restrict`, operaciones semánticas conocidas y transiciones de estado de cadena; sin OIDC/JWT de producción ni migraciones complejas automáticas. Hay avisos npm por revisar antes de distribuir.
 
@@ -120,6 +121,18 @@ npm run app:build -- examples/vnext/inventory-reservations --target nestjs --out
 En ambos targets, una sola transacción cambia el estado de la reserva **solo si sigue activa** y devuelve las unidades al stock, con comprobación de overflow. Una segunda cancelación responde 409, no devuelve unidades. La precondición fallida revierte también el cambio de estado. Se rechazan las transiciones de vuelta al estado inicial o sin reserva original compatible. [Evidencia A8](evidence/A8.md).
 
 **Importante:** el ejemplo A8 se prueba en bases nuevas. El campo de estado obligatorio añadido no es compatible con el perfil actual de migración aditiva A5; no afirmar que una aplicación A7 previamente desplegada pueda actualizarse in place sin una migración/backfill controlados.
+
+## A9 — Evolucionar aplicaciones con reservas persistidas
+
+El generador puede realizar un cambio **estrictamente acotado** desde el perfil A7 a A8 sobre una base PostgreSQL no vacía. Antes de aplicarlo, `app:plan` verifica que solamente se agrega un campo de estado inicial con `@initial` y una operación `@release` terminal asociada a un `@reserve` existente. Una versión V2 añade `status` con `DEFAULT 'active' NOT NULL` y CHECK; no se destruyen reservas ni se reescribe V1.
+
+```bash
+# Para una app creada originalmente desde inventory-reservations-v1:
+npm run app:plan -- examples/vnext/inventory-reservations dist/inventory-app
+npm run app:evolve -- examples/vnext/inventory-reservations dist/inventory-app
+```
+
+Los clientes A7 pueden seguir creando reservas sin enviar `status`; Spring y Nest aplican el estado inicial de forma segura. El flujo generado React permite cancelar y reintegrar el stock de registros históricos, verificado en Chromium a ancho móvil. Es una migración *forward-only*, no un esquema general de migraciones arbitrarias ni un procedimiento probado de despliegue sin downtime. **Hacer backup de una DB real antes de cualquier evolución.** [Evidencia A9](evidence/A9.md).
 
 ## Historial preservado
 
