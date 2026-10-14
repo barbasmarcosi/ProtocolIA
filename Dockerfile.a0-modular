@@ -24,6 +24,10 @@ RUN npx playwright install --with-deps chromium
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target modular-spring --out /work/dist/a14-spring
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target nestjs --out /work/dist/a14-nest
 RUN bash -n scripts/vnext/probe-a14-reassign-postgres.sh && bash scripts/vnext/probe-a14-reassign-postgres.sh
+# A14.2 declarative typed search: new frozen-independent contract, both target databases.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 --target modular-spring --out /work/dist/a142-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 --target nestjs --out /work/dist/a142-nest
+RUN bash -n scripts/vnext/probe-a14-query-postgres.sh && bash scripts/vnext/probe-a14-query-postgres.sh
 # A13 BLIND PRODUCT TRIAL — original customer contract frozen before generator invocation.
 # No source modifications to generators/adapters/templates for this trial. Fail is a product finding.
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
