@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","patchFields","atomicIncrement","transition","delete","health"];
+  ["create","get","listPage","auditPage","patchFields","atomicIncrement","transition","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
   let t: Type = prop.type;
@@ -246,6 +246,14 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("increment-input",op.name+" amount must be positive int32",op);continue;
       }
     }
+    if(kind==="auditPage"){
+      if(f!==undefined||input!==undefined||op.parameters.properties.has("input")||
+         metadata(p,"transition",op)||metadata(p,"reserve",op)||
+         metadata(p,"release",op)||auditMeta){
+        reject("audit-query-shape",op.name+" must be a read-only auditPage without mutation metadata",op);
+        continue;
+      }
+    }
     const [http, diagnostics] = getHttpOperation(p,op);
     if (diagnostics.length) {
       reject("http",op.name+" has invalid TypeSpec HTTP binding",op);continue;
@@ -254,6 +262,17 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if(kind==="auditPage"){
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const allowedParams=new Set(["limit","offset",entity.publicIdentity]);
+      if(http.verb!=="get"||http.parameters.body!==undefined||
+         !statuses.includes(200)||!statuses.includes(400)||!statuses.includes(404)||
+         keys.length!==1||keys[0]!==entity.publicIdentity||
+         [...op.parameters.properties.keys()].some(x=>!allowedParams.has(x))||
+         !op.parameters.properties.has("limit")||!op.parameters.properties.has("offset")){
+        reject("audit-query-http",op.name+" requires bounded GET audit page, identity path, 200/400/404 and no body",op);continue;
+      }
     }
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
@@ -294,6 +313,18 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  for(const entity of entities){
+    const auditPages=operations.filter(o=>o.entity===entity.name&&o.behavior.kind==="auditPage");
+    if(auditPages.length>1)reject("audit-query-duplicate",entity.name+" declares multiple audit readers",models.find(m=>m.name===entity.name)!);
+    for(const page of auditPages){
+      const create=operations.find(o=>o.entity===entity.name&&o.behavior.kind==="create");
+      const get=operations.find(o=>o.entity===entity.name&&o.behavior.kind==="get");
+      if(!operations.some(o=>o.entity===entity.name&&o.behavior.audit?.length)||
+         page.capability==="public"||!/^[_a-zA-Z][_a-zA-Z0-9.:-]{0,127}$/.test(page.capability)||
+         page.capability===create?.capability||page.capability===get?.capability)
+        reject("audit-query-capability",page.name+" needs audited operations and a separate non-public audit capability",models.find(m=>m.name===entity.name)!);
+    }
   }
   for (const entity of entities) {
     for (const state of entity.fields.filter((x)=>x.initial !== undefined)) {
