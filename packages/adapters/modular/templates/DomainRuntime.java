@@ -81,6 +81,7 @@ public class DomainRuntime {
       case "listPage" -> result = page(entity, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body);
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
+      case "transition" -> result = transition(entity, matched, publicKey, body);
       case "delete" -> result = delete(entity, publicKey);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
@@ -216,6 +217,20 @@ public class DomainRuntime {
     }
     if (affected == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return null;
+  }
+
+  private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
+    if (id == null || (body != null && !body.isEmpty()))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
+    String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    int changed = jdbc.update("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
+        e.identityColumn()+"=:key AND "+col+"=:source",
+        Map.of("key",id,"source",op.fromState(),"target",op.toState()));
+    if (changed == 0) {
+      row(e,id);
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Transition precondition failed");
+    }
+    return row(e,id);
   }
 
   private Map<String,Object> increment(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
