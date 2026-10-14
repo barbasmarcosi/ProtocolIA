@@ -6,6 +6,8 @@ namespace ProtocolIA.Domain {
   extern dec unique(target: ModelProperty);
   extern dec reference(target: ModelProperty, entity: valueof string, onDelete?: valueof string);
   extern dec view(target: Model, label: valueof string);
+  extern dec initial(target: ModelProperty, value: valueof string);
+  extern dec transition(target: Operation, from: valueof string, to: valueof string);
   extern dec behavior(target: Operation, kind: valueof string,
     entity: valueof string, field?: valueof string, input?: valueof string);
   extern dec capability(target: Operation, name: valueof string);
