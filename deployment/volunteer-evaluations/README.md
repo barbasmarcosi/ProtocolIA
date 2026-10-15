@@ -13,7 +13,7 @@ Render build is blocked because the current workspace's free build-pipeline minu
 5. Set Railway healthcheck path `/health` and timeout sufficiently long for the first PostgreSQL schema initialization (for example, 180 seconds). Expose an HTTP public domain only after the service is healthy. Verify a real 200 from `/health`, that `/` returns the generated React page, and demo login/list/create/read work; then restart and re-read a fictitious record to prove Neon persistence.
 6. A publicly exposed demo's Basic credentials are not production IAM: no row-scoped volunteer privacy, no real personnel data, no guarantee of always-on availability under Free credit. Avoid advertising the endpoint as production-ready. Railway hosting/live status must be independently checked; the existence of this config is **not** evidence of a successful deploy.
 
-**Status at authoring:** Railway integration was suggested but is not yet connected. No Railway service or live domain is claimed.
+**Verified 2026-10-15:** The existing Railway service `volunteer-evaluations-web` was deployed successfully with UX4. The release workflow now supports UX5 using a preserved UX4 TypeSpec source snapshot and generated, additive V2 schema migration. Keep the service pinned to a reviewed commit; consult the latest deployment evidence before stating that UX5 is live.
 
 ## Render Free
 
@@ -30,3 +30,9 @@ Render build is blocked because the current workspace's free build-pipeline minu
 ## Benchmark integrity
 
 An accessible page or manually seeded records do not close BV-08/09/10/11 (computed evaluation/leave rules), BV-01/07 (row/field scope), or BV-14 (export). See `ACCEPTANCE_FREEZE.md` and keep those UNSUPPORTED until actual implementation + tests.
+
+## Immutable baseline releases and schema evolution
+
+The Dockerfile first generates the previous immutable UX4 contract from `deployment/volunteer-evaluations/releases/ux4` and calls ProtocolIA's official `evolve` command with the current `examples/vnext/volunteer-evaluations` TypeSpec. This preserves UX4 `src/schema.sql` and produces versioned PostgreSQL V2 migration files rather than replacing the baseline digest. There are no handwritten application controllers, resource views, or business-rule patches.
+
+UX5 adds server-authoritative year-month `CHECK` constraints. Legacy invalid rows cause a fail-closed transactional rollback, never a destructive conversion. The code is tested on ephemeral PostgreSQL using bad historical rows and an end-to-end migrated Nest application. Neon was inspected using read-only aggregate counts before promotion; no identifying data should be included in this documentation. See `docs/vnext/evidence/UX5_YEAR_MONTH_20261015.md`.

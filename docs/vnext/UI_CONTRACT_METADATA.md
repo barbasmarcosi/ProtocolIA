@@ -19,6 +19,7 @@ model MonthlyEvaluation {
   @uiLabel("Evaluation month")
   @uiHelp("Choose the month of the evaluation.")
   @uiControl("month")
+  @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
   period: string;
 }
 ```
@@ -56,3 +57,9 @@ The compiler shall reject invalid hints; both generator targets shall build and 
 The shared TypeSpec-to-IR-to-React architecture now emits a server-paginated relationship picker when the authorized related dataset exceeds 50. It uses a permitted `listPage` for browsing, a separately declared `queryPage` with the `contains` operator for case-insensitive literal text search, and `get` for restoring existing off-page selections. Both NestJS and Spring Boot apply the same read permissions, SQL-parameter binding and literal wildcard escaping. Creation and compare-and-swap reassignment share the generic picker. Mobile rendering uses an adaptive bottom sheet after visual review.
 
 Proof is maintained in [UX4_PAGED_RELATIONSHIPS_20261015.md](./evidence/UX4_PAGED_RELATIONSHIPS_20261015.md), with the independent two-backend PostgreSQL/Chromium run #38792714442 and its desktop/mobile screenshots. The current limits on table-label hydration, indexed substring search at extreme scale and server-authoritative `YYYY-MM` validation remain explicit rather than being declared solved.
+
+## UX5 — Domain validation is separate from presentation
+
+The standard TypeSpec `@pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")` now compiles to the technology-neutral `IrField.pattern`. Both NestJS and Spring Boot reject invalid input and invalid typed period filters; PostgreSQL enforces matching `CHECK` constraints. The original `@uiControl("month")` remains only a hint and never creates a validation permission or invariant by itself.
+
+Only the exact, portable, anchored year-month pattern is supported in this increment. Arbitrary regular expressions are rejected until a safe cross-language compiler subset exists. Existing schemas are tightened with a versioned, transactional and data-preserving `addPattern` migration; the generator preserves the immutable old baseline and rejects older rows that violate the new constraint without rewriting them. Full tests and release evidence: [UX5_YEAR_MONTH_20261015.md](./evidence/UX5_YEAR_MONTH_20261015.md).
