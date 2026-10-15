@@ -68,7 +68,7 @@ function validateCreate(fields,values){
       if(field.maxLength!==undefined&&text.length>field.maxLength){
         errors[field.name]="Se permiten como máximo "+field.maxLength+" caracteres.";continue;
       }
-      if(isMonthField(field)&&!/^\\d{4}-(0[1-9]|1[0-2])$/.test(text)){
+      if(isMonthField(field)&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(text)){
         errors[field.name]="Elegí un período válido (año y mes).";continue;
       }
     }
