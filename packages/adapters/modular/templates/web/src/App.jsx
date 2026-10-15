@@ -53,6 +53,7 @@ function LoadingIndicator({message,compact=false}){
 }
 function FormField({field,value,onChange,choices,referenceState}){
   const fieldId=React.useId();
+  const [pickerOpen,setPickerOpen]=React.useState(false);
   if(field.reference){
     const state=referenceState?.state??"loading";
     const blocked=state!=="ready";
@@ -60,8 +61,8 @@ function FormField({field,value,onChange,choices,referenceState}){
     const targetLabel=referenceState?.resourceLabel??label({name:field.reference.target});
     return <div className="field relation-field">
       <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
-      <Select.Root name={field.name} value={value??""}
-        onValueChange={next=>onChange(field.name,next)}
+      <Select.Root name={field.name} value={value??""} open={pickerOpen}
+        onOpenChange={setPickerOpen} onValueChange={next=>onChange(field.name,next)}
         required={field.required} disabled={blocked}>
         <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
           className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"}>
@@ -69,7 +70,11 @@ function FormField({field,value,onChange,choices,referenceState}){
           <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
         </Select.Trigger>
         <Select.Portal>
-          <Select.Content className="relation-dropdown" position="popper" sideOffset={5} collisionPadding={12}>
+          <Select.Content className="relation-dropdown" position="popper" sideOffset={5} collisionPadding={12}
+            onKeyDownCapture={event=>{if(event.key==="Escape"){
+              // Escape must dismiss the nested picker, not both it and its parent dialog.
+              event.preventDefault();event.stopPropagation();setPickerOpen(false);
+            }}}>
             <Select.ScrollUpButton className="relation-scroll-button" aria-label="Desplazar opciones hacia arriba">⌃</Select.ScrollUpButton>
             <Select.Viewport className="relation-options">
               {(choices??[]).map(item=>
