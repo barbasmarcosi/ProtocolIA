@@ -161,6 +161,8 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       "Client-side contract validation prevents invalid API writes");
     await page.getByRole("dialog",{name:"Nuevo registro"}).getByRole("button",{name:"Cancelar"}).click();
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
+    await page.waitForFunction(()=>document.activeElement?.getAttribute("data-testid")==="open-create",
+      null,{timeout:5000});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>document.activeElement===el),true,
       "Close new-record modal returns focus to the Nuevo action");
     const created=await create({tab:"Calificaciones mensuales",entity:"MonthlyEvaluation",
