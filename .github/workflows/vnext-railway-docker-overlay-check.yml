@@ -1,0 +1,37 @@
+name: vnext-railway-docker-overlay-check
+on:
+  push:
+    branches:
+      - feature/vnext-ux5-railway-overlayfix-20261015
+    paths:
+      - '.github/workflows/vnext-railway-docker-overlay-check.yml'
+      - 'deployment/volunteer-evaluations/Dockerfile'
+      - 'packages/cli/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: railway-overlay-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  docker-runtime-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build exact Railway Dockerfile with immutable TypeSpec baseline and V2 evolution
+        run: docker build --progress=plain --tag protocolia-ux5-overlay-test --file deployment/volunteer-evaluations/Dockerfile .
+      - name: Assert runtime image has unchanged baseline and versioned migration
+        run: |
+          docker run --rm --entrypoint node protocolia-ux5-overlay-test -e '
+          const fs=require("node:fs");
+          const schema=fs.readFileSync("/app/src/schema.sql","utf8");
+          const migration=fs.readFileSync("/app/src/migrations/V2__protocolia_additive.sql","utf8");
+          if(schema.includes("chk_pia_"))throw Error("Baseline was replaced rather than preserved");
+          if((migration.match(/ADD CONSTRAINT/g)||[]).length!==2)throw Error("Expected two new CHECK constraints");
+          if((migration.match(/VALIDATE CONSTRAINT/g)||[]).length!==2)throw Error("Expected validated transactional constraints");
+          if(!fs.existsSync("/app/dist/main.js"))throw Error("Generated Nest runtime missing");
+          console.log("PROTOCOLIA_UX5_EXACT_RAILWAY_IMAGE_PASS");
+          '
