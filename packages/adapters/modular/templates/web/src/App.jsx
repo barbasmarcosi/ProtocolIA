@@ -21,18 +21,29 @@ function normalizePayload(fields,values){
   }
   return result;
 }
-function FormField({field,value,onChange,choices}){
-  if(field.reference)return <label className="field">
-    <span>{label(field)} — {field.reference.target}{field.required?" *":""}</span>
-    <select required={field.required} value={value??""}
-      onChange={event=>onChange(field.name,event.target.value)}>
-      <option value="">Seleccionar {field.reference.target}</option>
-      {(choices??[]).map(item=><option key={item.key} value={item.key}>{item.label}</option>)}
-    </select>
-  </label>;
+function FormField({field,value,onChange,choices,referenceState}){
+  if(field.reference){
+    const state=referenceState?.state??"loading";
+    const blocked=state!=="ready";
+    return <label className="field">
+      <span>{label(field)} — {field.reference.target}{field.required?" *":""}</span>
+      <select data-testid={"create-"+field.name} required={field.required} value={value??""}
+        disabled={blocked} aria-busy={state==="loading"}
+        onChange={event=>onChange(field.name,event.target.value)}>
+        <option value="">{state==="loading"?"Cargando opciones…":"Seleccionar "+field.reference.target}</option>
+        {(choices??[]).map(item=><option key={item.key} value={item.key}>{item.label}</option>)}
+      </select>
+      {state==="empty"&&<span className="field-hint" role="status">
+        Primero creá un registro de {field.reference.target}.
+      </span>}
+      {state==="error"&&<span className="field-hint error" role="alert">
+        {referenceState?.message??"No se pudieron cargar las opciones relacionadas."}
+      </span>}
+    </label>;
+  }
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
-    <input type={field.type==="int32"?"number":"text"} required={field.required}
+    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":"text"} required={field.required}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
       value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
@@ -42,6 +53,7 @@ export default function App(){
   const [config,setConfig]=useState(null);
   const [resourceIndex,setResourceIndex]=useState(0);
   const [referenceOptions,setReferenceOptions]=useState({});
+  const [referenceStatus,setReferenceStatus]=useState({});
   const [startupError,setStartupError]=useState("");
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
@@ -77,6 +89,8 @@ export default function App(){
   const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
+  const referencesReady=active?.entity?.fields.filter(f=>f.reference)
+    .every(f=>referenceStatus[f.name]?.state==="ready")??true;
   function listing(){
     const kind=can("queryPage")?"queryPage":"listPage";
     const query={limit,offset};
@@ -124,7 +138,7 @@ export default function App(){
   useEffect(()=>{
     if(!active)return;
     setForm(createEmpty(active.entity.fields));
-    setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});
+    setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     setDraftFilters({});setAppliedFilters({});
   },[active?.entity.name]);
@@ -133,29 +147,37 @@ export default function App(){
     if(!config||!active||!auth)return;
     let valid=true;
     async function loadReferences(){
-      const found={};
-      for(const field of active.entity.fields.filter(f=>f.reference)){
+      const fields=active.entity.fields.filter(f=>f.reference);
+      if(!fields.length)return;
+      setReferenceStatus(Object.fromEntries(fields.map(f=>[f.name,{state:"loading"}])));
+      const found={},statuses={};
+      for(const field of fields){
         const target=config.resources?.find(r=>r.entity.name===field.reference.target);
         if(!target||!capabilities.includes(target.operations.listPage?.capability)){
-          setError("No tenés permiso de lectura sobre "+field.reference.target);
+          statuses[field.name]={state:"error",message:"No tenés permiso de lectura sobre "+field.reference.target+"."};
           continue;
         }
-        const response=await fetch(target.operations.listPage.path+"?limit=50&offset=0",{
-          headers:{Authorization:"Basic "+auth}
-        });
-        if(!response.ok){setError("No se pudo consultar "+field.reference.target);continue;}
-        const result=await response.json();
-        if(!Array.isArray(result.items)||result.total>result.items.length){
-          setError("La selección de "+field.reference.target+" requiere búsqueda paginada (fuera del perfil actual)");
-          continue;
+        try{
+          const response=await fetch(target.operations.listPage.path+"?limit=50&offset=0",{
+            headers:{Authorization:"Basic "+auth}
+          });
+          if(!response.ok)throw Error("No se pudo consultar "+field.reference.target+" (HTTP "+response.status+").");
+          const result=await response.json();
+          if(!Array.isArray(result.items)||!Number.isInteger(result.total)||
+             result.total>result.items.length){
+            throw Error("La selección de "+field.reference.target+
+              " requiere búsqueda paginada (fuera del perfil actual).");
+          }
+          found[field.name]=result.items.map(item=>({
+            key:item[target.entity.publicIdentity],
+            label:String(item[target.entity.publicIdentity])+(item.name?" — "+item.name:"")
+          }));
+          statuses[field.name]={state:found[field.name].length?"ready":"empty"};
+        }catch(e){
+          statuses[field.name]={state:"error",message:e.message};
         }
-        found[field.name]=result.items.map(item=>({
-          key:item[target.entity.publicIdentity],
-          label:String(item[target.entity.publicIdentity])+
-            (item.name?" — "+item.name:"")
-        }));
       }
-      if(valid)setReferenceOptions(found);
+      if(valid){setReferenceOptions(found);setReferenceStatus(statuses);}
     }
     loadReferences().catch(e=>{if(valid)setError(e.message);});
     return ()=>{valid=false;};
@@ -266,12 +288,14 @@ export default function App(){
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
       {can("create")&&<section className="panel"><h2>Crear {active.entity.name}</h2>
-        <form onSubmit={async event=>{event.preventDefault();
+        <form data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
+          if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
           if(data)setForm(createEmpty(active.entity.fields));
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+          referenceState={referenceStatus[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
-          <button type="submit" disabled={loading}>Crear</button></form>
+          <button type="submit" disabled={loading||!referencesReady}>Crear</button></form>
       </section>}
       {selected&&<section className="panel"><h2>Detalle: {selected[active.entity.publicIdentity]}</h2>
         <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
