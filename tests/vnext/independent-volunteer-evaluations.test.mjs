@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {readFileSync,writeFileSync,mkdtempSync,rmSync,cpSync} from "node:fs";
+import {spawnSync} from "node:child_process";
 import {join} from "node:path";
 const dir="examples/vnext/volunteer-evaluations";
 const source=readFileSync(join(dir,"contracts/main.tsp"),"utf8");
@@ -42,4 +43,34 @@ test("generated operations include guarded reassignment, publish, filtered histo
   assert.equal(byName.get("queryMonthlyEvaluations").behavior.kind,"queryPage");
   assert.equal(byName.get("evaluationAudit").behavior.kind,"auditPage");
   assert.notEqual(byName.get("evaluationAudit").capability,byName.get("listMonthlyEvaluation").capability);
+});
+
+test("malformed computedSum contracts fail closed at the TypeSpec compiler",()=>{
+  const mutations=[
+    ["unknown input", '@computedSum("incidentPoints,mandatoryPoints,guardPoints,notReal")'],
+    ["duplicate source", '@computedSum("incidentPoints,mandatoryPoints,guardPoints,guardPoints")'],
+    ["unbounded source", '@computedSum("incidentPoints,mandatoryPoints,guardPoints,otherPoints")'],
+    ["declared output max too small", '@minValue(0) @maxValue(99)']
+  ];
+  const base='@computedSum("incidentPoints,mandatoryPoints,guardPoints,internalPoints")';
+  for(const [label,replacement] of mutations){
+    const scratch=mkdtempSync(join("examples","vnext",".computed-negative-"));
+    try {
+      cpSync(join(dir,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+      cpSync(join(dir,"contracts"),join(scratch,"contracts"),{recursive:true});
+      let mutant=source;
+      if(label==="declared output max too small"){
+        mutant=mutant.replace('@minValue(0) @maxValue(100)\n    basePoints','@minValue(0) @maxValue(99)\n    basePoints');
+      }else mutant=mutant.replace(base,replacement);
+      writeFileSync(join(scratch,"contracts/main.tsp"),mutant);
+      assert.notEqual(mutant,source,label+" must change the source");
+      const result=spawnSync(join(process.cwd(),"node_modules",".bin","tsp"),["compile",scratch],{
+        cwd:process.cwd(),encoding:"utf8",timeout:60000
+      });
+      assert.equal(result.status===0,false,label+": compiler unexpectedly accepted mutation");
+      assert.match((result.stdout??"")+(result.stderr??""),/protocolia-invalid-computed-sum/i,label);
+    }finally{
+      rmSync(scratch,{recursive:true,force:true});
+    }
+  }
 });
