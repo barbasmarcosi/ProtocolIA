@@ -22,5 +22,12 @@ RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a
   --target modular-spring --out /work/dist/a143-spring-app
 RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a143 \
   --target nestjs --out /work/dist/a143-nest-app
+# Actual populated A14.2 -> A14.3 migration for both generated backends.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 \
+  --target modular-spring --out /work/dist/a143-old-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 \
+  --target nestjs --out /work/dist/a143-old-nest
+RUN bash -n scripts/vnext/probe-a143-upgrade-postgres.sh
+RUN bash scripts/vnext/probe-a143-upgrade-postgres.sh
 RUN bash scripts/vnext/probe-a143-worker-postgres.sh
 RUN echo A143_BOTH_TARGETS_COMPILED_AUTOMATIC_WORKER_CONFORMANCE_PASS
