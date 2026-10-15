@@ -179,3 +179,11 @@ Future layout quality work should select compact bottom sheets vs full-screen fo
 The generator decides whether a mobile create dialog can use a compact, viewport-bottom sheet by checking the canonical IR fields: no more than four editable inputs, without a relationship picker. Longer forms and relational workflows keep the accessible, independently scrollable full-screen dialog. This remains a presentation decision only; no backend rules or contract privileges change.
 
 Use safe-area padding and dynamic viewport height instead of fixed device-specific offsets. Radix focus restoration, nested selectors, dirty-draft warnings and server field errors must continue passing real Chromium tests. UX8 is proven across NestJS and Spring Boot with PostgreSQL ([evidence](./evidence/UX8_ADAPTIVE_MOBILE_FORMS_20261015.md)). The field-count threshold is a limited heuristic until more expressive task/layout metadata is supported.
+
+## UX9 — Manifest-scoped URL navigation and draft-safe history
+
+The shared generated React frontend maps only declared resources into `?resource=<entity name>` and projects bounded pagination and declared `queryPage` filters into query parameters. The browser Back/Forward stack now works across resources; reselecting a resource restores its page, applied filters and draft filter inputs. Filter/page changes update the current URL entry, while resource switches create a history entry.
+
+A pending create draft cannot silently disappear because of a resource route change: the same accessible confirmation presents Continue editing or Discard changes, and cancelling a browser Back/Forward movement returns to the original history position. A pending server write cannot be falsely labelled as discarded. Async resource requests are scoped so stale list responses cannot overwrite another entity's records after rapid navigation. No domain-specific application React component has been patched.
+
+This does **not** generate task-centric dashboards or record-specific routes; it improves the reusable workspace navigation before UX10. Filter URLs are shareable and users should avoid confidential search values. Evidence and current acceptance status: [UX9 URL navigation](./evidence/UX9_URL_NAVIGATION_20261015.md).
