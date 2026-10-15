@@ -130,6 +130,11 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.getByRole("option").filter({hasText:replacementGuard}).click();
     assert.equal(await changePicker.getAttribute("data-selected-key"),replacementGuard,
       "Reassignment selects the immutable public reference ID");
+    await changePicker.hover();
+    assert.equal(await changePicker.evaluate(el=>getComputedStyle(el).backgroundColor),
+      "rgb(255, 255, 255)","Hovered picker must never inherit an unreadable primary CTA background");
+    assert.equal(await changePicker.evaluate(el=>getComputedStyle(el).color),
+      "rgb(21, 35, 58)","Hovered picker retains readable foreground color");
     const patchResponse=page.waitForResponse(response=>
       response.request().method()==="PATCH"&&
       new URL(response.url()).pathname==="/api/volunteers/"+encodeURIComponent(badge)+"/guard",
@@ -186,6 +191,10 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       "Focus moves inside detail modal");
     const details=await modal.locator("dl").first().innerText();
     assert.match(details,/Base puntos\s+80/,"Generated detail modal shows computed base score");
+    const transition=modal.getByTestId("transition-closeMonthlyEvaluation");
+    await transition.waitFor({state:"visible",timeout:8000});
+    assert.match(await transition.innerText(),/Cerrar registro\s+Estado nuevo: Cerrado/,
+      "Generated state transition uses intelligible Spanish action/status");
     for(let i=0;i<8;i++){
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('[role="dialog"]'))),true,
