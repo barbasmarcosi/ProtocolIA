@@ -44,6 +44,13 @@ function displayCell(field,value,referenceOptions){
   if(name===cellText(value))return name;
   return <span className="entity-reference"><span>{name}</span><span className="entity-reference-code">{value}</span></span>;
 }
+function transitionLabel(op){
+  const verb=String(op.name??"").split(/(?=[A-Z])/)[0].toLowerCase();
+  const verbs={close:"Cerrar",reopen:"Reabrir",approve:"Aprobar",reject:"Rechazar",
+    publish:"Publicar",archive:"Archivar",cancel:"Cancelar",submit:"Enviar",
+    activate:"Activar",deactivate:"Desactivar",complete:"Completar"};
+  return (verbs[verb]??"Cambiar estado")+" registro";
+}
 function isMonthField(field){
   // Presentation fallback only; a future contract-defined format overrides this heuristic.
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
@@ -501,9 +508,10 @@ export default function App(){
             <button type="submit" disabled={loading}>Incrementar</button></form>}
           {transitions.filter(op=>capabilities.includes(op.capability) &&
             selected[op.behavior.field]===op.behavior.from).map(op=>
-            <button type="button" className="ghost" key={op.name} data-testid={"transition-"+op.name}
+            <button type="button" className="ghost generated-state-action" key={op.name} data-testid={"transition-"+op.name}
               disabled={loading} onClick={()=>act(op.name,{code:selected[active.entity.publicIdentity]})}>
-              {label({name:op.name})}: {op.behavior.to}
+              <span>{transitionLabel(op)}</span>
+              <span className="generated-state-target">Estado nuevo: {cellText(op.behavior.to)}</span>
             </button>)}
         </div>
         {can("auditPage")&&<section className="audit-history" data-testid="audit-history">
