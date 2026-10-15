@@ -72,6 +72,7 @@ export default function App(){
   const [creating,setCreating]=useState(false);
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
+  const detailPreviouslyOpen=useRef(false);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
@@ -187,6 +188,17 @@ export default function App(){
     loadReferences().catch(e=>{if(valid)setError(e.message);});
     return ()=>{valid=false;};
   },[active?.entity.name,auth,capabilities.join("|")]);
+  // Controlled dialogs have no Dialog.Trigger, so the original row action must
+  // recover keyboard focus after the portal is removed (also on Escape).
+  useEffect(()=>{
+    const wasOpen=detailPreviouslyOpen.current;
+    detailPreviouslyOpen.current=Boolean(selected);
+    if(wasOpen&&!selected&&auth){
+      const target=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
+      const frame=window.requestAnimationFrame(()=>target?.focus());
+      return ()=>window.cancelAnimationFrame(frame);
+    }
+  },[selected,auth,active?.entity.name]);
   useEffect(()=>{
     const audit=active?.operations?.auditPage;
     const code=selected?.[active?.entity?.publicIdentity];
