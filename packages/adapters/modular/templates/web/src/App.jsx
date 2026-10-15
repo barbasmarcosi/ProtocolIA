@@ -45,23 +45,14 @@ function normalizePayload(fields,values){
   }
   return result;
 }
-function preventNestedPickerEscape(event){
-  // Radix Dialog and Select register independent document Escape handlers.
-  // The dialog must not dismiss while an inner combobox handles that key.
-  if(event.target?.closest?.(".relation-dropdown")||
-     document.querySelector('.relation-trigger[data-state="open"]')){
-    event.preventDefault();
-  }
-}
 function LoadingIndicator({message,compact=false}){
   return <span className={compact?"loading-indicator compact":"loading-indicator"} role="status" aria-live="polite">
     <span className="loading-spinner" aria-hidden="true"/>
     <span>{message}</span>
   </span>;
 }
-function FormField({field,value,onChange,choices,referenceState}){
+function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange}){
   const fieldId=React.useId();
-  const [pickerOpen,setPickerOpen]=React.useState(false);
   if(field.reference){
     const state=referenceState?.state??"loading";
     const blocked=state!=="ready";
@@ -70,7 +61,7 @@ function FormField({field,value,onChange,choices,referenceState}){
     return <div className="field relation-field">
       <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
       <Select.Root name={field.name} value={value??""} open={pickerOpen}
-        onOpenChange={setPickerOpen} onValueChange={next=>onChange(field.name,next)}
+        onOpenChange={onPickerOpenChange} onValueChange={next=>onChange(field.name,next)}
         required={field.required} disabled={blocked}>
         <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
           className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"}>
@@ -78,11 +69,7 @@ function FormField({field,value,onChange,choices,referenceState}){
           <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
         </Select.Trigger>
         <Select.Portal>
-          <Select.Content className="relation-dropdown" position="popper" sideOffset={5} collisionPadding={12}
-            onKeyDownCapture={event=>{if(event.key==="Escape"){
-              // Escape must dismiss the nested picker, not both it and its parent dialog.
-              event.preventDefault();event.stopPropagation();setPickerOpen(false);
-            }}}>
+          <Select.Content className="relation-dropdown" position="popper" sideOffset={5} collisionPadding={12}>
             <Select.ScrollUpButton className="relation-scroll-button" aria-label="Desplazar opciones hacia arriba">⌃</Select.ScrollUpButton>
             <Select.Viewport className="relation-options">
               {(choices??[]).map(item=>
@@ -138,6 +125,7 @@ export default function App(){
   const [selected,setSelected]=useState(null);
   const [detailOpen,setDetailOpen]=useState(false);
   const [creating,setCreating]=useState(false);
+  const [activePicker,setActivePicker]=useState("");
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
   const listHeading=useRef(null);
@@ -212,7 +200,7 @@ export default function App(){
   useEffect(()=>{
     if(!active)return;
     setForm(createEmpty(active.entity.fields));
-    setSelected(null);setDetailOpen(false);setCreating(false);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
+    setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     setDraftFilters({});setAppliedFilters({});
   },[active?.entity.name]);
@@ -290,7 +278,7 @@ export default function App(){
     }finally{setLoginBusy(false);}
   }
   function logOut(){
-    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
@@ -363,11 +351,11 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading)setCreating(open);}}>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
-            onEscapeKeyDown={preventNestedPickerEscape}
+            onEscapeKeyDown={event=>{if(activePicker){event.preventDefault();setActivePicker("");}}}
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
             <div className="modal-header"><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
@@ -379,6 +367,8 @@ export default function App(){
           if(data){setForm(createEmpty(active.entity.fields));setCreating(false);}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           referenceState={referenceStatus[field.name]}
+          pickerOpen={activePicker===field.name}
+          onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={()=>setCreating(false)} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form>
@@ -390,7 +380,6 @@ export default function App(){
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           {selected&&<Dialog.Content data-testid="detail-dialog" aria-modal={true} className="modal-content"
-            onEscapeKeyDown={preventNestedPickerEscape}
             aria-describedby={undefined}
             onCloseAutoFocus={event=>{event.preventDefault();
               const origin=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
