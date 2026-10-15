@@ -298,7 +298,7 @@ export function generate(ir,spec,out){
     strict:false,esModuleInterop:true,experimentalDecorators:true,
     emitDecoratorMetadata:true,resolveJsonModule:true,skipLibCheck:true},
     include:["src/**/*.ts"]},null,2)+"\n");
-  for(const f of ["package.json","index.html","src/main.jsx","src/App.jsx","src/NotificationInbox.jsx","src/style.css"])
+  for(const f of ["package.json","index.html","src/main.jsx","src/App.jsx","src/PagedReferencePicker.jsx","src/NotificationInbox.jsx","src/style.css"])
     copy("web/"+f,join(uiRoot,f));
   write("web/vite.config.mjs",'import {defineConfig} from "vite";\n'+
     'export default defineConfig({base:"/",build:{outDir:"../dist/static",emptyOutDir:false}});\n');
