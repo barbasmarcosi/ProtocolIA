@@ -141,8 +141,10 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     assert.equal((await req("/api/sections/"+encodeURIComponent(draftCode))).status,404,
       "Discarding unsubmitted changes never mutates PostgreSQL");
+    await page.waitForFunction(()=>document.activeElement?.getAttribute("data-testid")==="open-create",
+      {timeout:5000});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>el===document.activeElement),true,
-      "Focus returns to the invoking create action");
+      "Focus returns to the invoking create action after modal auto-focus cleanup");
     const guardCreated=await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
       fields:{code:guard,sectionCode:section,name:"Guardia ficticia UI"},fk:{sectionCode:true}});
     assert.match(await guardCreated.row.innerText(),/Seccion ficticia UI/,
