@@ -97,14 +97,15 @@ test("A14.4 contains query uses safe allowlisted SQL and literal wildcard search
  assert.throws(()=>buildQueryPlan(unsafe,unsafe.operations.find(o=>o.name==="searchTickets")));
 });
 
-test("portable contract year-month invariant is emitted for two unrelated generated backends",()=>{
- const variant=structuredClone(ir);
- variant.entities[0].fields.push({name:"period",type:"string",required:true,nullable:false,
-   unique:false,minLength:7,maxLength:7,pattern:"^[0-9]{4}-(0[1-9]|1[0-2])$"});
- const a=tmp(),b=tmp();spring(variant,openapi,a);nest(variant,openapi,b);
- const sqlA=readFileSync(join(a,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
- const sqlB=readFileSync(join(b,"src/schema.sql"),"utf8");
- for(const sql of [sqlA,sqlB])assert.ok(sql.includes("period ~ '^[0-9]{4}-(0[1-9]|1[0-2])
+test("year-month domain pattern generates equal DB constraints for unrelated backend targets",()=>{
+  const irPattern=structuredClone(ir);
+  irPattern.entities[0].fields.push({name:"period",type:"string",required:true,nullable:false,
+    unique:false,minLength:7,maxLength:7,pattern:"^[0-9]{4}-(0[1-9]|1[0-2])$"});
+  const dirSpring=tmp(),dirNest=tmp();
+  spring(irPattern,openapi,dirSpring);nest(irPattern,openapi,dirNest);
+  const sqlSpring=readFileSync(join(dirSpring,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
+  const sqlNest=readFileSync(join(dirNest,"src/schema.sql"),"utf8");
+  for(const ddl of [sqlSpring,sqlNest])assert.ok(ddl.includes("period ~ '^[0-9]{4}-(0[1-9]|1[0-2])
  const mutations=[
   b=>{b.filters[0].via="status";},
   b=>{b.filters[0].field="badColumn";},
@@ -175,14 +176,13 @@ test("A14 upgrades compare repeatable full pg_dump snapshots rather than random 
   assert.doesNotMatch(source,/pg_dump[^\n]*\| sed/);
  }
 });
-"),
-   "The database itself rejects malformed months");
- const manifest=JSON.parse(readFileSync(join(b,"src/manifest.json"),"utf8"));
- assert.equal(manifest.entities[0].fields.find(f=>f.name==="period").pattern,"^[0-9]{4}-(0[1-9]|1[0-2])$");
- const invalid=structuredClone(variant);
- invalid.entities[0].fields.find(f=>f.name==="period").pattern=".*";
- assert.throws(()=>spring(invalid,openapi,tmp()),/Unsupported/);
- assert.throws(()=>nest(invalid,openapi,tmp()),/Unsupported/);
+"));
+  const manifest=JSON.parse(readFileSync(join(dirNest,"src/manifest.json"),"utf8"));
+  assert.equal(manifest.entities[0].fields.find(field=>field.name==="period").pattern,"^[0-9]{4}-(0[1-9]|1[0-2])$");
+  const invalid=structuredClone(irPattern);
+  invalid.entities[0].fields.find(field=>field.name==="period").pattern=".*";
+  assert.throws(()=>spring(invalid,openapi,tmp()),/Unsupported/);
+  assert.throws(()=>nest(invalid,openapi,tmp()),/Unsupported/);
 });
 
 test("A14.2 declarative plan refuses injection, unsupported joins, unsafe sort, invalid types and privilege bypass",()=>{
