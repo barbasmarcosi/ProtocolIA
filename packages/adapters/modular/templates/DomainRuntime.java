@@ -202,7 +202,7 @@ public class DomainRuntime {
   private void validate(Manifest.Entity e, Map<String,Object> body, boolean create, Set<String> writable) {
     if (body == null || !writable.containsAll(body.keySet())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown input property");
     if (create) {
-      for (var f : e.fields()) if (f.required() && !body.containsKey(f.name()) && f.initial()==null)
+      for (var f : e.fields()) if (f.required() && !f.computed() && !body.containsKey(f.name()) && f.initial()==null)
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required input");
     }
     for (var input : body.entrySet()) {
@@ -244,7 +244,7 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body) {
-    Set<String> fields = e.fields().stream().map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
+    Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
     body = new java.util.LinkedHashMap<>(body);
     for (var f : e.fields()) if (f.initial()!=null && !body.containsKey(f.name()))
@@ -270,9 +270,9 @@ public class DomainRuntime {
       }
     }
     var params = new MapSqlParameterSource();
-    for (var f : e.fields()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
-    String names = e.fields().stream().map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
-    String values = e.fields().stream().map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
+    for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
+    String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
+    String values = e.fields().stream().filter(f -> !f.computed()).map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
     try {
       jdbc.update("INSERT INTO " + e.table() + " (" + names + ") VALUES (" + values + ")", params);
     } catch (DataIntegrityViolationException ex) {
