@@ -179,6 +179,32 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </label>;
 }
+// Route state is bound to the generated manifest, never arbitrary URL paths.
+function readWorkspaceRoute(config){
+  const resources=config.resources?.length?config.resources:[config],p=new URLSearchParams(window.location.search);
+  const matched=resources.findIndex(r=>r.entity.name===p.get("resource"));
+  const resourceIndex=matched<0?0:matched,raw=p.get("offset");
+  const offset=raw&&/^\\d+$/.test(raw)&&Number(raw)<=250000&&Number(raw)%25===0?Number(raw):0;
+  const appliedFilters={};
+  for(const f of resources[resourceIndex].operations?.queryPage?.behavior?.filters??[]){
+    const value=p.get("filter."+f.parameter);
+    if(value!==null&&value.length<=200)appliedFilters[f.parameter]=value;
+  }
+  return {resourceIndex,offset,appliedFilters,draftFilters:{...appliedFilters}};
+}
+function workspaceUrl(resource,view){
+  const url=new URL(window.location.href);
+  url.searchParams.set("resource",resource.entity.name);url.searchParams.delete("offset");
+  if(view.offset>0)url.searchParams.set("offset",String(view.offset));
+  for(const key of [...url.searchParams.keys()])if(key.startsWith("filter."))url.searchParams.delete(key);
+  for(const f of resource.operations?.queryPage?.behavior?.filters??[]){
+    const value=view.appliedFilters?.[f.parameter];
+    if(value!==undefined&&value!==""&&String(value).length<=200)
+      url.searchParams.set("filter."+f.parameter,String(value));
+  }
+  return url.pathname+url.search+url.hash;
+}
+const workspaceHref=()=>window.location.pathname+window.location.search+window.location.hash;
 export default function App(){
   const [config,setConfig]=useState(null);
   const [resourceIndex,setResourceIndex]=useState(0);
@@ -201,6 +227,9 @@ export default function App(){
   const [detailOpen,setDetailOpen]=useState(false);
   const [creating,setCreating]=useState(false);
   const [confirmDiscard,setConfirmDiscard]=useState(false);
+  const [pendingNavigation,setPendingNavigation]=useState(null);
+  const navSession=useRef(null),navPosition=useRef(0),navHref=useRef(null),navRestoring=useRef(false);
+  const resourceViews=useRef({}),navigationSnapshot=useRef(null);
   const [activePicker,setActivePicker]=useState("");
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
@@ -223,7 +252,18 @@ export default function App(){
   useEffect(()=>{fetch("/protocolia-ui.json").then(async r=>{
     if(!r.ok)throw Error("Missing generated UI manifest");
     return r.json();
-  }).then(c=>{setConfig(c);setForm(createEmpty(c.entity.fields));}).catch(e=>setStartupError(e.message));},[]);
+  }).then(c=>{
+    const view=readWorkspaceRoute(c),resource=(c.resources?.length?c.resources:[c])[view.resourceIndex];
+    navSession.current=Math.random().toString(36).slice(2)+Date.now().toString(36);
+    navPosition.current=0;
+    const url=workspaceUrl(resource,view);
+    window.history.replaceState({...window.history.state,
+      __protocoliaNavigation:{session:navSession.current,position:0}},"",url);
+    navHref.current=url;resourceViews.current[resource.entity.name]=view;
+    setResourceIndex(view.resourceIndex);setOffset(view.offset);
+    setAppliedFilters(view.appliedFilters);setDraftFilters(view.draftFilters);
+    setConfig(c);setForm(createEmpty(c.entity.fields));
+  }).catch(e=>setStartupError(e.message));},[]);
   const active=config?.resources?.[resourceIndex]??config;
   const operations=useMemo(()=>active?.operations??{},[active]);
   const transitions=active?.transitions??[];
@@ -236,8 +276,83 @@ export default function App(){
     const initial=field.type==="int32"?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
+  navigationSnapshot.current={resourceIndex,createDirty};
+  function applyWorkspaceRoute(view){
+    setResourceIndex(view.resourceIndex);setOffset(view.offset);
+    setAppliedFilters(view.appliedFilters);setDraftFilters(view.draftFilters??view.appliedFilters);
+    if(view.resourceIndex!==navigationSnapshot.current.resourceIndex){
+      setCreating(false);setConfirmDiscard(false);setActivePicker("");
+    }
+  }
+  function pushWorkspaceRoute(view){
+    const target=(config.resources?.length?config.resources:[config])[view.resourceIndex];
+    const url=workspaceUrl(target,view);
+    if(url!==navHref.current){
+      const position=navPosition.current+1;
+      window.history.pushState({...window.history.state,
+        __protocoliaNavigation:{session:navSession.current,position}},"",url);
+      navPosition.current=position;navHref.current=url;
+    }
+    applyWorkspaceRoute(view);
+  }
+  function selectResource(index){
+    if(index===resourceIndex)return;
+    const saved=resourceViews.current[config.resources[index].entity.name];
+    const view={resourceIndex:index,offset:saved?.offset??0,
+      appliedFilters:{...(saved?.appliedFilters??{})},
+      draftFilters:{...(saved?.draftFilters??saved?.appliedFilters??{})}};
+    if(createDirty){setPendingNavigation({kind:"push",view});setConfirmDiscard(true);return;}
+    pushWorkspaceRoute(view);
+  }
+  useEffect(()=>{
+    if(!config)return;
+    const onPopState=()=>{
+      if(navRestoring.current){
+        navRestoring.current=false;
+        const marker=window.history.state?.__protocoliaNavigation;
+        if(marker?.session===navSession.current)navPosition.current=marker.position;
+        navHref.current=workspaceHref();return;
+      }
+      const view=readWorkspaceRoute(config);
+      const marker=window.history.state?.__protocoliaNavigation;
+      const nextPosition=marker?.session===navSession.current?marker.position:null;
+      if(navigationSnapshot.current?.createDirty&&
+        view.resourceIndex!==navigationSnapshot.current.resourceIndex){
+        setPendingNavigation({kind:"pop",view,previousPosition:navPosition.current,
+          nextPosition,previousHref:navHref.current});
+        setConfirmDiscard(true);return;
+      }
+      if(nextPosition!==null)navPosition.current=nextPosition;
+      navHref.current=workspaceHref();applyWorkspaceRoute(view);
+    };
+    window.addEventListener("popstate",onPopState);
+    return ()=>window.removeEventListener("popstate",onPopState);
+  },[config]);
+  useEffect(()=>{
+    if(!active?.entity||pendingNavigation)return;
+    resourceViews.current[active.entity.name]={offset,appliedFilters,draftFilters};
+  },[active?.entity.name,offset,JSON.stringify(appliedFilters),JSON.stringify(draftFilters),pendingNavigation]);
+  useEffect(()=>{
+    if(!config||!active||pendingNavigation||navRestoring.current)return;
+    const url=workspaceUrl(active,{offset,appliedFilters});
+    if(url!==navHref.current){
+      window.history.replaceState({...window.history.state,
+        __protocoliaNavigation:{session:navSession.current,position:navPosition.current}},"",url);
+      navHref.current=url;
+    }
+  },[config,active?.entity.name,offset,JSON.stringify(appliedFilters),pendingNavigation]);
   function commitCreateClose(){
     setConfirmDiscard(false);setActivePicker("");setCreating(false);
+  }
+  function discardAndNavigate(){
+    const pending=pendingNavigation;
+    commitCreateClose();setPendingNavigation(null);
+    if(!pending)return;
+    if(pending.kind==="push")pushWorkspaceRoute(pending.view);
+    else{
+      if(pending.nextPosition!==null)navPosition.current=pending.nextPosition;
+      navHref.current=workspaceHref();applyWorkspaceRoute(pending.view);
+    }
   }
   function closeCreate(){
     if(loading)return;
@@ -250,7 +365,20 @@ export default function App(){
     setActivePicker("");setCreating(false);
   }
   function returnToDraft(){
-    setConfirmDiscard(false);
+    if(pendingNavigation?.kind==="pop"){
+      const {previousPosition,nextPosition,previousHref}=pendingNavigation;
+      if(nextPosition!==null&&previousPosition!==nextPosition){
+        navRestoring.current=true;
+        window.history.go(previousPosition-nextPosition);
+      }else{
+        // Unknown history is restored without guessing a browser-history delta.
+        window.history.replaceState({...window.history.state,
+          __protocoliaNavigation:{session:navSession.current,position:previousPosition}},
+          "",previousHref);
+        navPosition.current=previousPosition;navHref.current=previousHref;
+      }
+    }
+    setPendingNavigation(null);setConfirmDiscard(false);
     requestAnimationFrame(()=>{
       const origin=discardReturnFocus.current;
       const fallback=document.querySelector('[data-testid^="create-form-"] [data-testid^="create-"]');
@@ -328,9 +456,9 @@ export default function App(){
   useEffect(()=>{
     if(!active)return;
     setForm(createEmpty(active.entity.fields));setFieldErrors({});
-    setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
+    setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
-    setDraftFilters({});setAppliedFilters({});
+    // Page and filters are preserved per resource and restored from route state.
   },[active?.entity.name]);
   useEffect(()=>{if(active&&auth)refresh();},[active?.entity.name,auth,offset,JSON.stringify(appliedFilters)]);
   useEffect(()=>{
@@ -467,7 +595,7 @@ export default function App(){
         {config.resources.map((r,i)=><button key={r.entity.name}
           className={resourceIndex===i?"":"ghost"}
           aria-current={resourceIndex===i?"page":undefined}
-          onClick={()=>setResourceIndex(i)}>{r.view||r.entity.name}</button>)}
+          onClick={()=>selectResource(i)}>{r.view||r.entity.name}</button>)}
       </nav>}
       {error&&!selected&&!creating&&<p className="message error" role="alert">{error}</p>}
       {notice&&!selected&&!creating&&<p className="message" role="status">{notice}</p>}
@@ -529,7 +657,7 @@ export default function App(){
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
             <div className="modal-header"><div><Dialog.Title className="modal-title">{confirmDiscard?"¿Descartar los cambios?":"Nuevo registro"}</Dialog.Title>
               <Dialog.Description className="modal-description">{confirmDiscard?
-                "Si descartás el borrador, se perderán los datos que todavía no guardaste.":
+                pendingNavigation?"Para cambiar de sección, primero tenés que descartar los cambios sin guardar.":"Si descartás el borrador, se perderán los datos que todavía no guardaste.":
                 "Completá los datos para agregarlo al listado."}</Dialog.Description></div>
               <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar creación" disabled={loading}
                 onClick={event=>{if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}}}><span aria-hidden="true">×</span></button></Dialog.Close></div>
@@ -537,12 +665,10 @@ export default function App(){
               {confirmDiscard?<div className="draft-discard-panel" data-testid="unsaved-changes-confirmation">
                 <div className="draft-discard-illustration" aria-hidden="true">!</div>
                 <h3>Hay cambios sin guardar</h3>
-                <p>Podés seguir editando sin perder nada, o descartar este borrador para volver al listado.</p>
+                <p>{pendingNavigation?"Podés seguir editando, o descartar el borrador y continuar con la navegación.":"Podés seguir editando sin perder nada, o descartar este borrador para volver al listado."}</p>
                 <div className="modal-actions">
                   <button type="button" className="ghost" ref={continueDraftButton} onClick={returnToDraft}>Seguir editando</button>
-                  <button type="button" className="discard-button" onClick={()=>{
-                    commitCreateClose();
-                  }}>Descartar cambios</button>
+                  <button type="button" className="discard-button" onClick={discardAndNavigate}>Descartar cambios</button>
                 </div>
               </div>:<>
               {error&&<p className="message error" role="alert">{error}</p>}
