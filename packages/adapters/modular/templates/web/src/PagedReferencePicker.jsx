@@ -20,6 +20,9 @@ export default function PagedReferencePicker({field,value,onChange,onResolve,cho
   const filters=target.operations.queryPage?.behavior?.filters??[];
   const nameFilter=filters.find(f=>f.operator==="contains"&&!f.via&&f.field==="name");
   const idFilter=filters.find(f=>f.operator==="contains"&&!f.via&&f.field===target.entity.publicIdentity);
+  const extraFilters=filters.filter(f=>f.operator==="contains"&&!f.via&&f.type==="string"&&
+    f.field!=="name"&&f.field!==target.entity.publicIdentity&&
+    target.entity.fields.some(field=>field.name===f.field&&field.type==="string"));
   const [mode,setMode]=useState(nameFilter?"name":"identity");
   const [term,setTerm]=useState("");
   const [offset,setOffset]=useState(0);
@@ -53,7 +56,7 @@ export default function PagedReferencePicker({field,value,onChange,onResolve,cho
     const timer=setTimeout(async()=>{
       setBusy(true);setError("");
       try{
-        const text=term.trim(),filter=mode==="name"?nameFilter:idFilter;
+        const text=term.trim(),filter=mode==="name"?nameFilter:mode==="identity"?idFilter:extraFilters.find(f=>f.parameter===mode);
         let data;
         if(text&&mode==="identity"&&!filter){
           const op=target.operations.get;
@@ -118,10 +121,14 @@ export default function PagedReferencePicker({field,value,onChange,onResolve,cho
             }}>
               {nameFilter&&<option value="name">Nombre</option>}
               <option value="identity">{target.entity.fields.find(f=>f.name===target.entity.publicIdentity)?.uiLabel??"Identificador"}</option>
+              {extraFilters.map(f=><option key={f.parameter} value={f.parameter}>
+                {target.entity.fields.find(field=>field.name===f.field)?.uiLabel??
+                  f.field.replace(/([a-z])([A-Z])/g,"$1 $2")}
+              </option>)}
             </select></label>
           <label className="field relation-search-input"><span>{exact?"Identificador exacto":"Buscar registros"}</span>
             <input ref={searchInput} type="search" value={term} maxLength={120}
-              placeholder={mode==="name"?"Escribí un nombre…":"Escribí un identificador…"}
+              placeholder={mode==="name"?"Escribí un nombre…":mode==="identity"?"Escribí un identificador…":"Escribí un término…"}
               onChange={e=>{setTerm(e.target.value);setOffset(0);}}
               aria-label={"Buscar "+title.toLowerCase()}/></label>
         </div>
