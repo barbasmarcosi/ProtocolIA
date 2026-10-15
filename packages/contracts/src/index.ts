@@ -10,6 +10,9 @@ export const $lib = createTypeSpecLibrary({
     unique: {description:"ProtocolIA unique contract metadata"},
     reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
+    uiLabel: {description:"User-visible human label on a field, independent of persistence name"},
+    uiHelp: {description:"Contextual user guidance on a field"},
+    uiControl: {description:"Display-only input control hint, no business semantic change"},
     initial: {description:"Initial immutable state for a finite-state field"},
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     transition: {description:"Atomic business state transition with guarded source/target"},
@@ -43,6 +46,16 @@ function reference(context: DecoratorContext, target: ModelProperty, entity: str
 
 function view(context: DecoratorContext, target: Model, label: string): void {
   context.program.stateMap($lib.stateKeys.view).set(target, { label });
+}
+
+function uiLabel(context: DecoratorContext, target: ModelProperty, label: string): void {
+  context.program.stateMap($lib.stateKeys.uiLabel).set(target,{label});
+}
+function uiHelp(context: DecoratorContext, target: ModelProperty, help: string): void {
+  context.program.stateMap($lib.stateKeys.uiHelp).set(target,{help});
+}
+function uiControl(context: DecoratorContext, target: ModelProperty, control: string): void {
+  context.program.stateMap($lib.stateKeys.uiControl).set(target,{control});
 }
 
 function initial(context: DecoratorContext, target: ModelProperty, value: string): void {
@@ -105,6 +118,9 @@ export const $decorators = {
     unique,
     reference,
     view,
+    uiLabel,
+    uiHelp,
+    uiControl,
     initial,
     computedSum,
     transition,
