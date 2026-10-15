@@ -8,6 +8,7 @@ on:
       - 'examples/vnext/volunteer-evaluations/**'
       - 'tests/vnext/independent-volunteer-evaluations.test.mjs'
       - 'scripts/vnext/probe-independent-volunteer-http.mjs'
+      - 'packages/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,3 +37,28 @@ jobs:
         run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-generated"
       - name: Independent black-box oracle sourced from frozen external requirements
         run: node scripts/vnext/probe-independent-volunteer-http.mjs "${RUNNER_TEMP}/volunteer-evaluations-generated"
+
+  contract-generated-spring-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+      - name: Install locked compiler
+        run: npm ci
+      - name: Generate Spring Boot and React from the same independent TypeSpec
+        run: npm run app:build -- examples/vnext/volunteer-evaluations --target modular-spring --out "${RUNNER_TEMP}/volunteer-evaluations-spring"
+      - name: Generated Spring Docker Compose and PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-spring"
+      - name: Independent source-frozen HTTP oracle on Spring Boot
+        run: node scripts/vnext/probe-independent-volunteer-http.mjs "${RUNNER_TEMP}/volunteer-evaluations-spring"
