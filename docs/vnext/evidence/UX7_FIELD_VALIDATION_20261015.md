@@ -15,3 +15,11 @@ Acceptance: both generated backends must return identical issues for invalid per
 - The independent frozen HTTP oracle exercises real Nest and Spring servers against PostgreSQL and requires identical `issues` for malformed months, score bounds/types, and missing required fields.
 - A separate `FacilitySearch` contract validates generator consistency without VolunteerEvaluations-specific error branches.
 - Positive creation, relational selectors, draft protection, mobile/desktop regression and access capabilities remain under the same generated-app test.
+
+## Final visual and integration gate
+
+- [Final visual and two-target integration #38810216481 — SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38810216481). Includes real PostgreSQL HTTP parity, original frozen acceptance criteria, Chromium create/reassign/draft regressions and the generated inline server-validation exercise.
+- [Visual artifact (9 screenshots)](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38810216481/artifacts/12007354791): new `protocolia-generated-server-field-error-desktop.png` and `protocolia-generated-server-field-error-mobile.png` screenshots were extracted and visually inspected.
+- Result: a clearly bordered invalid text field, readable field-level message in Spanish, `aria-invalid`, accessible description association, preserved input, visible confirmation buttons, and no overlapping footer controls.
+- Honest design gap: short creation forms still use the general mobile fullscreen modal, leaving unnecessary blank space below the actions. This is an architectural UX layout choice, not a failure of field-error mapping; adaptively sizing mobile forms remains a separate UX improvement.
+- No real firefighter personal data. All screenshots and HTTP probes use fictional identifiers.

@@ -165,3 +165,11 @@ Validated with source-frozen independent requirements, a separate FacilitySearch
 The shared React template uses its canonical IR field list to identify unsaved modifications (including relational references). Cancel, Escape, close and outside interactions show an in-dialog choice to keep editing or explicitly discard; successful server-validated creation closes normally. Keyboard focus is restored to the invoking action. Browser beforeunload warnings are best-effort. Both NestJS and Spring Boot continue to generate the same React implementation without entity-specific UX patches.
 
 The [UX6 evidence](./evidence/UX6_FORM_DRAFT_PROTECTION_20261015.md) confirms the independent PostgreSQL/Chromium regression run and desktop/mobile screenshot review. This milestone does not assert persistent drafts or generalized protection for all editing operations.
+
+## UX7 — Contract-authorized backend field errors
+
+For server-side field validation, generated NestJS and Spring Boot implement one consistent HTTP 400 envelope: `statusCode`, `message`, and a list of `issues: [{field,code}]`. Field identifiers come from contract field declarations, not external SQL error strings. The shared React form verifies each returned field against the current entity manifest and each code against an explicit allowlist before showing localized inline feedback and focusing the field. Existing client-side checks remain an ergonomic first pass, never the source of truth.
+
+The initial portable codes are `required`, `invalid_initial`, `invalid_format`, `invalid_type`, and `out_of_range`. Unexpected generic errors and database conflicts remain top-level errors rather than guessing which field caused them. The underlying domain constraints and permissions are unchanged. See [UX7 evidence](./evidence/UX7_FIELD_VALIDATION_20261015.md).
+
+Future layout quality work should select compact bottom sheets vs full-screen forms based on task complexity. On mobile, a short creation form still consumes the full viewport, which is functional but visually inefficient; do not classify this as 10/10 usability.
