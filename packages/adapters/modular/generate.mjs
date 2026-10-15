@@ -233,7 +233,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String referenceTarget,String initial,boolean computed) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max) {}",
@@ -256,7 +256,7 @@ export function generate(ir, openapi, outDir) {
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
-        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null"
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum)
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -345,7 +345,8 @@ export function generate(ir, openapi, outDir) {
           throw Error("Unresolved finite state values "+e.name+"."+f.name);
         checks.push("CHECK ("+col+" IN ("+[...values].sort().map(x=>"'"+x+"'").join(",")+"))");
       }
-      return "  "+col+" "+type+" "+checks.join(" ");
+      const generated=f.computedSum?" GENERATED ALWAYS AS ("+f.computedSum.map(snake).join(" + ")+") STORED":"";
+      return "  "+col+" "+type+generated+" "+checks.join(" ");
     });
     sql.push("CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);");
   }
