@@ -29,3 +29,11 @@
 This is not general arbitrary regex support, full business scoring, field-level structured error responses, row-scoped authorization, or proof of usability for every generated domain. Any further runtime schema changes must follow the same source-frozen, additive migration process. Railway is pinned to the last approved SHA; actual UX5 live deployment must be verified separately before stating that the upgraded release is live.
 
 Historical records must never be silently deleted, rewritten or exported during schema evolution.
+
+## Exact Railway Docker overlay build correction
+
+The first UX5 Railway attempt at deployment `55d1c320-00a5-4f29-9bac-1ac85293262f` failed **during Docker image build**, before the application started or executed any database migrations. The cause was `EXDEV: cross-device link not permitted` while the evolution tool attempted an atomic directory rename over a generated directory created in a prior Docker image layer. It was not a Neon migration or React runtime defect.
+
+The fix places immutable UX4 generation and UX5 `evolve` in one `RUN` instruction so both directories belong to the same writable overlay layer; immutable schema history and the transactional V2 migration remain unchanged. The exact production Dockerfile was independently built and its runtime image inspected for baseline integrity, two versioned constraints and generated Nest output. [Railway Docker overlay CI — SUCCESS](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38805403072).
+
+Never claim deployment success from the Docker test alone; verify the separately initiated Railway deployment, health check, existing data, and applied migration ledger.
