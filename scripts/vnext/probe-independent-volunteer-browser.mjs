@@ -80,6 +80,10 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
     assert.equal(await form.getByTestId("create-basePoints").count(),0,
       "Computed basePoints must never be an editable/form-submitted input");
+    await page.getByRole("dialog",{name:"Nuevo MonthlyEvaluation"}).getByRole("button",{name:"Cancelar"}).click();
+    await page.getByTestId("create-dialog").waitFor({state:"hidden"});
+    assert.equal(await page.getByTestId("open-create").evaluate(el=>document.activeElement===el),true,
+      "Close new-record modal returns focus to the Nuevo action");
     const created=await create({tab:"Calificaciones mensuales",entity:"MonthlyEvaluation",
       endpoint:"/api/monthly-evaluations",key:"number",
       fields:{number:evaluation,volunteerBadge:badge,period:"2026-09",
