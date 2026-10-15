@@ -45,8 +45,14 @@ The independent volunteer-evaluations TypeSpec contract uses these annotations f
 
 `@uiControl("month")` does not imply the backend verifies that a string matches `YYYY-MM`. For an **authoritative** year-month invariant, ProtocolIA must implement a domain-level format/regex constraint, validate it consistently in NestJS and Spring Boot, and cover migration/schema/API negative tests. UI-only validation is helpful feedback but never a security or correctness boundary.
 
-Other pending requirements: named enum/choices from formal contracts, human-readable relation values beyond the first 50 records (server-paged searchable picker), field priorities/list representation, structured server-side validation mapping, deep-linkable task workflows and accessible visual regression testing on unrelated contract sets.
+Other pending requirements: named enum/choices from formal contracts, cross-page readable relation labels for all summary-table rows (the UX4 generated field picker now pages, searches and hydrates saved selections), field priorities/list representation, structured server-side validation mapping, deep-linkable task workflows and accessible visual regression testing on unrelated contract sets.
 
 ## Acceptance
 
 The compiler shall reject invalid hints; both generator targets shall build and retain domain conformance; Chromium shall exercise the UI-generated form, read declared hints through accessible descriptions, create an allowed record and reject invalid numeric constraints without silently persisting it. Screenshots and manual critique remain necessary for visual quality.
+
+## UX4 follow-through — Server-paged relationships
+
+The shared TypeSpec-to-IR-to-React architecture now emits a server-paginated relationship picker when the authorized related dataset exceeds 50. It uses a permitted `listPage` for browsing, a separately declared `queryPage` with the `contains` operator for case-insensitive literal text search, and `get` for restoring existing off-page selections. Both NestJS and Spring Boot apply the same read permissions, SQL-parameter binding and literal wildcard escaping. Creation and compare-and-swap reassignment share the generic picker. Mobile rendering uses an adaptive bottom sheet after visual review.
+
+Proof is maintained in [UX4_PAGED_RELATIONSHIPS_20261015.md](./evidence/UX4_PAGED_RELATIONSHIPS_20261015.md), with the independent two-backend PostgreSQL/Chromium run #38792714442 and its desktop/mobile screenshots. The current limits on table-label hydration, indexed substring search at extreme scale and server-authoritative `YYYY-MM` validation remain explicit rather than being declared solved.
