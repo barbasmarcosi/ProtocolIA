@@ -32,6 +32,13 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
         const option=page.getByRole("option").filter({hasText:expected}).first();
         await option.waitFor({state:"visible",timeout:20000});
         await option.click();
+        // Closing the nested picker must not dismiss the parent Radix dialog.
+        await input.click();
+        await page.getByRole("listbox").waitFor({state:"visible"});
+        await page.keyboard.press("Escape");
+        await page.getByRole("listbox").waitFor({state:"hidden"});
+        assert.equal(await page.getByTestId("create-dialog").isVisible(),true,
+          "Escape closes the dropdown alone, not the enclosing creation dialog");
         assert.equal(await input.getAttribute("data-selected-key"),expected,
           entity+"."+field+" must store exactly the declared public identity");
         assert.equal(await page.getByRole("listbox").count(),0,
@@ -60,6 +67,14 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
   }
   try{
     await page.goto(base+"/",{waitUntil:"domcontentloaded",timeout:30000});
+    // Hold the first authorized FK-list response to verify a visible and accessible
+    // asynchronous loading affordance rather than a static "Cargando..." string.
+    let gatedFkRequest=0;
+    await page.route(/\/api\/sections\?limit=50&offset=0$/,async route=>{
+      gatedFkRequest++;
+      if(gatedFkRequest===1)await new Promise(resolve=>setTimeout(resolve,1600));
+      await route.continue();
+    });
     await page.getByTestId("username").fill(manager);
     await page.getByTestId("password").fill(managerPassword);
     const login=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/_protocolia/me");
@@ -71,6 +86,10 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     // with a visible explanatory status rather than a silent invalid submit.
     let form=await navigate("Guardias","GuardDuty");
     const initialFK=form.getByTestId("create-sectionCode");
+    await form.getByRole("status").filter({hasText:/Cargando/i}).first()
+      .waitFor({state:"visible",timeout:12000});
+    assert.equal(await form.locator(".loading-spinner").count(),1,
+      "A visible motion-safe spinner accompanies async relation loading");
     await form.getByText(/Primero creá un registro de/).waitFor({timeout:10000});
     assert.equal(await initialFK.isDisabled(),true,"FK selector disabled until parent records exist");
     assert.equal(await form.getByRole("button",{name:"Crear",exact:true}).isDisabled(),true,
