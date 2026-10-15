@@ -111,6 +111,40 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const section=id("SEC"),guard=id("GUARD"),badge=id("PERSON"),evaluation=id("EVAL");
     await create({tab:"Secciones",entity:"Section",endpoint:"/api/sections",key:"code",
       fields:{code:section,name:"Seccion ficticia UI"}});
+    // Generated form must require an explicit decision before discarding edits.
+    const draft=await navigate("Secciones","Section");
+    const draftCode=id("UNSAVED");
+    await draft.getByTestId("create-code").fill(draftCode);
+    await draft.getByTestId("create-name").fill("Borrador ficticio sin guardar");
+    await draft.getByRole("button",{name:"Cancelar",exact:true}).click();
+    const discardPrompt=page.getByTestId("unsaved-changes-confirmation");
+    await discardPrompt.waitFor({state:"visible",timeout:7000});
+    assert.equal(await page.getByTestId("create-dialog").isVisible(),true,
+      "Cancel on dirty draft keeps the modal open until explicitly confirmed");
+    await discardPrompt.screenshot({path:join(generated,"protocolia-generated-draft-warning-desktop.png")});
+    await page.setViewportSize({width:390,height:780});
+    await discardPrompt.screenshot({path:join(generated,"protocolia-generated-draft-warning-mobile.png")});
+    await page.setViewportSize({width:1365,height:900});
+    await page.keyboard.press("Escape");
+    await discardPrompt.waitFor({state:"hidden",timeout:7000});
+    assert.equal(await draft.getByTestId("create-code").inputValue(),draftCode,
+      "Escape in confirmation returns to the preserved form");
+    assert.equal(await draft.getByTestId("create-name").inputValue(),"Borrador ficticio sin guardar");
+    await page.getByRole("button",{name:"Cerrar creación"}).click();
+    await discardPrompt.waitFor({state:"visible"});
+    await discardPrompt.getByRole("button",{name:"Seguir editando"}).click();
+    await discardPrompt.waitFor({state:"hidden"});
+    assert.equal(await draft.getByTestId("create-code").inputValue(),draftCode,
+      "Explicitly continuing restores all draft fields");
+    await draft.getByRole("button",{name:"Cancelar",exact:true}).click();
+    await discardPrompt.getByRole("button",{name:"Descartar cambios"}).click();
+    await page.getByTestId("create-dialog").waitFor({state:"hidden"});
+    assert.equal((await req("/api/sections/"+encodeURIComponent(draftCode))).status,404,
+      "Discarding unsubmitted changes never mutates PostgreSQL");
+    await page.waitForFunction(()=>document.activeElement?.getAttribute("data-testid")==="open-create",
+      {timeout:5000});
+    assert.equal(await page.getByTestId("open-create").evaluate(el=>el===document.activeElement),true,
+      "Focus returns to the invoking create action after modal auto-focus cleanup");
     const guardCreated=await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
       fields:{code:guard,sectionCode:section,name:"Guardia ficticia UI"},fk:{sectionCode:true}});
     assert.match(await guardCreated.row.innerText(),/Seccion ficticia UI/,
@@ -176,6 +210,11 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal((await req("/api/monthly-evaluations/"+id("INVALID"),{as:"reader"})).status,404,
       "Client-side contract validation prevents invalid API writes");
     await page.getByRole("dialog",{name:"Nuevo registro"}).getByRole("button",{name:"Cancelar"}).click();
+    const invalidDraftConfirmation=page.getByTestId("unsaved-changes-confirmation");
+    await invalidDraftConfirmation.waitFor({state:"visible",timeout:6000});
+    assert.equal(await form.getByTestId("create-number").count(),0,
+      "Edited invalid form displays discard confirmation rather than losing draft silently");
+    await invalidDraftConfirmation.getByRole("button",{name:"Descartar cambios"}).click();
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     await page.waitForFunction(()=>document.activeElement?.getAttribute("data-testid")==="open-create",
       null,{timeout:5000});
@@ -333,7 +372,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
       compiledFieldMetadata:true,accessibleFieldHints:true,
       reassignPicker:true,confirmedCasReferenceUpdate:true,
-      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,pagedReassignment:true,offPageHydration:true,clientJavascriptErrors:0
+      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,pagedReassignment:true,offPageHydration:true,draftLossGuard:true,clientJavascriptErrors:0
     }));
   }catch(error){
     try{const screenshot=join(generated,"protocolia-fk-browser-failure.png");

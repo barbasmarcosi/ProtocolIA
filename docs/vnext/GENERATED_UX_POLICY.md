@@ -159,3 +159,9 @@ Proof is maintained in [UX4_PAGED_RELATIONSHIPS_20261015.md](./evidence/UX4_PAGE
 Do not infer a domain rule from a visual month input. Use the standard, explicitly declared TypeSpec `@pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")`. The compiler checks this limited portable format and emits the same invariant through IR, React, NestJS, Spring Boot, and PostgreSQL. A generated application must reject invalid requests regardless of client controls. Existing data is checked by versioned, atomic additive migrations; immutable release contracts are used to reconstruct baselines before evolution.
 
 Validated with source-frozen independent requirements, a separate FacilitySearch contract, real PostgreSQL positive/negative cases, Nest/Spring parity, Chromium, and a full UX4→UX5 generated Nest migration. See [UX5 evidence](./evidence/UX5_YEAR_MONTH_20261015.md). Unsupported date patterns, business scoring, per-user row authorization, and field-oriented server errors remain outside this milestone.
+
+## UX6 — Draft-loss protection for generated creation forms
+
+The shared React template uses its canonical IR field list to identify unsaved modifications (including relational references). Cancel, Escape, close and outside interactions show an in-dialog choice to keep editing or explicitly discard; successful server-validated creation closes normally. Keyboard focus is restored to the invoking action. Browser beforeunload warnings are best-effort. Both NestJS and Spring Boot continue to generate the same React implementation without entity-specific UX patches.
+
+The [UX6 evidence](./evidence/UX6_FORM_DRAFT_PROTECTION_20261015.md) confirms the independent PostgreSQL/Chromium regression run and desktop/mobile screenshot review. This milestone does not assert persistent drafts or generalized protection for all editing operations.
