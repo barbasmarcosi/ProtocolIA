@@ -205,6 +205,7 @@ export default function App(){
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
   const discardReturnFocus=useRef(null);
+  const allowConfirmedClose=useRef(false);
   const continueDraftButton=useRef(null);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
@@ -236,9 +237,14 @@ export default function App(){
     const initial=field.type==="int32"?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
+  function commitCreateClose(){
+    allowConfirmedClose.current=true;
+    setConfirmDiscard(false);setActivePicker("");setCreating(false);
+  }
   function closeCreate(){
+    if(allowConfirmedClose.current){setCreating(false);return;}
     if(loading)return;
-    if(confirmDiscard){setConfirmDiscard(false);return;}
+    if(confirmDiscard){returnToDraft();return;}
     if(createDirty){
       discardReturnFocus.current=document.activeElement;
       setConfirmDiscard(true);
@@ -463,7 +469,7 @@ export default function App(){
       </details>}
       <section className="panel records-panel">
         <div className="heading records-heading"><div><h2 ref={listHeading} tabIndex={-1}>Registros <span className="record-count">{total}</span></h2><p className="panel-helper">Toda la información, en un solo lugar.</p></div><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setConfirmDiscard(false);setCreating(true);}}>Nuevo registro</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setConfirmDiscard(false);allowConfirmedClose.current=false;setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{fieldLabel(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
@@ -480,7 +486,7 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{if(open)setCreating(true);else closeCreate();}}>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(open){if(!allowConfirmedClose.current)setCreating(true);}else closeCreate();}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
@@ -502,7 +508,7 @@ export default function App(){
                 <div className="modal-actions">
                   <button type="button" className="ghost" ref={continueDraftButton} onClick={returnToDraft}>Seguir editando</button>
                   <button type="button" className="discard-button" onClick={()=>{
-                    setConfirmDiscard(false);setActivePicker("");setCreating(false);
+                    commitCreateClose();
                   }}>Descartar cambios</button>
                 </div>
               </div>:<>
@@ -518,7 +524,7 @@ export default function App(){
             return;
           }
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
-          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});setConfirmDiscard(false);setCreating(false);}
+          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});commitCreateClose();}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
            auth={auth} onReferenceResolve={(name,choice)=>setReferenceOptions(prev=>{
