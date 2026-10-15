@@ -171,6 +171,14 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const associated=await serverForm.getByTestId("create-name").getAttribute("aria-describedby");
     assert.ok(serverErrorId&&associated?.split(/\s+/).includes(serverErrorId),
       "Backend field validation is linked by the actual React-generated accessible description");
+    await page.getByTestId("create-dialog").screenshot({
+      path:join(generated,"protocolia-generated-server-field-error-desktop.png")
+    });
+    await page.setViewportSize({width:390,height:780});
+    await page.getByTestId("create-dialog").screenshot({
+      path:join(generated,"protocolia-generated-server-field-error-mobile.png")
+    });
+    await page.setViewportSize({width:1365,height:900});
     assert.equal(await serverForm.getByTestId("create-code").inputValue(),rejectedCode,
       "Server rejection never silently discards the entered draft");
     await page.unroute(/\/api\/sections$/);
