@@ -393,13 +393,19 @@ export default function App(){
           {Object.values(appliedFilters).filter(Boolean).length>0&&<span className="filter-counter">{Object.values(appliedFilters).filter(Boolean).length} activos</span>}
         </span><span className="filters-summary-hint">Mostrar filtros <span className="filters-chevron" aria-hidden="true">⌄</span></span></summary>
         <form className="filters-form" onSubmit={event=>{event.preventDefault();setOffset(0);setAppliedFilters({...draftFilters});}}> 
-          <div className="fields">{searchFilters.map(filter=>
-            <label className="field" key={filter.parameter}>
-              <span>{label({name:filter.parameter})}</span>
-              <input aria-label={label({name:filter.parameter})} type={filter.type==="utcDateTime"?"datetime-local":
-                filter.type==="int32"?"number":"text"} value={draftFilters[filter.parameter]??""}
+          <div className="fields">{searchFilters.map(filter=>{
+            const source=active.entity.fields.find(f=>f.name===filter.parameter||(!filter.via&&f.name===filter.field));
+            const caption=source?fieldLabel(source):label({name:filter.parameter});
+            const inputType=source&&isMonthField(source)?"month":
+              filter.type==="utcDateTime"?"datetime-local":filter.type==="int32"?"number":"text";
+            const hintId=source?.uiHelp?"filter-"+filter.parameter+"-help":undefined;
+            return <label className="field" key={filter.parameter}>
+              <span>{caption}</span>
+              <input aria-label={caption} aria-describedby={hintId} type={inputType} value={draftFilters[filter.parameter]??""}
                 onChange={event=>setDraftFilters(old=>({...old,[filter.parameter]:event.target.value}))}/>
-            </label>)}
+              {source?.uiHelp&&<span className="field-hint field-help-copy" id={hintId}>{source.uiHelp}</span>}
+            </label>;
+          })}
           </div>
           <div className="actions"><button type="submit">Filtrar</button>
             <button type="button" className="ghost" onClick={()=>{
