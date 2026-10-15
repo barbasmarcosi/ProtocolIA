@@ -15,7 +15,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
   async function navigate(title,entity){
     await nav().getByRole("button",{name:title,exact:true}).click();
     await page.getByTestId("open-create").click();
-    await page.getByRole("dialog",{name:"Nuevo "+entity}).waitFor({state:"visible",timeout:10000});
+    await page.getByRole("dialog",{name:"Nuevo registro"}).waitFor({state:"visible",timeout:10000});
     const form=page.getByTestId("create-form-"+entity);
     await form.waitFor({state:"visible",timeout:20000});
     return form;
@@ -80,7 +80,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
     assert.equal(await form.getByTestId("create-basePoints").count(),0,
       "Computed basePoints must never be an editable/form-submitted input");
-    await page.getByRole("dialog",{name:"Nuevo MonthlyEvaluation"}).getByRole("button",{name:"Cancelar"}).click();
+    await page.getByRole("dialog",{name:"Nuevo registro"}).getByRole("button",{name:"Cancelar"}).click();
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>document.activeElement===el),true,
       "Close new-record modal returns focus to the Nuevo action");
@@ -102,7 +102,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('[role="dialog"]'))),true,
       "Focus moves inside detail modal");
     const details=await modal.locator("dl").first().innerText();
-    assert.match(details,/base Points\s+80/,"Generated detail modal shows computed base score");
+    assert.match(details,/Base puntos\s+80/,"Generated detail modal shows computed base score");
     for(let i=0;i<8;i++){
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('[role="dialog"]'))),true,
