@@ -11,7 +11,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
   const pageErrors=[];
   page.on("pageerror",error=>pageErrors.push(error.message));
   const id=suffix=>"UI"+token+"-"+suffix;
-  const nav=()=>page.getByRole("navigation",{name:"Recursos"});
+  const nav=()=>page.getByRole("navigation",{name:"Secciones de la aplicación"});
   async function navigate(title,entity){
     await nav().getByRole("button",{name:title,exact:true}).click();
     await page.getByTestId("open-create").click();
@@ -109,6 +109,40 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.getByText("Registro creado correctamente.").waitFor({timeout:5000});
     await create({tab:"Personal",entity:"Volunteer",endpoint:"/api/volunteers",key:"badge",
       fields:{badge,guardCode:guard,name:"Persona ficticia UI",rank:"Aspirante"},fk:{guardCode:true}});
+    const replacementGuard=id("NEWGUARD");
+    await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
+      fields:{code:replacementGuard,sectionCode:section,name:"Guardia alternativa UI"},fk:{sectionCode:true}});
+    // The former native reassign dropdown was a separate unpolished UI path.
+    // Both create and reassign must now share the generated accessible reference picker.
+    await nav().getByRole("button",{name:"Personal",exact:true}).click();
+    const volunteerRow=page.getByRole("row").filter({hasText:badge});
+    await volunteerRow.getByRole("button",{name:"Detalle"}).click();
+    const volunteerModal=page.getByRole("dialog",{name:"Detalle: "+badge});
+    await volunteerModal.waitFor({state:"visible"});
+    const reassignment=volunteerModal.getByTestId("reassign-reference");
+    const changePicker=reassignment.getByTestId("create-guardCode");
+    await changePicker.click();
+    await page.getByRole("listbox").waitFor({state:"visible"});
+    await page.keyboard.press("Escape");
+    await page.getByRole("listbox").waitFor({state:"hidden"});
+    assert.equal(await volunteerModal.isVisible(),true,"Escape closes reassign picker but retains record dialog");
+    await changePicker.click();
+    await page.getByRole("option").filter({hasText:replacementGuard}).click();
+    assert.equal(await changePicker.getAttribute("data-selected-key"),replacementGuard,
+      "Reassignment selects the immutable public reference ID");
+    const patchResponse=page.waitForResponse(response=>
+      response.request().method()==="PATCH"&&
+      new URL(response.url()).pathname==="/api/volunteers/"+encodeURIComponent(badge),
+      {timeout:15000});
+    await reassignment.getByTestId("confirm-reassign").click();
+    assert.equal((await patchResponse).status(),200,"Generated reassignment is successful");
+    await volunteerModal.getByText("Asignación actualizada correctamente.").waitFor({timeout:10000});
+    assert.equal((await req("/api/volunteers/"+encodeURIComponent(badge),{as:"reader"})).body.guardCode,
+      replacementGuard,"Updated association persisted via CAS to Postgres");
+    await volunteerModal.screenshot({path:join(generated,"protocolia-generated-detail-desktop.png")});
+    await volunteerModal.getByRole("button",{name:"Cerrar detalle"}).click();
+    await volunteerModal.waitFor({state:"hidden"});
+    await page.screenshot({path:join(generated,"protocolia-generated-list-desktop.png"),fullPage:true});
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
     assert.equal(await form.getByTestId("create-basePoints").count(),0,
       "Computed basePoints must never be an editable/form-submitted input");
@@ -166,6 +200,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.setViewportSize({width:390,height:780});
     await opener.click();
     await modal.waitFor({state:"visible"});
+    await page.screenshot({path:join(generated,"protocolia-generated-detail-mobile.png"),fullPage:true});
     const mobile=await modal.evaluate(el=>({width:el.getBoundingClientRect().width,
       viewport:window.innerWidth,height:el.getBoundingClientRect().height,
       viewportHeight:window.innerHeight,
@@ -180,6 +215,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       browser:"Chromium Playwright",entities:["Section","GuardDuty","Volunteer","MonthlyEvaluation"],
       fks:["GuardDuty.sectionCode","Volunteer.guardCode","MonthlyEvaluation.volunteerBadge"],
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
+      reassignPicker:true,confirmedCasReferenceUpdate:true,
       preservedScroll:true,focusRestored:true,mobileInternalScroll:true,clientJavascriptErrors:0
     }));
   }catch(error){
