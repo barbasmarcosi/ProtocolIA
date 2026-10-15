@@ -295,7 +295,8 @@ namespace VolunteerEvaluations {
     @query @minValue(1) @maxValue(50) limit?: int32 = 25,
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0,
     @query @queryFilter("name","contains") name?: string,
-    @query @queryFilter("badge","contains") badge?: string
+    @query @queryFilter("badge","contains") badge?: string,
+    @query @queryFilter("rank","contains") rank?: string
   ): VolunteerPage | BadRequest | Unauthorized | Forbidden;
 
   @route("/api/monthly-evaluations")
