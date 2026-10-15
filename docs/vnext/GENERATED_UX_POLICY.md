@@ -67,3 +67,10 @@
 ## Deployment discipline
 
 Work on `independent/volunteer-evaluations`; preserve `main` and PR #52. Railway Free uses actual credit; deploy only a CI-proven version. Keep Neon demo seeded exclusively with fictitious data, inspect public health and auth after deployment; do not equate green build with complete UX/production readiness.
+
+## UX0 verified evidence — 2026-10-15
+
+- [Actions #38752413215](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38752413215), functional SHA `3d4782dfbffef5aef16cdaba99420a7b9d93ae9a`, **SUCCESS** for both generated NestJS + Spring Boot with real Postgres source-frozen business oracle.
+- Actual Chromium marker: `BV_GENERATED_NATIVE_FK_BROWSER_PASS` with `detailModal:true`, `preservedScroll:true`, `focusRestored:true`, `mobileInternalScroll:true`, `clientJavascriptErrors:0`, four UI-created entities, three FK selects, DB-calculated score 80 and disabled creation when parent missing. Browser asserted focused element stays inside modal across keyboard Tab presses, Escape close, focus returns to originating table action, same scroll position, and 390×780 modal fits viewport with internal overflow.
+- The first browser iterations found **real usability and accessibility defects** (implicit scrolled bottom detail, missing explicit `aria-modal`, focus restoration when content was cleared before dialog closed). Remediation is in the shared generated template: Radix controlled dialog with separate open vs selected-record state, `onCloseAutoFocus` returning focus to original row action; default create dialog next to list heading; responsive internally scrollable overlay.
+- Unchanged: authorization is server-owned; no unsupported score or leave formulas were added. CI is product-level proof for the UI pattern, **not** a claim that the whole volunteer system fulfills all 16 frozen business requirements.
