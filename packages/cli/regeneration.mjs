@@ -8,6 +8,8 @@ import {basename,dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {sealApp,verifyApp} from "./ownership.mjs";
 import {buildQueryPlan} from "../adapters/query-plan.mjs";
+import {compileOverduePolicies,overdueSchemaSql} from "../adapters/overdue-policy.mjs";
+import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../adapters/recipient-inbox.mjs";
 
 const shaTag=()=>randomBytes(7).toString("hex");
 const safeName=value=> {
@@ -33,13 +35,17 @@ export function diffContracts(oldIr,nextIr){
     if(!next){blockers.push("Removed entity "+previous.name);continue;}
     if(previous.publicIdentity!==next.publicIdentity)
       blockers.push("Public identity changed on "+previous.name);
-    // A14.3: generated durable inbox DDL cannot be applied through the
-    // earlier add-operation-only evolution profile. Block instead of silently
-    // swapping binaries while skipping policy tables/functions on populated DBs.
-    if(!same(previous.recipientIdentity??null,next.recipientIdentity??null))
-      blockers.push("Recipient identity migration needs a dedicated additive evolution profile: "+previous.name);
-    if(!same(previous.overdueAlert??null,next.overdueAlert??null))
-      blockers.push("Overdue policy migration needs a dedicated additive evolution profile: "+previous.name);
+    // First-time notification installation only; remove/alter remains fail-closed.
+    if(!same(previous.recipientIdentity??null,next.recipientIdentity??null)){
+      if(!previous.recipientIdentity&&next.recipientIdentity===true)
+        changes.push({kind:"addRecipientIdentity",entity:previous.name});
+      else blockers.push("Recipient identity migration needs a dedicated additive evolution profile: "+previous.name);
+    }
+    if(!same(previous.overdueAlert??null,next.overdueAlert??null)){
+      if(!previous.overdueAlert&&next.overdueAlert)
+        changes.push({kind:"addOverdueRule",entity:previous.name});
+      else blockers.push("Overdue policy migration needs a dedicated additive evolution profile: "+previous.name);
+    }
     if(previous.view!==next.view)
       changes.push({kind:"view",entity:previous.name,from:previous.view??null,to:next.view??null});
     const oldFields=new Map(previous.fields.map(f=>[f.name,f]));
@@ -81,6 +87,25 @@ export function diffContracts(oldIr,nextIr){
       blockers.push("Operation/routing/capability changed: "+oldOp.name);
   }
   const additions=nextIr.operations.filter(op=>!previousOperations.has(op.name));
+  const notificationChanges=changes.filter(c=>["addRecipientIdentity","addOverdueRule"].includes(c.kind));
+  const installingNotifications=notificationChanges.length>0;
+  let verifiedRecipients=[];
+  if(installingNotifications){
+    if(oldIr.entities.some(e=>e.overdueAlert||e.recipientIdentity)||
+       notificationChanges.length!==2||
+       notificationChanges.filter(c=>c.kind==="addRecipientIdentity").length!==1||
+       notificationChanges.filter(c=>c.kind==="addOverdueRule").length!==1)
+      blockers.push("A14.3 requires an initially notification-free schema and one new recipient/rule pair");
+    try{
+      const rules=compileOverduePolicies(nextIr);
+      verifiedRecipients=compileRecipientInboxes(nextIr);
+      if(rules.length!==1||verifiedRecipients.length!==1||
+         !verifiedRecipients[0].rules.includes(rules[0].key)||
+         !notificationChanges.some(c=>c.kind==="addRecipientIdentity"&&c.entity===verifiedRecipients[0].entity)||
+         !notificationChanges.some(c=>c.kind==="addOverdueRule"&&c.entity===rules[0].entity))
+        blockers.push("A14.3 recipient and overdue rule must match exactly");
+    }catch(error){blockers.push("Invalid A14.3 recipient/rule metadata: "+String(error));}
+  }
   const initialStates=changes.filter(c=>c.kind==="addInitialState");
   for(const op of additions){
     const field=initialStates.find(c=>c.entity===op.entity&&c.field.name===op.behavior.field);
@@ -89,6 +114,15 @@ export function diffContracts(oldIr,nextIr){
     const linked=source?.behavior.reserve;
     const parent=linked?oldIr.entities.find(e=>e.name===linked.stockEntity):undefined;
     const parentWrite=oldIr.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="create");
+    if(["inboxPage","ackNotification"].includes(b.kind)){
+      if(!installingNotifications||
+         !verifiedRecipients.some(r=>r.entity===op.entity&&
+           op.capability===(b.kind==="inboxPage"?r.readCapability:r.ackCapability))||
+         oldIr.operations.some(x=>x.method===op.method&&x.path===op.path))
+        blockers.push("Unsafe new inbox operation: "+op.name);
+      else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
+      continue;
+    }
     if(b.kind==="auditPage"){
       const existing=oldIr.operations.filter(x=>x.entity===op.entity);
       const baseEntity=oldIr.entities.find(e=>e.name===op.entity);
@@ -161,6 +195,13 @@ export function diffContracts(oldIr,nextIr){
       blockers.push("Unsupported new operation (requires exactly one matching stock cancellation): "+op.name);
     else changes.push({kind:"addOperation",entity:op.entity,operation:structuredClone(op)});
   }
+  if(installingNotifications){
+    const newInboxOps=additions.filter(o=>["inboxPage","ackNotification"].includes(o.behavior.kind));
+    if(newInboxOps.length!==2||
+       changes.some(c=>!["addRecipientIdentity","addOverdueRule","addOperation"].includes(c.kind))||
+       changes.some(c=>c.kind==="addOperation"&&!["inboxPage","ackNotification"].includes(c.operation.behavior.kind)))
+      blockers.push("A14.3 one-shot inbox migration cannot mix other contract changes");
+  }
   for(const state of initialStates){
     const itsOperations=changes.filter(c=>c.kind==="addOperation" &&
       c.entity===state.entity&&c.operation.behavior.field===state.field.name);
@@ -210,7 +251,12 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     if(!endpoint){
       issues.push("New operation missing from OpenAPI: "+op.name);continue;
     }
-    if(["auditPage","reassignReference","queryPage"].includes(op.behavior.kind))gatherRefs(endpoint);
+    if(["inboxPage","ackNotification"].includes(op.behavior.kind)){
+      try{assertInboxOpenApi(newApi,op);}catch(error){
+        issues.push("Unsafe inbox OpenAPI parameters: "+String(error));
+      }
+    }
+    if(["auditPage","reassignReference","queryPage","inboxPage","ackNotification"].includes(op.behavior.kind))gatherRefs(endpoint);
     delete next.paths[op.path][op.method.toLowerCase()];
     if(Object.keys(next.paths[op.path]).length===0)delete next.paths[op.path];
   }
@@ -275,7 +321,7 @@ function fieldDdl(field){
   if(field.max!==undefined)checks.push("CHECK ("+col+"<="+field.max+")");
   return col+" "+type+(checks.length?" "+checks.join(" "):"");
 }
-export function additiveSql(plan){
+export function additiveSql(plan,nextIr){
   if(!plan.compatible)throw Error("Refusing destructive migration: "+plan.blockers.join("; "));
   const additiveFields=plan.changes.filter(x=>["addField","addInitialState"].includes(x.kind))
     .map(x=>{
@@ -293,7 +339,14 @@ export function additiveSql(plan){
     });
   const additiveIndexes=plan.changes.filter(x=>x.kind==="addOperation"&&
     x.operation.behavior.kind==="queryPage").flatMap(x=>x.indexes??[]);
-  return [...additiveFields,...new Set(additiveIndexes)].join("\n");
+  let notificationSql=[];
+  if(plan.changes.some(c=>c.kind==="addOverdueRule")){
+    if(!nextIr)throw Error("A14.3 upgrade requires verified new canonical IR");
+    const rules=compileOverduePolicies(nextIr),recipients=compileRecipientInboxes(nextIr);
+    if(rules.length!==1||recipients.length!==1)throw Error("Invalid notification migration count");
+    notificationSql=[...overdueSchemaSql(rules),...recipientInboxSql(recipients)];
+  }
+  return [...additiveFields,...new Set(additiveIndexes),...notificationSql].join("\n");
 }
 function run(command,args,options={}){
   const p=spawnSync(command,args,{stdio:"inherit",timeout:600000,...options});
@@ -396,7 +449,7 @@ export async function evolve(action,projectPath,outputPath){
     }
     for(const filename of oldState.files)
       copyFileSync(join(oldState.root,filename),join(fresh.root,filename));
-    const sql=additiveSql(diff);
+    const sql=additiveSql(diff,newIr);
     if(sql){
       const next=oldState.lastVersion+1;
       writeFileSync(join(fresh.root,"V"+next+"__protocolia_additive.sql"),
