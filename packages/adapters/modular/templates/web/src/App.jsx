@@ -409,7 +409,7 @@ export default function App(){
           if(Object.keys(errors).length){
             setError("Revisá los campos marcados para continuar.");
             const invalid=Object.keys(errors)[0];
-            event.currentTarget.querySelector("[data-testid=\\\"create-"+invalid+"\\\"]")?.focus();
+            event.currentTarget.querySelector(`[data-testid="create-${invalid}"]`)?.focus();
             return;
           }
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
@@ -418,7 +418,7 @@ export default function App(){
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>))}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={()=>setCreating(false)} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form>
             </div>
