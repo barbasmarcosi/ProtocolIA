@@ -132,7 +132,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       "Reassignment selects the immutable public reference ID");
     const patchResponse=page.waitForResponse(response=>
       response.request().method()==="PATCH"&&
-      new URL(response.url()).pathname==="/api/volunteers/"+encodeURIComponent(badge),
+      new URL(response.url()).pathname==="/api/volunteers/"+encodeURIComponent(badge)+"/guard",
       {timeout:15000});
     await reassignment.getByTestId("confirm-reassign").click();
     assert.equal((await patchResponse).status(),200,"Generated reassignment is successful");
