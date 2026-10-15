@@ -255,3 +255,20 @@ input:read-only{background:#f6f8fd;color:#607089;cursor:default}
   html{scroll-behavior:auto}
   button,.data-table tbody tr,.resource-nav button,.filters-chevron{transition:none}
 }
+
+/* Nested pickers are buttons semantically, but must NEVER inherit primary CTA hover paint. */
+button.relation-trigger,
+button.relation-trigger:hover:not(:disabled),
+button.relation-trigger:active:not(:disabled){
+  background:#fff;color:var(--ink);box-shadow:none;transform:none;
+}
+button.relation-trigger:hover:not(:disabled){border-color:#a5b7d7}
+button.relation-trigger[data-state="open"],
+button.relation-trigger[data-state="open"]:hover:not(:disabled){
+  background:#fff;color:var(--ink);border-color:#6089dd;
+  box-shadow:0 0 0 3px #dce8ff;
+}
+button.relation-trigger:disabled{background:#f6f8fd;color:#6b7890}
+.generated-state-action{display:flex;align-items:center;justify-content:space-between;
+  gap:12px;margin-top:10px;max-width:100%;text-align:left;flex-wrap:wrap}
+.generated-state-target{font-weight:550;font-size:.78rem;opacity:.8}
