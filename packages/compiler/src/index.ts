@@ -39,6 +39,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
     ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
+    ...(metadata(p,"computedSum",prop) ? {computedSum:String(metadata(p,"computedSum",prop)?.fields).split(",").map(s=>s.trim())} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
       target:String(metadata(p,"reference",prop)?.entity),
       onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
@@ -87,6 +88,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-initial",m.name+"."+prop.name+" requires a valid required string state field",prop);
       }
       fields.push(value);
+    }
+    for(const f of fields.filter(x=>x.computedSum!==undefined)) {
+      const parts=f.computedSum!;
+      const sources=parts.map(n=>fields.find(x=>x.name===n));
+      const max=sources.reduce((n,x)=>n+(x?.max??0),0);
+      if(f.name===publicKeys[0]||f.type!=="int32"||!f.required||f.nullable||f.unique||
+        f.reference||f.initial!==undefined||parts.length<2||parts.length>8||
+        new Set(parts).size!==parts.length||parts.some(n=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(n))||
+        sources.some(x=>!x||x===f||x.type!=="int32"||!x.required||x.nullable||
+          x.computedSum||x.min===undefined||x.min<0||!Number.isInteger(x.max))||
+        max>2147483647||!Number.isSafeInteger(max)||
+        (f.min!==undefined&&f.min>0)||(f.max!==undefined&&f.max<max))
+        reject("invalid-computed-sum",m.name+"."+f.name+" must sum 2..8 distinct, bounded, nonnegative required int32 fields; total fits int32",m);
     }
     if (publicKeys.length !== 1) {
       reject("identity",m.name+" must declare exactly one @publicIdentity",m);
