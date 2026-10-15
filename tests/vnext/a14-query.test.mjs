@@ -77,6 +77,21 @@ test("A14.2 independently compiles one-hop FK/equality/date-range search, sorted
  assert.equal(ticket.operations.queryPage.path,"/api/tickets/query/filtered");
  assert.equal(ticket.operations.queryPage.behavior.filters.length,4);
 });
+test("UX7 field-issue contracts remain independent of the volunteer domain",()=>{
+  const a=tmp(),b=tmp();
+  spring(ir,openapi,a);nest(ir,openapi,b);
+  const java=readFileSync(join(a,"src/main/java/dev/protocolia/modular/DomainRuntime.java"),"utf8");
+  const ts=readFileSync(join(b,"src/main.ts"),"utf8");
+  const ui=readFileSync(join(b,"web/src/App.jsx"),"utf8");
+  assert.match(java,/InvalidInputField/);
+  assert.match(java,/issues.*List\.of/);
+  assert.match(ts,/invalidField\(f,"required"\)/);
+  assert.match(ts,/issues:error\.issues/);
+  assert.match(ui,/failure\.issues=data\.issues/);
+  for(const source of [java,ts,ui])assert.doesNotMatch(source,/MonthlyEvaluation|volunteerBadge/,
+    "Validation mapping must be generic across generated domains");
+});
+
 test("A14.4 contains query uses safe allowlisted SQL and literal wildcard search for both generators",()=>{
  const changed=structuredClone(ir);
  const op=changed.operations.find(o=>o.name==="searchTickets");

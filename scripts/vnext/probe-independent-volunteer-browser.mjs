@@ -145,6 +145,37 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       {timeout:5000});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>el===document.activeElement),true,
       "Focus returns to the invoking create action after modal auto-focus cleanup");
+    // Simulate a stricter backend-only rule to verify mapping of contract-safe
+    // field issues to the generated input, without adding a domain-specific validator.
+    const serverForm=await navigate("Secciones","Section");
+    const rejectedCode=id("SERVERVALIDATION");
+    await serverForm.getByTestId("create-code").fill(rejectedCode);
+    await serverForm.getByTestId("create-name").fill("Valid client-side value");
+    await page.route(/\/api\/sections$/,async route=>{
+      if(route.request().method()==="POST"&&
+        JSON.parse(route.request().postData()??"{}").code===rejectedCode){
+        await route.fulfill({status:400,contentType:"application/json",
+          body:JSON.stringify({statusCode:400,message:"Validation failed",
+            issues:[{field:"name",code:"invalid_format"}]})});
+      }else await route.continue();
+    });
+    const validationResponse=page.waitForResponse(response=>
+      response.request().method()==="POST"&&new URL(response.url()).pathname==="/api/sections"&&
+      response.status()===400,{timeout:15000});
+    await serverForm.getByRole("button",{name:"Crear",exact:true}).click();
+    await validationResponse;
+    await serverForm.getByText("El formato ingresado no es válido.").waitFor({state:"visible"});
+    assert.equal(await serverForm.getByTestId("create-name").getAttribute("aria-invalid"),"true",
+      "Generated field is marked invalid after a structured HTTP 400");
+    assert.match(await serverForm.getByTestId("create-name").getAttribute("aria-describedby"),/create-name-error/,
+      "Backend field validation is linked through an accessible description");
+    assert.equal(await serverForm.getByTestId("create-code").inputValue(),rejectedCode,
+      "Server rejection never silently discards the entered draft");
+    await page.unroute(/\/api\/sections$/);
+    await serverForm.getByRole("button",{name:"Cancelar",exact:true}).click();
+    await page.getByTestId("unsaved-changes-confirmation")
+      .getByRole("button",{name:"Descartar cambios"}).click();
+    await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     const guardCreated=await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
       fields:{code:guard,sectionCode:section,name:"Guardia ficticia UI"},fk:{sectionCode:true}});
     assert.match(await guardCreated.row.innerText(),/Seccion ficticia UI/,
