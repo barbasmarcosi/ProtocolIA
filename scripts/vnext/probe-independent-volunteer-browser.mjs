@@ -26,10 +26,18 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       const input=form.getByTestId("create-"+field);
       if(Object.hasOwn(fk,field)){
         const expected=String(value);
-        // Native select options must load only through the declared authorized list endpoint.
-        await input.locator("option").filter({hasText:expected}).first().waitFor({state:"attached",timeout:20000});
-        await input.selectOption(expected);
-        assert.equal(await input.inputValue(),expected,entity+"."+field+" selection must persist in controlled React state");
+        // Generated accessible picker renders readable names and stores the exact FK key.
+        await input.waitFor({state:"visible",timeout:20000});
+        await input.click();
+        const option=page.getByRole("option").filter({hasText:expected}).first();
+        await option.waitFor({state:"visible",timeout:20000});
+        await option.click();
+        assert.equal(await input.getAttribute("data-selected-key"),expected,
+          entity+"."+field+" must store exactly the declared public identity");
+        assert.equal(await page.getByRole("listbox").count(),0,
+          "Selecting an option dismisses only the popover, not its parent dialog");
+        assert.equal(await page.getByTestId("create-dialog").isVisible(),true,
+          "The parent form remains open after choosing a relation");
       }else{
         await input.fill(String(value));
       }
@@ -63,7 +71,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     // with a visible explanatory status rather than a silent invalid submit.
     let form=await navigate("Guardias","GuardDuty");
     const initialFK=form.getByTestId("create-sectionCode");
-    await form.getByText("Primero creá un registro de Section.").waitFor({timeout:10000});
+    await form.getByText(/Primero creá un registro de/).waitFor({timeout:10000});
     assert.equal(await initialFK.isDisabled(),true,"FK selector disabled until parent records exist");
     assert.equal(await form.getByRole("button",{name:"Crear",exact:true}).isDisabled(),true,
       "No silent child creation when related list is empty");
