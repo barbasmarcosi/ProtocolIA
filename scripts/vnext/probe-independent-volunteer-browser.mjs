@@ -19,13 +19,13 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const form=page.getByTestId("create-form-"+entity);
     await form.waitFor({state:"visible",timeout:20000});
     if(entity==="Volunteer"){
-      await form.getByText("Guardia asignada",{exact:true}).waitFor();
+      await form.getByText(/^Guardia asignada\s*\*$/).waitFor();
       await form.getByText("Podés reasignarla más adelante desde el detalle.").waitFor();
       const help=await form.getByTestId("create-guardCode").getAttribute("aria-describedby");
       assert.ok(help?.length>0,"Generated reference picker exposes the contract hint to assistive technology");
     }
     if(entity==="MonthlyEvaluation"){
-      await form.getByText("Período de evaluación",{exact:true}).waitFor();
+      await form.getByText(/^Período de evaluación\s*\*$/).waitFor();
       await form.getByText("Seleccioná el mes de la evaluación.").waitFor();
       const help=await form.getByTestId("create-period").getAttribute("aria-describedby");
       assert.ok(help?.length>0,"Generated month input uses contract help in accessible description");
