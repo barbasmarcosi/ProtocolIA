@@ -167,8 +167,10 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await serverForm.getByText("El formato ingresado no es válido.").waitFor({state:"visible"});
     assert.equal(await serverForm.getByTestId("create-name").getAttribute("aria-invalid"),"true",
       "Generated field is marked invalid after a structured HTTP 400");
-    assert.match(await serverForm.getByTestId("create-name").getAttribute("aria-describedby"),/create-name-error/,
-      "Backend field validation is linked through an accessible description");
+    const serverErrorId=await serverForm.getByText("El formato ingresado no es válido.",{exact:true}).getAttribute("id");
+    const associated=await serverForm.getByTestId("create-name").getAttribute("aria-describedby");
+    assert.ok(serverErrorId&&associated?.split(/\s+/).includes(serverErrorId),
+      "Backend field validation is linked by the actual React-generated accessible description");
     assert.equal(await serverForm.getByTestId("create-code").inputValue(),rejectedCode,
       "Server rejection never silently discards the entered draft");
     await page.unroute(/\/api\/sections$/);
