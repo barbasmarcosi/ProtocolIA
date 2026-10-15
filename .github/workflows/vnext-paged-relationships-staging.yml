@@ -1,0 +1,86 @@
+name: vnext-paged-relationships-staging
+on:
+  push:
+    branches:
+      - feature/vnext-paged-relationship-ux-20261015
+    paths:
+      - '.github/workflows/vnext-paged-relationships-staging.yml'
+      - 'examples/vnext/volunteer-evaluations/**'
+      - 'tests/vnext/independent-volunteer-evaluations.test.mjs'
+      - 'scripts/vnext/probe-independent-volunteer-http.mjs'
+      - 'scripts/vnext/probe-independent-volunteer-browser.mjs'
+      - 'packages/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: independent-volunteer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contract-generated-nest-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install locked ProtocolIA toolchain
+        run: npm ci
+      - name: Generate Nest and React from independent TypeSpec, without per-entity patches
+        run: npm run app:build -- examples/vnext/volunteer-evaluations --target nestjs --out "${RUNNER_TEMP}/volunteer-evaluations-generated"
+      - name: Verify independent requirements trace and compiled canonical IR
+        run: node --test tests/vnext/independent-volunteer-evaluations.test.mjs
+      - name: Generated Docker Compose, PostgreSQL, HTTP and auth conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-generated"
+      - name: Install pinned Playwright Chromium for real FK creation test
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Independent HTTP + Chromium browser oracle against generated UI
+        run: node scripts/vnext/probe-independent-volunteer-http.mjs "${RUNNER_TEMP}/volunteer-evaluations-generated" --browser
+      - name: Preserve generated UI visual review (desktop and mobile)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocolia-generated-ux-review
+          path: |
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-list-desktop.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-detail-desktop.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-detail-mobile.png
+          if-no-files-found: error
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: volunteer-generated-fk-browser-failure
+          path: ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-fk-browser-failure.png
+          if-no-files-found: ignore
+
+  contract-generated-spring-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+      - name: Install locked compiler
+        run: npm ci
+      - name: Generate Spring Boot and React from the same independent TypeSpec
+        run: npm run app:build -- examples/vnext/volunteer-evaluations --target modular-spring --out "${RUNNER_TEMP}/volunteer-evaluations-spring"
+      - name: Generated Spring Docker Compose and PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-spring"
+      - name: Independent source-frozen HTTP oracle on Spring Boot
+        run: node scripts/vnext/probe-independent-volunteer-http.mjs "${RUNNER_TEMP}/volunteer-evaluations-spring"
