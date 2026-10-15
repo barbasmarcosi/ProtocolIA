@@ -11,7 +11,8 @@ test("independent benchmark freezes 16 externally sourced requirements",()=>{
   for(let i=1;i<=16;i++)assert.match(freeze,new RegExp("BV-"+String(i).padStart(2,"0")+"\\b"));
   assert.match(freeze,/UNSUPPORTED/);assert.match(freeze,/Ambiguit/);
   assert.ok(!source.includes("totalScore"),"Do not fake a computed score");
-  assert.ok(!source.includes("@computed"),"Do not invent unsupported decorators");
+  assert.ok(source.includes('@computedSum("incidentPoints,mandatoryPoints,guardPoints,internalPoints")'),"Newly supported sum is explicitly contract-defined");
+  assert.ok(!source.includes("totalScore"),"Do not claim a full monthly total with leave scoring");
 });
 test("TypeSpec compiled five independent FK-related domain entities",()=>{
   assert.deepEqual([...entities.keys()].sort(),["GuardDuty","LeaveRecord","MonthlyEvaluation","Section","Volunteer"].sort());
@@ -28,6 +29,9 @@ test("source-defined category caps survive the compiler",()=>{
   }
   assert.equal(grade.fields.find(f=>f.name==="status").initial,"draft");
   assert.equal(grade.fields.find(f=>f.name==="otherPoints").min,0);
+  assert.deepEqual(grade.fields.find(f=>f.name==="basePoints").computedSum,
+    ["incidentPoints","mandatoryPoints","guardPoints","internalPoints"]);
+  assert.equal(grade.fields.find(f=>f.name==="basePoints").max,100);
 });
 test("generated operations include guarded reassignment, publish, filtered history and independent audit authority",()=>{
   const byName=new Map(ir.operations.map(o=>[o.name,o]));
