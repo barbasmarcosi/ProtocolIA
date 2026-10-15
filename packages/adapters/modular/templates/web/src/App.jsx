@@ -1,5 +1,6 @@
 import NotificationInbox from "./NotificationInbox.jsx";
-import React,{useEffect,useMemo,useState} from "react";
+import React,{useEffect,useMemo,useRef,useState} from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -68,6 +69,9 @@ export default function App(){
   const [draftFilters,setDraftFilters]=useState({});
   const [appliedFilters,setAppliedFilters]=useState({});
   const [selected,setSelected]=useState(null);
+  const [creating,setCreating]=useState(false);
+  const detailOpener=useRef(null);
+  const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
   const [auditOffset,setAuditOffset]=useState(0);
@@ -138,7 +142,7 @@ export default function App(){
   useEffect(()=>{
     if(!active)return;
     setForm(createEmpty(active.entity.fields));
-    setSelected(null);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
+    setSelected(null);setCreating(false);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     setDraftFilters({});setAppliedFilters({});
   },[active?.entity.name]);
@@ -216,13 +220,13 @@ export default function App(){
     }finally{setLoginBusy(false);}
   }
   function logOut(){
-    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setCreating(false);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
     try{
       const data=await request(kind,params);
-      if(kind==="delete")setSelected(null);
+      if(kind==="delete"||kind==="create")setSelected(null);
       else if(data?.[active.entity.publicIdentity]){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
@@ -255,8 +259,8 @@ export default function App(){
           aria-current={resourceIndex===i?"page":undefined}
           onClick={()=>setResourceIndex(i)}>{r.view||r.entity.name}</button>)}
       </nav>}
-      {error&&<p className="message error" role="alert">{error}</p>}
-      {notice&&<p className="message" role="status">{notice}</p>}
+      {error&&!selected&&!creating&&<p className="message error" role="alert">{error}</p>}
+      {notice&&!selected&&!creating&&<p className="message" role="status">{notice}</p>}
       {can("queryPage")&&<section className="panel" data-testid="query-filters">
         <h2>Buscar y filtrar</h2>
         <form onSubmit={event=>{event.preventDefault();setOffset(0);setAppliedFilters({...draftFilters});}}>
@@ -275,29 +279,52 @@ export default function App(){
         </form>
       </section>}
       <section className="panel">
-        <div className="heading"><h2>Listado <span className="muted">({total})</span></h2><button className="ghost" onClick={refresh}>Actualizar</button></div>
+        <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
+          {can("create")&&<button data-testid="open-create" onClick={()=>{setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo {active.entity.name}</button>}
+          <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
         <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" onClick={()=>{setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
+          <td><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      {can("create")&&<section className="panel"><h2>Crear {active.entity.name}</h2>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading)setCreating(open);}}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-overlay"/>
+          <Dialog.Content className="modal-content" aria-describedby={undefined} data-testid="create-dialog">
+            <div className="modal-header"><Dialog.Title className="modal-title">Nuevo {active.entity.name}</Dialog.Title>
+              <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
+            <div className="modal-scroll">
+              {error&&<p className="message error" role="alert">{error}</p>}
         <form data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
-          if(data)setForm(createEmpty(active.entity.fields));
+          if(data){setForm(createEmpty(active.entity.fields));setCreating(false);}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           referenceState={referenceStatus[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
-          <button type="submit" disabled={loading||!referencesReady}>Crear</button></form>
-      </section>}
-      {selected&&<section className="panel"><h2>Detalle: {selected[active.entity.publicIdentity]}</h2>
+          <div className="modal-actions"><button type="button" className="ghost" onClick={()=>setCreating(false)} disabled={loading}>Cancelar</button>
+          <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={Boolean(selected)} onOpenChange={open=>{if(!open&&!loading)setSelected(null);}}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-overlay"/>
+          {selected&&<Dialog.Content data-testid="detail-dialog" className="modal-content"
+            aria-describedby={undefined}
+            onCloseAutoFocus={event=>{if(detailOpener.current?.isConnected){event.preventDefault();detailOpener.current.focus();}else if(listHeading.current){event.preventDefault();listHeading.current.focus();}}}>
+            <div className="modal-header"><Dialog.Title className="modal-title">Detalle: {selected[active.entity.publicIdentity]}</Dialog.Title>
+              <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar detalle" disabled={loading}>Cerrar</button></Dialog.Close></div>
+            <div className="modal-scroll">
+            {error&&<p className="message error" role="alert">{error}</p>}
+            {notice&&<p className="message" role="status">{notice}</p>}
         <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
         <div className="actions">
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
@@ -353,7 +380,10 @@ export default function App(){
           if(!window.confirm("¿Eliminar "+selected[active.entity.publicIdentity]+"?"))return;
           act("delete",{code:selected[active.entity.publicIdentity]});
         }}>Eliminar</button>}
-      </section>}
+            </div>
+          </Dialog.Content>}
+        </Dialog.Portal>
+      </Dialog.Root>
       </>
     }
   </main>;
