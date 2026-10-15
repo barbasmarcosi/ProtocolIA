@@ -248,6 +248,22 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await chooser.getByRole("searchbox",{name:"Buscar sección"}).fill("PAGINADA FICTICIA 056");
     const beyond=chooser.getByRole("option").filter({hasText:id("PAGED056")});
     await beyond.waitFor({state:"visible",timeout:15000});
+    await chooser.screenshot({path:join(generated,"protocolia-generated-picker-desktop.png")});
+    await beyond.focus();
+    assert.equal(await beyond.evaluate(el=>document.activeElement===el),true,
+      "Paginated options can be focused by keyboard");
+    await page.keyboard.press("Escape");
+    await chooser.waitFor({state:"hidden",timeout:7000});
+    assert.equal(await pageForm.isVisible(),true,
+      "Escape dismisses chooser while retaining the parent form");
+    await trigger.click();
+    await chooser.getByRole("searchbox",{name:"Buscar sección"}).fill("PAGINADA FICTICIA 056");
+    await beyond.waitFor({state:"visible",timeout:10000});
+    await page.setViewportSize({width:390,height:780});
+    await chooser.screenshot({path:join(generated,"protocolia-generated-picker-mobile.png")});
+    const width=await chooser.evaluate(el=>el.getBoundingClientRect().width);
+    assert.ok(width<=390,"Paginated picker fits small viewport");
+    await page.setViewportSize({width:1365,height:900});
     await beyond.click();
     await chooser.waitFor({state:"hidden"});
     assert.equal(await trigger.getAttribute("data-selected-key"),id("PAGED056"),

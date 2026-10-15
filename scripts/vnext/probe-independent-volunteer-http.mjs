@@ -85,7 +85,7 @@ try{
   assert.equal((await req("/api/volunteers",{as:null})).status,401,"BV-01 unauthenticated read");
   assert.equal((await req("/api/sections",{method:"POST",as:"reader",body:sec})).status,403,"BV-01 reader write");
   assert.equal((await req("/api/sections",{method:"POST",body:sec})).status,201);
-  const found=await req("/api/sections/query/lookup?name=FICTICIA",{as:"reader"});
+  const found=await req("/api/sections/query/lookup?name=seccion%20ficticia",{as:"reader"});
   assert.equal(found.status,200,"Case insensitive lookup with read capability");
   assert.ok(found.body.items.some(x=>x.code===sec.code));
   assert.equal((await req("/api/sections/query/lookup?name=%25",{as:"reader"})).body.total,0,
