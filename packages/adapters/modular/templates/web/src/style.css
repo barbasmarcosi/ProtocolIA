@@ -55,3 +55,14 @@
 @media(prefers-reduced-motion:reduce){.loading-spinner,.relation-dropdown{animation:none}
   .relation-chevron{transition:none}}
 @media(max-width:640px){.relation-trigger{min-height:48px}.relation-option{min-height:48px}}
+
+/* Contract validation UX: error is visible at the exact input, not only in a generic banner. */
+.field input[aria-invalid="true"],.field .relation-trigger[aria-invalid="true"]{
+  border-color:#b42332;background-color:#fffafa;box-shadow:0 0 0 1px #b423321f;
+}
+.field input[aria-invalid="true"]:focus-visible,.field .relation-trigger[aria-invalid="true"]:focus-visible{
+  outline:2px solid #b42332;outline-offset:2px;
+}
+.field .field-hint.error{display:block;margin-top:2px;color:#a91a2b;font-weight:500}
+.entity-reference{display:flex;flex-direction:column;gap:2px;line-height:1.35;min-width:0}
+.entity-reference-code{color:#64748b;font-size:.78rem;overflow-wrap:anywhere}
