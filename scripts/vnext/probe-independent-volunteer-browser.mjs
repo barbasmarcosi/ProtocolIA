@@ -175,8 +175,19 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       path:join(generated,"protocolia-generated-server-field-error-desktop.png")
     });
     await page.setViewportSize({width:390,height:780});
+    const compactBounds=await page.getByTestId("create-dialog").evaluate(element=>{
+      const rect=element.getBoundingClientRect();
+      return {height:rect.height,bottom:rect.bottom,windowHeight:window.innerHeight};
+    });
+    assert.ok(compactBounds.height<compactBounds.windowHeight*.85,
+      "Short generated forms use compact mobile bottom sheets instead of empty full screens");
+    assert.ok(Math.abs(compactBounds.bottom-compactBounds.windowHeight)<=2,
+      "Compact mobile creation is anchored to the viewport bottom");
     await page.getByTestId("create-dialog").screenshot({
       path:join(generated,"protocolia-generated-server-field-error-mobile.png")
+    });
+    await page.getByTestId("create-dialog").screenshot({
+      path:join(generated,"protocolia-generated-compact-create-mobile.png")
     });
     await page.setViewportSize({width:1365,height:900});
     assert.equal(await serverForm.getByTestId("create-code").inputValue(),rejectedCode,
@@ -235,6 +246,13 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await volunteerModal.waitFor({state:"hidden"});
     await page.screenshot({path:join(generated,"protocolia-generated-list-desktop.png"),fullPage:true});
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
+    await page.setViewportSize({width:390,height:780});
+    const longBounds=await page.getByTestId("create-dialog").evaluate(element=>({
+      height:element.getBoundingClientRect().height,windowHeight:window.innerHeight
+    }));
+    assert.ok(longBounds.height>=longBounds.windowHeight-3,
+      "Complex generated forms retain scrollable full-height mobile layout");
+    await page.setViewportSize({width:1365,height:900});
     assert.equal(await form.getByTestId("create-basePoints").count(),0,
       "Computed basePoints must never be an editable/form-submitted input");
     assert.equal(await form.getByTestId("create-status").count(),0,

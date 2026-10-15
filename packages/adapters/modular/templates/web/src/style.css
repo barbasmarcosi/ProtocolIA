@@ -329,3 +329,25 @@ button.discard-button:hover:not(:disabled){background:#79262a}
  .draft-discard-panel .modal-actions{flex-direction:column-reverse}
  .draft-discard-panel .modal-actions button{width:100%}
 }
+
+/* UX8: adapt the same contract-generated form container to task complexity.
+   Short forms without relational selectors become mobile bottom sheets; longer
+   workflows keep a scrollable full-screen dialog with an accessible focus trap. */
+@media(max-width:700px){
+  .modal-content.modal-content-compact{
+    inset:auto 0 0;top:auto;left:0;bottom:0;transform:none;
+    width:100vw;max-width:none;height:auto;min-height:0;
+    max-height:calc(100dvh - 12px);
+    border-radius:22px 22px 0 0;border-bottom:0;
+    box-shadow:0 -16px 48px rgba(16,35,65,.22);
+  }
+  .modal-content.modal-content-compact .modal-scroll{
+    flex:0 1 auto;max-height:calc(100dvh - 110px);min-height:0;
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));
+    overflow-y:auto;overscroll-behavior:contain;
+  }
+  .modal-content.modal-content-compact .modal-actions{
+    position:relative;bottom:auto;margin-bottom:0;
+  }
+  .modal-content.modal-content-compact .modal-header{flex-shrink:0}
+}

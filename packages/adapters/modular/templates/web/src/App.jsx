@@ -264,6 +264,11 @@ export default function App(){
     window.addEventListener("beforeunload",warn);
     return ()=>window.removeEventListener("beforeunload",warn);
   },[createDirty]);
+  // Compact, simple create tasks should not waste an entire mobile viewport.
+  // Relationship selectors and longer workflows retain full-height dialogs.
+  const compactCreate=Boolean(active?.entity?.fields&&
+    active.entity.fields.filter(f=>!f.computedSum&&f.initial===undefined).length<=4&&
+    !active.entity.fields.some(f=>!f.computedSum&&f.initial===undefined&&f.reference));
   const referencesReady=active?.entity?.fields.filter(f=>f.reference)
     .every(f=>["ready","paged"].includes(referenceStatus[f.name]?.state))??true;
   function listing(){
@@ -513,7 +518,7 @@ export default function App(){
       <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
-          <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
+          <Dialog.Content className={compactCreate?"modal-content modal-content-compact":"modal-content"} aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
             onEscapeKeyDown={event=>{
               if(activePicker){event.preventDefault();setActivePicker("");}
               else if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}
