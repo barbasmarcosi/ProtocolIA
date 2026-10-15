@@ -31,7 +31,7 @@ export function buildQueryPlan(ir,operation){
  const same=new Set(),viaMap=new Map(),filters=[],indexes=new Map();
  for(const filter of b.filters){
   if(!filter||!safe(filter.parameter)||same.has(filter.parameter)||
-     ["limit","offset"].includes(filter.parameter)||!["eq","gte","lte"].includes(filter.operator)||
+     ["limit","offset"].includes(filter.parameter)||!["eq","gte","lte","contains"].includes(filter.operator)||
      !["string","int32","utcDateTime"].includes(filter.type))
    throw Error("Unsafe/duplicate query filter parameter");
   same.add(filter.parameter);
@@ -45,14 +45,14 @@ export function buildQueryPlan(ir,operation){
    viaMap.set(filter.via,{alias,target:owner.name,sourceColumn:fk.name,targetKey:owner.publicIdentity});
   }
   const f=owner.fields.find(x=>x.name===filter.field);
-  if(!f||f.type!==filter.type||(filter.operator!=="eq"&&!["int32","utcDateTime"].includes(f.type)))
+  if(!f||f.type!==filter.type||(filter.operator==="contains"?f.type!=="string":filter.operator!=="eq"&&!["int32","utcDateTime"].includes(f.type)))
    throw Error("Filter type/operator differs from referenced field "+filter.field);
   const expression=alias+"."+col(f.name);
   filters.push({name:filter.parameter,expression,
-    comparator:{eq:"=",gte:">=",lte:"<="}[filter.operator],type:f.type,
+    comparator:{eq:"=",gte:">=",lte:"<=",contains:"ILIKE"}[filter.operator],type:f.type,
     minLength:f.minLength??null,maxLength:f.maxLength??null,min:f.min??null,max:f.max??null});
   const indexKey=owner.name+"."+f.name;
-  if(f.name!==owner.publicIdentity)indexes.set(indexKey,{entity:owner.name,field:f.name});
+  if(f.name!==owner.publicIdentity&&filter.operator!=="contains")indexes.set(indexKey,{entity:owner.name,field:f.name});
  }
  const joins=[...viaMap.values()].map(v=>" INNER JOIN "+table(v.target)+" "+v.alias+
    " ON t0."+col(v.sourceColumn)+" = "+v.alias+"."+col(v.targetKey));

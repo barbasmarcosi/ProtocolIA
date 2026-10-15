@@ -353,9 +353,14 @@ public class DomainRuntime {
       }else throw new IllegalStateException("Unsupported declared filter");
       if(filter.comparator().equals(">="))lower.put(filter.expression(),(Comparable)parsed);
       if(filter.comparator().equals("<="))upper.put(filter.expression(),(Comparable)parsed);
+      // Only allowlisted columns can be searched; wildcard input stays literal.
+      if(filter.comparator().equals("ILIKE"))
+        parsed="%"+value.replace("!","!!").replace("%","!%").replace("_","!_")+"%";
       args.addValue(filter.name(),parsed);
       where.append(" AND ").append(filter.expression()).append(" ")
           .append(filter.comparator()).append(" :").append(filter.name());
+      if(filter.comparator().equals("ILIKE"))where.append(" ESCAPE '!'");
+
     }
     for(var key:lower.keySet()){
       if(upper.containsKey(key)&&lower.get(key).compareTo(upper.get(key))>0)

@@ -231,6 +231,17 @@ namespace VolunteerEvaluations {
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
   ): SectionPage | BadRequest | Unauthorized | Forbidden;
 
+  // Explicit read-authorized substring lookup for scalable relationship selection.
+  @route("/api/sections/query/lookup")
+  @get @behavior("queryPage","Section")
+  @queryOrder("code","asc") @capability("sections.read")
+  op searchSection(
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0,
+    @query @queryFilter("name","contains") name?: string,
+    @query @queryFilter("code","contains") code?: string
+  ): SectionPage | BadRequest | Unauthorized | Forbidden;
+
   @route("/api/guards")
   @post @behavior("create","GuardDuty") @capability("guards.write")
   op createGuardDuty(@body input: GuardDutyRequest):
@@ -248,6 +259,17 @@ namespace VolunteerEvaluations {
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
   ): GuardDutyPage | BadRequest | Unauthorized | Forbidden;
 
+  // Explicit read-authorized substring lookup for scalable relationship selection.
+  @route("/api/guards/query/lookup")
+  @get @behavior("queryPage","GuardDuty")
+  @queryOrder("code","asc") @capability("guards.read")
+  op searchGuardDuty(
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0,
+    @query @queryFilter("name","contains") name?: string,
+    @query @queryFilter("code","contains") code?: string
+  ): GuardDutyPage | BadRequest | Unauthorized | Forbidden;
+
   @route("/api/volunteers")
   @post @behavior("create","Volunteer") @capability("volunteers.write")
   op createVolunteer(@body input: VolunteerRequest):
@@ -263,6 +285,17 @@ namespace VolunteerEvaluations {
   op listVolunteer(
     @query @minValue(1) @maxValue(50) limit?: int32 = 25,
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
+  ): VolunteerPage | BadRequest | Unauthorized | Forbidden;
+
+  // Explicit read-authorized substring lookup for scalable relationship selection.
+  @route("/api/volunteers/query/lookup")
+  @get @behavior("queryPage","Volunteer")
+  @queryOrder("badge","asc") @capability("volunteers.read")
+  op searchVolunteer(
+    @query @minValue(1) @maxValue(50) limit?: int32 = 25,
+    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0,
+    @query @queryFilter("name","contains") name?: string,
+    @query @queryFilter("badge","contains") badge?: string
   ): VolunteerPage | BadRequest | Unauthorized | Forbidden;
 
   @route("/api/monthly-evaluations")

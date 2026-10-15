@@ -265,8 +265,11 @@ class RuntimeService{
         filter.type==="utcDateTime"?Date.parse(String(value)):Number(value));
       if(filter.comparator==="<=")upper.set(filter.expression,
         filter.type==="utcDateTime"?Date.parse(String(value)):Number(value));
+      // A literal, case-insensitive substring; SQL wildcard characters are escaped.
+      if(filter.comparator==="ILIKE")value="%"+raw.replace(/!/g,"!!").replace(/%/g,"!%").replace(/_/g,"!_")+"%";
       values.push(value);
-      clause+=" AND "+filter.expression+" "+filter.comparator+" $"+values.length;
+      clause+=" AND "+filter.expression+" "+filter.comparator+" $"+values.length+
+        (filter.comparator==="ILIKE"?" ESCAPE '!'":"");
     }
     for(const [column,start] of lower){
       if(upper.has(column)&&start>upper.get(column)!)throw new Problem(400,"Inverted query range");

@@ -77,6 +77,26 @@ test("A14.2 independently compiles one-hop FK/equality/date-range search, sorted
  assert.equal(ticket.operations.queryPage.path,"/api/tickets/query/filtered");
  assert.equal(ticket.operations.queryPage.behavior.filters.length,4);
 });
+test("A14.4 contains query uses safe allowlisted SQL and literal wildcard search for both generators",()=>{
+ const changed=structuredClone(ir);
+ const op=changed.operations.find(o=>o.name==="searchTickets");
+ op.behavior.filters=[{parameter:"statusText",field:"status",operator:"contains",type:"string"}];
+ const plan=buildQueryPlan(changed,op);
+ assert.equal(plan.filters[0].comparator,"ILIKE");
+ assert.doesNotMatch(plan.source,/statusText/);
+ const api=structuredClone(openapi);
+ api.paths[op.path].get.parameters=api.paths[op.path].get.parameters.slice(0,2).concat({
+   name:"statusText",in:"query",required:false,schema:{type:"string"}
+ });
+ const a=tmp(),b=tmp();spring(changed,api,a);nest(changed,api,b);
+ assert.match(readFileSync(join(a,"src/main/java/dev/protocolia/modular/Manifest.java"),"utf8"),/ILIKE/);
+ assert.match(readFileSync(join(b,"src/manifest.json"),"utf8"),/ILIKE/);
+ assert.match(readFileSync(new URL("../../packages/adapters/modular/templates/DomainRuntime.java",import.meta.url),"utf8"),/ESCAPE '!'/);
+ const unsafe=structuredClone(changed);
+ unsafe.operations.find(o=>o.name==="searchTickets").behavior.filters[0].type="int32";
+ assert.throws(()=>buildQueryPlan(unsafe,unsafe.operations.find(o=>o.name==="searchTickets")));
+});
+
 test("A14.2 declarative plan refuses injection, unsupported joins, unsafe sort, invalid types and privilege bypass",()=>{
  const mutations=[
   b=>{b.filters[0].via="status";},

@@ -44,7 +44,7 @@ export interface IrOperation {
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     audit?: string[];
-    filters?: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte";type:IrField["type"]}[];
+    filters?: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte"|"contains";type:IrField["type"]}[];
     sort?: {field:string;direction:"asc"|"desc"};
   };
   capability: string;

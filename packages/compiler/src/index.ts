@@ -316,7 +316,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-query-decorator",op.name+" applies query decorators to a non-query operation",op);
       continue;
     }
-    let queryFilters: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte";type:IrField["type"]}[]|undefined;
+    let queryFilters: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte"|"contains";type:IrField["type"]}[]|undefined;
     let querySort: {field:string;direction:"asc"|"desc"}|undefined;
     if(kind==="queryPage"){
       const sort=metadata(p,"queryOrder",op);
@@ -342,15 +342,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
         const target=via?.reference?declared.get(via.reference.target):undefined;
         const actual=(segments.length===1?entity:target)?.fields.find(x=>x.name===segments.at(-1));
         const propertyType=typeOfField(prop);
-        if(segments.length>2||!["eq","gte","lte"].includes(operator)||!actual||
+        if(segments.length>2||!["eq","gte","lte","contains"].includes(operator)||!actual||
            (segments.length===2&&(!via?.reference||!target))||
            propertyType?.type!==actual.type||propertyType?.nullable||
-           (operator!=="eq"&&!["int32","utcDateTime"].includes(actual.type))){
+           (operator==="contains"?actual.type!=="string":operator!=="eq"&&!["int32","utcDateTime"].includes(actual.type))){
           reject("query-filter",op.name+"."+prop.name+" is not a typed, whitelisted local/one-hop FK filter",op);
           break;
         }
         queryFilters.push({parameter:prop.name,field:actual.name,
-          ...(via?{via:via.name}:{}),operator:operator as "eq"|"gte"|"lte",type:actual.type});
+          ...(via?{via:via.name}:{}),operator:operator as "eq"|"gte"|"lte"|"contains",type:actual.type});
       }
       if(queryFilters.length!==filterProperties.length)continue;
       querySort={field:sortField.name,direction:sort?.direction as "asc"|"desc"};
