@@ -33,6 +33,11 @@ function valueFor(field, identity=false){
   if(field.type==="utcDateTime")return "2026-10-13T00:00:00Z";
   if(field.type==="int32")return Math.max(field.min??0, identity?0:2);
   if(field.type!=="string")throw Error("Unsupported fixture field "+field.name);
+  if(field.pattern!==undefined){
+    const supported="^[0-9]{4}-(0[1-9]|1[0-2])$";
+    if(field.pattern!==supported)throw Error("No safe fixture for authoritative pattern "+field.name);
+    return "2026-10";
+  }
   let value=identity?"C"+uuid:"Sample"+field.name;
   const minimum=Math.max(field.minLength??1,1);
   const maximum=field.maxLength??255;

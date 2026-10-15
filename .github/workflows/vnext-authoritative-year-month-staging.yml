@@ -7,6 +7,7 @@ on:
       - '.github/workflows/vnext-authoritative-year-month-staging.yml'
       - 'examples/vnext/volunteer-evaluations/**'
       - 'tests/vnext/independent-volunteer-evaluations.test.mjs'
+      - 'tests/vnext/a14-query.test.mjs'
       - 'scripts/vnext/probe-independent-volunteer-http.mjs'
       - 'scripts/vnext/probe-independent-volunteer-browser.mjs'
       - 'packages/**'
