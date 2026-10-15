@@ -11,8 +11,10 @@ namespace VolunteerEvaluations {
   @view("Secciones")
   model Section {
     @publicIdentity @unique @minLength(1) @maxLength(40)
+    @uiLabel("Código de sección") @uiHelp("Identificador único de la sección.")
     code: string;
     @minLength(1) @maxLength(120)
+    @uiLabel("Nombre de la sección")
     name: string;
   }
 
@@ -34,10 +36,13 @@ namespace VolunteerEvaluations {
   @view("Guardias")
   model GuardDuty {
     @publicIdentity @unique @minLength(1) @maxLength(40)
+    @uiLabel("Código de guardia")
     code: string;
     @reference("Section","restrict") @minLength(1) @maxLength(40)
+    @uiLabel("Sección") @uiHelp("Sección a la que pertenece esta guardia.")
     sectionCode: string;
     @minLength(1) @maxLength(120)
+    @uiLabel("Nombre de la guardia")
     name: string;
   }
 
@@ -61,12 +66,16 @@ namespace VolunteerEvaluations {
   @view("Personal")
   model Volunteer {
     @publicIdentity @unique @minLength(1) @maxLength(40)
+    @uiLabel("Legajo")
     badge: string;
     @reference("GuardDuty","restrict") @minLength(1) @maxLength(40)
+    @uiLabel("Guardia asignada") @uiHelp("Podés reasignarla más adelante desde el detalle.")
     guardCode: string;
     @minLength(1) @maxLength(120)
+    @uiLabel("Nombre completo")
     name: string;
     @minLength(1) @maxLength(80)
+    @uiLabel("Jerarquía")
     rank: string;
   }
 
@@ -92,26 +101,36 @@ namespace VolunteerEvaluations {
   @view("Calificaciones mensuales")
   model MonthlyEvaluation {
     @publicIdentity @unique @minLength(1) @maxLength(40)
+    @uiLabel("Número de evaluación")
     number: string;
     @reference("Volunteer","restrict") @minLength(1) @maxLength(40)
+    @uiLabel("Persona evaluada") @uiHelp("Elegí el personal al que corresponde esta evaluación.")
     volunteerBadge: string;
     @minLength(7) @maxLength(7)
+    @uiLabel("Período de evaluación") @uiHelp("Seleccioná el mes de la evaluación.") @uiControl("month")
     period: string;
     @minValue(0) @maxValue(25)
+    @uiLabel("Puntos por emergencias")
     incidentPoints: int32;
     @minValue(0) @maxValue(35)
+    @uiLabel("Puntos por asistencia obligatoria")
     mandatoryPoints: int32;
     @minValue(0) @maxValue(20)
+    @uiLabel("Puntos por guardia")
     guardPoints: int32;
     @minValue(0) @maxValue(20)
+    @uiLabel("Puntos por orden interno")
     internalPoints: int32;
     @minValue(0)
+    @uiLabel("Puntos adicionales")
     otherPoints: int32;
     // Automatically computed base; NOT the final monthly total including leave/other points.
     @computedSum("incidentPoints,mandatoryPoints,guardPoints,internalPoints")
     @minValue(0) @maxValue(100)
+    @uiLabel("Base puntos")
     basePoints: int32;
     @initial("draft") @minLength(1) @maxLength(20)
+    @uiLabel("Estado de evaluación")
     status: string;
   }
 
@@ -147,16 +166,22 @@ namespace VolunteerEvaluations {
   @view("Licencias")
   model LeaveRecord {
     @publicIdentity @unique @minLength(1) @maxLength(40)
+    @uiLabel("Número de licencia")
     number: string;
     @reference("Volunteer","restrict") @minLength(1) @maxLength(40)
+    @uiLabel("Persona")
     volunteerBadge: string;
     @minLength(1) @maxLength(30)
+    @uiLabel("Tipo de licencia")
     leaveKind: string;
     @minLength(7) @maxLength(7)
+    @uiLabel("Período de licencia") @uiControl("month")
     period: string;
     @minValue(1) @maxValue(31)
+    @uiLabel("Días de licencia")
     days: int32;
     @minLength(1) @maxLength(160)
+    @uiLabel("Observaciones") @uiHelp("Agregá una breve explicación si hace falta.")
     notes?: string;
   }
 
