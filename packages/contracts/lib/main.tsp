@@ -7,6 +7,10 @@ namespace ProtocolIA.Domain {
   extern dec unique(target: ModelProperty);
   extern dec reference(target: ModelProperty, entity: valueof string, onDelete?: valueof string);
   extern dec view(target: Model, label: valueof string);
+  // Presentation metadata only: never changes business validation or authorization.
+  extern dec uiLabel(target: ModelProperty, label: valueof string);
+  extern dec uiHelp(target: ModelProperty, help: valueof string);
+  extern dec uiControl(target: ModelProperty, control: valueof string);
   extern dec initial(target: ModelProperty, value: valueof string);
   extern dec computedSum(target: ModelProperty, fields: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
