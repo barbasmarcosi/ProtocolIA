@@ -28,7 +28,7 @@ function docker(args,timeout=600000){
 async function freePort(){
   return new Promise((res,rej)=>{
     const server=createServer();server.once("error",rej);
-    server.listen(0,"127.0.0.1",()=>server.close(()=>res(server.address()?.port??0)));
+    server.listen(0,"127.0.0.1",()=>{const port=server.address()?.port??0;server.close(()=>res(port));});
   });
 }
 async function poll(base,timeout=130000){
