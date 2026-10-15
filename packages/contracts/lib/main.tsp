@@ -8,6 +8,7 @@ namespace ProtocolIA.Domain {
   extern dec reference(target: ModelProperty, entity: valueof string, onDelete?: valueof string);
   extern dec view(target: Model, label: valueof string);
   extern dec initial(target: ModelProperty, value: valueof string);
+  extern dec computedSum(target: ModelProperty, fields: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
