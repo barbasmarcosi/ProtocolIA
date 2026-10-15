@@ -87,7 +87,10 @@ try{
   assert.equal((await req("/api/volunteers",{method:"POST",body:{...persons[1],badge:key("BAD"),guardCode:"MISSING"}})).status,400,"BV-02 FK checked");
   const evalBody={number:key("E1"),volunteerBadge:persons[0].badge,period:"2026-10",
     incidentPoints:25,mandatoryPoints:35,guardPoints:20,internalPoints:20,otherPoints:0,status:"draft"};
-  assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:evalBody})).status,201,"BV-03 evaluation persistence");
+  const createdEvaluation=await req("/api/monthly-evaluations",{method:"POST",body:evalBody});
+  assert.equal(createdEvaluation.status,201,"BV-03 evaluation persistence");
+  assert.equal(createdEvaluation.body.basePoints,100,"BV-08 partial: bounded 25+35+20+20 computed by DB");
+  assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("FORGED"),basePoints:0}})).status,400,"computed base cannot be supplied by client");
   assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:evalBody})).status,409,"duplicate id");
   for(const [field,invalid] of [
     ["incidentPoints",26],["mandatoryPoints",36],["guardPoints",21],["internalPoints",21],
@@ -99,7 +102,9 @@ try{
     assert.equal(r.status,400,"BV-04/05/06 range "+field+"="+invalid+": "+JSON.stringify(r.body));
   }
   assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("S"),status:"closed"}})).status,400,"BV-16 initial state cannot be bypassed");
-  assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("OLD"),period:"2026-09",incidentPoints:5}})).status,201,"BV-03 historical month");
+  const historical=await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("OLD"),period:"2026-09",incidentPoints:5}});
+  assert.equal(historical.status,201,"BV-03 historical month");
+  assert.equal(historical.body.basePoints,80,"BV-08 partial: historic 5+35+20+20 computed exactly");
   assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("OTHER"),volunteerBadge:persons[1].badge}})).status,201);
   const query="/api/monthly-evaluations/query/filtered?volunteerBadge="+encodeURIComponent(persons[0].badge)+"&period=2026-10";
   const filter=await req(query,{as:"reader"});
@@ -111,7 +116,8 @@ try{
   assert.equal(before.status,200);
   for(const f of ["incidentPoints","mandatoryPoints","guardPoints","internalPoints"])
     assert.equal(before.body[f],evalBody[f],f+" persisted in PostgreSQL");
-  assert.equal(Object.hasOwn(before.body,"totalScore"),false,"BV-08 must not fake an auto-computed total");
+  assert.equal(before.body.basePoints,100,"BV-08 partial: base computed and retrieved");
+  assert.equal(Object.hasOwn(before.body,"totalScore"),false,"BV-08: final with leave/other points remains unsupported");
   assert.equal((await req("/api/volunteers/"+persons[0].badge+"/guard",{
     method:"PATCH",as:"reader",body:{expected:guards[0].code,guardCode:guards[1].code}
   })).status,403,"BV-02 only writer can reassign");
@@ -144,7 +150,7 @@ try{
   assert.equal((await req("/api/volunteers/"+persons[0].badge)).body.guardCode,guards[1].code);
   assert.equal((await req("/api/leave-records/"+leave.number)).body.days,10);
   console.log("BV_INDEPENDENT_FROZEN_ORACLE_PARTIAL_PASS "+JSON.stringify({
-    tested:["BV-01 partial","BV-02 partial","BV-03 partial","BV-04","BV-05","BV-06",
+    tested:["BV-01 partial","BV-02 partial","BV-03 partial","BV-04","BV-05","BV-06","BV-08 base-only partial",
       "BV-09 storage only","BV-10 storage only","BV-13 audit subset","BV-16 persistence subset"],
     notProven:["automatic total","annual/medical license scoring","guard-scoped identities","export","template corrections"],
     score:"No overall score inferred"
