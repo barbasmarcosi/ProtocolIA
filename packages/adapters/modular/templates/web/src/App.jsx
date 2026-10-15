@@ -108,6 +108,7 @@ function LoadingIndicator({message,compact=false}){
 }
 function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError}){
   const fieldId=React.useId();
+  const descriptionIds=[field.uiHelp?fieldId+"-hint":null,validationError?fieldId+"-error":null].filter(Boolean).join(" ")||undefined;
   if(field.reference){
     const state=referenceState?.state??"loading";
     const blocked=state!=="ready";
@@ -119,7 +120,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
         onOpenChange={onPickerOpenChange} onValueChange={next=>onChange(field.name,next)}
         required={field.required} disabled={blocked}>
         <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
-          className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"} aria-invalid={Boolean(validationError)} aria-describedby={validationError?fieldId+"-error":undefined}>
+          className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"} aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}>
           <Select.Value placeholder={state==="loading"?"Preparando opciones…":"Seleccionar "+title.toLowerCase()}/>
           <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
         </Select.Trigger>
@@ -146,7 +147,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       {state==="empty"&&<span className="field-hint" role="status">
         Primero creá un registro de {targetLabel}.
       </span>}
-      {field.uiHelp&&<span className="field-hint field-help-copy">{field.uiHelp}</span>}
+      {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
       {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
       {state==="error"&&<span className="field-hint error" role="alert">
         {referenceState?.message??"No se pudieron cargar las opciones relacionadas."}
@@ -156,11 +157,11 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
     <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={field.required}
-      aria-invalid={Boolean(validationError)} aria-describedby={validationError?fieldId+"-error":undefined}
+      aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
       value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
-    {field.uiHelp&&<span className="field-hint field-help-copy">{field.uiHelp}</span>}
+    {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </label>;
 }
