@@ -14,6 +14,7 @@ export interface IrField {
   maxLength?: number;
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
+  computedSum?: string[];
 }
 export interface IrEntity {
   name: string;
