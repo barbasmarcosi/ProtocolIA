@@ -34,6 +34,12 @@ function relationshipName(field,value,referenceOptions){
   const ref=referenceOptions[field.name]?.find(item=>String(item.key)===String(value));
   return ref?.displayName??cellText(value);
 }
+function displayCell(field,value,referenceOptions){
+  if(!field.reference)return cellText(value);
+  const name=relationshipName(field,value,referenceOptions);
+  if(name===cellText(value))return name;
+  return <span className="entity-reference"><span>{name}</span><span className="entity-reference-code">{value}</span></span>;
+}
 function isMonthField(field){
   // Presentation fallback only; a future contract-defined format overrides this heuristic.
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
@@ -217,7 +223,7 @@ export default function App(){
     let data;try{data=JSON.parse(text);}catch{data={};}
     if(!response.ok){
       const descriptions={
-        400:"Revisá los datos ingresados.",
+        400:"La operación fue rechazada. Revisá los campos marcados y sus límites.",
         401:"Sesión inválida. Volvé a iniciar sesión.",
         403:"No tenés permiso para esta operación.",
         404:"El registro ya no existe.",
@@ -384,7 +390,7 @@ export default function App(){
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{label(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
-          {tableColumns.map(f=><td key={f.name} title={cellText(item[f.name])}>{cellText(item[f.name])}</td>)}
+          {tableColumns.map(f=><td key={f.name}>{displayCell(f,item[f.name],referenceOptions)}</td>)}
           <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
@@ -439,7 +445,7 @@ export default function App(){
             <div className="modal-scroll">
             {error&&<p className="message error" role="alert">{error}</p>}
             {notice&&<p className="message" role="status">{notice}</p>}
-        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{selected[field.name]??"—"}</dd></React.Fragment>)}</dl>
+        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         <div className="actions">
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
@@ -454,7 +460,7 @@ export default function App(){
               <select required value={reassigned} onChange={e=>setReassigned(e.target.value)}>
                 <option value="">Elegir responsable</option>
                 {(referenceOptions[operations.reassignReference.behavior.field]??[]).map(item=>
-                  <option key={item.key} value={item.key}>{item.label}</option>)}
+                  <option key={item.key} value={item.key}>{item.displayName??item.key}</option>)}
               </select>
             </label>
             <button type="submit" disabled={loading||!referenceOptions[operations.reassignReference.behavior.field]||
