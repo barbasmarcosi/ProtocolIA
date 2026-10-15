@@ -18,6 +18,18 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.getByRole("dialog",{name:"Nuevo registro"}).waitFor({state:"visible",timeout:10000});
     const form=page.getByTestId("create-form-"+entity);
     await form.waitFor({state:"visible",timeout:20000});
+    if(entity==="Volunteer"){
+      await form.getByText("Guardia asignada",{exact:true}).waitFor();
+      await form.getByText("Podés reasignarla más adelante desde el detalle.").waitFor();
+      const help=await form.getByTestId("create-guardCode").getAttribute("aria-describedby");
+      assert.ok(help?.length>0,"Generated reference picker exposes the contract hint to assistive technology");
+    }
+    if(entity==="MonthlyEvaluation"){
+      await form.getByText("Período de evaluación",{exact:true}).waitFor();
+      await form.getByText("Seleccioná el mes de la evaluación.").waitFor();
+      const help=await form.getByTestId("create-period").getAttribute("aria-describedby");
+      assert.ok(help?.length>0,"Generated month input uses contract help in accessible description");
+    }
     return form;
   }
   async function create({tab,entity,endpoint,key,fields,fk={}}){
@@ -226,6 +238,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       browser:"Chromium Playwright",entities:["Section","GuardDuty","Volunteer","MonthlyEvaluation"],
       fks:["GuardDuty.sectionCode","Volunteer.guardCode","MonthlyEvaluation.volunteerBadge"],
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
+      compiledFieldMetadata:true,accessibleFieldHints:true,
       reassignPicker:true,confirmedCasReferenceUpdate:true,
       preservedScroll:true,focusRestored:true,mobileInternalScroll:true,clientJavascriptErrors:0
     }));
