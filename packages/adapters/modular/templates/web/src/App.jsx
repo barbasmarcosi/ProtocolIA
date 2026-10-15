@@ -229,7 +229,7 @@ export default function App(){
   const [confirmDiscard,setConfirmDiscard]=useState(false);
   const [pendingNavigation,setPendingNavigation]=useState(null);
   const navSession=useRef(null),navPosition=useRef(0),navHref=useRef(null),navRestoring=useRef(false);
-  const resourceViews=useRef({}),navigationSnapshot=useRef(null);
+  const resourceViews=useRef({}),navigationSnapshot=useRef(null),listRequestEpoch=useRef(0);
   const [activePicker,setActivePicker]=useState("");
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
@@ -276,7 +276,7 @@ export default function App(){
     const initial=field.type==="int32"?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
-  navigationSnapshot.current={resourceIndex,createDirty};
+  navigationSnapshot.current={resourceIndex,createDirty,saving:creating&&loading};
   function applyWorkspaceRoute(view){
     setResourceIndex(view.resourceIndex);setOffset(view.offset);
     setAppliedFilters(view.appliedFilters);setDraftFilters(view.draftFilters??view.appliedFilters);
@@ -296,7 +296,7 @@ export default function App(){
     applyWorkspaceRoute(view);
   }
   function selectResource(index){
-    if(index===resourceIndex)return;
+    if(index===resourceIndex||creating&&loading)return;
     const saved=resourceViews.current[config.resources[index].entity.name];
     const view={resourceIndex:index,offset:saved?.offset??0,
       appliedFilters:{...(saved?.appliedFilters??{})},
@@ -316,6 +316,19 @@ export default function App(){
       const view=readWorkspaceRoute(config);
       const marker=window.history.state?.__protocoliaNavigation;
       const nextPosition=marker?.session===navSession.current?marker.position:null;
+      if(navigationSnapshot.current?.saving&&
+        view.resourceIndex!==navigationSnapshot.current.resourceIndex){
+        // Never offer to "discard" a write that may already be committing.
+        if(nextPosition!==null&&nextPosition!==navPosition.current){
+          navRestoring.current=true;
+          window.history.go(navPosition.current-nextPosition);
+        }else if(navHref.current){
+          window.history.replaceState({...window.history.state,
+            __protocoliaNavigation:{session:navSession.current,position:navPosition.current}},
+            "",navHref.current);
+        }
+        return;
+      }
       if(navigationSnapshot.current?.createDirty&&
         view.resourceIndex!==navigationSnapshot.current.resourceIndex){
         setPendingNavigation({kind:"pop",view,previousPosition:navPosition.current,
@@ -445,16 +458,19 @@ export default function App(){
   }
   async function refresh(){
     if(!config||!auth)return;
+    const epoch=++listRequestEpoch.current;
     setLoading(true);setError("");
     try{
       const args=listing();
       const data=await request(args.kind,{query:args.query});
       if(!Array.isArray(data.items))throw Error("Invalid paginated response");
-      setItems(data.items);setTotal(data.total);
-    }catch(e){setError(e.message);}finally{setLoading(false);}
+      if(epoch===listRequestEpoch.current){setItems(data.items);setTotal(data.total);}
+    }catch(e){if(epoch===listRequestEpoch.current)setError(e.message);}
+    finally{if(epoch===listRequestEpoch.current)setLoading(false);}
   }
   useEffect(()=>{
     if(!active)return;
+    listRequestEpoch.current++;
     setForm(createEmpty(active.entity.fields));setFieldErrors({});
     setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
@@ -534,6 +550,7 @@ export default function App(){
     }finally{setLoginBusy(false);}
   }
   function logOut(){
+    listRequestEpoch.current++;
     setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
   }
   async function act(kind,params){
