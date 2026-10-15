@@ -5,7 +5,29 @@ import * as Dialog from "@radix-ui/react-dialog";
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
 }
-function label(field){return field.name.replace(/([a-z])([A-Z])/g,"$1 $2");}
+const fieldWords={badge:"legajo",volunteer:"personal",period:"período",incident:"emergencias",mandatory:"asistencia",guard:"guardia",internal:"orden interno",other:"adicionales",base:"base",points:"puntos",status:"estado",number:"número",name:"nombre",code:"código",section:"sección",rank:"rango",leave:"licencia",kind:"tipo",days:"días",notes:"observaciones",evaluation:"evaluación",monthly:"mensual",created:"creado",updated:"actualizado"};
+function label(field){
+  if(field.label)return field.label;
+  return field.name.replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ")
+    .split(/\s+/).map(s=>fieldWords[s.toLowerCase()]??s.toLowerCase()).join(" ")
+    .replace(/^./,c=>c.toUpperCase());
+}
+function visibleColumns(entity){
+  // Presentation is intentionally separate from domain schema. The full record stays in Detail.
+  const fields=entity.fields;
+  const identity=fields.find(f=>f.name===entity.publicIdentity);
+  const named=fields.find(f=>f.name==="name"&&f!==identity);
+  const relations=fields.filter(f=>f.reference);
+  const preferred=fields.filter(f=>f.computedSum);
+  const others=fields.filter(f=>f!==identity&&f!==named&&!f.reference&&!f.computedSum&&
+    (f.name==="period"||f.name==="status"||f.type==="utcDateTime"));
+  const candidates=[identity,named,...relations,...others,...preferred].filter(Boolean);
+  return [...new Map(candidates.map(f=>[f.name,f])).values()].slice(0,5);
+}
+function cellText(value){
+  if(value===null||value===undefined||value==="")return "Sin dato";
+  return String(value);
+}
 function createEmpty(fields){
   return Object.fromEntries(fields.filter(f=>!f.computedSum).map(field=>[field.name,
     field.initial??(field.type==="int32"?0:"")]));
@@ -95,6 +117,7 @@ export default function App(){
   const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
+  const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
   const referencesReady=active?.entity?.fields.filter(f=>f.reference)
     .every(f=>referenceStatus[f.name]?.state==="ready")??true;
   function listing(){
@@ -269,7 +292,7 @@ export default function App(){
           <div className="fields">{searchFilters.map(filter=>
             <label className="field" key={filter.parameter}>
               <span>{label({name:filter.parameter})}</span>
-              <input aria-label={filter.parameter} type={filter.type==="utcDateTime"?"datetime-local":
+              <input aria-label={label({name:filter.parameter})} type={filter.type==="utcDateTime"?"datetime-local":
                 filter.type==="int32"?"number":"text"} value={draftFilters[filter.parameter]??""}
                 onChange={event=>setDraftFilters(old=>({...old,[filter.parameter]:event.target.value}))}/>
             </label>)}
@@ -282,13 +305,13 @@ export default function App(){
       </section>}
       <section className="panel">
         <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo {active.entity.name}</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
-        <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
+        <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{label(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
-          {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
+          {tableColumns.map(f=><td key={f.name} title={cellText(item[f.name])}>{cellText(item[f.name])}</td>)}
+          <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
@@ -300,7 +323,7 @@ export default function App(){
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
-            <div className="modal-header"><Dialog.Title className="modal-title">Nuevo {active.entity.name}</Dialog.Title>
+            <div className="modal-header"><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
             <div className="modal-scroll">
               {error&&<p className="message error" role="alert">{error}</p>}
