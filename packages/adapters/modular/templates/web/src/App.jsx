@@ -1,6 +1,7 @@
 import NotificationInbox from "./NotificationInbox.jsx";
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Select from "@radix-ui/react-select";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -44,25 +45,56 @@ function normalizePayload(fields,values){
   }
   return result;
 }
+function LoadingIndicator({message,compact=false}){
+  return <span className={compact?"loading-indicator compact":"loading-indicator"} role="status" aria-live="polite">
+    <span className="loading-spinner" aria-hidden="true"/>
+    <span>{message}</span>
+  </span>;
+}
 function FormField({field,value,onChange,choices,referenceState}){
+  const fieldId=React.useId();
   if(field.reference){
     const state=referenceState?.state??"loading";
     const blocked=state!=="ready";
-    return <label className="field">
-      <span>{label(field)} — {field.reference.target}{field.required?" *":""}</span>
-      <select data-testid={"create-"+field.name} required={field.required} value={value??""}
-        disabled={blocked} aria-busy={state==="loading"}
-        onChange={event=>onChange(field.name,event.target.value)}>
-        <option value="">{state==="loading"?"Cargando opciones…":"Seleccionar "+field.reference.target}</option>
-        {(choices??[]).map(item=><option key={item.key} value={item.key}>{item.label}</option>)}
-      </select>
+    const title=label(field).replace(/ (código|legajo|id)$/i,"");
+    const targetLabel=referenceState?.resourceLabel??label({name:field.reference.target});
+    return <div className="field relation-field">
+      <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
+      <Select.Root name={field.name} value={value??""}
+        onValueChange={next=>onChange(field.name,next)}
+        required={field.required} disabled={blocked}>
+        <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
+          className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"}>
+          <Select.Value placeholder={state==="loading"?"Preparando opciones…":"Seleccionar "+title.toLowerCase()}/>
+          <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Content className="relation-dropdown" position="popper" sideOffset={5} collisionPadding={12}>
+            <Select.ScrollUpButton className="relation-scroll-button" aria-label="Desplazar opciones hacia arriba">⌃</Select.ScrollUpButton>
+            <Select.Viewport className="relation-options">
+              {(choices??[]).map(item=>
+                <Select.Item className="relation-option" key={item.key} value={String(item.key)}>
+                  <div className="relation-option-main">
+                    <Select.ItemText>{item.displayName??String(item.key)}</Select.ItemText>
+                    {item.displayName&&String(item.displayName)!==String(item.key)&&
+                      <span className="relation-option-code" aria-hidden="true">{item.key}</span>}
+                  </div>
+                  <Select.ItemIndicator className="relation-option-check" aria-hidden="true">✓</Select.ItemIndicator>
+                </Select.Item>
+              )}
+            </Select.Viewport>
+            <Select.ScrollDownButton className="relation-scroll-button" aria-label="Desplazar opciones hacia abajo">⌄</Select.ScrollDownButton>
+          </Select.Content>
+        </Select.Portal>
+      </Select.Root>
+      {state==="loading"&&<LoadingIndicator message={"Cargando "+targetLabel.toLowerCase()+"…"} compact/>}
       {state==="empty"&&<span className="field-hint" role="status">
-        Primero creá un registro de {field.reference.target}.
+        Primero creá un registro de {targetLabel}.
       </span>}
       {state==="error"&&<span className="field-hint error" role="alert">
         {referenceState?.message??"No se pudieron cargar las opciones relacionadas."}
       </span>}
-    </label>;
+    </div>;
   }
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
@@ -183,7 +215,7 @@ export default function App(){
       for(const field of fields){
         const target=config.resources?.find(r=>r.entity.name===field.reference.target);
         if(!target||!capabilities.includes(target.operations.listPage?.capability)){
-          statuses[field.name]={state:"error",message:"No tenés permiso de lectura sobre "+field.reference.target+"."};
+          statuses[field.name]={state:"error",resourceLabel:target?.view??field.reference.target,message:"No tenés permiso de lectura sobre "+field.reference.target+"."};
           continue;
         }
         try{
@@ -199,11 +231,11 @@ export default function App(){
           }
           found[field.name]=result.items.map(item=>({
             key:item[target.entity.publicIdentity],
-            label:String(item[target.entity.publicIdentity])+(item.name?" — "+item.name:"")
+            displayName:item.name?String(item.name):String(item[target.entity.publicIdentity])
           }));
-          statuses[field.name]={state:found[field.name].length?"ready":"empty"};
+          statuses[field.name]={state:found[field.name].length?"ready":"empty",resourceLabel:target.view??label({name:target.entity.name})};
         }catch(e){
-          statuses[field.name]={state:"error",message:e.message};
+          statuses[field.name]={state:"error",resourceLabel:target.view??label({name:target.entity.name}),message:e.message};
         }
       }
       if(valid){setReferenceOptions(found);setReferenceStatus(statuses);}
@@ -266,7 +298,7 @@ export default function App(){
     }catch(e){setError(e.message);return null;}finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
-  if(!config)return <main><p>Cargando contrato…</p></main>;
+  if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
   return <main className="shell">
     <header><div><small>ProtocolIA · generado desde contrato</small><h1>{active.view||active.entity.name}</h1></div>
       {auth&&<button className="ghost" onClick={logOut}>Salir</button>}</header>
@@ -274,7 +306,7 @@ export default function App(){
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
       <form onSubmit={logIn}><label className="field"><span>Usuario</span><input data-testid="username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
       <label className="field"><span>Contraseña</span><input data-testid="password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
-      <button type="submit" disabled={loginBusy}>{loginBusy?"Verificando…":"Entrar"}</button></form></section>:
+      <button type="submit" disabled={loginBusy}>{loginBusy?<LoadingIndicator message="Verificando… " compact/>:"Entrar"}</button></form></section>:
       <>
       {(config.resources??[]).filter(r=>r.operations.inboxPage).map(r=><NotificationInbox
         key={auth+":"+r.entity.name} operations={r.operations} auth={auth} capabilities={capabilities}/>)}
@@ -307,7 +339,7 @@ export default function App(){
         <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
           {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
-        {loading&&<p aria-live="polite">Cargando…</p>}
+        {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{label(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {tableColumns.map(f=><td key={f.name} title={cellText(item[f.name])}>{cellText(item[f.name])}</td>)}
@@ -387,7 +419,7 @@ export default function App(){
         </div>
         {can("auditPage")&&<section className="audit-history" data-testid="audit-history">
           <div className="heading"><h3>Historial de cambios <span className="muted">({auditTotal})</span></h3></div>
-          {auditBusy&&<p aria-live="polite">Cargando historial…</p>}
+          {auditBusy&&<div className="list-loading"><LoadingIndicator message="Cargando historial…"/></div>}
           {auditError&&<p role="alert" className="message error">{auditError}</p>}
           {!auditBusy&&!auditError&&<div className="scroll"><table aria-label="Historial de cambios">
             <thead><tr><th>Fecha</th><th>Usuario</th><th>Operación</th><th>Campo</th><th>Antes</th><th>Después</th></tr></thead>
