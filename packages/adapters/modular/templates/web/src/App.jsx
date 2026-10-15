@@ -71,6 +71,7 @@ export default function App(){
   const [selected,setSelected]=useState(null);
   const [creating,setCreating]=useState(false);
   const detailOpener=useRef(null);
+  const createOpener=useRef(null);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
@@ -280,7 +281,7 @@ export default function App(){
       </section>}
       <section className="panel">
         <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={()=>{setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo {active.entity.name}</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo {active.entity.name}</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<p aria-live="polite">Cargando…</p>}
         <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
@@ -296,7 +297,8 @@ export default function App(){
       <Dialog.Root open={creating} onOpenChange={open=>{if(!loading)setCreating(open);}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
-          <Dialog.Content className="modal-content" aria-describedby={undefined} data-testid="create-dialog">
+          <Dialog.Content className="modal-content" aria-describedby={undefined} data-testid="create-dialog"
+            onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
             <div className="modal-header"><Dialog.Title className="modal-title">Nuevo {active.entity.name}</Dialog.Title>
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
             <div className="modal-scroll">
