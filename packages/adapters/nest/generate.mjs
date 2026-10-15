@@ -44,6 +44,13 @@ export function generate(ir,spec,out){
       if(columns.has(snake(f.name)))throw Error("Duplicate SQL column");
       columns.add(snake(f.name));
       if(!["string","int32","utcDateTime"].includes(f.type))throw Error("Unsupported field type");
+      if(f.computedSum!==undefined && (f.type!=="int32"||f.name===e.publicIdentity||!f.required||f.nullable||
+        !Array.isArray(f.computedSum)||f.computedSum.length<2||f.computedSum.length>8||
+        new Set(f.computedSum).size!==f.computedSum.length||
+        f.computedSum.some(n=>{const s=e.fields.find(x=>x.name===n);return !s||s===f||s.type!=="int32"||
+          !s.required||s.nullable||s.computedSum||s.min===undefined||s.min<0||!Number.isInteger(s.max);})||
+        e.fields.filter(x=>f.computedSum.includes(x.name)).reduce((n,x)=>n+x.max,0)>2147483647))
+        throw Error("Invalid computedSum "+e.name+"."+f.name);
       if(f.initial!==undefined && (f.type!=="string"||!f.required||f.nullable||f.unique||
         f.reference||typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
         f.initial.length<(f.minLength??1)||f.initial.length>(f.maxLength??255)))
@@ -169,7 +176,7 @@ export function generate(ir,spec,out){
       if(["patchFields","atomicIncrement"].includes(kind)){
         const field=e.fields.find(f=>f.name===b.field);
         if(!field||!b.input||
-           (kind==="patchFields"&&(field.type!=="string"||field.nullable||field.initial!==undefined||b.input!==b.field))||
+           (kind==="patchFields"&&(field.type!=="string"||field.nullable||field.initial!==undefined||field.computedSum||b.input!==b.field))||
            (kind==="atomicIncrement"&&field.type!=="int32"))
           throw Error("Unsupported mutation "+op.name);
       }
@@ -243,7 +250,8 @@ export function generate(ir,spec,out){
           throw Error("Invalid finite-state transition values");
         checks.push("CHECK ("+col+" IN ("+[...states].sort().map(v=>"'"+v+"'").join(",")+"))");
       }
-      return "  "+col+" "+sqlType+" "+checks.join(" ");
+      const generated=f.computedSum?" GENERATED ALWAYS AS ("+f.computedSum.map(snake).join(" + ")+") STORED":"";
+      return "  "+col+" "+sqlType+generated+" "+checks.join(" ");
     });
     schema.push("CREATE TABLE "+snake(e.name)+" (\n"+fields.join(",\n")+"\n);");
   }
