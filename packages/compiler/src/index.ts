@@ -38,6 +38,9 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
+    ...(metadata(p,"uiLabel",prop) ? {uiLabel:String(metadata(p,"uiLabel",prop)?.label)} : {}),
+    ...(metadata(p,"uiHelp",prop) ? {uiHelp:String(metadata(p,"uiHelp",prop)?.help)} : {}),
+    ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"} : {}),
     ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
     ...(metadata(p,"computedSum",prop) ? {computedSum:String(metadata(p,"computedSum",prop)?.fields).split(",").map(s=>s.trim())} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
@@ -80,6 +83,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if(value.uiLabel!==undefined&&(value.uiLabel.trim()!==value.uiLabel||
+         !value.uiLabel.length||value.uiLabel.length>90||/[\r\n<>]/.test(value.uiLabel)))
+        reject("invalid-ui-label",m.name+"."+prop.name+" uiLabel must be a single-line 1..90 character display caption",prop);
+      if(value.uiHelp!==undefined&&(value.uiHelp.trim()!==value.uiHelp||
+         !value.uiHelp.length||value.uiHelp.length>240||/[\r\n<>]/.test(value.uiHelp)))
+        reject("invalid-ui-help",m.name+"."+prop.name+" uiHelp must be a single-line 1..240 character description",prop);
+      if(value.uiControl!==undefined&&(value.uiControl!=="month"||
+         value.type!=="string"||value.minLength!==7||value.maxLength!==7))
+        reject("invalid-ui-control",m.name+"."+prop.name+" uiControl month requires a YYYY-MM-shaped 7-character string; this is a presentation hint only",prop);
       if (value.initial !== undefined &&
           (value.type !== "string" || !value.required || value.nullable ||
            value.unique || value.reference || !/^[a-z][a-z0-9_-]{0,63}$/.test(value.initial) ||
