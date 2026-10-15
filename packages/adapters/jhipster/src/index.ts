@@ -15,6 +15,10 @@ export interface IrField {
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
   computedSum?: string[];
+  /** Display-only hints. Domain semantics and server validations remain authoritative. */
+  uiLabel?: string;
+  uiHelp?: string;
+  uiControl?: "month";
 }
 export interface IrEntity {
   name: string;
