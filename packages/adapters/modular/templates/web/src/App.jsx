@@ -352,8 +352,14 @@ export default function App(){
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
   return <main className="shell">
-    <header><div><small>ProtocolIA · generado desde contrato</small><h1>{active.view||active.entity.name}</h1></div>
-      {auth&&<button className="ghost" onClick={logOut}>Salir</button>}</header>
+    <header className="app-header">
+      <div className="app-heading"><div className="app-eyebrow"><span className="brand-mark" aria-hidden="true">P</span>
+        <span>ProtocolIA</span><span className="app-eyebrow-separator" aria-hidden="true">/</span><span>Espacio de trabajo</span></div>
+        <h1>{active.view||active.entity.name}</h1>
+        {auth&&<p className="app-heading-help">Consultá, organizá y gestioná tus registros.</p>}
+      </div>
+      {auth&&<button className="ghost logout-button" onClick={logOut}>Cerrar sesión</button>}
+    </header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
       <form onSubmit={logIn}><label className="field"><span>Usuario</span><input data-testid="username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
@@ -362,7 +368,7 @@ export default function App(){
       <>
       {(config.resources??[]).filter(r=>r.operations.inboxPage).map(r=><NotificationInbox
         key={auth+":"+r.entity.name} operations={r.operations} auth={auth} capabilities={capabilities}/>)}
-      {(config.resources?.length??0)>1&&<nav className="resource-nav" aria-label="Recursos">
+      {(config.resources?.length??0)>1&&<nav className="resource-nav" aria-label="Secciones de la aplicación">
         {config.resources.map((r,i)=><button key={r.entity.name}
           className={resourceIndex===i?"":"ghost"}
           aria-current={resourceIndex===i?"page":undefined}
@@ -370,9 +376,11 @@ export default function App(){
       </nav>}
       {error&&!selected&&!creating&&<p className="message error" role="alert">{error}</p>}
       {notice&&!selected&&!creating&&<p className="message" role="status">{notice}</p>}
-      {can("queryPage")&&<section className="panel" data-testid="query-filters">
-        <h2>Buscar y filtrar</h2>
-        <form onSubmit={event=>{event.preventDefault();setOffset(0);setAppliedFilters({...draftFilters});}}>
+      {can("queryPage")&&<details className="panel filters-panel" data-testid="query-filters">
+        <summary className="filters-summary"><span className="filters-summary-title">Buscar y filtrar
+          {Object.values(appliedFilters).filter(Boolean).length>0&&<span className="filter-counter">{Object.values(appliedFilters).filter(Boolean).length} activos</span>}
+        </span><span className="filters-summary-hint">Mostrar filtros <span className="filters-chevron" aria-hidden="true">⌄</span></span></summary>
+        <form className="filters-form" onSubmit={event=>{event.preventDefault();setOffset(0);setAppliedFilters({...draftFilters});}}> 
           <div className="fields">{searchFilters.map(filter=>
             <label className="field" key={filter.parameter}>
               <span>{label({name:filter.parameter})}</span>
@@ -386,9 +394,9 @@ export default function App(){
               setDraftFilters({});setOffset(0);setAppliedFilters({});}}>Limpiar filtros</button>
           </div>
         </form>
-      </section>}
-      <section className="panel">
-        <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
+      </details>}
+      <section className="panel records-panel">
+        <div className="heading records-heading"><div><h2 ref={listHeading} tabIndex={-1}>Registros <span className="record-count">{total}</span></h2><p className="panel-helper">Toda la información, en un solo lugar.</p></div><div className="toolbar">
           {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
@@ -397,7 +405,11 @@ export default function App(){
           {tableColumns.map(f=><td key={f.name}>{displayCell(f,item[f.name],referenceOptions)}</td>)}
           <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
-        {items.length===0&&!loading&&<p>No hay registros.</p>}
+        {items.length===0&&!loading&&<div className="empty-state" role="status">
+          <span className="empty-state-illustration" aria-hidden="true">⌕</span>
+          <strong>{Object.values(appliedFilters).some(Boolean)?"Sin resultados para estos filtros":"Todavía no hay registros"}</strong>
+          <span>{Object.values(appliedFilters).some(Boolean)?"Probá con otros criterios o limpiá los filtros.":"Los registros que crees van a aparecer acá."}</span>
+        </div>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
@@ -408,8 +420,9 @@ export default function App(){
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
             onEscapeKeyDown={event=>{if(activePicker){event.preventDefault();setActivePicker("");}}}
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
-            <div className="modal-header"><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
-              <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
+            <div className="modal-header"><div><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
+              <Dialog.Description className="modal-description">Completá los datos para agregarlo al listado.</Dialog.Description></div>
+              <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar creación" disabled={loading}><span aria-hidden="true">×</span></button></Dialog.Close></div>
             <div className="modal-scroll">
               {error&&<p className="message error" role="alert">{error}</p>}
         <form noValidate data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
@@ -445,13 +458,16 @@ export default function App(){
               const origin=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
               origin?.focus();setSelected(null);
             }}>
-            <div className="modal-header"><Dialog.Title className="modal-title">Detalle: {selected[active.entity.publicIdentity]}</Dialog.Title>
-              <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar detalle" disabled={loading}>Cerrar</button></Dialog.Close></div>
+            <div className="modal-header"><div><p className="modal-kicker">Información del registro</p>
+              <Dialog.Title className="modal-title">Detalle: {selected[active.entity.publicIdentity]}</Dialog.Title></div>
+              <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar detalle" disabled={loading}><span aria-hidden="true">×</span></button></Dialog.Close></div>
             <div className="modal-scroll">
             {error&&<p className="message error" role="alert">{error}</p>}
             {notice&&<p className="message" role="status">{notice}</p>}
-        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
-        <div className="actions">
+        <div className="details-section"><h3>Datos generales</h3>
+          <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
+        </div>
+        <div className="actions record-actions">
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Guardar cambios</button></form>}
