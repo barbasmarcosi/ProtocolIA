@@ -11,6 +11,7 @@ on:
       - 'scripts/vnext/probe-independent-volunteer-http.mjs'
       - 'scripts/vnext/probe-independent-volunteer-browser.mjs'
       - 'scripts/vnext/probe-year-month-evolution.mjs'
+      - 'scripts/vnext/probe-year-month-postgres.sh'
       - 'packages/**'
   workflow_dispatch:
 permissions:
@@ -38,8 +39,10 @@ jobs:
         run: node --test tests/vnext/independent-volunteer-evaluations.test.mjs
       - name: Verify independent FacilitySearch query-plan and adapter invariants
         run: node --test tests/vnext/a14-query.test.mjs
-      - name: Prove additive year-month evolution with real before/after TypeSpec OpenAPI
-        run: node scripts/vnext/probe-year-month-evolution.mjs
+      - name: Prove additive year-month evolution and transactionally validate PostgreSQL
+        run: |
+          PROTOCOLIA_UX5_SQL_OUT="${RUNNER_TEMP}/ux5-migration.sql" node scripts/vnext/probe-year-month-evolution.mjs
+          bash scripts/vnext/probe-year-month-postgres.sh "${RUNNER_TEMP}/ux5-migration.sql"
       - name: Generated Docker Compose, PostgreSQL, HTTP and auth conformance
         run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-generated"
       - name: Install pinned Playwright Chromium for real FK creation test

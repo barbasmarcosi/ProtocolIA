@@ -31,6 +31,8 @@ try {
   const drift=validateOpenApiEvolution(oldOpenApi,newOpenApi,oldIr,newIr,plan);
   assert.deepEqual(drift,[],"Only declared pattern constraint changes are permissible");
   const sql=additiveSql(plan,newIr);
+  if(process.env.PROTOCOLIA_UX5_SQL_OUT)
+    writeFileSync(process.env.PROTOCOLIA_UX5_SQL_OUT,sql+"\n");
   assert.equal((sql.match(/ADD CONSTRAINT/g)||[]).length,2);
   assert.equal((sql.match(/VALIDATE CONSTRAINT/g)||[]).length,2);
   assert.doesNotMatch(sql,/DROP TABLE|DELETE FROM|UPDATE |ALTER COLUMN/i);
