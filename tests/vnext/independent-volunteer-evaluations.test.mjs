@@ -45,6 +45,46 @@ test("generated operations include guarded reassignment, publish, filtered histo
   assert.notEqual(byName.get("evaluationAudit").capability,byName.get("listMonthlyEvaluation").capability);
 });
 
+test("presentation metadata is compiled verbatim without changing domain invariants",()=>{
+  const volunteer=entities.get("Volunteer");
+  const guard=volunteer.fields.find(f=>f.name==="guardCode");
+  assert.equal(guard.uiLabel,"Guardia asignada");
+  assert.match(guard.uiHelp,/reasignarla/);
+  assert.equal(guard.reference.target,"GuardDuty");
+  const period=entities.get("MonthlyEvaluation").fields.find(f=>f.name==="period");
+  assert.equal(period.uiControl,"month");
+  assert.equal(period.uiLabel,"Período de evaluación");
+  assert.equal(period.minLength,7);
+  assert.equal(period.maxLength,7);
+  const leave=entities.get("LeaveRecord").fields.find(f=>f.name==="period");
+  assert.equal(leave.uiControl,"month");
+  assert.equal(entities.get("MonthlyEvaluation").fields.find(f=>f.name==="basePoints").max,100);
+});
+
+test("malformed presentation hints fail closed before application generation",()=>{
+  for(const [name,oldValue,newValue,diagnostic] of [
+    ["empty caption",'@uiLabel("Guardia asignada")','@uiLabel("")',"protocolia-invalid-ui-label"],
+    ["oversized help",'@uiHelp("Podés reasignarla más adelante desde el detalle.")',
+      '@uiHelp("'+ "A".repeat(250)+'")',"protocolia-invalid-ui-help"],
+    ["wrong field type",'@uiLabel("Puntos por emergencias")',
+      '@uiControl("month") @uiLabel("Puntos por emergencias")',"protocolia-invalid-ui-control"]
+  ]){
+    const scratch=mkdtempSync(join("examples","vnext",".presentation-negative-"));
+    try{
+      cpSync(join(dir,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+      cpSync(join(dir,"contracts"),join(scratch,"contracts"),{recursive:true});
+      const mutant=source.replace(oldValue,newValue);
+      assert.notEqual(mutant,source,name+" must mutate source");
+      writeFileSync(join(scratch,"contracts/main.tsp"),mutant);
+      const result=spawnSync(join(process.cwd(),"node_modules",".bin","tsp"),["compile",scratch],{
+        cwd:process.cwd(),encoding:"utf8",timeout:60000
+      });
+      assert.notEqual(result.status,0,name+" unexpectedly compiled");
+      assert.match((result.stdout??"")+(result.stderr??""),new RegExp(diagnostic,"i"),name);
+    }finally{rmSync(scratch,{recursive:true,force:true});}
+  }
+});
+
 test("malformed computedSum contracts fail closed at the TypeSpec compiler",()=>{
   const mutations=[
     ["unknown input", '@computedSum("incidentPoints,mandatoryPoints,guardPoints,notReal")'],
@@ -60,7 +100,7 @@ test("malformed computedSum contracts fail closed at the TypeSpec compiler",()=>
       cpSync(join(dir,"contracts"),join(scratch,"contracts"),{recursive:true});
       let mutant=source;
       if(label==="declared output max too small"){
-        mutant=mutant.replace('@minValue(0) @maxValue(100)\n    basePoints','@minValue(0) @maxValue(99)\n    basePoints');
+        mutant=mutant.replace('@minValue(0) @maxValue(100)\n    @uiLabel("Base puntos")\n    basePoints','@minValue(0) @maxValue(99)\n    @uiLabel("Base puntos")\n    basePoints');
       }else mutant=mutant.replace(base,replacement);
       writeFileSync(join(scratch,"contracts/main.tsp"),mutant);
       assert.notEqual(mutant,source,label+" must change the source");
