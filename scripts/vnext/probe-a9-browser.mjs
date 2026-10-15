@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import {chromium} from "playwright";
+const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+try{
+  const page=await browser.newPage({viewport:{width:390,height:844}});
+  page.on("pageerror",error=>{throw error;});
+  await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded"});
+  await page.locator('[data-testid="username"]').fill("manager");
+  await page.locator('[data-testid="password"]').fill("test-manager-only-2026");
+  await page.getByRole("button",{name:"Entrar"}).click();
+  await page.getByRole("navigation",{name:"Recursos"}).getByRole("button",{name:"Reservas"}).click();
+  const row=page.locator("table tbody tr").filter({hasText:"R-LEGACY"});
+  await row.waitFor({timeout:18000});
+  await row.getByRole("button",{name:"Detalle"}).click();
+  const cancel=page.locator('[data-testid="transition-cancelAllocation"]');
+  await cancel.waitFor({timeout:18000});
+  await cancel.click();
+  await page.getByRole("status").getByText(/Operación confirmada: cancelAllocation/).waitFor({timeout:18000});
+  await row.getByText("cancelled").waitFor({timeout:18000});
+  assert.equal(await cancel.count(),0,"Cancelled allocation should not display cancel action");
+  await page.getByRole("navigation",{name:"Recursos"}).getByRole("button",{name:"Partes disponibles"}).click();
+  await page.locator("table tbody tr").filter({hasText:"P-MIG"}).getByText("10",{exact:true}).waitFor({timeout:18000});
+  await page.getByRole("button",{name:"Salir"}).click();
+  await page.locator('[data-testid="username"]').fill("reader");
+  await page.locator('[data-testid="password"]').fill("test-reader-only-2026");
+  await page.getByRole("button",{name:"Entrar"}).click();
+  await page.getByRole("navigation",{name:"Recursos"}).getByRole("button",{name:"Reservas"}).click();
+  const readerRow=page.locator("table tbody tr").filter({hasText:"R-POST"});
+  await readerRow.waitFor();
+  await readerRow.getByRole("button",{name:"Detalle"}).click();
+  assert.equal(await page.locator('[data-testid="transition-cancelAllocation"]').count(),0);
+  console.log("A9_CHROMIUM_MANAGER_CANCEL_PERSISTED_RESERVATION_STOCK_RESTORED_AND_READER_RESTRICTED_PASS");
+}finally{await browser.close();}

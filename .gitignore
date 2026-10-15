@@ -6,3 +6,13 @@ __pycache__/
 generated/
 dist/
 build/
+# ProtocolIA vNext
+node_modules/
+**/node_modules/
+**/dist/
+**/tsp-output/
+**/.jhipster/
+**/target/
+
+# Local Codespaces run logs may contain ephemeral test credentials; never stage them.
+.protocolia-evidence/

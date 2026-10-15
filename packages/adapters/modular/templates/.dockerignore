@@ -1,0 +1,6 @@
+.protocolia-toolchain/
+web/
+src/
+node_modules/
+.git/
+target/*.original

@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: protocolia
+      POSTGRES_USER: protocolia
+      POSTGRES_PASSWORD: ${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U protocolia -d protocolia"]
+      interval: 5s
+      retries: 15
+    volumes:
+      - protocolia_data:/var/lib/postgresql/data
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:${PROTOCOLIA_HOST_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      PROTOCOLIA_JDBC_URL: jdbc:postgresql://db:5432/protocolia
+      PROTOCOLIA_JDBC_USER: protocolia
+      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}
+      PROTOCOLIA_ALLOW_DEMO_AUTH: ${PROTOCOLIA_ALLOW_DEMO_AUTH:-false}
+      PROTOCOLIA_READER_USERNAME: ${PROTOCOLIA_READER_USERNAME:-reader}
+      PROTOCOLIA_READER_PASSWORD: ${PROTOCOLIA_READER_PASSWORD:?set PROTOCOLIA_READER_PASSWORD}
+      PROTOCOLIA_MANAGER_USERNAME: ${PROTOCOLIA_MANAGER_USERNAME:-manager}
+      PROTOCOLIA_MANAGER_PASSWORD: ${PROTOCOLIA_MANAGER_PASSWORD:?set PROTOCOLIA_MANAGER_PASSWORD}
+volumes:
+  protocolia_data:

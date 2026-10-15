@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Requisitos de producto (documento normativo)
 
-**Estado:** APROBADO COMO DIRECCIÓN DE PRODUCTO; implementación vNext **NO INICIADA**.  
+**Estado:** DIRECCIÓN DE PRODUCTO APROBADA (documento de alcance normativo, fechado 2026-10-13). **Implementación posterior en curso:** A0–A12 y prueba independiente A13 realizadas en perfiles acotados; consultar [estado real](../EXECUTION_STATE.md) y [aceptación A13](evidence/A13.md).  
 **Fecha:** 2026-10-13. **Responsable lógico:** ProtocolIA / contrato-a-sistema.  
 **Precedencia:** este documento, [arquitectura](01_ARCHITECTURE_ADR.md), [plan](02_IMPLEMENTATION_PLAN.md) y [matriz de pruebas](03_ACCEPTANCE_MATRIX.md) rigen el desarrollo **vNext**. G0–G5, P0–P4 y sus evidencias siguen siendo hechos históricos, no pruebas de vNext.
 

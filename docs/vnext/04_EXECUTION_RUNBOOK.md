@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Runbook de ejecución y continuidad
 
-**Estado inicial:** A0 NOT STARTED; A1–A5 NOT STARTED. Este documento es operacional, no evidencia de PASS.  
+**Estado inicial histórico (2026-10-13):** A0/A1–A5 todavía no iniciadas a la fecha de redacción. **No es el estado actual:** consultar [EXECUTION_STATE](../EXECUTION_STATE.md) y [A13](evidence/A13.md). La sección de primer implementador es histórica, no una orden vigente de volver a iniciar A0. Este documento es operacional, no evidencia de PASS.  
 **Actualizado:** 2026-10-13. **Plan maestro:** [02](02_IMPLEMENTATION_PLAN.md). **Pruebas:** [03](03_ACCEPTANCE_MATRIX.md).
 
 ## 1. Primera instrucción al próximo implementador

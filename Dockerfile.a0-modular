@@ -1,0 +1,88 @@
+FROM eclipse-temurin:21-jdk AS java21
+FROM node:24-bookworm AS node24
+FROM maven:3.9.11-eclipse-temurin-21 AS maven39
+FROM docker:28.5.0-cli AS compose-cli
+FROM postgres:16-bookworm
+COPY --from=java21 /opt/java/openjdk /opt/java/openjdk
+COPY --from=node24 /usr/local /usr/local
+COPY --from=maven39 /usr/share/maven /usr/share/maven
+COPY --from=compose-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH=/opt/java/openjdk/bin:/usr/local/bin:/usr/share/maven/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git unzip && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+COPY . .
+RUN node --version && java -version && mvn -version && postgres --version
+RUN bash -n scripts/vnext/probe-nest-relations-evolution.sh && bash -n scripts/vnext/probe-workflow-postgres.sh && bash -n scripts/vnext/probe-reservation-postgres.sh && bash -n scripts/vnext/probe-a9-in-place.sh && echo A3_A5_A6_A7_A8_A9_PROBE_SHELL_SYNTAX_PASS
+RUN npm ci --ignore-scripts
+RUN npm run check:vnext && bash tests/vnext/negative-check.sh
+# The same single CLI builds both unrelated applications from their respective TypeSpec contracts.
+RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target modular-spring --out /work/dist/modular
+RUN npm install --no-save --package-lock=false --ignore-scripts playwright@1.64.0
+RUN npx playwright install --with-deps chromium
+# A13 baseline must exist before running either A13->A14 evolution probe.
+# A13 BLIND PRODUCT TRIAL — original customer contract frozen before generator invocation.
+# No source modifications to generators/adapters/templates for this trial. Fail is a product finding.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target modular-spring --out /work/dist/a13-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance --target nestjs --out /work/dist/a13-nest
+# A14 new customer contract: tested separately; frozen A13 stays unchanged.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target modular-spring --out /work/dist/a14-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a14 --target nestjs --out /work/dist/a14-nest
+RUN bash -n scripts/vnext/probe-a14-reassign-postgres.sh && bash scripts/vnext/probe-a14-reassign-postgres.sh
+# A14.2 declarative typed search: new frozen-independent contract, both target databases.
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 --target modular-spring --out /work/dist/a142-spring
+RUN node packages/cli/protocolia.mjs build examples/vnext/facility-maintenance-a142 --target nestjs --out /work/dist/a142-nest
+RUN bash -n scripts/vnext/probe-a14-query-postgres.sh && bash scripts/vnext/probe-a14-query-postgres.sh
+RUN bash -n scripts/vnext/probe-a142-evolution-postgres.sh && bash scripts/vnext/probe-a142-evolution-postgres.sh
+RUN bash -n scripts/vnext/probe-a13-maintenance-postgres.sh && bash scripts/vnext/probe-a13-maintenance-postgres.sh
+RUN bash -n scripts/vnext/probe-a14-evolution-postgres.sh && bash scripts/vnext/probe-a14-evolution-postgres.sh
+# A7+A8: atomic cross-entity reserve, state-guarded cancellation and exactly-once stock restoration.
+RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations --target modular-spring --out /work/dist/a7-spring
+RUN node scripts/vnext/verify-reservation-ir.mjs
+RUN node scripts/vnext/probe-cancellation-negative.mjs
+RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations --target nestjs --out /work/dist/a7-nest
+RUN bash scripts/vnext/probe-reservation-postgres.sh
+# A9: same persisted PostgreSQL DB before/after A7→A8, plus React Chromium cancellation.
+RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations-v1 --target modular-spring --out /work/dist/a9-spring-v1
+RUN node packages/cli/protocolia.mjs build examples/vnext/inventory-reservations-v1 --target nestjs --out /work/dist/a9-nest-v1
+RUN bash scripts/vnext/probe-a9-in-place.sh
+# A6: declarative guarded business state transitions, two targets, identical HTTP/PG test.
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target modular-spring --out /work/dist/workflow-spring
+RUN node scripts/vnext/verify-workflow-ir.mjs
+RUN node scripts/vnext/probe-workflow-negative.mjs
+RUN node scripts/vnext/probe-a10-audit-negative.mjs
+RUN node scripts/vnext/probe-a11-audit-negative.mjs
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders --target nestjs --out /work/dist/workflow-nest
+RUN bash scripts/vnext/probe-workflow-postgres.sh
+# A12: in-place A10→A11 read-only audit capability on a persisted DB, zero DDL, both targets.
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders-a10 --target modular-spring --out /work/dist/a12-spring-a10
+RUN node packages/cli/protocolia.mjs build examples/vnext/work-orders-a10 --target nestjs --out /work/dist/a12-nest-a10
+RUN bash -n scripts/vnext/probe-a12-audit-upgrade.sh && bash scripts/vnext/probe-a12-audit-upgrade.sh
+# A3 portability: same TypeSpec contracts and independent NestJS/PostgreSQL runtime.
+RUN node packages/cli/protocolia.mjs build examples/vnext/taller --target nestjs --out /work/dist/nest-taller
+RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target nestjs --out /work/dist/nest-gauge
+RUN bash scripts/vnext/probe-nest-postgres.sh
+# A3 multi-entity Nest parity and A5 transactional, checksummed V1-to-V2 on persisted Nest DB.
+RUN node packages/cli/protocolia.mjs build examples/vnext/equipment-inspections --target nestjs --out /work/dist/nest-relations
+RUN PROTOCOLIA_DB_PASSWORD=only-compose-test PROTOCOLIA_READER_PASSWORD=only-compose-test PROTOCOLIA_MANAGER_PASSWORD=only-compose-test docker-compose -f /work/dist/nest-relations/compose.yaml config --quiet
+# A5 consumes the optional checkedAt fixture produced by this A4 contract-variant probe.
+# Generate it before Nest V1→V2 rather than relying on a later Docker layer.
+RUN node scripts/vnext/probe-a4-evolution.mjs
+RUN test -f examples/vnext/a4-contract-evolution-test/contracts/main.tsp
+RUN bash scripts/vnext/probe-nest-relations-evolution.sh
+RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/modular/compose.yaml config --quiet
+RUN echo A2_TALLER_COMPOSE_CONFIG_VERIFIED
+RUN bash scripts/vnext/probe-modular-postgres.sh
+RUN node packages/cli/protocolia.mjs build examples/vnext/gauge --target modular-spring --out /work/dist/gauge
+RUN PROTOCOLIA_DB_PASSWORD=a2-config-only-db PROTOCOLIA_READER_PASSWORD=a2-config-only-reader PROTOCOLIA_MANAGER_PASSWORD=a2-config-only-manager docker-compose -f /work/dist/gauge/compose.yaml config --quiet
+RUN echo A2_GAUGE_COMPOSE_CONFIG_VERIFIED
+RUN bash scripts/vnext/probe-gauge-postgres.sh
+# A4: third, independent two-entity TypeSpec contract with a PostgreSQL FK.
+RUN node packages/cli/protocolia.mjs build examples/vnext/equipment-inspections --target modular-spring --out /work/dist/relations
+RUN bash scripts/vnext/probe-a4-postgres.sh
+RUN sed -e 's|/work/dist/relations/|/work/dist/relations-evolved/|g' -e 's|protocolia_a4|protocolia_a4evolved|g' scripts/vnext/probe-a4-postgres.sh > /tmp/a4-evolved-probe.sh \
+  && A4_VARIANT=true bash /tmp/a4-evolved-probe.sh
+RUN bash scripts/vnext/probe-a5-postgres.sh
+
+EXPOSE 3000
+CMD ["node","-e","require('http').createServer((_,r)=>{r.writeHead(200);r.end('A0 modular isolated build marker only')}).listen(process.env.PORT||3000,'0.0.0.0')"]

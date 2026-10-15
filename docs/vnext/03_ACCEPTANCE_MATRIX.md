@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Matriz de aceptación y conformance
 
-**Estado:** ESPECIFICACIÓN DE PRUEBAS; pruebas vNext **aún no ejecutadas**.  
+**Estado:** MATRIZ NORMATIVA CON EVIDENCIAS PARCIALES REALES: A0/A1/A4/A5 PASS acotado, A3 paridad funcional Taller/Gauge PASS ([A3](evidence/A3.md)), A2 Docker Engine NOT RUN y A3 P-06 Nest evolution PASS aditivo acotado.  
 **Fecha:** 2026-10-13. **Fuente de requisitos:** [00](00_PRODUCT_REQUIREMENTS.md); **plan:** [02](02_IMPLEMENTATION_PLAN.md).  
 **Principio:** generar código o arrancar Spring/NestJS **no equivale** a construir el sistema declarado.
 
@@ -110,3 +110,270 @@ El `evidence.json` por ejecución debe registrar contract SHA, IR SHA, toolchain
 - A5 PASS exige compatibilidad/regeneración sin pérdida y tutorial en limpio. Completar docs sin ejecutar tests no cierra etapa.
 
 **Importante:** no hay medición de tokens como puerta de cierre. La evidencia puede ser mínima pero debe ser verdadera y suficiente; no agregar 10 pruebas decorativas cuando 1 prueba real demuestra una condición.
+
+## 8. Resultado real del target NestJS (2026-10-13)
+
+- **P-01 PASS:** TypeSpec/IR/OpenAPI hashes idénticos Nest/Spring para Taller y Gauge.
+- **P-02 PASS:** T-02–T-15 observados en NestJS y Spring con HTTP y PostgreSQL real, 10 incrementos concurrentes, auth y errores.
+- **P-03 PASS acotado:** JSON desconocido, validaciones, protegido 401/403; fuzzing HTTP no incluido.
+- **P-04 PASS acotado:** PostgreSQL real, tablas y semántica persistente equivalente; Nest usa su propio historial de esquema, no Flyway.
+- **P-05 PASS:** preflight NestJS rechaza operaciones, tipos, rutas, identidad y permisos incoherentes.
+- **P-06 PASS aditivo acotado:** Nest `app:plan/evolve` aplica V2 sobre base poblada; comprueba baseline, historial SHA-256, filas y extensions conservados, drift rechazado. No implica migraciones destructivas/productivas.
+- Build `dep-db79nmq5b2lc73f3cnq0`, código fuente `e1f004c0576a41b5fb5b2008368fa2bb283c58d9`, Render Free marker-only; 31/31 tests Node, POST/GET/PATCH/DELETE del Taller/Gauge, React Chromium y regresiones Spring/A4/A5 PASS. Véase [A3](evidence/A3.md).
+
+## 9. Validación complementaria Nest A3 multientidad / A5 (2026-10-13)
+
+Build **`dep-db7do367bikc73agk63g` LIVE**, fuente **`47379090898e2f16e9a1533ae5d42e61a03124a7`** en Render Free `srv-db6t203rjlhs7395vjn0`: Nest Equipment/Inspection PostgreSQL 400/409/204, roles/paginación y selector React Chromium más conformance genérica PASS; Nest V1→V2 con registros existentes, `checkedAt`, historia/checksum V2, sello/extension preservados y manipulación de SQL aplicada rechazada PASS. Regresiones Spring A4/A5 y Taller/Gauge PASS. `docker compose up` Docker Engine, backup real e IAM de producción permanecen NOT RUN.
+
+## 10. A6 — Finite-state business behavior from TypeSpec (additional profile)
+
+| ID | Acceptance scenario | Expected |
+| --- | --- | --- |
+| B-01 | Entity field `@initial("draft")` and operations `@transition(from,to)` | Canonical IR preserved, same TypeSpec/IR/OpenAPI digest for both adapters |
+| B-02 | Create WorkOrder in `approved` or unknown state | HTTP 400; cannot skip contract transition via create |
+| B-03 | Approve from draft; then close from approved | HTTP 200 with persisted state and correct subsequent GET |
+| B-04 | Wrong source state, repeated approve/close or close before approve | HTTP 409, persisted state unchanged |
+| B-05 | Ten simultaneous approvals of same draft row | Exactly one HTTP 200 and nine HTTP 409, final persisted state approved |
+| B-06 | Anonymous read/reader mutation and invalid body | 401, 403, 400 as appropriate |
+| B-07 | Mutated TypeSpec same-state transition, orphan source field, public write | Compile rejects; no supported false success |
+| B-08 | Generate shared React state-action controls | Manifest/UI bundle PASS; targeted Chromium action test **NOT RUN** |
+
+**A6 B-01–B-07 verified** on `86684c9e1db5af88097dff1718805967a92a58e3`, Render `dep-db7e4rbbc2fs73es6ab0` **LIVE**, both real Spring and Nest servers against disposable PostgreSQL. Generic suite `PROTOCOLIA_STATEFUL_CONFORMANCE_PASS` also passed separately in both. B-08 UI browser portion remains explicitly NOT RUN. See [A6](evidence/A6.md).
+
+## 11. A7 — Atomic cross-entity inventory reservation (bounded)
+
+| ID | Acceptance scenario | Actual |
+| --- | --- | --- |
+| C-01 | One TypeSpec contract + `@reserve` into Spring and Nest with identical IR hashes | PASS |
+| C-02 | Create Part and Allocation: decrement matching stock atomically and persist FK child | PASS in both, PostgreSQL |
+| C-03 | Unknown FK, quantity 0, unknown JSON properties | HTTP 400; no inventory debit |
+| C-04 | Insufficient available stock | HTTP 409; no child creation |
+| C-05 | Duplicate Allocation identity after conditional debit | HTTP 409; entire transaction rolled back, stock unchanged |
+| C-06 | Ten independent 1-unit allocations competing for 7 remaining units | Exactly 7×201 + 3×409, stock 0, 8 total allocations |
+| C-07 | Anonymous/reader unauthorized writes | 401/403, no state changes |
+| C-08 | Generic conformance derived from UI resource/IR metadata, independently of entity name | `PROTOCOLIA_TRANSACTIONAL_CONFORMANCE_PASS` on both |
+| C-09 | Invalid reserve adapter metadata and safe identifiers | Unit negative tests PASS |
+| C-10 | A7 Chrome frontend relation selector and stock changes from UI | **NOT RUN specifically for A7** |
+
+**C-01–C-09 PASS bounded** using source `ad34b7f2d33c123cfd404d30e12fe18d58ab4a97`, deploy `dep-db7eck8473hc73d32jjg` **LIVE**, service `srv-db6t203rjlhs7395vjn0`. See [A7](evidence/A7.md). This is one transaction with one stock debit + one child insert, not arbitrary multi-entity business rule generation.
+
+## 12. A8 — Compensación transaccional exactamente una vez (perfil acotado)
+
+| ID | Escenario | Resultado empírico |
+| --- | --- | --- |
+| D-01 | `@release` en una transición de estado original, vinculada al `@reserve` de CREATE | IR canónico idéntico, Spring+Nest compilados |
+| D-02 | Cancelación sin auth, con rol solo lector, cuerpo inesperado, reserva inexistente | HTTP 401/403/400/404 |
+| D-03 | 10 solicitudes simultáneas de cancelación de reserva activa | 1×200 y 9×409, reintegro **una sola vez** |
+| D-04 | Repetir la cancelación, o crear una reserva directamente cancelada | HTTP 409/400 sin modificar el inventario |
+| D-05 | Volver a reservar unidades restituidas | 201; decremento correcto, reserva nueva |
+| D-06 | Stock alterado externamente a INT32_MAX; cancelación causaría overflow | HTTP 409; reserva continúa active y stock intacto |
+| D-07 | Corregir overflow y reintentar | 200 una sola vez, stock final INT32_MAX |
+| D-08 | `@release` con referencia/campo incorrecto, transición de origen inválido o sin `@reserve` | Rechazo explícito en compilador TypeSpec |
+| D-09 | Conformance genérica desde manifiesto contra PostgreSQL en ambos destinos | `PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS` ×2 |
+| D-10 | Interacción UI de cancelación específica en Chromium | **NOT RUN** |
+
+**D-01–D-09 PASS acotado**, fuente `a6141c989da41128115d1de70972a591d805f8c5`, Render `dep-db7ekstg1s2s73a8amlg` **LIVE**. Se validaron realmente dos bases PostgreSQL efímeras con Spring y Nest en Docker build. No implica upgrades A7→A8 de bases existentes ni un motor de flujos distribuidos. [Evidencia A8](evidence/A8.md).
+
+## 13. A9 — Upgrade A7→A8 with populated DB and real Chromium
+
+| ID | Contract-derived acceptance test | Verified |
+| --- | --- | --- |
+| E9-01 | Original A7 TypeSpec generates and seeds two reservations with no status | PASS ×2: Spring and Nest |
+| E9-02 | app:plan accepts only required initial state + matching compensating transition | PASS; 2 changes, 0 blockers |
+| E9-03 | app:evolve preserves byte-identical V1, owned extensions and ownership seals | PASS ×2 |
+| E9-04 | Flyway/Nest V2 on same populated PostgreSQL backfills historic rows active and preserves stock | PASS ×2 |
+| E9-05 | Previous A7 POST without new status still creates active reservation | PASS ×2 |
+| E9-06 | Cancel historical reservation, stock restored once and subsequent restart preserves rows | PASS ×2 |
+| E9-07 | Chromium at mobile 390×844: manager cancel, state and stock reflected, reader denied action | PASS ×2 |
+| E9-08 | Reject disallowed validator changes, unsafe state/backfill, altered capabilities or routes | PASS Node unit negative tests |
+| E9-09 | Docker Engine Compose-up; rolling mixed-version deploy; backup/restore production | NOT RUN / OUT OF PROFILE |
+
+**E9-01–E9-08 PASS bounded**. Exact functional code SHA `913bcb318724cf2a0bcd12cedf1e609da0c03075`; Render resumed build `dep-db7euknavr4c73809dmg` checks out `49c63d7a68370376f4e3afe6b8c0f87b88a8943e`; 39/39 Node PASS and both real PostgreSQL/Chromium/upgrade probes PASS. [Evidence A9](evidence/A9.md). Final Render deployment `dep-db7euknavr4c73809dmg` **LIVE**; complete A0–A8 regression suite PASS.
+
+## 14. A10 — Auditing business operations declared in TypeSpec
+
+| ID | Contract-level test | Status |
+| --- | --- | --- |
+| F10-01 | Declare `@audit("title,status")` on create and `@audit("status")` on transition | IR + Spring/Nest emitters generated; 41/41 Node PASS |
+| F10-02 | Bad audit selections (duplicate, unknown, identity on create, use on read) | PASS adapters + TypeSpec compiler negative |
+| F10-03 | Successful create and guarded state changes append authenticated field-level entries | PASS HTTP/psql ×2; 4 audited events with actor, timestamps and before/after |
+| F10-04 | Duplicate, unauthorized and wrong-state operations do not append audit entries | PASS ×2 |
+| F10-05 | PostgreSQL audit trigger failure rolls back CREATE atomically | PASS ×2 — no created domain row |
+| F10-06 | PostgreSQL audit trigger failure rolls back guarded transition atomically | PASS ×2 — state remains draft |
+| F10-07 | A0–A9 regressions unaffected on both backend targets | PASS; complete Render build and deploy LIVE |
+
+**Empirical:** corrected source `9cf1032817b98088616f1838b9d7419c6c204e24`, Render build `dep-db7fp2u7bikc73anp7ug`. F10-01–F10-06 PASS bounded; F10-07 full-regression and Render LIVE **confirmed** on `dep-db7fp2u7bikc73anp7ug` (source `9cf1032817b98088616f1838b9d7419c6c204e24`). Earlier builds found and repaired a legacy negative-test string mutation and the SQL fault-injection script; neither was a failure of the audited transaction. [A10 evidence](evidence/A10.md). Data is append-only through generated API, not tamper-proof.
+
+## 15. A11 — Contract-governed audit history
+
+| ID | Acceptance requirement | Empirical result |
+| --- | --- | --- |
+| G11-01 | TypeSpec auditPage with entity identity GET and separate nonpublic authority | PASS, compiler + both generators |
+| G11-02 | Reused read/write/public audit authority, mutated verb or malformed contract fail closed | PASS, four TypeSpec negatives |
+| G11-03 | Independent ServiceCase source generates Spring/Nest manifests, API and React config | PASS in 43/43 Node tests |
+| G11-04 | Unauthorized 401 and reader 403 before identity lookup | PASS ×2 real HTTP/PostgreSQL |
+| G11-05 | Invalid pagination/unknown query 400, missing resource 404 for authorized role | PASS ×2 |
+| G11-06 | Manager views four chronological reverse-order events with actor and before/after, limit/offset and total | PASS ×2 |
+| G11-07 | No leak of another resource's audit rows | PASS ×2 |
+| G11-08 | Chromium 390×844 React history visible to manager and hidden from reader | PASS ×2 |
+| G11-09 | A10 fault-injection rollback, A6 transitions and A0–A10 regressions | A6/A10 PASS ×2; full A0–A10 Docker regression PASS |
+| G11-10 | Render deploy LIVE, real Compose Engine, production IAM/backups | Render LIVE confirmed; Compose/production controls NOT RUN |
+
+**Source:** `f3bea045f033fd66d485a996dfda11bc81799acc`; Render Free deploy `dep-db7gataj9qps73cbub60`. [A11 evidence](evidence/A11.md). The generated event journal remains append-only via generated APIs only, not cryptographically tamper-proof.
+
+## 16. A12 — A10 → A11 existing-database audit reader evolution
+
+| ID | Acceptance | Status |
+| --- | --- | --- |
+| H12-01 | Existing A10 TypeSpec compiled into both standalone Spring/Nest apps | PASS ×2 |
+| H12-02 | In-place add exactly one separately authorized auditPage with new reachable response schemas | PASS ×2 real CLI plan/evolve + 3 unit tests |
+| H12-03 | Reject old audited writer changes, capability reuse, wrong route/verb, hidden schema drift | PASS Node + rejected real sealed upgrade ×2 |
+| H12-04 | Preserve 2 original WorkOrder rows and 6 original journal entries (ids, before/after, actor), old SQL baseline, consumer extensions | PASS ×2 real persisted PostgreSQL |
+| H12-05 | No Flyway V2 or Nest V2; schema history unchanged after upgrade and restart | PASS ×2 baseline bytes/migration ledger |
+| H12-06 | Evolved app audit API authorization/pagination/isolation and mobile React history both targets | PASS ×2 real HTTP/Chromium 390×844 |
+| H12-07 | Repeated plan/evolve and second restart no-op, rows/events preserved | PASS ×2 `PROTOCOLIA_EVOLUTION_NO_CHANGES` |
+| H12-08 | A0–A11 full regression and Render Free deploy LIVE | **PASS**, 46/46 Node; Render `dep-db7glj49v7es73c0moa0` LIVE |
+
+Code source `b441474331653930e8c0681f6ee8c1291b4547f4` in Render deploy `dep-db7glj49v7es73c0moa0`. [Evidence A12](evidence/A12.md). The public Render service remains a build marker, not the upgraded app.
+
+## 17. A13 — Frozen independent four-resource customer scenario (blind product trial)
+
+**Customer requirements were frozen before generating code.** [16 customer requirements](evidence/A13_REQUIREMENTS.md), [actual evidence](evidence/A13.md). Contract Git blob SHA `298d95e7ab6c1b1588454921ab71d52ee2d599fd`; freeze reference `dc591a00da6f98b2724188ab2cc9b14c89256a63`. No generator/compiler/React template changed after contract freeze.
+
+| ID | Customer capability | Empirical result |
+| --- | --- | --- |
+| C01 | Site registration/uniqueness/input validation | PASS ×2 PostgreSQL/HTTP |
+| C02 | Machine→Site FK, restrict orphan and parent delete | PASS ×2 |
+| C03 | Technician directory and duplicate detection | PASS ×2 |
+| C04 | Ticket with Machine **and** Technician FK | PASS ×2; 2 real ticket FKs verified in psql |
+| C05 | Title, severity and optional UTC deadline | PASS ×2 |
+| C06 | Reported→planned→completed state machine | PASS ×2; guarded 409 on wrong or repeated transitions |
+| C07 | Concurrent 10-way ticket planning | PASS ×2; exactly 1 success/9 conflicts |
+| C08 | Selected-field audited mutations | PASS ×2, 4 ordered entries per closed ticket |
+| C09 | Roles on all resource reads/writes | PASS ×2; anonymous 401 and reader write 403 |
+| C10 | Independently authorized history | PASS ×2; reader 403 and manager sees filtered history |
+| C11 | Mobile Site picker and **two** reference selectors when creating a ticket | PASS ×2 Chromium 390×844 |
+| C12 | Mobile UI state actions/audit visible to manager, hidden from reader | PASS ×2 Chromium 390×844 |
+| C13 | All resources, state and audit survive backend restart on same DB | PASS ×2 real PostgreSQL |
+| C14 | Reassign technician after initial ticket filing, audited | **UNSUPPORTED**: no audited FK mutation contract primitive |
+| C15 | Filter/search tickets by site/state/deadline | **UNSUPPORTED**: listPage only supports bounded limit/offset |
+| C16 | Overdue work alerts and notifications | **UNSUPPORTED**: no scheduled/notification primitive |
+
+**A13 bounded customer score: 13/16 = 81.25%** in both generated targets, all from one frozen TypeSpec contract. Independent probes `probe-a13-maintenance-http.mjs`, `probe-a13-maintenance-browser.mjs`, `probe-a13-maintenance-postgres.sh`. Both targets generated matching contract/IR/OpenAPI SHA256.
+
+**Separate nonfunctional/product gate:** the existing Render Free service runs the actual app only *during the Docker build* and publicly hosts a build marker; a persistent, externally accessible generated application **is not yet proven**. Do not mark this gate PASS based on Render build LIVE or ephemeral DB. This is an automated user-journey test, not proof of human usability or production security. A0–A12 bounded regression suite PASS (46/46 Node and historical PostgreSQL/HTTP/Chromium/migration probes), Render verification service `dep-db7h1pjbc2fs73f6mshg` **LIVE**. **A public generated application with durable PostgreSQL and real human trial is still NOT RUN.**
+
+## 18. A14 — New contract capabilities after the frozen A13 customer result
+
+A13 remains a historical **13/16 PASS** and its contract blob is unchanged. A14 uses a distinct contract fixture under `examples/vnext/facility-maintenance-a14`; no retroactive change to A13's score.
+
+| ID | Acceptance | Empirical result |
+| --- | --- | --- |
+| C14 / A14.1 | Contract-driven guarded FK reassignment, independent assign privilege and old/new audit | **PASS ×2**, new TypeSpec→IR/OpenAPI→Spring/Nest |
+| A14-CAS | Ten concurrent PATCH requests with the same expected FK; one success, nine conflicts | **PASS ×2** real HTTP/PostgreSQL |
+| A14-ATOMIC | Inject failed audit insertion; rollback FK and audit, then recover | **PASS ×2** real HTTP/PostgreSQL |
+| A14-UI | Generated React 390×844 selector; user with read-only capability cannot assign or see audit | **PASS ×2** Chromium |
+| A14-RESTART | Reassigned FK and audit remain after backend restart | **PASS ×2** same persisted PostgreSQL |
+| A14-UPGRADE | Add new reassignment operation to populated A13 applications without destructive DDL | **PASS ×2** on GitHub Actions `38648198637`: both Spring/Nest populated A13→A14.1 in-place migrations preserved rows and audit |
+| C15 / A14.2 | Declarative combined search by Site, state, due time | **PASS ×2** GitHub Actions `38648198637`: PostgreSQL+HTTP, combined FK/status/UTC predicates, paging/indexes, Chromium 390×844, reader role, restart |
+| C16 / A14.3 | Durable overdue detection and notifications | **UNSUPPORTED**, reuse assessment documented |
+
+**Evidence:** Render build logs for deploy `dep-db7hofc9v7es73c4dqvg`, generator unit tests and `scripts/vnext/probe-a14-reassign-postgres.sh`; see [A14 evidence](evidence/A14.md). PASS here is limited to exercised features on isolated development PostgreSQL, not general production readiness, external IAM, deliverability, or an always-on publicly hosted generated application.
+
+**Build publication distinction:** Render `dep-db7hofc9v7es73c4dqvg` completed Docker build successfully (48/48 Node and A14 C14 parity), but its deploy was canceled before LIVE. Attempts `dep-db7hu6k9v7es73c4u5ng` and `dep-db7hv1i5b2lc7381ar90` were rejected by exhausted build-minute quota. That Render-era block was later superseded by the **successful public GitHub Actions A14 full-stack run**: `38648198637` on commit `06aa922`.
+\n## 19. A14.2 — Query implementation (new separate contract)\n\nSee [A14.2 evidence](evidence/A14_2.md). New typed scalar equality and UTC range filters, outgoing one-hop FK join, stable ordering, bounded paging, parameter binding, derived indexes and React filter controls are implemented in adapters; the independent synthetic generator projection completed in-memory. All of these bounded gates are now **PASS ×2** on GitHub Actions `38648198637` at `06aa922`: TypeSpec+OpenAPI, Spring/Nest builds, HTTP/PostgreSQL, seeded A13→A14.2 evolution and Chromium. No production IAM or hosted durable generated app.\n
+## 20. Historical Codespaces acceptance runner (superseded by Actions)
+
+| Gate | State | Evidence |
+| --- | --- | --- |
+| A14-CODESPACES-CONFIG | **PREPARED** | `.devcontainer/devcontainer.json`, `Dockerfile.codespaces-a14`, shell runner, `.dockerignore` |
+| A14-CODESPACES-ACTIONS | **PASS (static source check only)** | No Actions workflows or prebuild configuration in the new runner |
+| A14-CODESPACES-EXECUTION | **NOT RUN** | No Codespaces remote terminal/create tool attached to this chat |
+| A14-CODESPACES-PG/HTTP/CHROMIUM | **NOT RUN** | Run `bash scripts/vnext/run-codespaces-a14.sh` inside the PR branch's Codespace |
+
+See [Codespaces instructions](CODESPACES.md). An installed runner or committed probe is not empirical proof of a successful test.
+
+### 2026-10-14 — First real Codespace invocation
+
+The user actually started `run-codespaces-a14.sh` and hit the Docker daemon preflight: **BLOCKED by Codespace infrastructure** before any Docker build. The configuration was changed to Docker-in-Docker v4 and a diagnostics script was added. **A14 suite remains NOT RUN**, requires Codespace rebuild and retry. This does not overturn previously demonstrated isolated A14.1 PASS. No Actions minutes consumed by the runner.
+
+### 2026-10-14 — Actual Codespaces log and next revision
+
+Commit `a2a123d` completed official TypeSpec, OpenAPI, Spring Boot 4 Java 21, Nest TypeScript and React/Vite builds for A14.2; **BUILD PASS** on both target adapters. The overall Docker runner **FAIL** occurred at script shell validation before any A14.1/A14.2 PostgreSQL or Chromium probe. Both evolution probes were repaired, and all scripts are now syntax-checked at the start of the Docker build, before dependencies. A separate generated React TDZ runtime bug was fixed with a source-level regression test. **All corrected runtime/DB/browser gates remain NOT RUN**.
+
+### 2026-10-14 — Second user-run Codespaces log and schema snapshot fix
+
+User-provided log (1,747 lines) shows Docker + PostgreSQL toolchain startup; early bash preflight PASS; **53/53 Node tests PASS** including the generated React TDZ regression; real TypeSpec 1.17 + OpenAPI + Spring Boot 4 Java 21 + NestJS TypeScript + React/Vite generated builds PASS. The A14.1 FK reassignment acceptance against Spring AND Nest PostgreSQL passed HTTP guards, 10-way CAS audit failure rollback, Chromium 390x844, read-role checks, persistence and restart: **A14.1 C14 runtime PASS ×2**.
+
+The following A13→A14.1 evolution test successfully seeded historical rows/audit and staged and recompiled a new Spring application, with PROTOCOLIA_EVOLUTION_APPLIED. It then stopped **before the upgraded application started**, reporting A14_EVOLUTION_UNEXPECTED_DDL. The test fingerprint hashed text from repeated pg_dump -s calls, which PostgreSQL 16 may make nondeterministic by generating a new random \restrict key. This is explicitly documented by PostgreSQL for the repeatable-output --restrict-key switch. Both evolution probes now pin a testing-only restrict key, perform a before-before self-consistency check and compare complete historical schema dumps, without ignoring expected changes. This is an acceptance-harness repair, not evidence of a successful evolution. A14.2 new indexes are evaluated after restart, not in the pre-start fingerprint. Codespaces build order now executes live A14.2 query conformance before the expensive evolution probes, and a source-level regression is committed.
+
+**Current result ledger:** official TypeSpec+Spring+Nest+React builds PASS for the tested revision; 53/53 tests PASS; C14 HTTP/PG/Chromium ×2 PASS; A13→A14.1 upgrade NOT YET END-TO-END PASS; A14.2 PostgreSQL/HTTP/Chromium NOT RUN in the supplied log; A13→A14.2 upgrade NOT RUN. The pinned-dump correction needs a new real Codespaces run. No Actions or Render quota used.
+
+### 2026-10-14 — Migration away from user-operated Codespaces to public GitHub Actions
+
+The user-provided latest Codespaces build log confirms Node **54/54 PASS**, A14.1 both-stack PostgreSQL/HTTP/Chromium PASS, and A14.2 seeded PostgreSQL/HTTP combined FK, status, UTC range and paging **PASS** (on first Spring target). The subsequent A14.2 Chromium assertion `5 !== 1` at `probe-a14-query-browser.mjs:23` occurred because the browser test awaited `K1`, which was *already present in the original unfiltered 5-row listing*, rather than awaiting the filter request and React's new row count. The test now requires the exact filtered HTTP response and waits for the rendered row count to change, checking the response total and reset operation independently. No evidence yet that the updated browser test has passed.
+
+**CI architecture correction:** GitHub reports the repository as PUBLIC and the account's existing `quality` jobs on this PR have completed successfully. Official GitHub billing states standard GitHub-hosted Actions runners are FREE for public repositories regardless of privately-accounted Actions minutes. Therefore `.github/workflows/vnext-a14-conformance.yml` now starts the isolated, identical Dockerfile-based full suite on trusted pushes to the vNext feature branch, with read-only credentials and no fork workflow trigger. The GitHub connector can retrieve its status/logs and publish source fixes without the user typing terminal commands. **First run ID 38648198637 was verified IN_PROGRESS** for commit `06aa92227b2000efe2855a511b8b425b41778be7`. Do not mark the full suite PASS until GitHub reports green; no change to default/main.
+
+## 21. Authoritative A14 acceptance closure — 2026-10-14
+
+**Status: A14.1 + A14.2 BOUNDED ACCEPTANCE PASS, verified from completed GitHub-hosted full-stack job logs.** CI [run 38648198637](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38648198637), exact functional commit `06aa92227b2000efe2855a511b8b425b41778be7` (not the later documentation-only commits), job `TypeSpec > Spring/Nest > PostgreSQL > Chromium > evolution` completed **success**. Node **54/54 PASS**; TypeSpec/IR/OpenAPI, real Maven Java 21 Spring Boot, NestJS TS and React/Vite builds PASS.
+
+| Gate | Spring | NestJS |
+| --- | --- | --- |
+| A14.1 guarded FK reassignment, CAS, audit rollback and permissions, HTTP/PG | PASS | PASS |
+| A14.1 React Chromium 390×844, manager/reader and restart persistence | PASS | PASS |
+| A14.2 combined one-hop FK/status/UTC filters, typed bounded search, indexes, HTTP/PG | PASS | PASS |
+| A14.2 React Chromium 390×844, filter reset and reader read-only, restart | PASS | PASS |
+| Seeded A13→A14.1 in-place contract evolution, original records/audit preserved | PASS | PASS |
+| Seeded A13→A14.2 in-place evolution, original rows/audit preserved, new query indexes | PASS | PASS |
+
+Evidence markers in the logs: `A14_BOTH_TARGETS_REASSIGNMENT_PASS`, `A142_spring_POSTGRESQL_TYPED_FK_FILTERS_CHROMIUM_RESTART_AND_INDEX_PASS`, `A142_nest_POSTGRESQL_TYPED_FK_FILTERS_CHROMIUM_RESTART_AND_INDEX_PASS`, `A14_BOTH_TARGETS_SAFE_IN_PLACE_EVOLUTION_PASS`, `A142_BOTH_TARGETS_SAFE_IN_PLACE_SEARCH_EVOLUTION_PASS`, `A14_CODESPACES_POSTGRES_CHROMIUM_BOTH_TARGETS_PASS`. The last marker is the historical Dockerfile label and **was obtained inside public GitHub Actions**, not Codespaces.
+
+**Boundaries:** A13 remains frozen and its historical 13/16 score is not retroactively changed; C14/C15 are provided by newer separate A14 contracts. C16/A14.3 overdue/notification remains UNSUPPORTED. No public durable production deployment, production IAM/tenant isolation, human UAT, large-scale load test, or real external notification was demonstrated. `main` stays unchanged; PR #52 open. A14 acceptance remains scoped to these test fixtures.
+
+### A14.3/C16 active development (2026-10-14)
+
+**S1: BOUNDED PASS ×2** from real public Actions [run 38650987559](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38650987559), tested functional revision `ba98fcb9bc07772f6c3d2adb7af8a0ea0e1b36a6`: `@overdueAlert` declarative TypeSpec metadata compiled into IR; both Spring and Nest emit the same PostgreSQL pending-inbox SQL and rule manifest, with injected-clock detection, correct recipient, idempotence and actual PostgreSQL restart persistence. 3/3 independent adversarial/deterministic tests PASS in this run. Later hardening (terminal final-state validation and fail-closed policy migration) requires CI re-verification; none of these results proves Spring/Nest runtime, worker dispatch, retries, recipient IAM, external delivery, nor C16 acceptance. Dedicated [A14.3 evidence](evidence/A14_3.md). **C16 stays OPEN**.
+
+### S2a real acceptance closed — 2026-10-14
+
+[GitHub Actions run 38651850176](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38651850176), exact functional commit `6f35f941615d4fab96c6d7266361ff90119545d1`, completed **SUCCESS**. The generator projections and A14.3 independent unit tests passed; on TWO PostgreSQL schemas emitted by Spring and Nest, fixture-injected due-time detection and unique deduplication PASS; forced internal inbox insert exception caused an atomic rollback (no partial receipt/attempt mutation); two concurrent PostgreSQL clients raced the same pending event and only one received it; second dispatch returned zero; invalid batch bounds were rejected; the recipient-indexed inbox entry and the outbox receipt persisted across a PostgreSQL process restart. Evidence log markers: `A143_spring_ATOMIC_INBOX_CONCURRENT_IDEMPOTENT_RECEIPT_PASS`, `A143_nest_ATOMIC_INBOX_CONCURRENT_IDEMPOTENT_RECEIPT_PASS`, `A143_BOTH_TARGETS_DELIVERED_INBOX_SURVIVES_PG_RESTART_PASS`. This supersedes S2a's previous unverified/source-only note.
+
+**Current closure: A14.3-S1 and S2a PASS ×2, C16 still OPEN**. No always-on worker/scheduler, external transport, validated recipient-level inbox HTTP/UI, provider retry/dead-letter, in-place populated upgrade or always-on application hosting has been proved. In this bounded profile `delivered` means *internal PostgreSQL inbox materialization*, never an external message receipt.
+
+### A14.3-S3 accepted: real generated workers in both backends (2026-10-14)
+
+[GitHub Actions run 38653703376](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38653703376), **functional code commit `298a5fe0695f9007a99a43939e6601e73a4f4c68`**, completed **SUCCESS**. The isolated test compiled the *entire generated Spring Boot 4 application* with Java 21/Maven and the *entire generated NestJS/React app* with Node/TypeScript/Vite; both ran real HTTP /health and separate PostgreSQL databases. Each target was started with worker disabled, seeded with past/future/completed tickets, and proved no automatic materialization. After app restart with explicit `PROTOCOLIA_ALERT_WORKER_ENABLED=true`, the overdue ticket was detected and inserted into the internal inbox, the future and completed tickets were excluded, and a further app restart preserved exactly one notice. Markers `A143_spring_OPT_IN_AUTOMATIC_WORKER_POSTGRES_RESTART_PASS`, `A143_nest_OPT_IN_AUTOMATIC_WORKER_POSTGRES_RESTART_PASS` and `A143_BOTH_TARGETS_COMPILED_AUTOMATIC_WORKER_CONFORMANCE_PASS` all appeared in the real job log.
+
+**A14.3-S3 BOUNDED PASS ×2. C16 STILL OPEN.** Workers only run when apps are awake; no independently hosted always-on scheduler, per-recipient authenticated inbox HTTP/UI, external provider delivery/receipts, permanent queue dead-letter/retry policy, populated in-place A13→A143 migration, or production tenant isolation is proven. New A14 full-stack legacy regression run 38653703444 on the same functional SHA was still IN_PROGRESS at the S3 closeout check; do not claim its result until checked.
+
+
+## A14.3 recipient inbox — implementation under verification (2026-10-14)
+
+Baseline checked: HEAD `eb5ee7503ddcb0ad6f1ec29cb49fbf1fadcfe48b`; S3 run 38653703376 and A14 regression 38653703444 on `298a5fe` both SUCCESS. S1/S2 foundation run 38653703433 also SUCCESS. Main remains untouched.
+
+New contract surface: `@recipientIdentity` on a recipient entity plus an `inboxPage` / `ackNotification` pair with distinct, non-business capabilities. Canonical paths are `/api/notifications/<recipient_table>` and `/api/notifications/<recipient_table>/{notificationId}/ack`. Fixed bounded pagination (1..50, offset 0..1000000); identities remain strings in API. The real A143 contract declares this on Technician; independent tests exercise Member/Task.
+
+Identity provisioning is deliberately outside ordinary CRUD: generated `protocolia_identity_<recipient>` binds trusted `(issuer,subject)` to an existing recipient via FK; uniqueness prevents ambiguous binding. Demo Basic derives subject from the verified server principal and issuer `demo-basic`. Deployment operator provisions this mapping; HTTP cannot choose or update it. Missing/revoked binding returns 403. PostgreSQL functions check the mapping under a shared row lock and scope by recipient AND rule; foreign/missing IDs return 404. ACK is idempotent and preserves its first timestamp under concurrent retries. Function/table PUBLIC access is revoked. DB connection remains a trusted application role: this is not production IAM or protection against a compromised DB owner. No global inbox or administrative bypass is exposed.
+
+Generated React displays recipient/event/resource, unread state, paginated cards and permitted acknowledgement at mobile widths, with session-scoped unmount and request cancellation. Existing worker workflow is extended, not duplicated, to compile both apps and exercise PostgreSQL, HTTP errors/isolation/concurrency, Chromium mobile and restart. Source implementation is **NOT yet runtime accepted** until Actions evidence is recorded. Changes to existing identity/policy contracts remain fail-closed pending additive evolution proof.
+
+Next gates remain durable retry/DLQ and attempt history, additive populated migrations, provider abstraction and controlled failure adapter. External delivery and sustained hosting remain OPEN. Historical A13 is unchanged.
+
+
+## 22. Current A14.3/C16 acceptance ledger — supersedes old NOT RUN checkpoints
+
+This section records tested *new A14.3 contracts*, not the immutable A13 customer trial (historical 13/16). Exact source `cc3463a99e1ce9a8c556e5f7faab4ebc795cfd57`, [Actions #38661162521](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38661162521) SUCCESS.
+
+| Gate | Spring | Nest | Evidence boundary |
+| --- | --- | --- | --- |
+| Overdue rule → outbox and atomic internal inbox materialization | PASS | PASS | Real PostgreSQL, seeded due/future/terminal data, idempotence and restart |
+| Opt-in generated scheduled worker (only while application awake) | PASS | PASS | Compiled app, worker disabled/enabled, real HTTP health and PostgreSQL |
+| Authenticated recipient-scoped inbox read, ACK, role/identity isolation | PASS | PASS | HTTP 400/401/403/404, concurrent ACK, Chromium mobile, restart |
+| **Populated A14.2 → A14.3 upgrade**, unchanged old V1, tickets/audit | **PASS** | **PASS** | Actual CLI plan/evolve, Flyway/Nest V2 additive DDL, legacy reassignment, notification read/ACK, restart/idempotent second evolve |
+| Arbitrary changes to installed notification rules or unrelated DDL | **REJECT** | **REJECT** | Restricted migration profile; no arbitrary policy evolution |
+| Guaranteed 24/7 durable independent scheduler and production IAM | **OPEN** | **OPEN** | In-process scheduler only; not an always-on hosted worker |
+| External email/push delivery with retry/dead letter and receipts | **OPEN** | **OPEN** | PostgreSQL `delivered` means internal recipient inbox receipt only |
+
+The former A14/C16 `UNSUPPORTED` verdict is historical and does not describe these tested internal-notification primitives. Full external C16 delivery remains incomplete.

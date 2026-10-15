@@ -1,0 +1,11 @@
+.git
+node_modules
+**/node_modules
+dist
+**/tsp-output
+.protocolia-evidence
+.env
+**/.env
+**/.protocolia-toolchain
+*.log
+.DS_Store
