@@ -77,7 +77,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     return {row,stored:lookup.body};
   }
   try{
-    await page.goto(base+"/",{waitUntil:"domcontentloaded",timeout:30000});
+    await page.goto(base+"/?resource=GuardDuty",{waitUntil:"domcontentloaded",timeout:30000});
     // Hold the first authorized FK-list response to verify a visible and accessible
     // asynchronous loading affordance rather than a static "Cargando..." string.
     let gatedFkRequest=0;
@@ -92,6 +92,9 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.getByRole("button",{name:"Entrar",exact:true}).click();
     assert.equal((await login).status(),200,"Browser authentication must succeed");
     await nav().waitFor({timeout:15000});
+    assert.equal(new URL(page.url()).searchParams.get("resource"),"GuardDuty",
+      "A direct resource URL loads the declared resource, not the default table");
+    await page.getByRole("heading",{level:1,name:"Guardias"}).waitFor();
 
     // Before creating the parent, the FK field and create action must be blocked
     // with a visible explanatory status rather than a silent invalid submit.
@@ -145,6 +148,44 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       {timeout:5000});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>el===document.activeElement),true,
       "Focus returns to the invoking create action after modal auto-focus cleanup");
+    // UX9: generated navigation is shareable and history-aware; Back/Forward
+    // must never discard a live create draft, even across different resources.
+    const routeName=()=>new URL(page.url()).searchParams.get("resource");
+    assert.equal(routeName(),"Section");
+    await nav().getByRole("button",{name:"Guardias",exact:true}).click();
+    assert.equal(routeName(),"GuardDuty","Changing resource updates the browser URL");
+    await nav().getByRole("button",{name:"Secciones",exact:true}).click();
+    assert.equal(routeName(),"Section");
+    await page.evaluate(()=>window.history.back());
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="GuardDuty");
+    await page.getByRole("heading",{level:1,name:"Guardias"}).waitFor();
+    await page.evaluate(()=>window.history.forward());
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="Section");
+    await page.getByRole("heading",{level:1,name:"Secciones"}).waitFor();
+    const routeDraft=await navigate("Secciones","Section"),routeCode=id("ROUTEDRAFT");
+    await routeDraft.getByTestId("create-code").fill(routeCode);
+    await routeDraft.getByTestId("create-name").fill("Borrador preservado en historial");
+    await page.evaluate(()=>window.history.back());
+    await discardPrompt.waitFor({state:"visible",timeout:7000});
+    assert.equal(await routeDraft.getByTestId("create-code").count(),0,
+      "The confirmation replaces the inputs while preserving their values");
+    assert.equal(await page.getByTestId("create-dialog").isVisible(),true);
+    await discardPrompt.getByRole("button",{name:"Seguir editando"}).click();
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="Section");
+    await discardPrompt.waitFor({state:"hidden"});
+    assert.equal(await routeDraft.getByTestId("create-code").inputValue(),routeCode,
+      "Cancelling Back retains the resource and original form values");
+    await page.evaluate(()=>window.history.back());
+    await discardPrompt.waitFor({state:"visible"});
+    await discardPrompt.getByRole("button",{name:"Descartar cambios"}).click();
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="GuardDuty");
+    await page.getByRole("heading",{level:1,name:"Guardias"}).waitFor();
+    await page.getByTestId("create-dialog").waitFor({state:"hidden"});
+    assert.equal((await req("/api/sections/"+encodeURIComponent(routeCode))).status,404,
+      "Back with explicit discard does not create the draft");
+    await page.evaluate(()=>window.history.forward());
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="Section");
+    await page.getByRole("heading",{level:1,name:"Secciones"}).waitFor();
     // Simulate a stricter backend-only rule to verify mapping of contract-safe
     // field issues to the generated input, without adding a domain-specific validator.
     const serverForm=await navigate("Secciones","Section");
@@ -431,7 +472,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
       compiledFieldMetadata:true,accessibleFieldHints:true,
       reassignPicker:true,confirmedCasReferenceUpdate:true,
-      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,pagedReassignment:true,offPageHydration:true,draftLossGuard:true,clientJavascriptErrors:0
+      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,pagedReassignment:true,offPageHydration:true,draftLossGuard:true,urlNavigation:true,historyDraftGuard:true,clientJavascriptErrors:0
     }));
   }catch(error){
     try{const screenshot=join(generated,"protocolia-fk-browser-failure.png");
