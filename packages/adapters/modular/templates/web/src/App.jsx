@@ -45,6 +45,14 @@ function normalizePayload(fields,values){
   }
   return result;
 }
+function preventNestedPickerEscape(event){
+  // Radix Dialog and Select register independent document Escape handlers.
+  // The dialog must not dismiss while an inner combobox handles that key.
+  if(event.target?.closest?.(".relation-dropdown")||
+     document.querySelector('.relation-trigger[data-state="open"]')){
+    event.preventDefault();
+  }
+}
 function LoadingIndicator({message,compact=false}){
   return <span className={compact?"loading-indicator compact":"loading-indicator"} role="status" aria-live="polite">
     <span className="loading-spinner" aria-hidden="true"/>
@@ -359,6 +367,7 @@ export default function App(){
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
+            onEscapeKeyDown={preventNestedPickerEscape}
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
             <div className="modal-header"><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
@@ -381,6 +390,7 @@ export default function App(){
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           {selected&&<Dialog.Content data-testid="detail-dialog" aria-modal={true} className="modal-content"
+            onEscapeKeyDown={preventNestedPickerEscape}
             aria-describedby={undefined}
             onCloseAutoFocus={event=>{event.preventDefault();
               const origin=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
