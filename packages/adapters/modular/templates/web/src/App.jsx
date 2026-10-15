@@ -435,11 +435,12 @@ export default function App(){
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      <Dialog.Root open={detailOpen} onOpenChange={open=>{if(!loading)setDetailOpen(open);}}>
+      <Dialog.Root open={detailOpen} onOpenChange={open=>{if(!loading){setDetailOpen(open);if(!open)setActivePicker("");}}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           {selected&&<Dialog.Content data-testid="detail-dialog" aria-modal={true} className="modal-content"
             aria-describedby={undefined}
+            onEscapeKeyDown={event=>{if(activePicker){event.preventDefault();setActivePicker("");}}}
             onCloseAutoFocus={event=>{event.preventDefault();
               const origin=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
               origin?.focus();setSelected(null);
@@ -460,15 +461,24 @@ export default function App(){
               act("reassignReference",{code:selected[active.entity.publicIdentity],
                 body:{expected:selected[field],[field]:reassigned}});
             }}>
-            <label className="field"><span>Reasignar {label({name:operations.reassignReference.behavior.field})}</span>
-              <select required value={reassigned} onChange={e=>setReassigned(e.target.value)}>
-                <option value="">Elegir responsable</option>
-                {(referenceOptions[operations.reassignReference.behavior.field]??[]).map(item=>
-                  <option key={item.key} value={item.key}>{item.displayName??item.key}</option>)}
-              </select>
-            </label>
-            <button type="submit" disabled={loading||!referenceOptions[operations.reassignReference.behavior.field]||
-              reassigned===selected[operations.reassignReference.behavior.field]}>Reasignar</button>
+            <div className="detail-action-block">
+              <h3>Cambiar {fieldLabel(active.entity.fields.find(f=>f.name===operations.reassignReference.behavior.field)??{name:operations.reassignReference.behavior.field}).toLowerCase()}</h3>
+              <p className="field-help">Elegí un destino y confirmá el cambio. La asignación anterior queda registrada.</p>
+              <FormField
+                field={active.entity.fields.find(f=>f.name===operations.reassignReference.behavior.field)}
+                value={reassigned}
+                choices={referenceOptions[operations.reassignReference.behavior.field]}
+                referenceState={referenceStatus[operations.reassignReference.behavior.field]}
+                pickerOpen={activePicker===operations.reassignReference.behavior.field}
+                onPickerOpenChange={open=>setActivePicker(open?operations.reassignReference.behavior.field:"")}
+                onChange={(name,value)=>setReassigned(value)}
+              />
+              <button data-testid="confirm-reassign" type="submit" disabled={loading||
+                referenceStatus[operations.reassignReference.behavior.field]?.state!=="ready"||
+                !reassigned||reassigned===selected[operations.reassignReference.behavior.field]}>
+                {loading?"Guardando…":"Confirmar cambio"}
+              </button>
+            </div>
           </form>}
           {can("atomicIncrement")&&<form onSubmit={e=>{e.preventDefault();act("atomicIncrement",{code:selected[active.entity.publicIdentity],body:{[operations.atomicIncrement.behavior.input]:Number(increment)}});}}>
             <label className="field"><span>Incrementar {label({name:operations.atomicIncrement.behavior.field})}</span><input data-testid="increment" type="number" min={1} value={increment} onChange={e=>setIncrement(e.target.value)}/></label>
