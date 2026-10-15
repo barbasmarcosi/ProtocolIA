@@ -184,7 +184,7 @@ function readWorkspaceRoute(config){
   const resources=config.resources?.length?config.resources:[config],p=new URLSearchParams(window.location.search);
   const matched=resources.findIndex(r=>r.entity.name===p.get("resource"));
   const resourceIndex=matched<0?0:matched,raw=p.get("offset");
-  const offset=raw&&/^\\d+$/.test(raw)&&Number(raw)<=250000&&Number(raw)%25===0?Number(raw):0;
+  const offset=raw&&/^\d+$/.test(raw)&&Number(raw)<=250000&&Number(raw)%25===0?Number(raw):0;
   const appliedFilters={};
   for(const f of resources[resourceIndex].operations?.queryPage?.behavior?.filters??[]){
     const value=p.get("filter."+f.parameter);
