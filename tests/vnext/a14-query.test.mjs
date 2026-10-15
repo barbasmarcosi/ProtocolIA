@@ -114,6 +114,35 @@ test("year-month domain pattern generates equal DB constraints for unrelated bac
   assert.throws(()=>nest(invalid,openapi,tmp()),/Unsupported/);
 });
 
+test("year-month constraint upgrades are additive, validated and detect incompatible OpenAPI drift",()=>{
+ const old=structuredClone(ir),next=structuredClone(ir);
+ const field={name:"period",type:"string",required:true,nullable:false,unique:false,minLength:7,maxLength:7};
+ old.entities[0].fields.push(structuredClone(field));
+ next.entities[0].fields.push({...field,pattern:"^[0-9]{4}-(0[1-9]|1[0-2])$"});
+ for(const value of [old,next])value.operations.find(o=>o.name==="createSite").request="SiteRequest";
+ const p=diffContracts(old,next);
+ assert.equal(p.compatible,true,JSON.stringify(p.blockers));
+ assert.deepEqual(p.changes.map(x=>x.kind),["addPattern"]);
+ const sql=additiveSql(p,next);
+ assert.match(sql,/ADD CONSTRAINT .* CHECK .* NOT VALID/);
+ assert.match(sql,/VALIDATE CONSTRAINT/);
+ assert.equal(sql.split("\n").length,2);
+ assert.doesNotMatch(sql,/DELETE FROM|DROP TABLE|UPDATE /i);
+ const oldApi=structuredClone(openapi),newApi=structuredClone(openapi);
+ oldApi.openapi=newApi.openapi="3.1.0";
+ const schema={properties:{period:{type:"string",minLength:7,maxLength:7}},required:["period"]};
+ oldApi.components={schemas:{Site:structuredClone(schema),SiteRequest:structuredClone(schema)}};
+ newApi.components=structuredClone(oldApi.components);
+ for(const v of Object.values(newApi.components.schemas))v.properties.period.pattern="^[0-9]{4}-(0[1-9]|1[0-2])$";
+ assert.deepEqual(validateOpenApiEvolution(oldApi,newApi,old,next,p),[]);
+ const drift=structuredClone(newApi);drift.components.schemas.Site.properties.period.maxLength=8;
+ assert.ok(validateOpenApiEvolution(oldApi,drift,old,next,p).length>0);
+ const unsafe=structuredClone(next);unsafe.entities[0].fields.find(f=>f.name==="period").pattern=".*";
+ assert.equal(diffContracts(old,unsafe).compatible,false);
+ const retrograde=structuredClone(next);retrograde.entities[0].fields.find(f=>f.name==="period").maxLength=8;
+ assert.equal(diffContracts(old,retrograde).compatible,false);
+});
+
 test("A14.2 declarative plan refuses injection, unsupported joins, unsafe sort, invalid types and privilege bypass",()=>{
  const mutations=[
   b=>{b.filters[0].via="status";},
