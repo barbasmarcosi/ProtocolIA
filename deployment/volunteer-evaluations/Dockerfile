@@ -4,7 +4,10 @@ FROM node:24-bookworm AS builder
 WORKDIR /source
 COPY . .
 RUN npm ci --no-audit --no-fund
-RUN npm run app:build -- examples/vnext/volunteer-evaluations --target nestjs --out /tmp/independent-volunteer-app
+# Rebuild the immutable UX4 release first; evolve to UX5 with a versioned additive
+# migration. Never rewrite V1 or force a new schema digest over existing Neon data.
+RUN npm run app:build -- deployment/volunteer-evaluations/releases/ux4 --target nestjs --out /tmp/independent-volunteer-app
+RUN node packages/cli/protocolia.mjs evolve examples/vnext/volunteer-evaluations /tmp/independent-volunteer-app
 
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production
