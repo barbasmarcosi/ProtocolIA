@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -48,7 +48,7 @@ function parseTimestamp(value:unknown):string{
 function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):Record<string,unknown>{
   if(!isRecord(body))throw new Problem(400,"Expected JSON object");
   if(Object.keys(body).some(key=>!writable.includes(key)))throw new Problem(400,"Unknown field");
-  if(create&&e.fields.some(f=>f.required&&f.initial===undefined&&!Object.hasOwn(body,f.name)))
+  if(create&&e.fields.some(f=>f.required&&f.initial===undefined&&!f.computedSum&&!Object.hasOwn(body,f.name)))
     throw new Problem(400,"Missing required field");
   for(const [key,value] of Object.entries(body)){
     const f=e.fields.find(x=>x.name===key);
@@ -317,11 +317,12 @@ class RuntimeService{
     }
   }
   private async create(e:Entity,op:Operation,body:unknown,actor:string):Promise<Record<string,unknown>>{
-    const input={...validateInput(e,body,e.fields.map(f=>f.name),true)};
+    const input={...validateInput(e,body,e.fields.filter(f=>!f.computedSum).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
-    const cols=e.fields.map(f=>f.column);
-    const params=e.fields.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
+    const persisted=e.fields.filter(f=>!f.computedSum);
+    const cols=persisted.map(f=>f.column);
+    const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
     const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
       cols.map((_,i)=>"$"+(i+1)).join(",")+")";
