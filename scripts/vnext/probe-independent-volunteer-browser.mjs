@@ -186,6 +186,21 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.evaluate(()=>window.history.forward());
     await page.waitForFunction(()=>new URL(location.href).searchParams.get("resource")==="Section");
     await page.getByRole("heading",{level:1,name:"Secciones"}).waitFor();
+    // Filter values and pagination are URL-derived and survive resource switching.
+    const searchPanel=page.getByTestId("query-filters");
+    await searchPanel.locator("summary").click();
+    await searchPanel.getByRole("textbox",{name:"Nombre de la sección"}).fill("Seccion ficticia UI");
+    await searchPanel.getByRole("button",{name:"Filtrar"}).click();
+    await page.waitForFunction(()=>new URL(location.href).searchParams.get("filter.name")==="Seccion ficticia UI");
+    await page.getByRole("row").filter({hasText:section}).waitFor();
+    await nav().getByRole("button",{name:"Guardias",exact:true}).click();
+    await nav().getByRole("button",{name:"Secciones",exact:true}).click();
+    assert.equal(new URL(page.url()).searchParams.get("filter.name"),"Seccion ficticia UI",
+      "Resource switch restores its URL filter");
+    assert.equal(await searchPanel.getByRole("textbox",{name:"Nombre de la sección"}).inputValue(),
+      "Seccion ficticia UI","Search input is restored with applied filters");
+    await searchPanel.getByRole("button",{name:"Limpiar filtros"}).click();
+    await page.waitForFunction(()=>!new URL(location.href).searchParams.has("filter.name"));
     // Simulate a stricter backend-only rule to verify mapping of contract-safe
     // field issues to the generated input, without adding a domain-specific validator.
     const serverForm=await navigate("Secciones","Section");
