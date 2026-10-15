@@ -71,6 +71,10 @@ try{
     try{payload=JSON.parse(txt);}catch{payload=txt;}
     return {status:response.status,body:payload};
   }
+  if(process.argv.includes("--browser")){
+    const {verifyGeneratedFkBrowser}=await import("./probe-independent-volunteer-browser.mjs");
+    await verifyGeneratedFkBrowser({base,manager,managerPassword,token,req,generated});
+  }
   const key=(suffix)=>token+"-"+suffix;
   const sec={code:key("SEC"),name:"Seccion ficticia"};
   const guards=[{code:key("G1"),sectionCode:sec.code,name:"Guardia A ficticia"},
