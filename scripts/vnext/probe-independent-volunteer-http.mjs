@@ -94,6 +94,11 @@ try{
     "Unknown filter fails closed");
   for(const g of guards)assert.equal((await req("/api/guards",{method:"POST",body:g})).status,201);
   for(const person of persons)assert.equal((await req("/api/volunteers",{method:"POST",body:person})).status,201);
+  const ranked=await req("/api/volunteers/query/lookup?rank=ASPIRANTE",{as:"reader"});
+  assert.equal(ranked.status,200,"Extra contract-authorized search field");
+  assert.ok(ranked.body.items.some(x=>x.badge===persons[0].badge));
+  assert.equal((await req("/api/volunteers/query/lookup?rank=%25",{as:"reader"})).body.total,0,
+    "Escaping applies to extra declared text fields");
   assert.equal((await req("/api/volunteers",{method:"POST",body:persons[0]})).status,409,"BV-02 identity unique");
   assert.equal((await req("/api/volunteers",{method:"POST",body:{...persons[1],badge:key("BAD"),guardCode:"MISSING"}})).status,400,"BV-02 FK checked");
   const evalBody={number:key("E1"),volunteerBadge:persons[0].badge,period:"2026-10",
