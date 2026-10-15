@@ -8,9 +8,8 @@ import {join} from "node:path";
 export async function verifyGeneratedFkBrowser({base,manager,managerPassword,token,req,generated}){
   const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
   const page=await browser.newPage({viewport:{width:1365,height:900},locale:"es-AR"});
-  const pageErrors=[],trace=[];
+  const pageErrors=[];
   page.on("pageerror",error=>pageErrors.push(error.message));
-  page.on("console",message=>{if(message.text().startsWith("PTRACE"))trace.push(message.text());});
   const id=suffix=>"UI"+token+"-"+suffix;
   const nav=()=>page.getByRole("navigation",{name:"Secciones de la aplicación"});
   async function navigate(title,entity){
@@ -68,13 +67,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const response=await responsePromise;
     assert.equal(response.status(),201,entity+" created through UI, got "+response.status()+": "+
       (await response.text()).slice(0,500));
-    try{
-      await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:10000});
-    }catch(error){
-      const text=await page.getByTestId("create-dialog").innerText().catch(()=>"not mounted");
-      throw Error(entity+" HTTP "+response.status()+" dialog failed to close; text="+text.slice(0,600)+
-        "; trace="+trace.slice(-24).join(" | ")+"; "+error.message);
-    }
+    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
     const row=page.getByRole("row").filter({hasText:resourceId});
     await row.waitFor({timeout:15000});
     const lookup=await req(endpoint+"/"+encodeURIComponent(resourceId),{as:"reader"});
@@ -217,6 +210,11 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal((await req("/api/monthly-evaluations/"+id("INVALID"),{as:"reader"})).status,404,
       "Client-side contract validation prevents invalid API writes");
     await page.getByRole("dialog",{name:"Nuevo registro"}).getByRole("button",{name:"Cancelar"}).click();
+    const invalidDraftConfirmation=page.getByTestId("unsaved-changes-confirmation");
+    await invalidDraftConfirmation.waitFor({state:"visible",timeout:6000});
+    assert.equal(await form.getByTestId("create-number").count(),0,
+      "Edited invalid form displays discard confirmation rather than losing draft silently");
+    await invalidDraftConfirmation.getByRole("button",{name:"Descartar cambios"}).click();
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     await page.waitForFunction(()=>document.activeElement?.getAttribute("data-testid")==="open-create",
       null,{timeout:5000});

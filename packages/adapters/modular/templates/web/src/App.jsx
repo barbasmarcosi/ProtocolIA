@@ -205,7 +205,6 @@ export default function App(){
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
   const discardReturnFocus=useRef(null);
-  const allowConfirmedClose=useRef(false);
   const continueDraftButton=useRef(null);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
@@ -238,13 +237,9 @@ export default function App(){
     return String(form[field.name]??"")!==String(initial);
   }));
   function commitCreateClose(){
-    console.info("PTRACE commitCreateClose",active?.entity.name,creating,confirmDiscard,createDirty);
-    allowConfirmedClose.current=true;
     setConfirmDiscard(false);setActivePicker("");setCreating(false);
   }
   function closeCreate(){
-    console.info("PTRACE closeCreate",active?.entity.name,creating,confirmDiscard,createDirty,loading,allowConfirmedClose.current);
-    if(allowConfirmedClose.current){setCreating(false);return;}
     if(loading)return;
     if(confirmDiscard){returnToDraft();return;}
     if(createDirty){
@@ -415,7 +410,7 @@ export default function App(){
         throw Error("Invalid paginated response");
       setItems(pageResult.items);setTotal(pageResult.total);
       return data;
-    }catch(e){console.info("PTRACE actFailed",kind,active?.entity.name,e.message);setError(e.message);return null;}finally{setLoading(false);}
+    }catch(e){setError(e.message);return null;}finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
@@ -471,7 +466,7 @@ export default function App(){
       </details>}
       <section className="panel records-panel">
         <div className="heading records-heading"><div><h2 ref={listHeading} tabIndex={-1}>Registros <span className="record-count">{total}</span></h2><p className="panel-helper">Toda la información, en un solo lugar.</p></div><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setConfirmDiscard(false);allowConfirmedClose.current=false;setCreating(true);}}>Nuevo registro</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setConfirmDiscard(false);setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{fieldLabel(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
@@ -488,10 +483,7 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{
-        console.info("PTRACE onOpenChange",active?.entity.name,open,loading,creating,confirmDiscard,createDirty);
-        if(!loading){setCreating(open);if(!open)setActivePicker("");}
-      }}>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
