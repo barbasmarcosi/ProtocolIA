@@ -486,7 +486,7 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{if(open){if(!allowConfirmedClose.current)setCreating(true);}else closeCreate();}}>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
@@ -494,12 +494,16 @@ export default function App(){
               if(activePicker){event.preventDefault();setActivePicker("");}
               else if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}
             }}
+            onInteractOutside={event=>{
+              if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}
+            }}
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
             <div className="modal-header"><div><Dialog.Title className="modal-title">{confirmDiscard?"¿Descartar los cambios?":"Nuevo registro"}</Dialog.Title>
               <Dialog.Description className="modal-description">{confirmDiscard?
                 "Si descartás el borrador, se perderán los datos que todavía no guardaste.":
                 "Completá los datos para agregarlo al listado."}</Dialog.Description></div>
-              <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar creación" disabled={loading}><span aria-hidden="true">×</span></button></Dialog.Close></div>
+              <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar creación" disabled={loading}
+                onClick={event=>{if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}}}><span aria-hidden="true">×</span></button></Dialog.Close></div>
             <div className="modal-scroll">
               {confirmDiscard?<div className="draft-discard-panel" data-testid="unsaved-changes-confirmation">
                 <div className="draft-discard-illustration" aria-hidden="true">!</div>
