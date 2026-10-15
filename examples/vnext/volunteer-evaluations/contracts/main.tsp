@@ -107,6 +107,10 @@ namespace VolunteerEvaluations {
     internalPoints: int32;
     @minValue(0)
     otherPoints: int32;
+    // Automatically computed base; NOT the final monthly total including leave/other points.
+    @computedSum("incidentPoints,mandatoryPoints,guardPoints,internalPoints")
+    @minValue(0) @maxValue(100)
+    basePoints: int32;
     @initial("draft") @minLength(1) @maxLength(20)
     status: string;
   }
