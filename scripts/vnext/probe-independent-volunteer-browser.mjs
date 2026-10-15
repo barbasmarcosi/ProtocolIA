@@ -8,8 +8,9 @@ import {join} from "node:path";
 export async function verifyGeneratedFkBrowser({base,manager,managerPassword,token,req,generated}){
   const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
   const page=await browser.newPage({viewport:{width:1365,height:900},locale:"es-AR"});
-  const pageErrors=[];
+  const pageErrors=[],trace=[];
   page.on("pageerror",error=>pageErrors.push(error.message));
+  page.on("console",message=>{if(message.text().startsWith("PTRACE"))trace.push(message.text());});
   const id=suffix=>"UI"+token+"-"+suffix;
   const nav=()=>page.getByRole("navigation",{name:"Secciones de la aplicación"});
   async function navigate(title,entity){
@@ -67,7 +68,13 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const response=await responsePromise;
     assert.equal(response.status(),201,entity+" created through UI, got "+response.status()+": "+
       (await response.text()).slice(0,500));
-    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
+    try{
+      await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:10000});
+    }catch(error){
+      const text=await page.getByTestId("create-dialog").innerText().catch(()=>"not mounted");
+      throw Error(entity+" HTTP "+response.status()+" dialog failed to close; text="+text.slice(0,600)+
+        "; trace="+trace.slice(-24).join(" | ")+"; "+error.message);
+    }
     const row=page.getByRole("row").filter({hasText:resourceId});
     await row.waitFor({timeout:15000});
     const lookup=await req(endpoint+"/"+encodeURIComponent(resourceId),{as:"reader"});

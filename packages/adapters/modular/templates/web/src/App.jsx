@@ -238,10 +238,12 @@ export default function App(){
     return String(form[field.name]??"")!==String(initial);
   }));
   function commitCreateClose(){
+    console.info("PTRACE commitCreateClose",active?.entity.name,creating,confirmDiscard,createDirty);
     allowConfirmedClose.current=true;
     setConfirmDiscard(false);setActivePicker("");setCreating(false);
   }
   function closeCreate(){
+    console.info("PTRACE closeCreate",active?.entity.name,creating,confirmDiscard,createDirty,loading,allowConfirmedClose.current);
     if(allowConfirmedClose.current){setCreating(false);return;}
     if(loading)return;
     if(confirmDiscard){returnToDraft();return;}
@@ -413,7 +415,7 @@ export default function App(){
         throw Error("Invalid paginated response");
       setItems(pageResult.items);setTotal(pageResult.total);
       return data;
-    }catch(e){setError(e.message);return null;}finally{setLoading(false);}
+    }catch(e){console.info("PTRACE actFailed",kind,active?.entity.name,e.message);setError(e.message);return null;}finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
@@ -486,7 +488,10 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
+      <Dialog.Root open={creating} onOpenChange={open=>{
+        console.info("PTRACE onOpenChange",active?.entity.name,open,loading,creating,confirmDiscard,createDirty);
+        if(!loading){setCreating(open);if(!open)setActivePicker("");}
+      }}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
