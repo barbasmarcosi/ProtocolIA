@@ -25,7 +25,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       if(Object.hasOwn(fk,field)){
         const expected=String(value);
         // Native select options must load only through the declared authorized list endpoint.
-        await input.locator("option").filter({hasText:expected}).first().waitFor({timeout:20000});
+        await input.locator("option").filter({hasText:expected}).first().waitFor({state:"attached",timeout:20000});
         await input.selectOption(expected);
         assert.equal(await input.inputValue(),expected,entity+"."+field+" selection must persist in controlled React state");
       }else{
