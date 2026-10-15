@@ -6,7 +6,7 @@ function route(operation, code) {
 }
 function label(field){return field.name.replace(/([a-z])([A-Z])/g,"$1 $2");}
 function createEmpty(fields){
-  return Object.fromEntries(fields.map(field=>[field.name,
+  return Object.fromEntries(fields.filter(f=>!f.computedSum).map(field=>[field.name,
     field.initial??(field.type==="int32"?0:"")]));
 }
 function normalizePayload(fields,values){
@@ -268,7 +268,7 @@ export default function App(){
         <form onSubmit={async event=>{event.preventDefault();
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
           if(data)setForm(createEmpty(active.entity.fields));
-        }}><div className="fields">{active.entity.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+        }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
           <button type="submit" disabled={loading}>Crear</button></form>
       </section>}
