@@ -110,6 +110,8 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     }
     await page.keyboard.press("Escape");
     await modal.waitFor({state:"hidden"});
+    await page.waitForFunction(expected=>document.activeElement?.getAttribute("data-testid")===expected,
+      "open-detail-"+evaluation,{timeout:5000});
     assert.equal(await opener.evaluate(el=>el===document.activeElement),true,
       "Closing detail returns focus to the original table row action");
     const scrollAfter=await page.evaluate(()=>window.scrollY);
