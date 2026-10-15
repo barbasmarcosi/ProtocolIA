@@ -13,6 +13,10 @@ function label(field){
     .split(/\s+/).map(s=>fieldWords[s.toLowerCase()]??s.toLowerCase()).join(" ")
     .replace(/^./,c=>c.toUpperCase());
 }
+function fieldLabel(field){
+  const caption=label(field);
+  return field.reference?caption.replace(/ (código|legajo|id)$/i,""):caption;
+}
 function visibleColumns(entity){
   // Presentation is intentionally separate from domain schema. The full record stays in Detail.
   const fields=entity.fields;
@@ -98,7 +102,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
   if(field.reference){
     const state=referenceState?.state??"loading";
     const blocked=state!=="ready";
-    const title=label(field).replace(/ (código|legajo|id)$/i,"");
+    const title=fieldLabel(field);
     const targetLabel=referenceState?.resourceLabel??label({name:field.reference.target});
     return <div className="field relation-field">
       <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
@@ -388,7 +392,7 @@ export default function App(){
           {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
-        <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{label(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
+        <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{fieldLabel(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {tableColumns.map(f=><td key={f.name}>{displayCell(f,item[f.name],referenceOptions)}</td>)}
           <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
@@ -445,7 +449,7 @@ export default function App(){
             <div className="modal-scroll">
             {error&&<p className="message error" role="alert">{error}</p>}
             {notice&&<p className="message" role="status">{notice}</p>}
-        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{label(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
+        <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         <div className="actions">
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
