@@ -100,13 +100,31 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const section=id("SEC"),guard=id("GUARD"),badge=id("PERSON"),evaluation=id("EVAL");
     await create({tab:"Secciones",entity:"Section",endpoint:"/api/sections",key:"code",
       fields:{code:section,name:"Seccion ficticia UI"}});
-    await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
+    const guardCreated=await create({tab:"Guardias",entity:"GuardDuty",endpoint:"/api/guards",key:"code",
       fields:{code:guard,sectionCode:section,name:"Guardia ficticia UI"},fk:{sectionCode:true}});
+    assert.match(await guardCreated.row.innerText(),/Seccion ficticia UI/,
+      "Generated relation column shows a human label, not only the foreign key");
+    assert.equal(await guardCreated.row.locator("td[title]").count(),0,
+      "Generated table does not expose confusing native cell tooltips");
+    await page.getByText("Registro creado correctamente.").waitFor({timeout:5000});
     await create({tab:"Personal",entity:"Volunteer",endpoint:"/api/volunteers",key:"badge",
       fields:{badge,guardCode:guard,name:"Persona ficticia UI",rank:"Aspirante"},fk:{guardCode:true}});
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
     assert.equal(await form.getByTestId("create-basePoints").count(),0,
       "Computed basePoints must never be an editable/form-submitted input");
+    assert.equal(await form.getByTestId("create-status").count(),0,
+      "Contract-defined initial status is not an editable user field");
+    assert.equal(await form.getByTestId("create-period").getAttribute("type"),"month",
+      "YYYY-MM periods are generated as month controls, not unstructured text");
+    await form.getByTestId("create-number").fill(id("INVALID"));
+    await form.getByTestId("create-period").fill("2026-09");
+    await form.getByTestId("create-incidentPoints").fill("26");
+    await form.getByRole("button",{name:"Crear",exact:true}).click();
+    await form.getByText("El máximo permitido es 25.").waitFor({timeout:6000});
+    assert.equal(await form.getByTestId("create-incidentPoints").getAttribute("aria-invalid"),"true",
+      "Business contract violations visibly identify the offending input");
+    assert.equal((await req("/api/monthly-evaluations/"+id("INVALID"),{as:"reader"})).status,404,
+      "Client-side contract validation prevents invalid API writes");
     await page.getByRole("dialog",{name:"Nuevo registro"}).getByRole("button",{name:"Cancelar"}).click();
     await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     assert.equal(await page.getByTestId("open-create").evaluate(el=>document.activeElement===el),true,
@@ -119,6 +137,8 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal(created.stored.basePoints,80,"DB-derived 80 visible through GET after form submit");
     const rowText=await created.row.innerText();
     assert.match(rowText,/\b80\b/,"Generated table displays the database-computed score");
+    assert.equal(await created.row.locator("td[title]").count(),0,
+      "No browser-native debug tooltip on generated table data");
     const opener=created.row.getByRole("button",{name:"Detalle"});
     await opener.scrollIntoViewIfNeeded();
     const scrollBefore=await page.evaluate(()=>window.scrollY);
