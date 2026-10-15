@@ -69,10 +69,10 @@ export default function App(){
   const [draftFilters,setDraftFilters]=useState({});
   const [appliedFilters,setAppliedFilters]=useState({});
   const [selected,setSelected]=useState(null);
+  const [detailOpen,setDetailOpen]=useState(false);
   const [creating,setCreating]=useState(false);
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
-  const detailPreviouslyOpen=useRef(false);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
@@ -144,7 +144,7 @@ export default function App(){
   useEffect(()=>{
     if(!active)return;
     setForm(createEmpty(active.entity.fields));
-    setSelected(null);setCreating(false);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
+    setSelected(null);setDetailOpen(false);setCreating(false);setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     setDraftFilters({});setAppliedFilters({});
   },[active?.entity.name]);
@@ -188,17 +188,6 @@ export default function App(){
     loadReferences().catch(e=>{if(valid)setError(e.message);});
     return ()=>{valid=false;};
   },[active?.entity.name,auth,capabilities.join("|")]);
-  // Controlled dialogs have no Dialog.Trigger, so the original row action must
-  // recover keyboard focus after the portal is removed (also on Escape).
-  useEffect(()=>{
-    const wasOpen=detailPreviouslyOpen.current;
-    detailPreviouslyOpen.current=Boolean(selected);
-    if(wasOpen&&!selected&&auth){
-      const target=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
-      const frame=window.requestAnimationFrame(()=>target?.focus());
-      return ()=>window.cancelAnimationFrame(frame);
-    }
-  },[selected,auth,active?.entity.name]);
   useEffect(()=>{
     const audit=active?.operations?.auditPage;
     const code=selected?.[active?.entity?.publicIdentity];
@@ -233,13 +222,13 @@ export default function App(){
     }finally{setLoginBusy(false);}
   }
   function logOut(){
-    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setCreating(false);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
     try{
       const data=await request(kind,params);
-      if(kind==="delete"||kind==="create")setSelected(null);
+      if(kind==="delete"||kind==="create"){setDetailOpen(false);setSelected(null);}
       else if(data?.[active.entity.publicIdentity]){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
@@ -299,7 +288,7 @@ export default function App(){
         <div className="scroll"><table><thead><tr>{active.entity.fields.map(f=><th key={f.name}>{label(f)}</th>)}<th>Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {active.entity.fields.map(f=><td key={f.name}>{item[f.name]??"—"}</td>)}
-          <td><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
+          <td><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<p>No hay registros.</p>}
         <div className="paging"><button className="ghost" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-limit))}>Anterior</button>
@@ -328,12 +317,15 @@ export default function App(){
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      <Dialog.Root open={Boolean(selected)} onOpenChange={open=>{if(!open&&!loading)setSelected(null);}}>
+      <Dialog.Root open={detailOpen} onOpenChange={open=>{if(!loading)setDetailOpen(open);}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           {selected&&<Dialog.Content data-testid="detail-dialog" aria-modal={true} className="modal-content"
             aria-describedby={undefined}
-            onCloseAutoFocus={event=>{if(detailOpener.current?.isConnected){event.preventDefault();detailOpener.current.focus();}else if(listHeading.current){event.preventDefault();listHeading.current.focus();}}}>
+            onCloseAutoFocus={event=>{event.preventDefault();
+              const origin=detailOpener.current?.isConnected?detailOpener.current:listHeading.current;
+              origin?.focus();setSelected(null);
+            }}>
             <div className="modal-header"><Dialog.Title className="modal-title">Detalle: {selected[active.entity.publicIdentity]}</Dialog.Title>
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar detalle" disabled={loading}>Cerrar</button></Dialog.Close></div>
             <div className="modal-scroll">
