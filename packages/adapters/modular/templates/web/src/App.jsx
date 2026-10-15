@@ -200,9 +200,12 @@ export default function App(){
   const [selected,setSelected]=useState(null);
   const [detailOpen,setDetailOpen]=useState(false);
   const [creating,setCreating]=useState(false);
+  const [confirmDiscard,setConfirmDiscard]=useState(false);
   const [activePicker,setActivePicker]=useState("");
   const detailOpener=useRef(null);
   const createOpener=useRef(null);
+  const discardReturnFocus=useRef(null);
+  const continueDraftButton=useRef(null);
   const listHeading=useRef(null);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
@@ -227,6 +230,37 @@ export default function App(){
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
   const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
+  // Generic draft baseline is built from the formal field manifest.
+  const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
+    if(field.computedSum||field.initial!==undefined)return false;
+    const initial=field.type==="int32"?0:"";
+    return String(form[field.name]??"")!==String(initial);
+  }));
+  function closeCreate(){
+    if(loading)return;
+    if(confirmDiscard){setConfirmDiscard(false);return;}
+    if(createDirty){
+      discardReturnFocus.current=document.activeElement;
+      setConfirmDiscard(true);
+      return;
+    }
+    setActivePicker("");setCreating(false);
+  }
+  function returnToDraft(){
+    setConfirmDiscard(false);
+    requestAnimationFrame(()=>{
+      const origin=discardReturnFocus.current;
+      const fallback=document.querySelector('[data-testid^="create-form-"] [data-testid^="create-"]');
+      (origin?.isConnected&&origin.closest('[data-testid="create-dialog"]')?origin:fallback)?.focus();
+    });
+  }
+  useEffect(()=>{if(confirmDiscard&&creating)continueDraftButton.current?.focus();},[confirmDiscard,creating]);
+  useEffect(()=>{
+    if(!createDirty)return;
+    const warn=event=>{event.preventDefault();event.returnValue="";};
+    window.addEventListener("beforeunload",warn);
+    return ()=>window.removeEventListener("beforeunload",warn);
+  },[createDirty]);
   const referencesReady=active?.entity?.fields.filter(f=>f.reference)
     .every(f=>["ready","paged"].includes(referenceStatus[f.name]?.state))??true;
   function listing(){
@@ -429,7 +463,7 @@ export default function App(){
       </details>}
       <section className="panel records-panel">
         <div className="heading records-heading"><div><h2 ref={listHeading} tabIndex={-1}>Registros <span className="record-count">{total}</span></h2><p className="panel-helper">Toda la información, en un solo lugar.</p></div><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setCreating(true);}}>Nuevo registro</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setConfirmDiscard(false);setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{fieldLabel(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
@@ -446,16 +480,32 @@ export default function App(){
           <span>{total===0?0:offset+1}–{Math.min(offset+limit,total)} de {total}</span>
           <button className="ghost" disabled={offset+limit>=total} onClick={()=>setOffset(offset+limit)}>Siguiente</button></div>
       </section>
-      <Dialog.Root open={creating} onOpenChange={open=>{if(!loading){setCreating(open);if(!open)setActivePicker("");}}}>
+      <Dialog.Root open={creating} onOpenChange={open=>{if(open)setCreating(true);else closeCreate();}}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay"/>
           <Dialog.Content className="modal-content" aria-modal={true} aria-describedby={undefined} data-testid="create-dialog"
-            onEscapeKeyDown={event=>{if(activePicker){event.preventDefault();setActivePicker("");}}}
+            onEscapeKeyDown={event=>{
+              if(activePicker){event.preventDefault();setActivePicker("");}
+              else if(createDirty||confirmDiscard){event.preventDefault();closeCreate();}
+            }}
             onCloseAutoFocus={event=>{if(createOpener.current?.isConnected){event.preventDefault();createOpener.current.focus();}}}>
-            <div className="modal-header"><div><Dialog.Title className="modal-title">Nuevo registro</Dialog.Title>
-              <Dialog.Description className="modal-description">Completá los datos para agregarlo al listado.</Dialog.Description></div>
+            <div className="modal-header"><div><Dialog.Title className="modal-title">{confirmDiscard?"¿Descartar los cambios?":"Nuevo registro"}</Dialog.Title>
+              <Dialog.Description className="modal-description">{confirmDiscard?
+                "Si descartás el borrador, se perderán los datos que todavía no guardaste.":
+                "Completá los datos para agregarlo al listado."}</Dialog.Description></div>
               <Dialog.Close asChild><button type="button" className="icon-button" aria-label="Cerrar creación" disabled={loading}><span aria-hidden="true">×</span></button></Dialog.Close></div>
             <div className="modal-scroll">
+              {confirmDiscard?<div className="draft-discard-panel" data-testid="unsaved-changes-confirmation">
+                <div className="draft-discard-illustration" aria-hidden="true">!</div>
+                <h3>Hay cambios sin guardar</h3>
+                <p>Podés seguir editando sin perder nada, o descartar este borrador para volver al listado.</p>
+                <div className="modal-actions">
+                  <button type="button" className="ghost" ref={continueDraftButton} onClick={returnToDraft}>Seguir editando</button>
+                  <button type="button" className="discard-button" onClick={()=>{
+                    setConfirmDiscard(false);setActivePicker("");setCreating(false);
+                  }}>Descartar cambios</button>
+                </div>
+              </div>:<>
               {error&&<p className="message error" role="alert">{error}</p>}
         <form noValidate data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
@@ -468,7 +518,7 @@ export default function App(){
             return;
           }
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
-          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});setCreating(false);}
+          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});setConfirmDiscard(false);setCreating(false);}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
            auth={auth} onReferenceResolve={(name,choice)=>setReferenceOptions(prev=>{
@@ -479,8 +529,8 @@ export default function App(){
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
           onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>)}</div>
-          <div className="modal-actions"><button type="button" className="ghost" onClick={()=>setCreating(false)} disabled={loading}>Cancelar</button>
-          <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form>
+          <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
+          <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}
             </div>
           </Dialog.Content>
         </Dialog.Portal>
