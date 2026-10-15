@@ -27,7 +27,43 @@ function visibleColumns(entity){
 }
 function cellText(value){
   if(value===null||value===undefined||value==="")return "Sin dato";
-  return String(value);
+  const states={draft:"Borrador",closed:"Cerrado"};
+  return states[String(value)]??String(value);
+}
+function relationshipName(field,value,referenceOptions){
+  const ref=referenceOptions[field.name]?.find(item=>String(item.key)===String(value));
+  return ref?.displayName??cellText(value);
+}
+function isMonthField(field){
+  // Presentation fallback only; a future contract-defined format overrides this heuristic.
+  return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
+}
+function validateCreate(fields,values){
+  const errors={};
+  for(const field of fields){
+    if(field.computedSum||field.initial!==undefined)continue;
+    const value=values[field.name];
+    const text=String(value??"").trim();
+    if(field.required&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
+    if(!text)continue;
+    if(field.type==="int32"){
+      const n=Number(text);
+      if(!Number.isInteger(n)){errors[field.name]="Ingresá un número entero válido.";continue;}
+      if(field.min!==undefined&&n<field.min){errors[field.name]="El mínimo permitido es "+field.min+".";continue;}
+      if(field.max!==undefined&&n>field.max){errors[field.name]="El máximo permitido es "+field.max+".";continue;}
+    }else if(field.type==="string"){
+      if(field.minLength!==undefined&&text.length<field.minLength){
+        errors[field.name]="Ingresá al menos "+field.minLength+" caracteres.";continue;
+      }
+      if(field.maxLength!==undefined&&text.length>field.maxLength){
+        errors[field.name]="Se permiten como máximo "+field.maxLength+" caracteres.";continue;
+      }
+      if(isMonthField(field)&&!/^\\d{4}-(0[1-9]|1[0-2])$/.test(text)){
+        errors[field.name]="Elegí un período válido (año y mes).";continue;
+      }
+    }
+  }
+  return errors;
 }
 function createEmpty(fields){
   return Object.fromEntries(fields.filter(f=>!f.computedSum).map(field=>[field.name,
@@ -51,7 +87,7 @@ function LoadingIndicator({message,compact=false}){
     <span>{message}</span>
   </span>;
 }
-function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange}){
+function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError}){
   const fieldId=React.useId();
   if(field.reference){
     const state=referenceState?.state??"loading";
@@ -64,7 +100,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
         onOpenChange={onPickerOpenChange} onValueChange={next=>onChange(field.name,next)}
         required={field.required} disabled={blocked}>
         <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
-          className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"}>
+          className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"} aria-invalid={Boolean(validationError)} aria-describedby={validationError?fieldId+"-error":undefined}>
           <Select.Value placeholder={state==="loading"?"Preparando opciones…":"Seleccionar "+title.toLowerCase()}/>
           <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
         </Select.Trigger>
@@ -91,6 +127,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       {state==="empty"&&<span className="field-hint" role="status">
         Primero creá un registro de {targetLabel}.
       </span>}
+      {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
       {state==="error"&&<span className="field-hint error" role="alert">
         {referenceState?.message??"No se pudieron cargar las opciones relacionadas."}
       </span>}
@@ -98,10 +135,12 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
   }
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
-    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":"text"} required={field.required}
+    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={field.required}
+      aria-invalid={Boolean(validationError)} aria-describedby={validationError?fieldId+"-error":undefined}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
       value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
+    {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </label>;
 }
 export default function App(){
@@ -140,6 +179,7 @@ export default function App(){
   const [increment,setIncrement]=useState(1);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [fieldErrors,setFieldErrors]=useState({});
   const [notice,setNotice]=useState("");
   useEffect(()=>{fetch("/protocolia-ui.json").then(async r=>{
     if(!r.ok)throw Error("Missing generated UI manifest");
@@ -199,7 +239,7 @@ export default function App(){
   }
   useEffect(()=>{
     if(!active)return;
-    setForm(createEmpty(active.entity.fields));
+    setForm(createEmpty(active.entity.fields));setFieldErrors({});
     setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setOffset(0);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     setDraftFilters({});setAppliedFilters({});
@@ -289,7 +329,8 @@ export default function App(){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
       }
-      setNotice("Operación confirmada: "+kind);
+      const messages={create:"Registro creado correctamente.",delete:"Registro eliminado correctamente.",patchFields:"Cambios guardados correctamente.",reassignReference:"Asignación actualizada correctamente.",atomicIncrement:"Cantidad actualizada correctamente."};
+      setNotice(messages[kind]??"Operación realizada correctamente.");
       const args=listing();
       const pageResult=await request(args.kind,{query:args.query});
       if(!Array.isArray(pageResult.items)||!Number.isInteger(pageResult.total))
@@ -338,7 +379,7 @@ export default function App(){
       </section>}
       <section className="panel">
         <div className="heading"><h2 ref={listHeading} tabIndex={-1}>Listado <span className="muted">({total})</span></h2><div className="toolbar">
-          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setError("");setCreating(true);}}>Nuevo registro</button>}
+          {can("create")&&<button data-testid="open-create" onClick={event=>{createOpener.current=event.currentTarget;setForm(createEmpty(active.entity.fields));setFieldErrors({});setError("");setCreating(true);}}>Nuevo registro</button>}
           <button className="ghost" onClick={refresh}>Actualizar</button></div></div>
         {loading&&<div className="list-loading"><LoadingIndicator message="Actualizando registros…"/></div>}
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{label(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
@@ -361,15 +402,23 @@ export default function App(){
               <Dialog.Close asChild><button type="button" className="ghost" aria-label="Cerrar creación" disabled={loading}>Cerrar</button></Dialog.Close></div>
             <div className="modal-scroll">
               {error&&<p className="message error" role="alert">{error}</p>}
-        <form data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
+        <form noValidate data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
+          const errors=validateCreate(active.entity.fields,form);
+          setFieldErrors(errors);
+          if(Object.keys(errors).length){
+            setError("Revisá los campos marcados para continuar.");
+            const invalid=Object.keys(errors)[0];
+            event.currentTarget.querySelector("[data-testid=\\\"create-"+invalid+"\\\"]")?.focus();
+            return;
+          }
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
-          if(data){setForm(createEmpty(active.entity.fields));setCreating(false);}
-        }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
-          referenceState={referenceStatus[field.name]}
+          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});setCreating(false);}
+        }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+          referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>setForm(prev=>({...prev,[name]:value}))}/>)}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>))}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={()=>setCreating(false)} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form>
             </div>
