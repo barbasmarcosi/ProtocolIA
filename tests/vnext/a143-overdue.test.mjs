@@ -67,7 +67,7 @@ test("A14.3 rejects silent policy introduction during legacy populated-app evolu
  delete before.entities[1].overdueAlert;
  const plan=diffContracts(before,after);
  assert.equal(plan.compatible,false);
- assert.match(plan.blockers.join(" "),/Overdue policy migration needs a dedicated additive evolution profile/);
+ assert.match(plan.blockers.join(" "),/A14\.3 requires an initially notification-free schema and one new recipient\/rule pair/);
  assert.equal(diffContracts(after,after).compatible,true);
 });
 
