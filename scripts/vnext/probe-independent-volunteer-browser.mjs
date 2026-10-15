@@ -232,6 +232,34 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal(mobile.internalScroll,"auto","Long modal content scrolls internally, not behind");
     await modal.getByRole("button",{name:"Cerrar detalle"}).click();
     await modal.waitFor({state:"hidden"});
+    // 57 fixture parents exceed the first 50 authorized records.
+    await page.setViewportSize({width:1365,height:900});
+    for(let n=0;n<57;n++){
+      const fixture=await req("/api/sections",{method:"POST",
+        body:{code:id("PAGED"+String(n).padStart(3,"0")),name:"Paginada ficticia "+String(n).padStart(3,"0")}});
+      assert.equal(fixture.status,201,"Fixture parent "+n+" created");
+    }
+    const pageForm=await navigate("Guardias","GuardDuty");
+    await pageForm.locator(".relation-search-trigger").waitFor({state:"visible",timeout:15000});
+    const trigger=pageForm.getByTestId("create-sectionCode");
+    await trigger.click();
+    const chooser=page.getByRole("dialog",{name:"Elegir sección"});
+    await chooser.waitFor({state:"visible"});
+    await chooser.getByRole("searchbox",{name:"Buscar sección"}).fill("PAGINADA FICTICIA 056");
+    const beyond=chooser.getByRole("option").filter({hasText:id("PAGED056")});
+    await beyond.waitFor({state:"visible",timeout:15000});
+    await beyond.click();
+    await chooser.waitFor({state:"hidden"});
+    assert.equal(await trigger.getAttribute("data-selected-key"),id("PAGED056"),
+      "Authorized server-side lookup returns parent outside first 50");
+    await pageForm.getByTestId("create-code").fill(id("GUARDPAGED"));
+    await pageForm.getByTestId("create-name").fill("Guardia con relación paginada");
+    const saved=page.waitForResponse(r=>r.request().method()==="POST"&&
+      new URL(r.url()).pathname==="/api/guards",{timeout:20000});
+    await pageForm.getByRole("button",{name:"Crear",exact:true}).click();
+    assert.equal((await saved).status(),201,"Generated form creates paged FK association");
+    assert.equal((await req("/api/guards/"+encodeURIComponent(id("GUARDPAGED")))).body.sectionCode,
+      id("PAGED056"),"Real PostgreSQL persists the selected FK");
     assert.equal(pageErrors.length,0,"Browser JavaScript exceptions: "+pageErrors.join("; "));
     console.log("BV_GENERATED_NATIVE_FK_BROWSER_PASS "+JSON.stringify({
       browser:"Chromium Playwright",entities:["Section","GuardDuty","Volunteer","MonthlyEvaluation"],
@@ -239,7 +267,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
       compiledFieldMetadata:true,accessibleFieldHints:true,
       reassignPicker:true,confirmedCasReferenceUpdate:true,
-      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,clientJavascriptErrors:0
+      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,clientJavascriptErrors:0
     }));
   }catch(error){
     try{const screenshot=join(generated,"protocolia-fk-browser-failure.png");

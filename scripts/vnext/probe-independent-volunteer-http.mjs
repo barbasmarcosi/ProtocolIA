@@ -85,6 +85,13 @@ try{
   assert.equal((await req("/api/volunteers",{as:null})).status,401,"BV-01 unauthenticated read");
   assert.equal((await req("/api/sections",{method:"POST",as:"reader",body:sec})).status,403,"BV-01 reader write");
   assert.equal((await req("/api/sections",{method:"POST",body:sec})).status,201);
+  const found=await req("/api/sections/query/lookup?name=FICTICIA",{as:"reader"});
+  assert.equal(found.status,200,"Case insensitive lookup with read capability");
+  assert.ok(found.body.items.some(x=>x.code===sec.code));
+  assert.equal((await req("/api/sections/query/lookup?name=%25",{as:"reader"})).body.total,0,
+    "Percent wildcard searches literally");
+  assert.equal((await req("/api/sections/query/lookup?unexpected=1",{as:"reader"})).status,400,
+    "Unknown filter fails closed");
   for(const g of guards)assert.equal((await req("/api/guards",{method:"POST",body:g})).status,201);
   for(const person of persons)assert.equal((await req("/api/volunteers",{method:"POST",body:person})).status,201);
   assert.equal((await req("/api/volunteers",{method:"POST",body:persons[0]})).status,409,"BV-02 identity unique");
