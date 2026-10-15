@@ -1,0 +1,35 @@
+name: vnext-independent-volunteer-evaluations
+on:
+  push:
+    branches:
+      - independent/volunteer-evaluations
+    paths:
+      - '.github/workflows/vnext-independent-volunteer-evaluations.yml'
+      - 'examples/vnext/volunteer-evaluations/**'
+      - 'tests/vnext/independent-volunteer-evaluations.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: independent-volunteer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contract-generated-nest-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install locked ProtocolIA toolchain
+        run: npm ci
+      - name: Generate Nest and React from independent TypeSpec, without per-entity patches
+        run: npm run app:build -- examples/vnext/volunteer-evaluations --target nestjs --out "${RUNNER_TEMP}/volunteer-evaluations-generated"
+      - name: Verify independent requirements trace and compiled canonical IR
+        run: node --test tests/vnext/independent-volunteer-evaluations.test.mjs
+      - name: Generated Docker Compose, PostgreSQL, HTTP and auth conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/volunteer-evaluations-generated"
