@@ -42,6 +42,16 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Independent HTTP + Chromium browser oracle against generated UI
         run: node scripts/vnext/probe-independent-volunteer-http.mjs "${RUNNER_TEMP}/volunteer-evaluations-generated" --browser
+      - name: Preserve generated UI visual review (desktop and mobile)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocolia-generated-ux-review
+          path: |
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-list-desktop.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-detail-desktop.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-detail-mobile.png
+          if-no-files-found: error
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
