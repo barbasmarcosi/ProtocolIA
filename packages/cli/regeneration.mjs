@@ -1,7 +1,7 @@
 // A5 contract evolution: additive-only, staged, with Flyway baseline preservation.
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {randomBytes} from "node:crypto";
+import {createHash,randomBytes} from "node:crypto";
 import {copyFileSync,cpSync,existsSync,mkdirSync,mkdtempSync,readFileSync,
   readdirSync,renameSync,rmSync,writeFileSync} from "node:fs";
 import {basename,dirname,join,resolve} from "node:path";
@@ -12,6 +12,9 @@ import {compileOverduePolicies,overdueSchemaSql} from "../adapters/overdue-polic
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../adapters/recipient-inbox.mjs";
 
 const shaTag=()=>randomBytes(7).toString("hex");
+const YEAR_MONTH_PATTERN="^[0-9]{4}-(0[1-9]|1[0-2])$";
+const safeMonthPattern=field=>field?.type==="string"&&field?.minLength===7&&
+  field?.maxLength===7&&field?.pattern===YEAR_MONTH_PATTERN;
 const safeName=value=> {
   if(typeof value!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(value))
     throw Error("Unsafe schema identifier "+JSON.stringify(value));
@@ -53,8 +56,15 @@ export function diffContracts(oldIr,nextIr){
     for(const field of previous.fields){
       const value=newFields.get(field.name);
       if(!value)blockers.push("Removed field "+previous.name+"."+field.name);
-      else if(!same(field,value))
-        blockers.push("Incompatible field/constraint change "+previous.name+"."+field.name);
+      else if(!same(field,value)){
+        // Existing data is verified by the new CHECK during a transactional upgrade.
+        // Only tightening from "no pattern" to the portable year-month subset is allowed.
+        const withoutPattern={...value};
+        delete withoutPattern.pattern;
+        if(field.pattern===undefined&&safeMonthPattern(value)&&same(field,withoutPattern))
+          changes.push({kind:"addPattern",entity:previous.name,field:structuredClone(value)});
+        else blockers.push("Incompatible field/constraint change "+previous.name+"."+field.name);
+      }
     }
     for(const field of next.fields){
       if(oldFields.has(field.name))continue;
@@ -303,6 +313,37 @@ export function validateOpenApiEvolution(oldApi,newApi,oldIr,nextIr,plan){
     delete nextSchemas[entity].properties[field];
     delete nextSchemas[request].properties[field];
   }
+  for(const change of plan.changes.filter(c=>c.kind==="addPattern")){
+    const entity=change.entity,field=change.field.name;
+    const create=nextIr.operations.find(o=>o.entity===entity&&o.behavior.kind==="create");
+    const request=create?.request;
+    if(!request){issues.push("Pattern evolution needs a declared creation request: "+entity);continue;}
+    function stripPattern(previous,nextValue,label){
+      if(!previous||!nextValue||previous.pattern!==undefined||
+         nextValue.pattern!==YEAR_MONTH_PATTERN){
+        issues.push("Unexpected pattern evolution schema: "+label);return;
+      }
+      const without={...nextValue};delete without.pattern;
+      if(!same(canonical(previous),canonical(without))){
+        issues.push("Additional OpenAPI drift during pattern tightening: "+label);return;
+      }
+      delete nextValue.pattern;
+    }
+    for(const modelName of [entity,request])
+      stripPattern(beforeSchemas[modelName]?.properties?.[field],
+        nextSchemas[modelName]?.properties?.[field],modelName+"."+field);
+    for(const op of nextIr.operations.filter(o=>o.entity===entity&&
+      o.behavior.kind==="queryPage")){
+      for(const filter of op.behavior.filters.filter(f=>f.field===field&&!f.via)){
+        const beforeParams=oldApi.paths?.[op.path]?.[op.method.toLowerCase()]?.parameters??[];
+        const afterParams=next.paths?.[op.path]?.[op.method.toLowerCase()]?.parameters??[];
+        const previous=beforeParams.find(p=>p.name===filter.parameter&&p.in==="query");
+        const after=afterParams.find(p=>p.name===filter.parameter&&p.in==="query");
+        if(after?.schema?.pattern!==undefined||previous?.schema?.pattern!==undefined)
+          stripPattern(previous?.schema,after?.schema,op.name+"."+filter.parameter);
+      }
+    }
+  }
   for(const name of reachableSchemas)delete nextSchemas[name];
   if(!same(canonical(oldApi),canonical(next)))
     issues.push("Undeclared OpenAPI model/validation/routing change");
@@ -315,6 +356,10 @@ function fieldDdl(field){
     field.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
   const checks=[];
   if(field.minLength!==undefined)checks.push("CHECK (char_length("+col+") >= "+field.minLength+")");
+  if(field.pattern!==undefined){
+    if(!safeMonthPattern(field))throw Error("Unsupported new-field domain pattern");
+    checks.push("CHECK ("+col+" ~ '"+YEAR_MONTH_PATTERN+"')");
+  }
   if(field.maxLength!==undefined && field.type!=="string")
     throw Error("maxLength on non-string not supported");
   if(field.min!==undefined)checks.push("CHECK ("+col+">="+field.min+")");
@@ -337,6 +382,15 @@ export function additiveSql(plan,nextIr){
       return "ALTER TABLE "+snake(x.entity)+" ADD COLUMN "+fieldDdl(field)+
         " DEFAULT '"+initial+"' NOT NULL CHECK ("+snake(field.name)+" IN ("+allowed+"));";
     });
+  const patternMigrations=plan.changes.filter(x=>x.kind==="addPattern").flatMap(change=>{
+    if(!safeMonthPattern(change.field))throw Error("Unsupported additive pattern");
+    const table=snake(change.entity),column=snake(change.field.name);
+    const name="chk_pia_"+createHash("sha256").update(change.entity+"."+change.field.name)
+      .digest("hex").slice(0,12);
+    return ["ALTER TABLE "+table+" ADD CONSTRAINT "+name+
+       " CHECK ("+column+" ~ '"+YEAR_MONTH_PATTERN+"') NOT VALID;",
+      "ALTER TABLE "+table+" VALIDATE CONSTRAINT "+name+";"];
+  });
   const additiveIndexes=plan.changes.filter(x=>x.kind==="addOperation"&&
     x.operation.behavior.kind==="queryPage").flatMap(x=>x.indexes??[]);
   let notificationSql=[];
@@ -346,7 +400,7 @@ export function additiveSql(plan,nextIr){
     if(rules.length!==1||recipients.length!==1)throw Error("Invalid notification migration count");
     notificationSql=[...overdueSchemaSql(rules),...recipientInboxSql(recipients)];
   }
-  return [...additiveFields,...new Set(additiveIndexes),...notificationSql].join("\n");
+  return [...additiveFields,...patternMigrations,...new Set(additiveIndexes),...notificationSql].join("\n");
 }
 function run(command,args,options={}){
   const p=spawnSync(command,args,{stdio:"inherit",timeout:600000,...options});
