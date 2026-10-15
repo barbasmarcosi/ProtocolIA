@@ -12,6 +12,7 @@ function createEmpty(fields){
 function normalizePayload(fields,values){
   const result={};
   for(const field of fields){
+    if(field.computedSum)continue;
     const value=values[field.name];
     if(field.type==="int32"){result[field.name]=Number(value);continue;}
     if(field.type==="utcDateTime"&&!value){continue;}
