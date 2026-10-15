@@ -29,12 +29,28 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 public class DomainRuntime {
   private final NamedParameterJdbcTemplate jdbc;
   public DomainRuntime(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+  private static final class InvalidInputField extends ResponseStatusException {
+    final String field;
+    final String code;
+    InvalidInputField(String field,String code) {
+      super(HttpStatus.BAD_REQUEST,"Validation failed");
+      this.field=field;this.code=code;
+    }
+  }
+  @ExceptionHandler(InvalidInputField.class)
+  public ResponseEntity<Map<String,Object>> handleInvalidInputField(InvalidInputField error) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+      "statusCode",400,"message","Validation failed",
+      "issues",List.of(Map.of("field",error.field,"code",error.code))));
+  }
 
   // Opt-in worker. Failed ticks are retried in later polls using durable rows.
   @Scheduled(fixedDelayString="${PROTOCOLIA_ALERT_INTERVAL_MS:60000}",
@@ -203,16 +219,16 @@ public class DomainRuntime {
     if (body == null || !writable.containsAll(body.keySet())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown input property");
     if (create) {
       for (var f : e.fields()) if (f.required() && !f.computed() && !body.containsKey(f.name()) && f.initial()==null)
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required input");
+        throw new InvalidInputField(f.name(),"required");
     }
     for (var input : body.entrySet()) {
       var f = e.fields().stream().filter(x -> x.name().equals(input.getKey())).findFirst()
           .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown field"));
       Object v = input.getValue();
       if (create && f.initial() != null && !f.initial().equals(v))
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only the initial state can be created");
+        throw new InvalidInputField(f.name(),"invalid_initial");
       if (v == null) {
-        if (!f.nullable()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Null is not allowed");
+        if (!f.nullable()) throw new InvalidInputField(f.name(),"required");
         continue;
       }
       if (f.type().equals("string")) {
@@ -220,13 +236,13 @@ public class DomainRuntime {
             (f.minLength()!=null && s.length() < f.minLength()) ||
             (f.maxLength()!=null && s.length() > f.maxLength()) ||
              (f.pattern()!=null && !Pattern.matches(f.pattern(),s)))
-          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid string field");
+          throw new InvalidInputField(f.name(),v instanceof String?"invalid_format":"invalid_type");
       } else if (f.type().equals("int32")) {
         if (!(v instanceof Integer n) || (f.min()!=null && n < f.min()) || (f.max()!=null && n > f.max()))
-          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid integer field");
+          throw new InvalidInputField(f.name(),v instanceof Integer?"out_of_range":"invalid_type");
       } else if (f.type().equals("utcDateTime")) {
-        if (!(v instanceof String s)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-        try { OffsetDateTime.parse(s); } catch (RuntimeException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid datetime"); }
+        if (!(v instanceof String s)) throw new InvalidInputField(f.name(),"invalid_type");
+        try { OffsetDateTime.parse(s); } catch (RuntimeException ex) { throw new InvalidInputField(f.name(),"invalid_format"); }
       } else {
         throw new IllegalStateException("Unsupported field type");
       }

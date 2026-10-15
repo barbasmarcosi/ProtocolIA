@@ -103,6 +103,25 @@ try{
   assert.equal((await req("/api/volunteers",{method:"POST",body:{...persons[1],badge:key("BAD"),guardCode:"MISSING"}})).status,400,"BV-02 FK checked");
   const evalBody={number:key("E1"),volunteerBadge:persons[0].badge,period:"2026-10",
     incidentPoints:25,mandatoryPoints:35,guardPoints:20,internalPoints:20,otherPoints:0,status:"draft"};
+  // The API must identify contract-declared fields without leaking SQL or internal details.
+  for(const [patch,expectedField,expectedCode] of [
+    [{period:"2026-13",number:key("ISSUEMONTH")},"period","invalid_format"],
+    [{incidentPoints:26,number:key("ISSUEPOINTS")},"incidentPoints","out_of_range"],
+    [{incidentPoints:"abc",number:key("ISSUETYPE")},"incidentPoints","invalid_type"]
+  ]){
+    const response=await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,...patch}});
+    assert.equal(response.status,400,"Generated server validation HTTP status");
+    assert.equal(response.body?.statusCode,400);
+    assert.deepEqual(response.body?.issues,[{field:expectedField,code:expectedCode}],
+      "Both Spring and Nest identify the same contract field and rule");
+    assert.equal(JSON.stringify(response.body).includes("INSERT INTO"),false,
+      "Server responses never reveal generated SQL");
+  }
+  const missing={...evalBody,number:key("ISSUEREQUIRED")};
+  delete missing.period;
+  const missingResult=await req("/api/monthly-evaluations",{method:"POST",body:missing});
+  assert.equal(missingResult.status,400);
+  assert.deepEqual(missingResult.body?.issues,[{field:"period",code:"required"}]);
   const createdEvaluation=await req("/api/monthly-evaluations",{method:"POST",body:evalBody});
   assert.equal(createdEvaluation.status,201,"BV-03 evaluation persistence");
   assert.equal(createdEvaluation.body.basePoints,100,"BV-08 partial: bounded 25+35+20+20 computed by DB");

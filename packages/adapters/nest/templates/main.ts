@@ -17,9 +17,19 @@ type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter
 type Operation={query?:QuerySpec;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
-class Problem extends Error{constructor(public readonly status:number,message:string){super(message);}}
+type FieldIssue={field:string;code:string};
+class Problem extends Error{
+  constructor(public readonly status:number,message:string,public readonly issues?:FieldIssue[]){super(message);}
+}
+function invalidField(field:Field,code:string):Problem{
+  return new Problem(400,"Validation failed",[{field:field.name,code}]);
+}
 function sendProblem(res:any,error:unknown):void{
-  if(error instanceof Problem){res.status(error.status).json({statusCode:error.status,message:error.message});return;}
+  if(error instanceof Problem){
+    res.status(error.status).json({statusCode:error.status,message:error.message,
+      ...(error.issues?{issues:error.issues}:{})});
+    return;
+  }
   const pgError=error as {code?:string};
   const status=pgError?.code==="23505"?409:
     pgError?.code==="23503"?400:
@@ -49,18 +59,21 @@ function parseTimestamp(value:unknown):string{
 function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):Record<string,unknown>{
   if(!isRecord(body))throw new Problem(400,"Expected JSON object");
   if(Object.keys(body).some(key=>!writable.includes(key)))throw new Problem(400,"Unknown field");
-  if(create&&e.fields.some(f=>f.required&&f.initial===undefined&&!f.computedSum&&!Object.hasOwn(body,f.name)))
-    throw new Problem(400,"Missing required field");
+  if(create)for(const f of e.fields)
+    if(f.required&&f.initial===undefined&&!f.computedSum&&!Object.hasOwn(body,f.name))
+      throw invalidField(f,"required");
   for(const [key,value] of Object.entries(body)){
     const f=e.fields.find(x=>x.name===key);
     if(!f)throw new Problem(400,"Unknown field");
-    if(create&&f.initial!==undefined&&value!==f.initial)throw new Problem(400,"Invalid initial state");
-    if(value===null){if(!f.nullable)throw new Problem(400,"Null not allowed");continue;}
-    if(f.type==="string"&&!checkString(value,f))throw new Problem(400,"Invalid string");
+    if(create&&f.initial!==undefined&&value!==f.initial)throw invalidField(f,"invalid_initial");
+    if(value===null){if(!f.nullable)throw invalidField(f,"required");continue;}
+    if(f.type==="string"&&!checkString(value,f))throw invalidField(f,typeof value==="string"?"invalid_format":"invalid_type");
     if(f.type==="int32"&&(!Number.isInteger(value)||(value as number)<-2147483648||
        (value as number)>2147483647||(f.min!==undefined&&(value as number)<f.min)||
-       (f.max!==undefined&&(value as number)>f.max)))throw new Problem(400,"Invalid int32");
-    if(f.type==="utcDateTime")parseTimestamp(value);
+       (f.max!==undefined&&(value as number)>f.max)))throw invalidField(f,Number.isInteger(value)?"out_of_range":"invalid_type");
+    if(f.type==="utcDateTime"){
+      try{parseTimestamp(value);}catch{throw invalidField(f,"invalid_format");}
+    }
   }
   return body;
 }

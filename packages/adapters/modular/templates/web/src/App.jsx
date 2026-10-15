@@ -296,7 +296,17 @@ export default function App(){
         404:"El registro ya no existe.",
         409:"Conflicto: no es posible completar la operación."
       };
-      throw Error(descriptions[response.status]??"Error HTTP "+response.status+" — "+kind);
+      const failure=Error(descriptions[response.status]??"Error HTTP "+response.status+" — "+kind);
+      if(response.status===400&&Array.isArray(data.issues)){
+        // Fail closed: never render arbitrary server-provided properties as field names or messages.
+        const fields=new Set(active.entity.fields.map(field=>field.name));
+        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_type","out_of_range"]);
+        failure.issues=data.issues.filter(issue=>issue&&typeof issue==="object"&&
+          fields.has(issue.field)&&allowed.has(issue.code)).map(issue=>({
+          field:issue.field,code:issue.code
+        }));
+      }
+      throw failure;
     }
     return data;
   }
@@ -410,7 +420,24 @@ export default function App(){
         throw Error("Invalid paginated response");
       setItems(pageResult.items);setTotal(pageResult.total);
       return data;
-    }catch(e){setError(e.message);return null;}finally{setLoading(false);}
+    }catch(e){
+      if(kind==="create"&&Array.isArray(e.issues)&&e.issues.length){
+        const messages={
+          required:"Este campo es obligatorio.",
+          invalid_initial:"El valor inicial no está permitido.",
+          invalid_format:"El formato ingresado no es válido.",
+          invalid_type:"El tipo de dato ingresado no es válido.",
+          out_of_range:"El valor está fuera de los límites permitidos."
+        };
+        const errors=Object.fromEntries(e.issues.map(issue=>[issue.field,messages[issue.code]]));
+        setFieldErrors(errors);
+        requestAnimationFrame(()=>{
+          const field=document.querySelector('[data-testid="create-'+e.issues[0].field+'"]');
+          field?.focus();
+        });
+      }
+      setError(e.message);return null;
+    }finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
   if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
