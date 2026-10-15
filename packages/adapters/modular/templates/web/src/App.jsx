@@ -528,7 +528,7 @@ export default function App(){
                 onChange={(name,value)=>setReassigned(value)}
               />
               <button data-testid="confirm-reassign" type="submit" disabled={loading||
-                referenceStatus[operations.reassignReference.behavior.field]?.state!=="ready"||
+                !["ready","paged"].includes(referenceStatus[operations.reassignReference.behavior.field]?.state)||
                 !reassigned||reassigned===selected[operations.reassignReference.behavior.field]}>
                 {loading?"Guardando…":"Confirmar cambio"}
               </button>
