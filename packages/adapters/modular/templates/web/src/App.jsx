@@ -8,6 +8,7 @@ function route(operation, code) {
 }
 const fieldWords={badge:"legajo",volunteer:"personal",period:"período",incident:"emergencias",mandatory:"asistencia",guard:"guardia",internal:"orden interno",other:"adicionales",base:"base",points:"puntos",status:"estado",number:"número",name:"nombre",code:"código",section:"sección",rank:"rango",leave:"licencia",kind:"tipo",days:"días",notes:"observaciones",evaluation:"evaluación",monthly:"mensual",created:"creado",updated:"actualizado"};
 function label(field){
+  if(field.uiLabel)return field.uiLabel;
   if(field.label)return field.label;
   return field.name.replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ")
     .split(/\s+/).map(s=>fieldWords[s.toLowerCase()]??s.toLowerCase()).join(" ")
@@ -53,6 +54,7 @@ function transitionLabel(op){
 }
 function isMonthField(field){
   // Presentation fallback only; a future contract-defined format overrides this heuristic.
+  if(field.uiControl!==undefined)return field.uiControl==="month";
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
 function validateCreate(fields,values){
@@ -144,6 +146,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       {state==="empty"&&<span className="field-hint" role="status">
         Primero creá un registro de {targetLabel}.
       </span>}
+      {field.uiHelp&&<span className="field-hint field-help-copy">{field.uiHelp}</span>}
       {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
       {state==="error"&&<span className="field-hint error" role="alert">
         {referenceState?.message??"No se pudieron cargar las opciones relacionadas."}
@@ -157,6 +160,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
       value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
+    {field.uiHelp&&<span className="field-hint field-help-copy">{field.uiHelp}</span>}
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </label>;
 }
