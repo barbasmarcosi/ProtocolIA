@@ -2,6 +2,7 @@ import NotificationInbox from "./NotificationInbox.jsx";
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
+import PagedReferencePicker from "./PagedReferencePicker.jsx";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -106,14 +107,23 @@ function LoadingIndicator({message,compact=false}){
     <span>{message}</span>
   </span>;
 }
-function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError}){
+function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError,auth,onReferenceResolve}){
   const fieldId=React.useId();
   const descriptionIds=[field.uiHelp?fieldId+"-hint":null,validationError?fieldId+"-error":null].filter(Boolean).join(" ")||undefined;
   if(field.reference){
     const state=referenceState?.state??"loading";
-    const blocked=state!=="ready";
+    const blocked=state!=="ready"&&state!=="paged";
     const title=fieldLabel(field);
     const targetLabel=referenceState?.resourceLabel??label({name:field.reference.target});
+    if(state==="paged")return <div className="field relation-field">
+      <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
+      <PagedReferencePicker field={field} value={value} onChange={onChange} onResolve={onReferenceResolve}
+        target={referenceState.target} auth={auth} choices={choices??[]}
+        pickerOpen={pickerOpen} onPickerOpenChange={onPickerOpenChange}
+        validationError={validationError} title={title} labelId={fieldId} descriptionIds={descriptionIds}/>
+      {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
+      {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
+    </div>;
     return <div className="field relation-field">
       <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
       <Select.Root name={field.name} value={value??""} open={pickerOpen}
@@ -214,7 +224,7 @@ export default function App(){
   const searchFilters=operations.queryPage?.behavior?.filters??[];
   const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
   const referencesReady=active?.entity?.fields.filter(f=>f.reference)
-    .every(f=>referenceStatus[f.name]?.state==="ready")??true;
+    .every(f=>["ready","paged"].includes(referenceStatus[f.name]?.state))??true;
   function listing(){
     const kind=can("queryPage")?"queryPage":"listPage";
     const query={limit,offset};
@@ -288,7 +298,7 @@ export default function App(){
           if(!response.ok)throw Error("No se pudo consultar "+field.reference.target+" (HTTP "+response.status+").");
           const result=await response.json();
           if(!Array.isArray(result.items)||!Number.isInteger(result.total)||
-             result.total>result.items.length){
+             result.total<result.items.length){
             throw Error("La selección de "+field.reference.target+
               " requiere búsqueda paginada (fuera del perfil actual).");
           }
@@ -296,7 +306,7 @@ export default function App(){
             key:item[target.entity.publicIdentity],
             displayName:item.name?String(item.name):String(item[target.entity.publicIdentity])
           }));
-          statuses[field.name]={state:found[field.name].length?"ready":"empty",resourceLabel:target.view??label({name:target.entity.name})};
+          statuses[field.name]={state:result.total>result.items.length?"paged":found[field.name].length?"ready":"empty",resourceLabel:target.view??label({name:target.entity.name}),target};
         }catch(e){
           statuses[field.name]={state:"error",resourceLabel:target.view??label({name:target.entity.name}),message:e.message};
         }
@@ -457,6 +467,11 @@ export default function App(){
           if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});setCreating(false);}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
+           auth={auth} onReferenceResolve={(name,choice)=>setReferenceOptions(prev=>{
+             const entries=prev[name]??[];
+             if(entries.some(item=>String(item.key)===String(choice.key)&&item.displayName===choice.displayName))return prev;
+             return {...prev,[name]:[choice,...entries.filter(x=>String(x.key)!==String(choice.key))].slice(0,60)};
+           })}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
           onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>)}</div>
@@ -503,6 +518,11 @@ export default function App(){
                 value={reassigned}
                 choices={referenceOptions[operations.reassignReference.behavior.field]}
                 referenceState={referenceStatus[operations.reassignReference.behavior.field]}
+                 auth={auth} onReferenceResolve={(name,choice)=>setReferenceOptions(prev=>{
+                   const entries=prev[name]??[];
+                   if(entries.some(item=>String(item.key)===String(choice.key)&&item.displayName===choice.displayName))return prev;
+                   return {...prev,[name]:[choice,...entries.filter(x=>String(x.key)!==String(choice.key))].slice(0,60)};
+                 })}
                 pickerOpen={activePicker===operations.reassignReference.behavior.field}
                 onPickerOpenChange={open=>setActivePicker(open?operations.reassignReference.behavior.field:"")}
                 onChange={(name,value)=>setReassigned(value)}
