@@ -10,6 +10,7 @@ const safe=value=>{
     throw Error("Unsafe query identifier "+JSON.stringify(value));
   return value;
 };
+const YEAR_MONTH_PATTERN="^[0-9]{4}-(0[1-9]|1[0-2])$";
 const snake=value=>safe(value).replace(/([a-z0-9])([A-Z])/g,"$1_$2").toLowerCase();
 const q=value=>'"'+safe(value)+'"';
 const table=value=>q(snake(value));
@@ -47,10 +48,12 @@ export function buildQueryPlan(ir,operation){
   const f=owner.fields.find(x=>x.name===filter.field);
   if(!f||f.type!==filter.type||(filter.operator==="contains"?f.type!=="string":filter.operator!=="eq"&&!["int32","utcDateTime"].includes(f.type)))
    throw Error("Filter type/operator differs from referenced field "+filter.field);
+  if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"))
+   throw Error("Unsupported query pattern for "+owner.name+"."+f.name);
   const expression=alias+"."+col(f.name);
   filters.push({name:filter.parameter,expression,
     comparator:{eq:"=",gte:">=",lte:"<=",contains:"ILIKE"}[filter.operator],type:f.type,
-    minLength:f.minLength??null,maxLength:f.maxLength??null,min:f.min??null,max:f.max??null});
+    minLength:f.minLength??null,maxLength:f.maxLength??null,min:f.min??null,max:f.max??null,pattern:f.pattern??null});
   const indexKey=owner.name+"."+f.name;
   if(f.name!==owner.publicIdentity&&filter.operator!=="contains")indexes.set(indexKey,{entity:owner.name,field:f.name});
  }

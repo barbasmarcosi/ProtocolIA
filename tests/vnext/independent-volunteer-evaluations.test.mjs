@@ -53,12 +53,31 @@ test("presentation metadata is compiled verbatim without changing domain invaria
   assert.equal(guard.reference.target,"GuardDuty");
   const period=entities.get("MonthlyEvaluation").fields.find(f=>f.name==="period");
   assert.equal(period.uiControl,"month");
+  assert.equal(period.pattern,"^[0-9]{4}-(0[1-9]|1[0-2])$","Authoritative month pattern survives TypeSpec IR");
   assert.equal(period.uiLabel,"Período de evaluación");
   assert.equal(period.minLength,7);
   assert.equal(period.maxLength,7);
   const leave=entities.get("LeaveRecord").fields.find(f=>f.name==="period");
   assert.equal(leave.uiControl,"month");
+  assert.equal(leave.pattern,"^[0-9]{4}-(0[1-9]|1[0-2])$","Independent leave/evaluation models share pattern invariant");
   assert.equal(entities.get("MonthlyEvaluation").fields.find(f=>f.name==="basePoints").max,100);
+});
+
+test("unsupported standard TypeSpec domain pattern fails closed",()=>{
+  const scratch=mkdtempSync(join("examples","vnext",".month-negative-"));
+  try{
+    cpSync(join(dir,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+    cpSync(join(dir,"contracts"),join(scratch,"contracts"),{recursive:true});
+    const changed=source.replace('@pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")',
+      '@pattern("^[0-9]{4}-[0-9]{2}$")');
+    assert.notEqual(changed,source);
+    writeFileSync(join(scratch,"contracts/main.tsp"),changed);
+    const result=spawnSync(join(process.cwd(),"node_modules",".bin","tsp"),["compile",scratch],{
+      cwd:process.cwd(),encoding:"utf8",timeout:60000
+    });
+    assert.notEqual(result.status,0,"Unsupported regex should not compile");
+    assert.match((result.stdout??"")+(result.stderr??""),/protocolia-unsupported-pattern/i);
+  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
 
 test("malformed presentation hints fail closed before application generation",()=>{

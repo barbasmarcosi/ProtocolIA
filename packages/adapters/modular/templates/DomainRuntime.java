@@ -218,7 +218,8 @@ public class DomainRuntime {
       if (f.type().equals("string")) {
         if (!(v instanceof String s) || s.isBlank() ||
             (f.minLength()!=null && s.length() < f.minLength()) ||
-            (f.maxLength()!=null && s.length() > f.maxLength()))
+            (f.maxLength()!=null && s.length() > f.maxLength()) ||
+             (f.pattern()!=null && !Pattern.matches(f.pattern(),s)))
           throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid string field");
       } else if (f.type().equals("int32")) {
         if (!(v instanceof Integer n) || (f.min()!=null && n < f.min()) || (f.max()!=null && n > f.max()))
@@ -332,7 +333,8 @@ public class DomainRuntime {
       if(filter.type().equals("string")){
         if(value==null||value.isBlank()||
            (filter.minLength()!=null&&value.length()<filter.minLength())||
-           (filter.maxLength()!=null&&value.length()>filter.maxLength()))
+           (filter.maxLength()!=null&&value.length()>filter.maxLength())||
+           (filter.pattern()!=null&&!Pattern.matches(filter.pattern(),value)))
           throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid text filter");
         parsed=value;
       }else if(filter.type().equals("int32")){

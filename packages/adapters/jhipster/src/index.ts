@@ -12,6 +12,8 @@ export interface IrField {
   max?: number;
   minLength?: number;
   maxLength?: number;
+  /** Portable authoritative year-month pattern from standard TypeSpec. */
+  pattern?: string;
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
   computedSum?: string[];

@@ -8,11 +8,11 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;reference?:{target:string;onDelete:string};initial?:string};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
-type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null};
+type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type Operation={query?:QuerySpec;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
@@ -36,7 +36,8 @@ function safeIdentifier(value:string):string{
 }
 function checkString(value:unknown,f:Field):boolean{
   return typeof value==="string"&&value.trim().length>0&&
-    value.length>=(f.minLength??0)&&value.length<=(f.maxLength??255);
+    value.length>=(f.minLength??0)&&value.length<=(f.maxLength??255)&&
+    (f.pattern===undefined||new RegExp(f.pattern).test(value));
 }
 function parseTimestamp(value:unknown):string{
   if(typeof value!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value))
@@ -249,7 +250,8 @@ class RuntimeService{
       let value:unknown=raw;
       if(filter.type==="string"){
         if(!raw.trim()||(filter.minLength!=null&&raw.length<filter.minLength)||
-           (filter.maxLength!=null&&raw.length>filter.maxLength))
+           (filter.maxLength!=null&&raw.length>filter.maxLength)||
+           (filter.pattern!=null&&!new RegExp(filter.pattern).test(raw)))
           throw new Problem(400,"Invalid string filter");
       }else if(filter.type==="int32"){
         if(!/^-?[0-9]+$/.test(raw))throw new Problem(400,"Invalid integer filter");

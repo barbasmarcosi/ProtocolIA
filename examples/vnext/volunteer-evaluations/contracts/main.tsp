@@ -106,7 +106,7 @@ namespace VolunteerEvaluations {
     @reference("Volunteer","restrict") @minLength(1) @maxLength(40)
     @uiLabel("Persona evaluada") @uiHelp("Elegí el personal al que corresponde esta evaluación.")
     volunteerBadge: string;
-    @minLength(7) @maxLength(7)
+    @minLength(7) @maxLength(7) @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
     @uiLabel("Período de evaluación") @uiHelp("Seleccioná el mes de la evaluación.") @uiControl("month")
     period: string;
     @minValue(0) @maxValue(25)
@@ -139,7 +139,7 @@ namespace VolunteerEvaluations {
     number: string;
     @minLength(1) @maxLength(40)
     volunteerBadge: string;
-    @minLength(7) @maxLength(7)
+    @minLength(7) @maxLength(7) @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
     period: string;
     @minValue(0) @maxValue(25)
     incidentPoints: int32;
@@ -174,7 +174,7 @@ namespace VolunteerEvaluations {
     @minLength(1) @maxLength(30)
     @uiLabel("Tipo de licencia")
     leaveKind: string;
-    @minLength(7) @maxLength(7)
+    @minLength(7) @maxLength(7) @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
     @uiLabel("Período de licencia") @uiControl("month")
     period: string;
     @minValue(1) @maxValue(31)
@@ -192,7 +192,7 @@ namespace VolunteerEvaluations {
     volunteerBadge: string;
     @minLength(1) @maxLength(30)
     leaveKind: string;
-    @minLength(7) @maxLength(7)
+    @minLength(7) @maxLength(7) @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
     period: string;
     @minValue(1) @maxValue(31)
     days: int32;
@@ -341,7 +341,7 @@ namespace VolunteerEvaluations {
     @query @minValue(1) @maxValue(50) limit?: int32 = 25,
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0,
     @query @queryFilter("volunteerBadge","eq") volunteerBadge?: string,
-    @query @queryFilter("period","eq") period?: string
+    @query @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$") @queryFilter("period","eq") period?: string
   ): MonthlyEvaluationPage | BadRequest | Unauthorized | Forbidden;
 
   // A guard reassignment is a protected, compare-and-swap FK change with audit.

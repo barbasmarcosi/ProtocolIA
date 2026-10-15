@@ -106,6 +106,12 @@ try{
   const createdEvaluation=await req("/api/monthly-evaluations",{method:"POST",body:evalBody});
   assert.equal(createdEvaluation.status,201,"BV-03 evaluation persistence");
   assert.equal(createdEvaluation.body.basePoints,100,"BV-08 partial: bounded 25+35+20+20 computed by DB");
+  for(const [i,month] of ["2026-00","2026-13","2026-aa","2026/10","202610-","0000-99"].entries()){
+    const invalid={...evalBody,number:key("BADMONTH"+i),period:month};
+    const response=await req("/api/monthly-evaluations",{method:"POST",body:invalid});
+    assert.equal(response.status,400,"Authoritative YYYY-MM rejected "+month);
+    assert.equal((await req("/api/monthly-evaluations/"+encodeURIComponent(invalid.number))).status,404);
+  }
   assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:{...evalBody,number:key("FORGED"),basePoints:0}})).status,400,"computed base cannot be supplied by client");
   assert.equal((await req("/api/monthly-evaluations",{method:"POST",body:evalBody})).status,409,"duplicate id");
   for(const [field,invalid] of [
@@ -128,6 +134,8 @@ try{
   assert.equal(filter.body.total,1,"No other person/month leakage in typed equality search");
   assert.equal(filter.body.items[0].number,evalBody.number);
   assert.equal((await req(query+"&limit=0")).status,400,"BV-03 bounded search");
+  assert.equal((await req("/api/monthly-evaluations/query/filtered?period=2026-13",{as:"reader"})).status,400,
+    "Month filter is validated before SQL");
   const before=await req("/api/monthly-evaluations/"+encodeURIComponent(evalBody.number),{as:"reader"});
   assert.equal(before.status,200);
   for(const f of ["incidentPoints","mandatoryPoints","guardPoints","internalPoints"])
@@ -157,6 +165,9 @@ try{
   assert.ok(audits.body.total>=7,"BV-13 scored fields and publication have audit history");
   const leave={number:key("L1"),volunteerBadge:persons[0].badge,leaveKind:"medical",period:"2026-10",days:10};
   assert.equal((await req("/api/leave-records",{method:"POST",body:leave})).status,201,"BV-09/10 underlying leave record only");
+  assert.equal((await req("/api/leave-records",{method:"POST",
+    body:{...leave,number:key("BADLEAVEMONTH"),period:"2026-00"}})).status,400,
+    "Other generated entities enforce the same month pattern");
   const saved=await req("/api/leave-records/"+leave.number);
   assert.equal(saved.status,200);
   assert.equal(Object.hasOwn(saved.body,"computedLeaveScore"),false,"BV-10 no fabricated medical calculation");

@@ -31,6 +31,7 @@ export function generate(ir,spec,out){
     ir.entities.length<1||ir.entities.length>8||!Array.isArray(ir.operations))
     throw Error("Unsupported canonical contract IR for NestJS");
   if(existsSync(out)&&readdirSync(out).length)throw Error("Output not empty; refusing overwrite");
+  const YEAR_MONTH_PATTERN="^[0-9]{4}-(0[1-9]|1[0-2])$";
   const entities=new Map(),tables=new Set(),reads=[],writes=[],audits=[],assignments=[],compiled=[];
   for(const e of ir.entities){
     safe(e.name);safe(e.publicIdentity);
@@ -55,6 +56,8 @@ export function generate(ir,spec,out){
         f.reference||typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
         f.initial.length<(f.minLength??1)||f.initial.length>(f.maxLength??255)))
         throw Error("Invalid finite-state initial value "+e.name+"."+f.name);
+      if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
+         f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
       if(f.type==="string"&&(!Number.isInteger(f.maxLength??255)||(f.maxLength??255)<1))
         throw Error("Invalid string maximum length");
     }
@@ -240,6 +243,7 @@ export function generate(ir,spec,out){
         f.unique&&f.name!==e.publicIdentity?"UNIQUE":"",
         f.type==="string"&&f.minLength!==undefined?"CHECK (char_length("+col+") >= "+f.minLength+")":"",
         f.type==="string"&&f.required&&!f.nullable?"CHECK (char_length(btrim("+col+")) > 0)":"",
+        f.pattern!==undefined?"CHECK ("+col+" ~ '"+YEAR_MONTH_PATTERN+"')":"",
         f.min!==undefined?"CHECK ("+col+">="+f.min+")":"",
         f.max!==undefined?"CHECK ("+col+"<="+f.max+")":""].filter(Boolean);
       if(f.initial!==undefined){

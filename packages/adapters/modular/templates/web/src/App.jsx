@@ -54,7 +54,8 @@ function transitionLabel(op){
   return (verbs[verb]??"Cambiar estado")+" registro";
 }
 function isMonthField(field){
-  // Presentation fallback only; a future contract-defined format overrides this heuristic.
+  // Prefer authoritative format; legacy month hints remain a presentation fallback.
+  if(field.pattern==="^[0-9]{4}-(0[1-9]|1[0-2])$")return true;
   if(field.uiControl!==undefined)return field.uiControl==="month";
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
@@ -77,6 +78,9 @@ function validateCreate(fields,values){
       }
       if(field.maxLength!==undefined&&text.length>field.maxLength){
         errors[field.name]="Se permiten como máximo "+field.maxLength+" caracteres.";continue;
+      }
+      if(field.pattern!==undefined&&!new RegExp(field.pattern).test(text)){
+        errors[field.name]="El formato ingresado no es válido.";continue;
       }
       if(isMonthField(field)&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(text)){
         errors[field.name]="Elegí un período válido (año y mes).";continue;

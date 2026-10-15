@@ -1,6 +1,6 @@
 import {
   emitFile, getMinLength, getMaxLength, getMinValue,
-  getMaxValue, navigateProgram, resolvePath,
+  getMaxValue, getPattern, navigateProgram, resolvePath,
   type EmitContext, type Model, type ModelProperty, type Operation, type Type,
   type Program,
 } from "@typespec/compiler";
@@ -49,6 +49,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     }} : {}),
     ...(getMinLength(p,prop) !== undefined ? {minLength:getMinLength(p,prop)} : {}),
     ...(getMaxLength(p,prop) !== undefined ? {maxLength:getMaxLength(p,prop)} : {}),
+    ...(getPattern(p,prop) !== undefined ? {pattern:getPattern(p,prop)} : {}),
     ...(getMinValue(p,prop) !== undefined ? {min:getMinValue(p,prop)} : {}),
     ...(getMaxValue(p,prop) !== undefined ? {max:getMaxValue(p,prop)} : {}),
   };
@@ -89,6 +90,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
       if(value.uiHelp!==undefined&&(value.uiHelp.trim()!==value.uiHelp||
          !value.uiHelp.length||value.uiHelp.length>240||/[\r\n<>]/.test(value.uiHelp)))
         reject("invalid-ui-help",m.name+"."+prop.name+" uiHelp must be a single-line 1..240 character description",prop);
+      if(value.pattern!==undefined&&(value.pattern!=="^[0-9]{4}-(0[1-9]|1[0-2])$"||
+         value.type!=="string"||value.minLength!==7||value.maxLength!==7))
+        reject("unsupported-pattern",m.name+"."+prop.name+
+          " requires a supported, portable YYYY-MM regex on seven-character string",prop);
       if(value.uiControl!==undefined&&(value.uiControl!=="month"||
          value.type!=="string"||value.minLength!==7||value.maxLength!==7))
         reject("invalid-ui-control",m.name+"."+prop.name+" uiControl month requires a YYYY-MM-shaped 7-character string; this is a presentation hint only",prop);
