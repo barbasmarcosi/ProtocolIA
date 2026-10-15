@@ -173,3 +173,9 @@ For server-side field validation, generated NestJS and Spring Boot implement one
 The initial portable codes are `required`, `invalid_initial`, `invalid_format`, `invalid_type`, and `out_of_range`. Unexpected generic errors and database conflicts remain top-level errors rather than guessing which field caused them. The underlying domain constraints and permissions are unchanged. See [UX7 evidence](./evidence/UX7_FIELD_VALIDATION_20261015.md).
 
 Future layout quality work should select compact bottom sheets vs full-screen forms based on task complexity. On mobile, a short creation form still consumes the full viewport, which is functional but visually inefficient; do not classify this as 10/10 usability.
+
+## UX8 — Responsive mobile form layout from contract complexity
+
+The generator decides whether a mobile create dialog can use a compact, viewport-bottom sheet by checking the canonical IR fields: no more than four editable inputs, without a relationship picker. Longer forms and relational workflows keep the accessible, independently scrollable full-screen dialog. This remains a presentation decision only; no backend rules or contract privileges change.
+
+Use safe-area padding and dynamic viewport height instead of fixed device-specific offsets. Radix focus restoration, nested selectors, dirty-draft warnings and server field errors must continue passing real Chromium tests. UX8 is proven across NestJS and Spring Boot with PostgreSQL ([evidence](./evidence/UX8_ADAPTIVE_MOBILE_FORMS_20261015.md)). The field-count threshold is a limited heuristic until more expressive task/layout metadata is supported.
