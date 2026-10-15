@@ -11,6 +11,7 @@ export const $lib = createTypeSpecLibrary({
     reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
     initial: {description:"Initial immutable state for a finite-state field"},
+    computedSum: {description:"Read-only bounded sum of required integer fields"},
     transition: {description:"Atomic business state transition with guarded source/target"},
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
     release: {description:"Exactly-once guarded cancellation and transactional stock restoration"},
@@ -46,6 +47,10 @@ function view(context: DecoratorContext, target: Model, label: string): void {
 
 function initial(context: DecoratorContext, target: ModelProperty, value: string): void {
   context.program.stateMap($lib.stateKeys.initial).set(target, {value});
+}
+
+function computedSum(context: DecoratorContext, target: ModelProperty, fields: string): void {
+  context.program.stateMap($lib.stateKeys.computedSum).set(target,{fields});
 }
 
 function transition(context: DecoratorContext, target: Operation, from: string, to: string): void {
@@ -101,6 +106,7 @@ export const $decorators = {
     reference,
     view,
     initial,
+    computedSum,
     transition,
     reserve,
     release,
