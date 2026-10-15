@@ -4,7 +4,7 @@ on:
     branches:
       - feature/ux9-generated-url-navigation-20261015
     paths:
-      - '.github/workflows/vnext-independent-volunteer-evaluations.yml'
+      - '.github/workflows/vnext-ux9-navigation-staging.yml'
       - 'examples/vnext/volunteer-evaluations/**'
       - 'tests/vnext/independent-volunteer-evaluations.test.mjs'
       - 'scripts/vnext/probe-independent-volunteer-http.mjs'
