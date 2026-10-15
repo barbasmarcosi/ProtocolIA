@@ -276,6 +276,56 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     assert.equal((await saved).status(),201,"Generated form creates paged FK association");
     assert.equal((await req("/api/guards/"+encodeURIComponent(id("GUARDPAGED")))).body.sectionCode,
       id("PAGED056"),"Real PostgreSQL persists the selected FK");
+    // Reassignment uses the same generated picker when there are >50 possible guards.
+    for(let n=0;n<55;n++){
+      const fixture=await req("/api/guards",{method:"POST",body:{
+        code:id("PGGUARD"+String(n).padStart(3,"0")),sectionCode:section,
+        name:"Guardia paginada ficticia "+String(n).padStart(3,"0")
+      }});
+      assert.equal(fixture.status,201,"Reassignment reference fixture "+n);
+    }
+    await nav().getByRole("button",{name:"Personal",exact:true}).click();
+    const personRow=page.getByRole("row").filter({hasText:badge});
+    await personRow.getByRole("button",{name:"Detalle"}).click();
+    const personModal=page.getByRole("dialog",{name:"Detalle: "+badge});
+    const assignment=personModal.getByTestId("reassign-reference");
+    const guardPicker=assignment.getByTestId("create-guardCode");
+    await assignment.locator(".relation-search-trigger").waitFor({state:"visible",timeout:15000});
+    await guardPicker.click();
+    const guardSearch=page.getByRole("dialog",{name:"Elegir guardia asignada"});
+    await guardSearch.waitFor({state:"visible"});
+    await guardSearch.getByRole("searchbox",{name:"Buscar guardia asignada"})
+      .fill("GUARDIA PAGINADA FICTICIA 054");
+    const targetKey=id("PGGUARD054");
+    await guardSearch.getByRole("option").filter({hasText:targetKey})
+      .waitFor({state:"visible",timeout:12000});
+    await guardSearch.getByRole("option").filter({hasText:targetKey}).click();
+    assert.equal(await guardPicker.getAttribute("data-selected-key"),targetKey,
+      "The paginated reassignment picker stores the full FK identity");
+    const replacement=page.waitForResponse(response=>response.request().method()==="PATCH"&&
+      new URL(response.url()).pathname==="/api/volunteers/"+encodeURIComponent(badge)+"/guard",
+      {timeout:18000});
+    await assignment.getByTestId("confirm-reassign").click();
+    assert.equal((await replacement).status(),200,"Paginated reassign succeeds");
+    assert.equal((await req("/api/volunteers/"+encodeURIComponent(badge))).body.guardCode,targetKey,
+      "CAS reassignment persists out-of-first-page reference");
+    await personModal.getByRole("button",{name:"Cerrar detalle"}).click();
+    await personModal.waitFor({state:"hidden"});
+    await nav().getByRole("button",{name:"Secciones",exact:true}).click();
+    await nav().getByRole("button",{name:"Personal",exact:true}).click();
+    const readBack=page.waitForResponse(response=>response.request().method()==="GET"&&
+      new URL(response.url()).pathname==="/api/guards/"+encodeURIComponent(targetKey),
+      {timeout:18000});
+    await page.getByRole("row").filter({hasText:badge}).getByRole("button",{name:"Detalle"}).click();
+    await readBack;
+    const restored=page.getByRole("dialog",{name:"Detalle: "+badge})
+      .getByTestId("reassign-reference").getByTestId("create-guardCode");
+    await restored.getByText("Guardia paginada ficticia 054")
+      .waitFor({state:"visible",timeout:12000});
+    assert.equal(await restored.getAttribute("data-selected-key"),targetKey,
+      "Persisted off-page relation recovers its readable caption by authorized GET");
+    await page.getByRole("dialog",{name:"Detalle: "+badge})
+      .getByRole("button",{name:"Cerrar detalle"}).click();
     assert.equal(pageErrors.length,0,"Browser JavaScript exceptions: "+pageErrors.join("; "));
     console.log("BV_GENERATED_NATIVE_FK_BROWSER_PASS "+JSON.stringify({
       browser:"Chromium Playwright",entities:["Section","GuardDuty","Volunteer","MonthlyEvaluation"],
@@ -283,7 +333,7 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
       emptyReferenceBlocked:true,computedBasePoints:80,detailModal:true,
       compiledFieldMetadata:true,accessibleFieldHints:true,
       reassignPicker:true,confirmedCasReferenceUpdate:true,
-      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,clientJavascriptErrors:0
+      preservedScroll:true,focusRestored:true,mobileInternalScroll:true,pagedRelationOver50:true,pagedReassignment:true,offPageHydration:true,clientJavascriptErrors:0
     }));
   }catch(error){
     try{const screenshot=join(generated,"protocolia-fk-browser-failure.png");
