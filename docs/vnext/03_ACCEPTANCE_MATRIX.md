@@ -360,3 +360,20 @@ Identity provisioning is deliberately outside ordinary CRUD: generated `protocol
 Generated React displays recipient/event/resource, unread state, paginated cards and permitted acknowledgement at mobile widths, with session-scoped unmount and request cancellation. Existing worker workflow is extended, not duplicated, to compile both apps and exercise PostgreSQL, HTTP errors/isolation/concurrency, Chromium mobile and restart. Source implementation is **NOT yet runtime accepted** until Actions evidence is recorded. Changes to existing identity/policy contracts remain fail-closed pending additive evolution proof.
 
 Next gates remain durable retry/DLQ and attempt history, additive populated migrations, provider abstraction and controlled failure adapter. External delivery and sustained hosting remain OPEN. Historical A13 is unchanged.
+
+
+## 22. Current A14.3/C16 acceptance ledger — supersedes old NOT RUN checkpoints
+
+This section records tested *new A14.3 contracts*, not the immutable A13 customer trial (historical 13/16). Exact source `cc3463a99e1ce9a8c556e5f7faab4ebc795cfd57`, [Actions #38661162521](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38661162521) SUCCESS.
+
+| Gate | Spring | Nest | Evidence boundary |
+| --- | --- | --- | --- |
+| Overdue rule → outbox and atomic internal inbox materialization | PASS | PASS | Real PostgreSQL, seeded due/future/terminal data, idempotence and restart |
+| Opt-in generated scheduled worker (only while application awake) | PASS | PASS | Compiled app, worker disabled/enabled, real HTTP health and PostgreSQL |
+| Authenticated recipient-scoped inbox read, ACK, role/identity isolation | PASS | PASS | HTTP 400/401/403/404, concurrent ACK, Chromium mobile, restart |
+| **Populated A14.2 → A14.3 upgrade**, unchanged old V1, tickets/audit | **PASS** | **PASS** | Actual CLI plan/evolve, Flyway/Nest V2 additive DDL, legacy reassignment, notification read/ACK, restart/idempotent second evolve |
+| Arbitrary changes to installed notification rules or unrelated DDL | **REJECT** | **REJECT** | Restricted migration profile; no arbitrary policy evolution |
+| Guaranteed 24/7 durable independent scheduler and production IAM | **OPEN** | **OPEN** | In-process scheduler only; not an always-on hosted worker |
+| External email/push delivery with retry/dead letter and receipts | **OPEN** | **OPEN** | PostgreSQL `delivered` means internal recipient inbox receipt only |
+
+The former A14/C16 `UNSUPPORTED` verdict is historical and does not describe these tested internal-notification primitives. Full external C16 delivery remains incomplete.
