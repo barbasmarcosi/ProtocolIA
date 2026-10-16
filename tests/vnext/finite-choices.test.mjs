@@ -56,3 +56,36 @@ test("the compiler refuses a DTO that silently weakens its domain enum",()=>{
     assert.match((run.stdout??"")+(run.stderr??""),/protocolia-enum-request-mismatch/i);
   }finally{rmSync(scratch,{recursive:true,force:true});}
 });
+
+test("requiredWhen survives TypeSpec into canonical domain IR",()=>{
+  const entity=ir.entities.find(e=>e.name==="Gauge");
+  const target=entity.fields.find(f=>f.name==="maintenanceReason");
+  const trigger=entity.fields.find(f=>f.name==="quality");
+  assert.deepEqual(target.requiredWhen,{field:"quality",equals:"needs_service"});
+  assert.equal(target.type,"string");assert.equal(target.required,false);
+  assert.equal(target.nullable,false);
+  assert.ok(trigger.choices.some(c=>c.value==="needs_service"));
+});
+test("conditional rules reject unknown trigger, unsafe values and always-required targets",()=>{
+  const anchor='@requiredWhen("quality","needs_service")';
+  for(const [description,replacement] of [
+    ["unknown source",'@requiredWhen("unknownField","needs_service")'],
+    ["non-enum source",'@requiredWhen("reading","needs_service")'],
+    ["undeclared enum value",'@requiredWhen("quality","other_state")'],
+    ["self reference",'@requiredWhen("maintenanceReason","needs_service")']
+  ]){
+    const scratch=mkdtempSync(join("examples","vnext",".required-when-negative-"));
+    try{
+      cpSync(join(root,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+      cpSync(join(root,"contracts"),join(scratch,"contracts"),{recursive:true});
+      const mutated=source.replace(anchor,replacement);
+      assert.notEqual(mutated,source);
+      writeFileSync(join(scratch,"contracts/main.tsp"),mutated);
+      const run=spawnSync(join(process.cwd(),"node_modules/.bin/tsp"),["compile",scratch],{
+        encoding:"utf8",timeout:90000
+      });
+      assert.notEqual(run.status,0,"Unsafe conditional accepted: "+description);
+      assert.match((run.stdout??"")+(run.stderr??""),/protocolia-invalid-required-when/i);
+    }finally{rmSync(scratch,{recursive:true,force:true});}
+  }
+});
