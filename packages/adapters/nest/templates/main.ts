@@ -6,6 +6,7 @@ import {createRemoteJWKSet,jwtVerify} from "jose";
 import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
+import {installBff} from "./BffSession";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
@@ -346,7 +347,11 @@ class RuntimeService{
       authorizationEndpoint,tokenEndpoint,clientId,redirectUri,scope,
       requireIdToken:proofPolicy==="true"};
   }
-  authConfig():typeof this.browserAuth{return this.browserAuth;}
+  oidcConfig():typeof this.browserAuth{return this.browserAuth;}
+  bffPool():Pool{return this.pool;}
+  authConfig():typeof this.browserAuth|{mode:"bff";enabled:true}{
+    return process.env.PROTOCOLIA_BFF_ENABLED==="true"?{mode:"bff",enabled:true}:this.browserAuth;
+  }
   async login(req:any):Promise<{username:string;capabilities:string[]}>{
     if(this.jwtConfig){
       const auth=req.headers.authorization;
@@ -390,7 +395,7 @@ class RuntimeService{
   async me(req:any,res:any):Promise<void>{
     try{
       const session=await this.login(req);
-      if(this.browserAuth.requireIdToken){
+      if(this.browserAuth.requireIdToken&&!req.protocoliaBffAuthenticated){
         const idToken=req.headers["x-protocolia-id-token"];
         const nonce=req.headers["x-protocolia-oidc-nonce"];
         if(typeof idToken!=="string"||idToken.length>16384||
@@ -911,6 +916,7 @@ async function bootstrap(){
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
   await engine.init();
+  await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
   if(spec.hasOverdueRules && process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"){
     const delay=Number(process.env.PROTOCOLIA_ALERT_INTERVAL_MS??"60000");
