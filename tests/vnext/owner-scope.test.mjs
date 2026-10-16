@@ -17,6 +17,12 @@ test("S1b owner scope binds the single editable field to a separate capability",
  assert.deepEqual([patch.behavior.field,patch.behavior.input,patch.capability],["title","title","notes.title.write"]);
  assert.notEqual(patch.capability,ir.operations.find(o=>o.name==="createNote").capability);
 });
+test("S1c private optional response is source-declared and independently authorized",()=>{
+ const e=ir.entities.find(x=>x.name==="PrivateNote");
+ assert.equal(e.fields.find(f=>f.name==="privateMemo").required,false);
+ assert.equal(e.fields.find(f=>f.name==="privateMemo").readCapability,"notes.private.read");
+ assert.equal(compileOwnerScopes(ir).get("PrivateNote").field,"owner");
+});
 test("adversarial IR mutations cannot evade owner scope",()=>{
  const mutations=[
   ir=>{ir.entities[0].fields.find(f=>f.ownerManaged).ownerManaged=false;ir.entities[0].fields.find(f=>f.name==="title").ownerManaged=true;},
@@ -32,10 +38,15 @@ test("adversarial IR mutations cannot evade owner scope",()=>{
   ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.input="owner";},
   ir=>{ir.operations.push({...ir.operations.find(o=>o.name==="updateNoteTitle"),name:"secondPatch"});},
   ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.kind="delete";},
+  ir=>{ir.entities[0].fields.find(f=>f.name==="privateMemo").required=true;},
+  ir=>{ir.entities[0].fields.find(f=>f.name==="privateMemo").readCapability="notes.read";},
+  ir=>{ir.entities[0].fields.find(f=>f.name==="privateMemo").readCapability="notes.title.write";},
+  ir=>{ir.entities[0].fields.find(f=>f.name==="privateMemo").readCapability="public";},
+  ir=>{ir.entities[0].fields.find(f=>f.name==="privateMemo").reference={target:"PrivateNote"};},
   ir=>{ir.entities[0].fields.find(f=>f.name==="title").reference={target:"PrivateNote",onDelete:"restrict"};}
  ];
  for(const mutate of mutations){const copy=structuredClone(ir);mutate(copy);
-  assert.throws(()=>compileOwnerScopes(copy),/Invalid S1[ab] owner/);
+  assert.throws(()=>compileOwnerScopes(copy),/Invalid S1[abc] (?:owner|field)/);
  }
 });
 test("compilation refuses forgeable owner DTO and unsupported domain operations",()=>{
@@ -45,6 +56,9 @@ test("compilation refuses forgeable owner DTO and unsupported domain operations"
   ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NotePage',
     '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NotePage'],
   ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(20)'],
+  ['@readCapability("notes.private.read") @maxLength(180)','@readCapability("notes.read") @maxLength(180)'],
+  ['@readCapability("notes.private.read") @maxLength(180)','@readCapability("public") @maxLength(180)'],
+  ['privateMemo?: string;\n  }\n  model PrivateNoteInput','privateMemo: string;\n  }\n  model PrivateNoteInput'],
   ['@behavior("listPage","PrivateNote")','@behavior("queryPage","PrivateNote")'],
   ['@behavior("patchFields","PrivateNote","title","title")','@behavior("patchFields","PrivateNote","owner","owner")'],
   ['@capability("notes.title.write")','@capability("notes.write")'],

@@ -66,9 +66,15 @@ try{
  const forged=await req("/api/notes",{method:"POST",body:{noteCode:unknown,title:"Forged",owner:reader}});
  assert.equal(forged.status,400,JSON.stringify(forged));
  assert.equal((await req("/api/notes/"+unknown)).status,404);
- const created=await req("/api/notes",{method:"POST",body:{noteCode:id,title:"Private note"}});
+ const created=await req("/api/notes",{method:"POST",body:{noteCode:id,title:"Private note",privateMemo:"Manager top secret"}});
  assert.equal(created.status,201,JSON.stringify(created));
  assert.equal(created.body.owner,manager);
+ assert.equal(created.body.privateMemo,"Manager top secret");
+ const readerSession=await req("/api/_protocolia/me",{who:"reader"});
+ const managerSession=await req("/api/_protocolia/me");
+ assert.ok(managerSession.body.capabilities.includes("notes.private.read"));
+ assert.ok(!readerSession.body.capabilities.includes("notes.private.read"));
+ assert.ok(readerSession.body.capabilities.includes("notes.read"));
  assert.equal((await req("/api/notes",{method:"POST",body:{noteCode:id,title:"duplicate"}})).status,409);
  assert.equal((await req("/api/notes/"+id)).status,200);
  assert.equal((await req("/api/notes/"+id,{who:"reader"})).status,404,"Foreign row indistinguishable from missing");
@@ -81,10 +87,12 @@ try{
  assert.equal(changed.status,200,JSON.stringify(changed));
  assert.equal(changed.body.title,"Private and edited");
  assert.equal(changed.body.owner,manager);
+ assert.equal(changed.body.privateMemo,"Manager top secret");
  let page=await req("/api/notes?limit=25&offset=0");
  assert.equal(page.status,200);
  assert.equal(page.body.total,1);
  assert.deepEqual(page.body.items.map(x=>x.noteCode),[id]);
+ assert.equal(page.body.items[0].privateMemo,"Manager top secret");
  page=await req("/api/notes?limit=25&offset=0",{who:"reader"});
  assert.equal(page.status,200);
  assert.equal(page.body.total,0,"Foreign rows must not leak through total");
@@ -92,8 +100,10 @@ try{
  // Simulate independently owned records created by a separate trusted system.
  // Reader has read-only demo role, so fixture seeds the second subject via local disposable DB.
  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-  "INSERT INTO private_note (note_code, owner, title) VALUES ('"+readerId+"','"+reader+"','Reader private')"],15000);
- assert.equal((await req("/api/notes/"+readerId,{who:"reader"})).status,200);
+  "INSERT INTO private_note (note_code, owner, title, private_memo) VALUES ('"+readerId+"','"+reader+"','Reader private','Reader hidden secret')"],15000);
+ const scoped=await req("/api/notes/"+readerId,{who:"reader"});
+ assert.equal(scoped.status,200);
+ assert.equal(Object.hasOwn(scoped.body,"privateMemo"),false,"Restricted field must be absent, not null");
  assert.equal((await req("/api/notes/"+readerId)).status,404,"Manager must not bypass row ownership");
  assert.equal((await change(readerId,{title:"Must not change foreign title"})).status,404,
    "Even a manager with write capability cannot update a foreign row");
@@ -101,6 +111,7 @@ try{
  assert.equal((await change(readerId,{title:"Reader cannot patch"},"reader")).status,403);
  const readerPage=await req("/api/notes?limit=25&offset=0",{who:"reader"});
  assert.equal(readerPage.body.total,1);
+ assert.equal(Object.hasOwn(readerPage.body.items[0],"privateMemo"),false,"Paged content must also omit restricted field");
  assert.deepEqual(readerPage.body.items.map(x=>x.noteCode),[readerId]);
  const managerPage=await req("/api/notes?limit=25&offset=0");
  assert.equal(managerPage.body.total,1);
@@ -122,11 +133,14 @@ try{
    assert.equal(await form.getByTestId("create-owner").count(),0,"Owner is not client-editable");
    await form.getByTestId("create-noteCode").fill(token+"-mobile");
    await form.getByTestId("create-title").fill("My mobile private note");
+   await form.getByTestId("create-privateMemo").fill("UI manager secret");
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    assert.equal((await req("/api/notes/"+token+"-mobile")).body.owner,manager);
+   assert.equal((await req("/api/notes/"+token+"-mobile")).body.privateMemo,"UI manager secret");
    assert.equal((await req("/api/notes/"+token+"-mobile",{who:"reader"})).status,404);
    await page.getByTestId("open-detail-"+token+"-mobile").click();
+   await page.getByTestId("detail-dialog").getByText("UI manager secret").waitFor();
    await page.getByTestId("rename").fill("Mobile edited");
    await page.getByRole("button",{name:"Guardar cambios"}).click();
    const end=Date.now()+12000;let reflected=false;
@@ -147,7 +161,7 @@ try{
   await new Promise(r=>setTimeout(r,1000));
  }
  assert.ok(persisted,"Ownership must persist after restart");
- console.log("PROTOCOLIA_S1B_OWNER_FIELD_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,independentWriteCapability:true,fieldAllowlist:true,foreignWrites404:true,dualSubjects:true,persistent:true,mobile:process.argv.includes("--browser")}));
+ console.log("PROTOCOLIA_S1C_FIELD_READ_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,independentWriteCapability:true,fieldAllowlist:true,foreignWrites404:true,privateReadCapability:true,omittedInDetailAndPage:true,dualSubjects:true,persistent:true,mobile:process.argv.includes("--browser")}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}catch(error){console.error(error.message);process.exitCode=1;}
  rmSync(work,{recursive:true,force:true});
