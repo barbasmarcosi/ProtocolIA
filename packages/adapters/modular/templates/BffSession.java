@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
+import org.springframework.scheduling.annotation.Scheduled;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -52,6 +53,13 @@ public class BffSession {
 
   public BffSession(JdbcTemplate jdbc,JwtDecoder decoder) {
     this.jdbc=jdbc;this.decoder=decoder;
+    String cleanup=System.getenv().getOrDefault("PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS","300000");
+    try{
+      long millis=Long.parseLong(cleanup);
+      if(millis<1000||millis>3600000)throw new NumberFormatException("out of range");
+    }catch(NumberFormatException ex){
+      throw new IllegalStateException("Invalid BFF cleanup interval (1000..3600000)",ex);
+    }
     if(!"jwt".equals(System.getenv("PROTOCOLIA_AUTH_MODE"))||
        !"true".equals(System.getenv("PROTOCOLIA_OIDC_DISCOVERY_REQUIRED"))||
        !"true".equals(System.getenv("PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED"))||
@@ -119,7 +127,35 @@ public class BffSession {
     res.addHeader("Set-Cookie",name+"="+value+"; Path=/; HttpOnly; SameSite=Lax; "+
       (testHttp?"":"Secure; ")+"Max-Age="+Math.max(0,seconds));
   }
-  private void noStore(HttpServletResponse res){res.setHeader("Cache-Control","no-store");}
+  private void noStore(HttpServletResponse res){
+    res.setHeader("Cache-Control","no-store");
+    res.setHeader("X-Content-Type-Options","nosniff");
+    res.setHeader("Referrer-Policy","no-referrer");
+    res.setHeader("Content-Security-Policy","base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+  }
+  // PostgreSQL SKIP LOCKED prevents concurrent replicas deleting the same row;
+  // 200 rows per iteration bounds transaction duration and write amplification.
+  @Scheduled(
+    fixedDelayString="${PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS:300000}",
+    initialDelayString="${PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS:300000}")
+  public void cleanupExpiredSessions(){
+    try{
+      int count=jdbc.update("""
+        WITH expired AS (
+          SELECT sid_hash FROM protocolia_bff_sessions
+          WHERE expires_at<now() ORDER BY expires_at
+          LIMIT 200 FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM protocolia_bff_sessions AS s USING expired
+        WHERE s.sid_hash=expired.sid_hash
+        """);
+      if(count>0)org.slf4j.LoggerFactory.getLogger(BffSession.class)
+        .info("PROTOCOLIA_BFF_CLEANUP deleted={}",count);
+    }catch(Exception ex){
+      org.slf4j.LoggerFactory.getLogger(BffSession.class)
+        .error("PROTOCOLIA_BFF_CLEANUP_FAILED",ex);
+    }
+  }
   private Session load(HttpServletRequest req){
     String sid=cookie(req,sidCookie);
     if(sid==null||!sid.matches("[A-Za-z0-9_-]{43}"))return null;
@@ -141,6 +177,7 @@ public class BffSession {
   private boolean checkCsrf(HttpServletRequest req,Session s){
     String token=req.getHeader("X-ProtocolIA-CSRF"),sentOrigin=req.getHeader("Origin");
     if(sentOrigin!=null&&!sentOrigin.equals(origin))return false;
+    if("cross-site".equals(req.getHeader("Sec-Fetch-Site")))return false;
     if(token==null)return false;
     return MessageDigest.isEqual(token.getBytes(StandardCharsets.US_ASCII),
       s.csrf().getBytes(StandardCharsets.US_ASCII));
@@ -210,6 +247,7 @@ public class BffSession {
         authentication,request,response);
       if(request.getSession(false)!=null)request.getSession(false).invalidate();
       setCookie(response,"JSESSIONID","",0);
+      setCookie(response,"SESSION","",0);
       setCookie(response,sidCookie,sid,Math.max(1,expires.getEpochSecond()-Instant.now().getEpochSecond()));
       response.setStatus(303);
       response.setHeader("Location","/");
@@ -217,6 +255,7 @@ public class BffSession {
     }catch(Exception e){
       if(request.getSession(false)!=null)request.getSession(false).invalidate();
       setCookie(response,"JSESSIONID","",0);
+      setCookie(response,"SESSION","",0);
       response.sendError(401,"OIDC login was not accepted");
     }
   }
