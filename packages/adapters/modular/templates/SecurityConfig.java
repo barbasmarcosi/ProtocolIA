@@ -143,7 +143,7 @@ public class SecurityConfig {
       JwtAuthenticationConverter converter=new JwtAuthenticationConverter();
       converter.setJwtGrantedAuthoritiesConverter(jwt->{
         List<?> declared=jwt.getClaim("protocolia_capabilities");
-        return declared.stream().map(value->new SimpleGrantedAuthority((String)value)).toList();
+        return declared.stream().map(value->(org.springframework.security.core.GrantedAuthority)new SimpleGrantedAuthority((String)value)).toList();
       });
       http.oauth2ResourceServer(o->o.jwt(jwt->jwt.jwtAuthenticationConverter(converter)));
     }else http.httpBasic(Customizer.withDefaults());
