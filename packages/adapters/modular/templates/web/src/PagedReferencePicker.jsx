@@ -6,7 +6,7 @@ function itemOf(row,target){
   return {key,displayName:String(row.name??key)};
 }
 async function read(url,auth,signal){
-  const response=await fetch(url,{headers:{Authorization:"Basic "+auth},signal});
+  const response=await fetch(url,{headers:{Authorization:auth},signal});
   if(!response.ok){
     const error=new Error(({401:"Sesión inválida.",403:"No tenés permiso de consulta.",
       404:"Registro inexistente."})[response.status]??"Error HTTP "+response.status);

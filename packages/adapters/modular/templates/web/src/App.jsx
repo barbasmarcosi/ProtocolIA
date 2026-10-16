@@ -3,6 +3,7 @@ import React,{useEffect,useMemo,useRef,useState} from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import PagedReferencePicker from "./PagedReferencePicker.jsx";
+import {beginPkce,finishPkce,hasPkceResponse} from "./OAuthPkce.js";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -221,7 +222,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
     const controller=new AbortController();
     setState({loading:true,value:null,error:""});
     fetch(route(operation,identity),{
-      headers:{Authorization:"Basic "+auth},signal:controller.signal
+      headers:{Authorization:auth},signal:controller.signal
     }).then(async res=>{
       if(!res.ok)throw Error(res.status===403?"Sin permiso para consultar el resumen.":
         res.status===404?"El registro ya no existe.":"No se pudo cargar el resumen.");
@@ -257,7 +258,7 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
   useEffect(()=>{
     const controller=new AbortController();
     setState({loading:true,data:null,error:""});
-    fetch(route(operation,identity),{headers:{Authorization:"Basic "+auth},signal:controller.signal})
+    fetch(route(operation,identity),{headers:{Authorization:auth},signal:controller.signal})
       .then(async response=>{
         if(!response.ok)throw Error(response.status===403?"Sin permisos para conciliar.":
           response.status===404?"El registro ya no existe.":"No se pudo conciliar el saldo.");
@@ -653,7 +654,7 @@ export default function App(){
     const suffix=query?"?"+new URLSearchParams(query):"";
     const response=await fetch(route(operation,code)+suffix,{
       method:operation.method,
-      headers:{"Authorization":"Basic "+auth,...(body===undefined?{}:{"Content-Type":"application/json"})},
+      headers:{"Authorization":auth,...(body===undefined?{}:{"Content-Type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)})
     });
     const text=await response.text();
@@ -717,7 +718,7 @@ export default function App(){
         }
         try{
           const response=await fetch(target.operations.listPage.path+"?limit=50&offset=0",{
-            headers:{Authorization:"Basic "+auth}
+            headers:{Authorization:auth}
           });
           if(!response.ok)throw Error("No se pudo consultar "+field.reference.target+" (HTTP "+response.status+").");
           const result=await response.json();

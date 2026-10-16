@@ -414,7 +414,7 @@ export function generate(ir, openapi, outDir) {
   },null,2)+"\n");
   for(const file of [
     "package.json","index.html","vite.config.mjs",
-    "src/main.jsx","src/App.jsx","src/PagedReferencePicker.jsx","src/NotificationInbox.jsx","src/style.css"
+    "src/main.jsx","src/App.jsx","src/OAuthPkce.js","src/PagedReferencePicker.jsx","src/NotificationInbox.jsx","src/style.css"
   ]) copy("web/"+file,"web/"+file);
   for(const file of ["Dockerfile","compose.yaml",".env.example",".dockerignore"])
     copy(file,file);
