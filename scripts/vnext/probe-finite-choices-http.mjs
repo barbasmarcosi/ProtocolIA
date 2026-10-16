@@ -19,6 +19,8 @@ const springSchema=join(generated,"src/main/resources/db/migration/V1__contract_
 const schema=readFileSync(existsSync(nestSchema)?nestSchema:springSchema,"utf8");
 assert.match(schema,/CHECK \(quality IN \('ready','needs_service','retired'\)\)|CHECK \(quality IN \('needs_service','ready','retired'\)\)/,
   "SQL must reject values outside the TypeSpec enum");
+assert.match(schema,/CONSTRAINT ck_cond_gauge_maintenance_reason CHECK \\(quality IS DISTINCT FROM 'needs_service' OR \\(maintenance_reason IS NOT NULL AND char_length\\(btrim\\(maintenance_reason\\)\\) > 0\\)\\)/,
+  "Generated PostgreSQL must independently require maintenance reason for needs_service");
 function docker(args,timeout=600000){
  const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
  if(r.status!==0||r.error)throw Error("docker "+args.join(" ")+" failed "+(r.stderr??r.error?.message??"").slice(-1600));
@@ -79,6 +81,31 @@ try{
  assert.match((direct.stderr??"")+(direct.stdout??""),/violates check constraint/i,
    "Negative DB mutation must specifically fail its enum CHECK constraint");
  assert.equal((await req(path+"/"+dbIdentity)).status,404,"Invalid direct SQL insert rolled back");
+ const incomplete=token+"-invalid-condition";
+ const conditionalSql="INSERT INTO gauge(serial,label,reading,quality) VALUES ('"+
+   incomplete+"','Conditional SQL check',1,'needs_service')";
+ const rejected=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",conditionalSql],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(rejected.status,0,"PostgreSQL must reject missing conditional field");
+ assert.match((rejected.stderr??"")+(rejected.stdout??""),/ck_cond_gauge_maintenance_reason/i);
+ assert.equal((await req(path+"/"+incomplete)).status,404,"Conditional SQL breach is rolled back");
+ for(const [reason,serial] of [[undefined,"absent"],["","empty"],["   ","spaces"]]){
+   const input={...payload,serial:token+"-"+serial,quality:"needs_service"};
+   if(reason!==undefined)input.maintenanceReason=reason;
+   const response=await req(path,{method:"POST",body:input});
+   assert.equal(response.status,400,"Conditional reason must fail before persistence");
+   assert.deepEqual(response.body?.issues,[{field:"maintenanceReason",code:"required"}]);
+   assert.equal((await req(path+"/"+input.serial)).status,404);
+ }
+ const serviced={...payload,serial:token+"-serviced",quality:"needs_service",
+   maintenanceReason:"Pérdida de calibración verificada"};
+ assert.equal((await req(path,{method:"POST",body:serviced})).status,201);
+ assert.equal((await req(path+"/"+serviced.serial)).body.maintenanceReason,serviced.maintenanceReason);
+ const retired={...payload,serial:token+"-retired",quality:"retired"};
+ assert.equal((await req(path,{method:"POST",body:retired})).status,201,
+   "Other enum values must not require the conditional field");
  assert.equal((await req(path,{method:"POST",body:payload})).status,201);
  assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
  assert.equal((await req(path,{method:"POST",body:{serial:token+"-no-choice",label:"Opcional",reading:0}})).status,201);
@@ -102,12 +129,22 @@ try{
    await form.getByTestId("create-reading").fill("3");
    await form.getByTestId("create-quality").click();
    await page.getByRole("option",{name:"Needs Service"}).click();
+   await form.getByRole("button",{name:"Crear",exact:true}).click();
+   assert.equal(await page.getByTestId("create-dialog").isVisible(),true,
+     "A missing conditional reason must not close the create form");
+   assert.equal(await form.getByTestId("create-maintenanceReason").getAttribute("aria-invalid"),"true",
+     "The generated UI identifies the conditional field before API write");
+   const requiredLabel=await form.getByTestId("create-maintenanceReason").locator("..").innerText();
+   assert.match(requiredLabel,/obligatorio/i,"Mobile form explains the conditional requirement");
+   await form.getByTestId("create-maintenanceReason").fill("Falla en la calibración de prueba");
    await page.screenshot({path:join(generated,"protocolia-b1-enum-mobile.png"),fullPage:true});
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
-   assert.equal((await req(path+"/"+selected)).body.quality,"needs_service","UI persists source enum value, not caption");
+   const stored=await req(path+"/"+selected);
+   assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
+   assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
    assert.equal(errors.length,0,"React errors: "+errors.join(";"));
-   console.log("PROTOCOLIA_B1_ENUM_BROWSER_PASS "+JSON.stringify({choice:"needs_service",mobile:true,jsErrors:0}));
+   console.log("PROTOCOLIA_B1_ENUM_BROWSER_PASS "+JSON.stringify({choice:"needs_service",conditionalRequired:true,mobile:true,jsErrors:0}));
   }finally{await browser.close();}
  }
  docker([...args,"restart","app"],120000);
@@ -117,7 +154,7 @@ try{
   await new Promise(ok=>setTimeout(ok,1000));
  }
  assert.ok(returned,"PostgreSQL value persisted across restart");
- console.log("PROTOCOLIA_B1_ENUM_HTTP_PASS "+JSON.stringify({source:"TypeSpec native enum",invalidChoice400:true,postgresConstraint:true,persisted:true}));
+ console.log("PROTOCOLIA_B1_ENUM_HTTP_PASS "+JSON.stringify({source:"TypeSpec native enum",invalidChoice400:true,postgresConstraint:true,conditionalRequired:true,dbRejectsIncomplete:true,persisted:true}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
  catch(e){console.error("B1 cleanup failed",e.message);process.exitCode=1}
