@@ -255,7 +255,32 @@ async function runMulti(){
       r.entity.fields.filter(f=>f.reference).map(f=>r.entity.name+"."+f.name+"->"+f.reference.target))}));
 }
 
+async function runOwnerScope(){
+  const owner=fields.find(f=>f.ownerManaged);
+  assert.ok(owner,"Missing owner-managed field");
+  for(const kind of ["create","get","listPage"])assert.ok(operations[kind]);
+  const payload={...body};delete payload[owner.name];
+  assert.equal((await req("get",null,{key:publicKey})).status,401);
+  assert.equal((await req("create",reader,{body:payload})).status,403);
+  assert.equal((await req("create",writer,{body:{...payload,[owner.name]:readerName}})).status,400);
+  const created=await req("create",writer,{body:payload});
+  assert.equal(created.status,201,JSON.stringify(created.data));
+  assert.equal(created.data[owner.name],managerName,"Owner must be server-derived");
+  assert.equal((await req("create",writer,{body:payload})).status,409);
+  assert.equal((await req("get",writer,{key:publicKey})).status,200);
+  assert.equal((await req("get",reader,{key:publicKey})).status,404);
+  assert.equal((await req("get",writer,{key:"absent-"+uuid})).status,404);
+  const own=await req("listPage",writer,{query:{limit:25,offset:0}});
+  const foreign=await req("listPage",reader,{query:{limit:25,offset:0}});
+  assert.equal(own.status,200);assert.equal(foreign.status,200);
+  assert.equal(own.data.total,1);assert.equal(foreign.data.total,0);
+  assert.deepEqual(foreign.data.items,[]);
+  assert.deepEqual(own.data.items.map(x=>x[id]),[publicKey]);
+  assert.equal((await req("listPage",null,{query:{limit:25,offset:0}})).status,401);
+  console.log("PROTOCOLIA_OWNER_SCOPE_CONFORMANCE_PASS "+JSON.stringify({entity:entity.name,owner:owner.name,isolated:true}));
+}
 async function main(){
+  if(fields.some(f=>f.ownerManaged)&&(config.resources?.length??1)===1)return runOwnerScope();
   if((config.resources?.length??1)>1||(config.transitions?.length??0)>0)return runMulti();
   const health=await fetch(base.replace(/\/$/,"")+"/health");assert.equal(health.status,200);
   const probe=await fetch(base.replace(/\/$/,"")+"/api/_protocolia/me",{headers:{Authorization:writer}});
