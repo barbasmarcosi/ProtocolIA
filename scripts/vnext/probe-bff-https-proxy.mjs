@@ -190,7 +190,20 @@ try{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
   const page=await browser.newPage({viewport:{width:390,height:844},locale:"es-AR",ignoreHTTPSErrors:true});
-  const errors=[],bearerLeaks=[];
+  const errors=[],bearerLeaks=[],navigation=[];
+  const cleanUrl=(url)=>{try{const parsed=new URL(url);return parsed.protocol+"//"+parsed.host+parsed.pathname;}catch{return "invalid";}};
+  page.on("request",req=>{
+    if(req.isNavigationRequest())navigation.push({request:cleanUrl(req.url())});
+  });
+  page.on("response",res=>{
+    if(res.request().isNavigationRequest())navigation.push({
+      response:cleanUrl(res.url()),status:res.status(),
+      redirect:res.headers().location?cleanUrl(new URL(res.headers().location,res.url()).toString()):undefined
+    });
+  });
+  page.on("requestfailed",req=>{
+    navigation.push({failed:cleanUrl(req.url()),reason:req.failure()?.errorText});
+  });
   page.on("pageerror",error=>errors.push(error.message));
   page.on("request",r=>{
     if(new URL(r.url()).pathname.startsWith("/api/")&&r.headers().authorization)
@@ -247,7 +260,7 @@ try{
     console.error("BFF_DIAGNOSTIC",JSON.stringify({
       url:page.url(),body:(await page.locator("body").innerText()).slice(0,1700),
       cookies:(await page.context().cookies()).map(c=>({name:c.name,httpOnly:c.httpOnly,sameSite:c.sameSite})),
-      errors
+      errors,navigation
     }));
     console.error("BFF_SERVER_DIAGNOSTIC",docker([...args,"logs","--no-color","app"],15000).slice(-9500));
     throw error;
