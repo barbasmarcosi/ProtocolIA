@@ -61,6 +61,14 @@ export function generate(ir,spec,out){
         new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
         f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
         throw Error("Unsupported enum choices "+e.name+"."+f.name);
+      if(f.requiredWhen){
+        const source=e.fields.find(x=>x.name===f.requiredWhen.field);
+        if(f.type!=="string"||f.required||f.nullable||f.unique||
+          f.initial!==undefined||f.reference||f.computedSum||f.choices||
+          !source||source===f||source.type!=="string"||source.nullable||
+          source.initial!==undefined||!source.choices?.some(x=>x.value===f.requiredWhen.equals))
+          throw Error("Invalid conditional requirement "+e.name+"."+f.name);
+      }
       if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
          f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
       if(f.type==="string"&&(!Number.isInteger(f.maxLength??255)||(f.maxLength??255)<1))
@@ -263,7 +271,13 @@ export function generate(ir,spec,out){
       const generated=f.computedSum?" GENERATED ALWAYS AS ("+f.computedSum.map(snake).join(" + ")+") STORED":"";
       return "  "+col+" "+sqlType+generated+" "+checks.join(" ");
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+fields.join(",\n")+"\n);");
+    const conditional=e.fields.filter(f=>f.requiredWhen).map(f=>{
+      const col=snake(f.name),source=snake(f.requiredWhen.field);
+      return "  CONSTRAINT ck_cond_"+snake(e.name)+"_"+col+" CHECK ("+
+        source+" IS DISTINCT FROM '"+f.requiredWhen.equals+"' OR "+
+        "("+col+" IS NOT NULL AND char_length(btrim("+col+")) > 0))";
+    });
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional].join(",\n")+"\n);");
   }
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);
