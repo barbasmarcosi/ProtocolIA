@@ -65,6 +65,7 @@ export async function finishPkce(config){
     !/^[A-Za-z0-9_-]{43,}$/.test(transaction.verifier??"")||
     !/^[A-Za-z0-9_-]{43,}$/.test(transaction.state??"")||
     state.length!==1||transaction.state!==state[0]||issuers.length>1||
+    (config.requireIssuerResponse===true&&issuers.length!==1)||
     (issuers.length===1&&issuers[0]!==config.issuer))
     throw Error("Respuesta de autenticación no válida.");
   if(error.length)throw Error("El proveedor de identidad rechazó el inicio de sesión.");
