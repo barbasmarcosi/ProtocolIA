@@ -180,7 +180,9 @@ try{
  }
  assert.equal((await getSession(identityToken(nonce,bearer),randomBytes(32).toString("base64url"))).status,401);
  const goodIdentity=identityToken(nonce,bearer);
- const broken=goodIdentity.slice(0,-1)+(goodIdentity.at(-1)==="A"?"B":"A");
+ const segments=goodIdentity.split(".");
+ segments[2]=(segments[2][0]==="A"?"B":"A")+segments[2].slice(1);
+ const broken=segments.join(".");
  assert.equal((await getSession(broken)).status,401,"Bad ID token signature must be rejected");
  assert.equal((await getSession("")).status,401,"Missing ID token rejected");
  const {chromium}=await import("playwright");
