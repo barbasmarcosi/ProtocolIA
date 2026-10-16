@@ -1,0 +1,58 @@
+name: vnext-s1-spring-session-jdbc
+on:
+  push:
+    branches:
+      - feature/s1d2i-spring-session-jdbc-20261016
+    paths:
+      - 'packages/**'
+      - 'tests/vnext/oauth-pkce.test.mjs'
+      - 'tests/vnext/auth-session.test.mjs'
+      - 'tests/vnext/bff-client.test.mjs'
+      - 'scripts/vnext/probe-bff-browser-http.mjs'
+      - 'scripts/vnext/probe-oauth-browser-http.mjs'
+      - '.github/workflows/vnext-s1-spring-session-jdbc.yml'
+permissions:
+  contents: read
+concurrency:
+  group: s1-spring-jdbc-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  spring-jdbc-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Test PKCE plus generated session lifecycle invariants
+        run: node --test tests/vnext/oauth-pkce.test.mjs tests/vnext/auth-session.test.mjs tests/vnext/bff-client.test.mjs
+      - name: Generate TypeSpec backend and React SPA
+        run: npm run app:build -- examples/vnext/owner-scope --target modular-spring --out "${RUNNER_TEMP}/pkce-system"
+      - name: Regression - demo Basic Compose
+        run: npm run app:test -- "${RUNNER_TEMP}/pkce-system"
+      - name: Regression - RSA JWT resource server
+        run: node scripts/vnext/probe-jwt-resource-server-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - name: Install Chromium for true browser OIDC flow in both backends
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Existing public PKCE and identity regression
+        run: node scripts/vnext/probe-oauth-browser-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - name: Spring OAuth2 Client BFF, cookie, CSRF, real Chromium
+        run: node scripts/vnext/probe-bff-browser-http.mjs "${RUNNER_TEMP}/pkce-system" --restart-during-oauth
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: s1-spring-session-jdbc-evidence
+          path: |
+            ${{ runner.temp }}/pkce-system/s1-oauth-pkce-mobile.png
+            ${{ runner.temp }}/pkce-system/s1-bff-nest-mobile.png
+          if-no-files-found: error
