@@ -48,3 +48,10 @@ Deployment safety: do not alter the Railway/Neon volunteer-evaluations demo sche
 - Real Chromium at 390×780 submitted an incomplete conditional form, saw the required field error without navigation or insert, completed its reason, submitted successfully and fetched the exact persisted value; marker `PROTOCOLIA_B1_ENUM_BROWSER_PASS` included `conditionalRequired:true,mobile:true,jsErrors:0`.
 - Visual screenshot was preserved in Actions artifact **`protocolia-b1-generated-conditional-mobile`** (ID `12017753704`).
 - The full integration is isolated from the Railway/Neon volunteer-evaluations dataset. The existing demo is not automatically migrated or redeployed.
+
+## Promotion and official compatibility evidence
+
+- Advanced `independent/volunteer-evaluations` by fast-forward to commit **`a6f887a6ab38c177441ff29bf875bb0f4b7d52bd`**, which contains the tested B1.2 compiler/adapters/React and the independent contract probe, with the temporary staging workflow removed.
+- [Official independent volunteer evaluation gate #38834384425](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38834384425) **SUCCESS**: both generated NestJS and Spring Boot projects passed PostgreSQL and source-frozen HTTP oracles; Nest also passed its existing Chromium UI regression plus the separate TypeSpec finite-choice conditional compiler tests.
+- [Official quality gate #38834384427](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38834384427) **SUCCESS** at the same source SHA.
+- The only public Railway service remains pinned to previously validated UX9 code; its Neon dataset and baseline schema are deliberately unchanged. B1.2 is now **implemented and integrated in the shared generator**, but its conditional demo remains the independent ephemeral Gauge test, not the Railway volunteer app.
