@@ -720,9 +720,16 @@ public class DomainRuntime {
       if (credited!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot restore stock");
       return row(e,id);
     }
-    int changed = jdbc.update("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
-        e.identityColumn()+"=:key AND "+col+"=:source",
-        Map.of("key",id,"source",op.fromState(),"target",op.toState()));
+    int changed;
+    try {
+      changed = jdbc.update("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
+          e.identityColumn()+"=:key AND "+col+"=:source",
+          Map.of("key",id,"source",op.fromState(),"target",op.toState()));
+    } catch (DataIntegrityViolationException ex) {
+      if (constraintSqlState(ex,"23505"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Business key already active");
+      throw ex;
+    }
     if (changed == 0) {
       row(e,id);
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Transition precondition failed");
