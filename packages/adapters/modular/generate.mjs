@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
+import {compileRelatedSums} from "../related-sum.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -108,11 +109,12 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","atomicIncrement","transition","reassignReference","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","atomicIncrement","transition","reassignReference","sumRelated","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
+  const relatedSums=compileRelatedSums(ir);
   for(const op of ops)assertInboxOpenApi(openapi,op);
   const routes = new Set();
   for(const op of ops){
@@ -125,7 +127,7 @@ export function generate(ir, openapi, outDir) {
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","sumRelated","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
@@ -278,6 +280,10 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
     "  public record QuerySpec(String projection,String source,String order,List<QueryFilter> filters) {}",
+    "  public record RelatedSum(String sql,String childReadCapability) {}",
+    "  public static final java.util.Map<String,RelatedSum> RELATED_SUMS=java.util.Map.ofEntries(",
+    [...relatedSums.entries()].map(([name,plan])=>"    java.util.Map.entry("+j(name)+",new RelatedSum("+j(plan.sqlSpring)+","+j(plan.childReadCapability)+"))").join(",\\n"),
+    "  );",
     "  public static final java.util.Map<String,QuerySpec> QUERIES=java.util.Map.ofEntries(",
     queryPlans.map(({op,plan})=>"    java.util.Map.entry("+j(op.name)+",new QuerySpec("+
       [j(plan.projection),j(plan.source),j(plan.order),"List.of("+

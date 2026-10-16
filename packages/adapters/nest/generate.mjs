@@ -3,6 +3,7 @@ import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
+import {compileRelatedSums} from "../related-sum.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -106,11 +107,12 @@ export function generate(ir,spec,out){
       throw Error("Unsupported FK: "+e.name+"."+f.name);
   }
   const inboxes=compileRecipientInboxes(ir);
+  const relatedSums=compileRelatedSums(ir);
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
-    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",delete:"DELETE",health:"GET"};
+    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",delete:"DELETE",health:"GET"};
   const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,
-    atomicIncrement:200,transition:200,reassignReference:200,delete:204,health:200};
+    atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
   if(of("health").length!==1)throw Error("One health operation required");
@@ -147,7 +149,7 @@ export function generate(ir,spec,out){
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(kind);
+      const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","sumRelated","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
@@ -248,6 +250,7 @@ export function generate(ir,spec,out){
           offsetDefault:o.default,offsetMax:o.maximum});
       }
       if(kind==="queryPage")item.query=buildQueryPlan(ir,op);
+      if(kind==="sumRelated")item.relatedSum=relatedSums.get(op.name);
       if(kind==="atomicIncrement"){
         const n=numberSchema(spec,op);
         Object.assign(item,{inputMin:n.minimum,inputMax:n.maximum});
