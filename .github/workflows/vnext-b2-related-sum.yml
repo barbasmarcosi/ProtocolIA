@@ -1,0 +1,46 @@
+name: vnext-b2-related-sum
+on:
+  push:
+    branches:
+      - feature/b2-4a-related-reservation-sum-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/inventory-reservations/**'
+      - 'tests/vnext/related-sum.test.mjs'
+      - 'scripts/vnext/probe-related-sum-http.mjs'
+      - '.github/workflows/vnext-b2-related-sum.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: related-sum-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  related-aggregate:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Contract and adapter rejection matrix
+        run: node --test tests/vnext/related-sum.test.mjs
+      - name: Generate native TypeSpec into complete runtime
+        run: npm run app:build -- examples/vnext/inventory-reservations --target ${{ matrix.target }} --out "${RUNNER_TEMP}/related-sum-generated"
+      - name: Generated application conformance and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/related-sum-generated"
+      - name: MVCC aggregate and concurrent reserve/release acceptance
+        run: node scripts/vnext/probe-related-sum-http.mjs "${RUNNER_TEMP}/related-sum-generated"
