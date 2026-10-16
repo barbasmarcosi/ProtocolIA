@@ -506,10 +506,15 @@ export default function App(){
     if(!authConfig?.enabled||!hasPkceResponse()||callbackOnce.current)return;
     callbackOnce.current=true;
     setLoginBusy(true);setLoginError("");
-    finishPkce(authConfig).then(async authorization=>{
-      if(!authorization)throw Error("No se recibió una autorización.");
+    finishPkce(authConfig).then(async result=>{
+      if(!result)throw Error("No se recibió una autorización.");
+      const authorization=typeof result==="string"?result:result.authorization;
+      const proof=typeof result==="string"?null:result.proof;
       const response=await fetch("/api/_protocolia/me",{
-        headers:{Authorization:authorization},cache:"no-store"});
+        headers:{Authorization:authorization,...(proof?{
+          "X-ProtocolIA-ID-Token":proof.idToken,
+          "X-ProtocolIA-OIDC-Nonce":proof.nonce
+        }:{})},cache:"no-store"});
       if(!response.ok)throw Error("El servidor no aceptó la identidad del proveedor.");
       const session=await response.json();
       if(!Array.isArray(session.capabilities))throw Error("Permisos de sesión inválidos.");
