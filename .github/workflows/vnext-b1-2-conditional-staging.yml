@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: protocolia-b1-generated-conditional-mobile
-          path: ${{ runner.temp }}/b1-conditional-nest/protocolia-b1-conditional-mobile.png
+          path: ${{ runner.temp }}/b1-conditional-nest/protocolia-b1-enum-mobile.png
           if-no-files-found: error
 
   enum-generated-spring-postgres:
