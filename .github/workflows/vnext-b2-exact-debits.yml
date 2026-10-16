@@ -1,0 +1,57 @@
+name: vnext-b2-exact-debits
+on:
+  push:
+    branches:
+      - feature/b2-5a-exact-debit-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/exact-debits/**'
+      - 'tests/vnext/exact-debits.test.mjs'
+      - 'scripts/vnext/probe-exact-debits-http.mjs'
+      - '.github/workflows/vnext-b2-exact-debits.yml'
+permissions:
+  contents: read
+concurrency:
+  group: exact-debits-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  transactional-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate TypeSpec contract and app
+        run: npm run app:build -- examples/vnext/exact-debits --target ${{ matrix.target }} --out "${RUNNER_TEMP}/exact-debits"
+      - name: IR and source negative tests
+        run: node --test tests/vnext/exact-debits.test.mjs
+      - name: Generated application build and PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/exact-debits"
+      - name: Install Chromium for generated mobile UX
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Independent transactional HTTP/PostgreSQL/browser probe
+        run: node scripts/vnext/probe-exact-debits-http.mjs "${RUNNER_TEMP}/exact-debits" ${{ matrix.target == 'nestjs' && '--browser' || '' }}
+      - name: Preserve generated mobile evidence
+        if: matrix.target == 'nestjs' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-debit-mobile
+          path: ${{ runner.temp }}/exact-debits/exact-debit-mobile.png
+          if-no-files-found: error
