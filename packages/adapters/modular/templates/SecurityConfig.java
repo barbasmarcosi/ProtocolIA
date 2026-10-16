@@ -1,6 +1,12 @@
 package dev.protocolia.modular;
 
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.oauth2.jwt.*;
@@ -32,6 +38,7 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableMethodSecurity
 public class SecurityConfig {
   private static volatile Map<String,Object> cachedBrowserAuth;
+  private static volatile JwtDecoder identityDecoder;
   private static boolean discoveryRequired(){
     String policy=System.getenv().getOrDefault("PROTOCOLIA_OIDC_DISCOVERY_REQUIRED","false");
     if(!policy.equals("true")&&!policy.equals("false"))
@@ -64,16 +71,29 @@ public class SecurityConfig {
     if(!redirect.getPath().equals("/")||redirect.getQuery()!=null)
       throw new IllegalStateException("Unsafe PKCE callback URI");
     var client=vals.get(2);
+    String proof=System.getenv().getOrDefault("PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED","false");
+    if(!proof.equals("true")&&!proof.equals("false"))
+      throw new IllegalStateException("Invalid OIDC ID token policy");
+    if(proof.equals("true")&&!discovery)
+      throw new IllegalStateException("OIDC ID token proof requires strict issuer discovery");
     var scope=System.getenv().getOrDefault("PROTOCOLIA_OIDC_SCOPE","openid profile").trim();
     if(!client.matches("[A-Za-z0-9_.:-]{3,128}")||
       !scope.matches("[A-Za-z0-9_.:-]+( [A-Za-z0-9_.:-]+){0,12}"))
       throw new IllegalStateException("Invalid PKCE client or scope");
+    if(proof.equals("true")&&!Arrays.asList(scope.split(" ")).contains("openid"))
+      throw new IllegalStateException("OIDC ID token proof requires openid scope");
     var issuer=required("PROTOCOLIA_JWT_ISSUER");
     if(discovery)verifyOidcMetadata(issuer,authorization,token,required("PROTOCOLIA_JWT_JWKS_URI"));
+    if(proof.equals("true")){
+      var decoder=NimbusJwtDecoder.withJwkSetUri(url(required("PROTOCOLIA_JWT_JWKS_URI"),"JWKS").toString())
+        .jwsAlgorithm(SignatureAlgorithm.RS256).build();
+      decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
+      identityDecoder=decoder;
+    }
     cachedBrowserAuth=Map.of("mode","jwt","enabled",true,"issuer",issuer,
       "authorizationEndpoint",authorization,"tokenEndpoint",token,
       "clientId",client,"redirectUri",redirect.toString(),"scope",scope,
-      "requireIssuerResponse",discovery);
+      "requireIssuerResponse",discovery,"requireIdToken",proof.equals("true"));
     return cachedBrowserAuth;
   }
   private static void verifyOidcMetadata(String issuer,String authorization,String token,String jwks){
@@ -120,6 +140,40 @@ public class SecurityConfig {
        !document.path("authorization_response_iss_parameter_supported").isBoolean()||
        !document.path("authorization_response_iss_parameter_supported").booleanValue())
       throw new IllegalStateException("OIDC provider does not advertise required PKCE/issuer response support");
+  }
+  static void verifyOidcIdentity(HttpServletRequest request,Authentication user){
+    if(!Boolean.TRUE.equals(browserAuthConfig().get("requireIdToken")))return;
+    String idToken=request.getHeader("X-ProtocolIA-ID-Token");
+    String nonce=request.getHeader("X-ProtocolIA-OIDC-Nonce");
+    if(idToken==null||idToken.length()>16384||nonce==null||
+       !nonce.matches("[A-Za-z0-9_-]{43,}"))
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"OIDC identity proof required");
+    try{
+      Jwt jwt=identityDecoder.decode(idToken);
+      String client=(String)browserAuthConfig().get("clientId");
+      List<String> audience=jwt.getAudience();
+      if(!"RS256".equals(jwt.getHeaders().get("alg"))||
+         audience.size()!=1||!client.equals(audience.get(0))||
+         (jwt.hasClaim("azp")&&!client.equals(jwt.getClaimAsString("azp")))||
+         !nonce.equals(jwt.getClaimAsString("nonce"))||
+         !user.getName().equals(jwt.getSubject())||
+         jwt.getIssuedAt()==null||
+         jwt.getIssuedAt().isBefore(java.time.Instant.now().minusSeconds(600))||
+         jwt.getIssuedAt().isAfter(java.time.Instant.now().plusSeconds(60)))
+        throw new IllegalArgumentException("OIDC claim mismatch");
+      if(jwt.hasClaim("at_hash")){
+        String bearer=request.getHeader("Authorization");
+        if(bearer==null||!bearer.startsWith("Bearer "))
+          throw new IllegalArgumentException("Missing access token");
+        byte[] digest=MessageDigest.getInstance("SHA-256").digest(
+          bearer.substring(7).getBytes(StandardCharsets.US_ASCII));
+        String actual=Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(digest,16));
+        if(!actual.equals(jwt.getClaimAsString("at_hash")))
+          throw new IllegalArgumentException("Invalid at_hash");
+      }
+    }catch(Exception ex){
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid OIDC identity proof");
+    }
   }
   private static String mode(){
     String value=System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo");
