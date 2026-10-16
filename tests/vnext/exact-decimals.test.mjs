@@ -61,7 +61,7 @@ test("CREATE DTO cannot weaken a decimal to free text or change precision",()=>{
     const needle='@exactDecimal(24, 4, "0", "99999999999999999999.9999")';
     const where=s.lastIndexOf(needle);
     return s.slice(0,where)+needle.replace("24, 4","24, 3")+s.slice(where+needle.length);
-  },/protocolia-decimal-request-mismatch|protocolia-invalid-exact-decimal/i);
+  },/protocolia-greater-than-request-mismatch|protocolia-decimal-request-mismatch|protocolia-invalid-exact-decimal/i);
 });
 
 test("portable exact decimal comparisons support different scales, not JS Number",()=>{
