@@ -284,6 +284,8 @@ try{
    "Exact scale 7 must persist the smallest representable multiplication");
  assert.equal((await req(path+"/"+minimal.serial)).body.roundedTotal,"0.00",
    "Half-up cent rounding is explicit and must not preserve sub-cent amounts");
+ assert.equal((await req(path+"/"+minimal.serial)).body.discountedTotal,"0.00",
+   "Tiny discounted totals round deterministically to zero cents");
  assert.equal((await req(path,{method:"POST",body:{...payload,serial:token+"-no-choice",quality:undefined}})).status,201);
  assert.equal((await req(path,{method:"POST",body:payload})).status,409);
  if(process.argv.includes("--browser")){
@@ -309,8 +311,11 @@ try{
      "Generated exact product is read-only and never editable in React");
    assert.equal(await form.getByTestId("create-roundedTotal").count(),0,
      "Rounded total must not be editable from the generated React UI");
+   assert.equal(await form.getByTestId("create-discountedTotal").count(),0,
+     "Generated discounted total must not be editable from React");
    await form.getByTestId("create-unitRate").fill("99999999.9999");
    await form.getByTestId("create-batchUnits").fill("99999999.125");
+   await form.getByTestId("create-discountPercent").fill("12.50");
    await form.getByTestId("create-priceCeiling").fill("9007199254740993.1234");
    await form.getByTestId("create-quantityLimit").fill("0.0000");
    await form.getByRole("button",{name:"Crear",exact:true}).click();
@@ -341,6 +346,8 @@ try{
      "React submission never computes or rounds the PostgreSQL-generated product");
    assert.equal(stored.body.roundedTotal,"9999999912490000.00",
      "PostgreSQL returns a correctly rounded amount from browser-created operands");
+   assert.equal(stored.body.discountedTotal,"8749999923428750.00",
+     "Browser submits decimal strings; PostgreSQL computes the exact net total");
    assert.equal(stored.body.priceCeiling,"9007199254740993.1235","UI keeps high-precision cross-field ordering");
    assert.equal(stored.body.quantityLimit,"0.0001","UI keeps mixed-scale exact decimal ordering");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
