@@ -41,6 +41,7 @@ test("typed reconciliation is authorized and single-snapshot",()=>{
   const plan=compileExactReconciliations(ir).get("reconcileWallet");
   assert.ok(plan.sqlNest.includes("LEFT JOIN LATERAL")&&plan.sqlNest.includes("opening_balance")&&plan.sqlNest.includes("charge"));
   assert.ok(plan.sqlNest.includes("$1")&&plan.sqlSpring.includes(":identity"));
+  assert.equal(plan.parentEntity,"Wallet");
   assert.equal(plan.childReadCapability,"charges.read");
   assert.deepEqual([plan.openingField,plan.availableField],["openingBalance","available"]);
 });

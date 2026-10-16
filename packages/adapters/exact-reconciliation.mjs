@@ -71,7 +71,7 @@ export function compileExactReconciliations(ir){
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
       "COUNT(*) AS posting_count FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
       ") j ON TRUE WHERE p."+pk+"=";
-    plans.set(op.name,{sqlNest:select+"$1",sqlSpring:select+":identity",
+    plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))

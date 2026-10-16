@@ -368,9 +368,9 @@ public class DomainRuntime {
     body = new java.util.LinkedHashMap<>(body);
     for (var f : e.fields()) if (f.initial()!=null && !body.containsKey(f.name()))
       body.put(f.name(),f.initial());
-    var reconciliation=Manifest.EXACT_RECONCILIATIONS.values().stream().filter(x ->
-      e.fields().stream().anyMatch(f->f.name().equals(x.openingField()))&&
-      e.fields().stream().anyMatch(f->f.name().equals(x.availableField()))).findFirst().orElse(null);
+    // Bind opening-balance integrity to the declaring parent entity, never coincidental field names.
+    var reconciliation=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x -> e.name().equals(x.parentEntity())).findFirst().orElse(null);
     if(reconciliation!=null){
       BigDecimal opening=new BigDecimal((String)body.get(reconciliation.openingField()));
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
