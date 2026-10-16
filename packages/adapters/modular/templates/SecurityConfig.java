@@ -9,6 +9,12 @@ import org.springframework.security.oauth2.core.*;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.util.*;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -25,17 +31,32 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+  private static volatile Map<String,Object> cachedBrowserAuth;
+  private static boolean discoveryRequired(){
+    String policy=System.getenv().getOrDefault("PROTOCOLIA_OIDC_DISCOVERY_REQUIRED","false");
+    if(!policy.equals("true")&&!policy.equals("false"))
+      throw new IllegalStateException("Invalid OIDC discovery policy");
+    return policy.equals("true");
+  }
   private static String required(String key) {
     String value = System.getenv(key);
     if (value == null || value.isBlank()) throw new IllegalStateException("Missing test-only environment: " + key);
     return value;
   }
-  static Map<String,Object> browserAuthConfig(){
-    if(!mode().equals("jwt"))return Map.of("mode","demo","enabled",false);
+  static synchronized Map<String,Object> browserAuthConfig(){
+    if(cachedBrowserAuth!=null)return cachedBrowserAuth;
+    boolean discovery=discoveryRequired();
+    if(!mode().equals("jwt")){
+      if(discovery)throw new IllegalStateException("OIDC discovery requires JWT browser PKCE");
+      return Map.of("mode","demo","enabled",false);
+    }
     var names=List.of("PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT","PROTOCOLIA_OIDC_TOKEN_ENDPOINT",
         "PROTOCOLIA_OIDC_CLIENT_ID","PROTOCOLIA_OIDC_REDIRECT_URI");
     var vals=names.stream().map(name->System.getenv().getOrDefault(name,"").trim()).toList();
-    if(vals.stream().allMatch(String::isBlank))return Map.of("mode","jwt","enabled",false);
+    if(vals.stream().allMatch(String::isBlank)){
+      if(discovery)throw new IllegalStateException("OIDC discovery requires configured browser PKCE");
+      return Map.of("mode","jwt","enabled",false);
+    }
     if(vals.stream().anyMatch(String::isBlank))throw new IllegalStateException("Incomplete OAuth2 PKCE browser configuration");
     var authorization=url(vals.get(0),"authorization").toString();
     var token=url(vals.get(1),"token").toString();
@@ -47,9 +68,58 @@ public class SecurityConfig {
     if(!client.matches("[A-Za-z0-9_.:-]{3,128}")||
       !scope.matches("[A-Za-z0-9_.:-]+( [A-Za-z0-9_.:-]+){0,12}"))
       throw new IllegalStateException("Invalid PKCE client or scope");
-    return Map.of("mode","jwt","enabled",true,"issuer",required("PROTOCOLIA_JWT_ISSUER"),
+    var issuer=required("PROTOCOLIA_JWT_ISSUER");
+    if(discovery)verifyOidcMetadata(issuer,authorization,token,required("PROTOCOLIA_JWT_JWKS_URI"));
+    cachedBrowserAuth=Map.of("mode","jwt","enabled",true,"issuer",issuer,
       "authorizationEndpoint",authorization,"tokenEndpoint",token,
-      "clientId",client,"redirectUri",redirect.toString(),"scope",scope);
+      "clientId",client,"redirectUri",redirect.toString(),"scope",scope,
+      "requireIssuerResponse",discovery);
+    return cachedBrowserAuth;
+  }
+  private static void verifyOidcMetadata(String issuer,String authorization,String token,String jwks){
+    URI trustedIssuer=url(issuer,"OIDC issuer");
+    if(trustedIssuer.getRawQuery()!=null||trustedIssuer.getRawFragment()!=null)
+      throw new IllegalStateException("Unsafe OIDC issuer");
+    // No user input or provider-controlled location is permitted in discovery URL.
+    String discovery=issuer.replaceFirst("/$","")+"/.well-known/openid-configuration";
+    JsonNode document;
+    try{
+      var client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
+        .followRedirects(HttpClient.Redirect.NEVER).build();
+      var request=HttpRequest.newBuilder(URI.create(discovery))
+        .timeout(Duration.ofSeconds(4)).header("Accept","application/json").GET().build();
+      var response=client.send(request,HttpResponse.BodyHandlers.ofInputStream());
+      try(var body=response.body()){
+        if(response.statusCode()!=200||
+            !response.headers().firstValue("content-type").orElse("").toLowerCase(Locale.ROOT).contains("application/json"))
+          throw new IllegalStateException("Invalid OIDC discovery response");
+        byte[] bytes=body.readNBytes(32769);
+        if(bytes.length>32768)throw new IllegalStateException("Oversized OIDC metadata");
+        document=new ObjectMapper().readTree(bytes);
+      }
+    }catch(InterruptedException ex){
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("OIDC discovery interrupted; refusing startup",ex);
+    }catch(Exception ex){
+      throw new IllegalStateException("OIDC discovery unavailable or invalid; refusing startup",ex);
+    }
+    if(document==null||!document.isObject())
+      throw new IllegalStateException("Invalid OIDC discovery document");
+    var expected=Map.of("issuer",issuer,"authorization_endpoint",authorization,
+      "token_endpoint",token,"jwks_uri",jwks);
+    for(var entry:expected.entrySet()){
+      var value=document.get(entry.getKey());
+      if(value==null||!value.isTextual()||!value.textValue().equals(entry.getValue()))
+        throw new IllegalStateException("OIDC discovery metadata mismatch: "+entry.getKey());
+    }
+    var responseTypes=document.path("response_types_supported");
+    var challenges=document.path("code_challenge_methods_supported");
+    if(!responseTypes.isArray()||!challenges.isArray()||
+       !java.util.stream.StreamSupport.stream(responseTypes.spliterator(),false).anyMatch(n->n.isTextual()&&n.textValue().equals("code"))||
+       !java.util.stream.StreamSupport.stream(challenges.spliterator(),false).anyMatch(n->n.isTextual()&&n.textValue().equals("S256"))||
+       !document.path("authorization_response_iss_parameter_supported").isBoolean()||
+       !document.path("authorization_response_iss_parameter_supported").booleanValue())
+      throw new IllegalStateException("OIDC provider does not advertise required PKCE/issuer response support");
   }
   private static String mode(){
     String value=System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo");
