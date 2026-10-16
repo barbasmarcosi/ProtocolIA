@@ -7,7 +7,7 @@ export function compileOwnerScopes(ir){
   for(const entity of ir.entities){
     const owners=entity.fields.filter(f=>f.ownerManaged);
     if(!owners.length)continue;
-    const field=owners[0],operations=ir.operations.filter(o=>o.entity===entity.name);
+    const field=owners[0],operations=ir.operations.filter(o=>o.entity===entity.name&&o.behavior.kind!=="health");
     const counts=kind=>operations.filter(o=>o.behavior.kind===kind).length;
     const related=ir.entities.some(other=>other.fields.some(f=>
       f.reference?.target===entity.name||other.name===entity.name&&f.reference));

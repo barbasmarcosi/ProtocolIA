@@ -1002,7 +1002,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
   // S1a: isolated ownership must cover every exposed operation, not just GET.
   for(const entity of entities.filter(e=>e.fields.some(f=>f.ownerManaged))){
     const owner=entity.fields.find(f=>f.ownerManaged)!;
-    const entityOps=operations.filter(o=>o.entity===entity.name);
+    const entityOps=operations.filter(o=>o.entity===entity.name&&o.behavior.kind!=="health");
     if(entityOps.some(o=>!["create","get","listPage"].includes(o.behavior.kind))||
       ["create","get","listPage"].some(k=>entityOps.filter(o=>o.behavior.kind===k).length!==1))
       reject("owner-unsupported-behavior",entity.name+" S1a ownership supports only one create/get/listPage each; other behaviors need proven scope enforcement",models.find(m=>m.name===entity.name)!);
