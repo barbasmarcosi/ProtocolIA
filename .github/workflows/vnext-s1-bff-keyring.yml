@@ -50,7 +50,7 @@ jobs:
       - name: Existing OAuth2 PKCE regression
         run: node scripts/vnext/probe-oauth-browser-http.mjs "${RUNNER_TEMP}/session-system"
       - name: HTTPS reverse proxy, secure cookie, strict script CSP and BFF CRUD
-        run: node scripts/vnext/probe-bff-https-proxy.mjs "${RUNNER_TEMP}/session-system"
+        run: node scripts/vnext/probe-bff-https-proxy.mjs "${RUNNER_TEMP}/session-system" --rotate-keyring
       - uses: actions/upload-artifact@v4
         if: success()
         with:
