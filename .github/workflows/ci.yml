@@ -1,10 +1,20 @@
 name: quality
 on:
   push:
+    # Document-only pushes do not need the legacy Python and schema matrix.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  # Keep PR checks even for docs: these contexts may be branch-protection gates.
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # Supersede outdated runs on the same ref, but never cancel PR from a push.
+  group: quality-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   unit:
     runs-on: ubuntu-latest
