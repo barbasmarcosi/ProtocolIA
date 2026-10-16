@@ -10,6 +10,7 @@ import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
+import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -55,6 +56,7 @@ export function generate(ir, openapi, outDir) {
     if(entityMap.has(e.name)||tableNames.has(snake(e.name)))
       throw Error("Duplicate entity or SQL table identifier");
     uniqueTogetherSql(e); // Reject malformed or unsupported IR before any output.
+    uniqueWhenSql(e,ir.operations); // Reject unsafe partial uniqueness early.
     entityMap.set(e.name,e);
     tableNames.add(snake(e.name));
     const identity=e.fields.find(f=>f.name===e.publicIdentity);
@@ -114,6 +116,7 @@ export function generate(ir, openapi, outDir) {
       }
     }
   }
+  for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;
     const parent=entityMap.get(f.reference.target);
