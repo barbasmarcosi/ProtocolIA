@@ -386,6 +386,32 @@ export function compileDomain(p: Program): IrDocument | undefined {
           " @uniqueTogether requires 2..4 distinct, required, non-null, independent persisted fields",m);
       }else uniqueTogether=parts;
     }
+    const conditionalUnique=metadata(p,"uniqueWhen",m);
+    let uniqueWhen:IrEntity["uniqueWhen"]|undefined;
+    if(conditionalUnique){
+      const raw=conditionalUnique.fields;
+      const parts=typeof raw==="string"?raw.split(",").map(x=>x.trim()):[];
+      const stateField=String(conditionalUnique.stateField??"");
+      const activeState=String(conditionalUnique.activeState??"");
+      const state=fields.find(f=>f.name===stateField);
+      const selected=parts.map(name=>fields.find(f=>f.name===name));
+      if(metadata(p,"uniqueTogether",m)||parts.length<2||parts.length>4||
+         parts.some(name=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(name))||
+         new Set(parts).size!==parts.length||
+         !/^[A-Za-z][A-Za-z0-9_]*$/.test(stateField)||
+         !/^[a-z][a-z0-9_-]{0,63}$/.test(activeState)||
+         !state||state.name===publicKeys[0]||state.unique||state.type!=="string"||
+         !state.required||state.nullable||!state.initial||state.initial===activeState||
+         state.reference||state.ownerManaged||state.computedSum||
+         selected.some(f=>!f||!f.required||f.nullable||f.unique||
+           f.name===publicKeys[0]||f.name===stateField||f.initial!==undefined||
+           f.computedSum||f.computedProduct||f.computedRoundedProduct||
+           f.computedDiscountedTotal||f.requiredWhen||f.forbidWhen||
+           f.readCapability||f.ownerManaged)){
+        reject("invalid-unique-when",m.name+
+          " @uniqueWhen requires 2..4 distinct required non-null columns, a separate initial finite-state field and one safe active state",m);
+      }else uniqueWhen={fields:parts,stateField,activeState};
+    }
     const alert=metadata(p,"overdueAlert",m);
     if(alert){
       const due=fields.find(f=>f.name===alert.dueField);
@@ -419,6 +445,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     entities.push({
       name:m.name,publicIdentity:identity.name,fields,
       ...(uniqueTogether?{uniqueTogether}:{}),
+      ...(uniqueWhen?{uniqueWhen}:{}),
       ...(metadata(p,"recipientIdentity",m)?{recipientIdentity:true}:{}),
       ...(metadata(p,"view",m)?.label !== undefined ? {view:String(metadata(p,"view",m)?.label)} : {}),
       ...(alert ? {overdueAlert:{
@@ -1081,6 +1108,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  // A partial unique index is only safe when a finite-state transition moves
+  // into and out of the indexed state, and no patch/reassignment can mutate its
+  // key outside that declarative workflow. PostgreSQL, not the UI, arbitrates races.
+  for(const entity of entities.filter(e=>e.uniqueWhen)){
+    const rule=entity.uniqueWhen!;
+    const transitions=operations.filter(o=>o.entity===entity.name&&
+      o.behavior.kind==="transition"&&o.behavior.field===rule.stateField);
+    const enters=transitions.filter(o=>o.behavior.to===rule.activeState);
+    const exits=transitions.filter(o=>o.behavior.from===rule.activeState);
+    const unsafe=operations.some(o=>o.entity===entity.name&&(
+      (o.behavior.kind==="patchFields"&&
+       (rule.fields.includes(o.behavior.field??"")||o.behavior.field===rule.stateField))||
+      (o.behavior.kind==="reassignReference"&&rule.fields.includes(o.behavior.field??""))));
+    if(enters.length!==1||exits.length!==1||unsafe){
+      reject("unique-when-lifecycle",entity.name+
+        " needs exactly one entering and one exiting transition, and no direct PATCH/reassignment of partial-key fields",
+        models.find(m=>m.name===entity.name)!);
+    }
   }
   // S1a: isolated ownership must cover every exposed operation, not just GET.
   for(const entity of entities.filter(e=>e.fields.some(f=>f.ownerManaged))){
