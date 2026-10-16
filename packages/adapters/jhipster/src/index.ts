@@ -14,6 +14,8 @@ export interface IrField {
   maxLength?: number;
   /** Portable authoritative year-month pattern from standard TypeSpec. */
   pattern?: string;
+  /** Source-declared TypeSpec string enum values and display labels; not arbitrary UI hints. */
+  choices?: Array<{value:string;label:string}>;
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
   computedSum?: string[];
