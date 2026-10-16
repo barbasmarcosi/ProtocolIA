@@ -1,0 +1,197 @@
+#!/usr/bin/env node
+// Black-box acceptance: exact decimals emitted from native TypeSpec, both real backends.
+import assert from "node:assert/strict";
+import {spawnSync} from "node:child_process";
+import {randomBytes} from "node:crypto";
+import {readFileSync,mkdtempSync,rmSync,writeFileSync,existsSync} from "node:fs";
+import {createServer} from "node:net";
+import {tmpdir} from "node:os";
+import {join,resolve} from "node:path";
+const generated=resolve(process.argv[2]??"");
+assert.ok(process.argv[2],"Usage: probe-finite-choices-http.mjs generated-dir [--browser]");
+const token=randomBytes(5).toString("hex"), project="decimal_oracle_"+token;
+const work=mkdtempSync(join(tmpdir(),"protocolia-b1-decimal-"));
+const manager="decimal_manager",reader="decimal_reader";
+const pw=randomBytes(18).toString("hex"),rp=randomBytes(18).toString("hex");
+const basic=(user,pass)=>"Basic "+Buffer.from(user+":"+pass).toString("base64");
+const nestSchema=join(generated,"src/schema.sql");
+const springSchema=join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql");
+const schema=readFileSync(existsSync(nestSchema)?nestSchema:springSchema,"utf8");
+assert.match(schema,/CHECK \(quality IN \('ready','needs_service','retired'\)\)|CHECK \(quality IN \('needs_service','ready','retired'\)\)/,
+  "SQL must reject values outside the TypeSpec enum");
+assert.ok(schema.includes("unit_price NUMERIC(24,4)")&&
+  schema.includes("cost NUMERIC(24,4)")&&schema.includes("quantity NUMERIC(16,6)")&&
+  schema.includes("unit_price>=0")&&
+  schema.includes("unit_price::text NOT IN ('NaN','Infinity','-Infinity')"),
+  "Both generators must persist source-declared decimals using NUMERIC(p,s) and checked bounds");
+assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
+  schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
+  schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
+  "Generated PostgreSQL must independently require maintenance reason for needs_service");
+function docker(args,timeout=600000){
+ const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
+ if(r.status!==0||r.error)throw Error("docker "+args.join(" ")+" failed "+(r.stderr??r.error?.message??"").slice(-1600));
+ return r.stdout;
+}
+async function freePort(){return new Promise((ok,no)=>{
+ const s=createServer();s.once("error",no);s.listen(0,"127.0.0.1",()=>{
+ const p=s.address().port;s.close(()=>ok(p));});
+});}
+let args=[],started=false;
+try{
+ const port=await freePort(),env=join(work,"env");
+ writeFileSync(env,[
+  "PROTOCOLIA_DB_PASSWORD="+randomBytes(20).toString("hex"),
+  "PROTOCOLIA_ALLOW_DEMO_AUTH=true",
+  "PROTOCOLIA_MANAGER_USERNAME="+manager,
+  "PROTOCOLIA_MANAGER_PASSWORD="+pw,
+  "PROTOCOLIA_READER_USERNAME="+reader,
+  "PROTOCOLIA_READER_PASSWORD="+rp,
+  "PROTOCOLIA_HOST_PORT="+port
+ ].join("\n")+"\n",{mode:0o600});
+ args=["compose","--project-name",project,"--env-file",env];
+ docker([...args,"config","--quiet"],15000);started=true;
+ docker([...args,"up","--detach","--build"]);
+ const base="http://127.0.0.1:"+port,end=Date.now()+150000;
+ let ready=false;
+ while(Date.now()<end){
+  try{if((await fetch(base+"/health",{signal:AbortSignal.timeout(2000)})).status===200){ready=true;break;}}catch{}
+  await new Promise(ok=>setTimeout(ok,1000));
+ }
+ assert.ok(ready,"Generated app health");
+ async function req(path,{method="GET",body,who="manager"}={}){
+  const response=await fetch(base+path,{method,headers:{
+   ...(who==="manager"?{Authorization:basic(manager,pw)}:who==="reader"?{Authorization:basic(reader,rp)}:{}),
+   ...(body===undefined?{}:{"Content-Type":"application/json"})},
+   ...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(13000)});
+  const raw=await response.text();let json;try{json=JSON.parse(raw)}catch{json=raw}
+  return {status:response.status,body:json};
+ }
+ const path="/api/gauges",payload={serial:token+"-one",label:"Medidor ficticio",reading:2,quality:"ready",unitPrice:"9007199254740993.1234",quantity:"0.000001"};
+ assert.equal((await req(path,{who:null})).status,401);
+ assert.equal((await req(path,{method:"POST",body:payload,who:"reader"})).status,403);
+ for(const [bad,code] of [["unknown","invalid_choice"],[17,"invalid_type"],["READY","invalid_choice"]]){
+  const result=await req(path,{method:"POST",body:{...payload,quality:bad}});
+  assert.equal(result.status,400,JSON.stringify(result.body));
+  assert.deepEqual(result.body.issues,[{field:"quality",code}],"Consistent Nest/Spring typed enum rejection");
+ }
+ assert.equal((await req(path+"/"+payload.serial)).status,404,"Invalid values cannot persist");
+ // Independent of HTTP code: bypass the app and prove PostgreSQL itself refuses an enum breach.
+ const dbIdentity=token+"-invalid-direct";
+ const sql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality) VALUES ('"+
+   dbIdentity+"','Direct PostgreSQL invariant probe',1,1.0000,1.000000,'unlisted_value')";
+ const direct=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(direct.status,0,"PostgreSQL must independently refuse undeclared enum values");
+ assert.match((direct.stderr??"")+(direct.stdout??""),/violates check constraint/i,
+   "Negative DB mutation must specifically fail its enum CHECK constraint");
+ assert.equal((await req(path+"/"+dbIdentity)).status,404,"Invalid direct SQL insert rolled back");
+ const incomplete=token+"-invalid-condition";
+ const conditionalSql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality) VALUES ('"+
+   incomplete+"','Conditional SQL check',1,1.0000,1.000000,'needs_service')";
+ const rejected=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",conditionalSql],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(rejected.status,0,"PostgreSQL must reject missing conditional field");
+ assert.match((rejected.stderr??"")+(rejected.stdout??""),/ck_cond_gauge_maintenance_reason/i);
+ assert.equal((await req(path+"/"+incomplete)).status,404,"Conditional SQL breach is rolled back");
+ for(const [reason,serial] of [[undefined,"absent"],["","empty"],["   ","spaces"]]){
+   const input={...payload,serial:token+"-"+serial,quality:"needs_service"};
+   if(reason!==undefined)input.maintenanceReason=reason;
+   const response=await req(path,{method:"POST",body:input});
+   assert.equal(response.status,400,"Conditional reason must fail before persistence");
+   assert.deepEqual(response.body?.issues,[{field:"maintenanceReason",code:"required"}]);
+   assert.equal((await req(path+"/"+input.serial)).status,404);
+ }
+ const serviced={...payload,serial:token+"-serviced",quality:"needs_service",
+   maintenanceReason:"Pérdida de calibración verificada"};
+ assert.equal((await req(path,{method:"POST",body:serviced})).status,201);
+ assert.equal((await req(path+"/"+serviced.serial)).body.maintenanceReason,serviced.maintenanceReason);
+ const retired={...payload,serial:token+"-retired",quality:"retired"};
+ assert.equal((await req(path,{method:"POST",body:retired})).status,201,
+   "Other enum values must not require the conditional field");
+ // Exact base10: the value 9007199254740993.1234 would lose precision in JS Number.
+ for(const [value,code] of [
+  [9007199254740992,"invalid_type"],["1.23456","invalid_format"],
+  ["1e3","invalid_format"],["NaN","invalid_format"],["Infinity","invalid_format"],
+  ["-0.0001","out_of_range"],["100000000000000000000.0000","out_of_range"],
+  ["0001.23","invalid_format"],[" 1.20 ","invalid_format"]]){
+  const attempt=await req(path,{method:"POST",body:{...payload,serial:token+"-bad-"+Math.random().toString(36).slice(2),unitPrice:value}});
+  assert.equal(attempt.status,400,JSON.stringify({value,attempt}));
+  assert.deepEqual(attempt.body.issues,[{field:"unitPrice",code}]);
+ }
+ const omittedOptional={...payload,serial:token+"-omitted"};
+ assert.equal((await req(path,{method:"POST",body:omittedOptional})).status,201);
+ assert.equal((await req(path+"/"+omittedOptional.serial)).body.cost,null);
+ const explicitNull={...payload,serial:token+"-null",cost:null,percentage:"100.000"};
+ assert.equal((await req(path,{method:"POST",body:explicitNull})).status,201);
+ assert.equal((await req(path+"/"+explicitNull.serial)).body.percentage,"100.000");
+ const tooHigh={...payload,serial:token+"-pct-invalid",percentage:"100.001"};
+ assert.deepEqual((await req(path,{method:"POST",body:tooHigh})).body.issues,[{field:"percentage",code:"out_of_range"}]);
+ const directBad=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(directBad.status,0,"DB NUMERIC(p,s) overflow must fail independently of HTTP");
+ assert.equal((await req(path,{method:"POST",body:payload})).status,201);
+ assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
+ assert.equal((await req(path,{method:"POST",body:{...payload,serial:token+"-no-choice",quality:undefined}})).status,201);
+ assert.equal((await req(path,{method:"POST",body:payload})).status,409);
+ if(process.argv.includes("--browser")){
+  const {chromium}=await import("playwright");
+  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+  try{
+   const page=await browser.newPage({viewport:{width:390,height:780},locale:"es-AR"});
+   const errors=[];page.on("pageerror",e=>errors.push(e.message));
+   await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+   await page.getByTestId("username").fill(manager);
+   await page.getByTestId("password").fill(pw);
+   await page.getByRole("button",{name:"Entrar",exact:true}).click();
+   await page.getByTestId("open-create").click();
+   const form=page.getByTestId("create-form-Gauge");
+   await form.waitFor({state:"visible"});
+   const selected=token+"-web";
+   await form.getByTestId("create-serial").fill(selected);
+   await form.getByTestId("create-label").fill("Instrumento generado");
+   await form.getByTestId("create-reading").fill("3");
+   await form.getByTestId("create-unitPrice").fill("9007199254740993.1234");
+   await form.getByTestId("create-quantity").fill("0.000001");
+   assert.equal(await form.getByTestId("create-unitPrice").getAttribute("inputmode"),"decimal");
+   await form.getByTestId("create-quality").click();
+   await page.getByRole("option",{name:"Needs Service"}).click();
+   await form.getByRole("button",{name:"Crear",exact:true}).click();
+   assert.equal(await page.getByTestId("create-dialog").isVisible(),true,
+     "A missing conditional reason must not close the create form");
+   assert.equal(await form.getByTestId("create-maintenanceReason").getAttribute("aria-invalid"),"true",
+     "The generated UI identifies the conditional field before API write");
+   const requiredLabel=await form.getByTestId("create-maintenanceReason").locator("..").innerText();
+   assert.match(requiredLabel,/obligatorio/i,"Mobile form explains the conditional requirement");
+   await form.getByTestId("create-maintenanceReason").fill("Falla en la calibración de prueba");
+   await page.screenshot({path:join(generated,"protocolia-b1-enum-mobile.png"),fullPage:true});
+   await form.getByRole("button",{name:"Crear",exact:true}).click();
+   await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
+   const stored=await req(path+"/"+selected);
+   assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
+   assert.equal(stored.body.unitPrice,"9007199254740993.1234","UI persists exact decimal string");
+   assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
+   assert.equal(errors.length,0,"React errors: "+errors.join(";"));
+   console.log("PROTOCOLIA_B1_EXACT_DECIMAL_BROWSER_PASS "+JSON.stringify({choice:"needs_service",conditionalRequired:true,mobile:true,jsErrors:0}));
+  }finally{await browser.close();}
+ }
+ docker([...args,"restart","app"],120000);
+ const after=Date.now()+80000;let returned=false;
+ while(Date.now()<after){
+  try{if((await req(path+"/"+payload.serial)).body.unitPrice==="9007199254740993.1234"){returned=true;break;}}catch{}
+  await new Promise(ok=>setTimeout(ok,1000));
+ }
+ assert.ok(returned,"PostgreSQL value persisted across restart");
+ console.log("PROTOCOLIA_B1_EXACT_DECIMAL_HTTP_PASS "+JSON.stringify({source:"TypeSpec native enum",invalidChoice400:true,postgresConstraint:true,conditionalRequired:true,dbRejectsIncomplete:true,persisted:true}));
+}finally{
+ if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
+ catch(e){console.error("B1 cleanup failed",e.message);process.exitCode=1}
+ rmSync(work,{recursive:true,force:true});
+}
