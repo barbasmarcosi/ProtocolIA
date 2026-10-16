@@ -160,7 +160,13 @@ export function generate(ir,spec,out){
         throw Error("Verb/status mismatch "+op.name);
       const cap=kind==="health"?"public":
         ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
-      if(kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
+      const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
+      if(ownerPatch){
+        if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
+          throw Error("Owner field patch must use independent field write capability "+op.name);
+        if(!writes.includes(op.capability))writes.push(op.capability);
+      }
+      if(!ownerPatch&&kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);

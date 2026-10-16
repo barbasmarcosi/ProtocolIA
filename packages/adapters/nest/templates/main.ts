@@ -492,15 +492,18 @@ class RuntimeService{
     }else await this.pool.query(insert,params);
     return this.row(e,String(input[e.publicIdentity]),actor);
   }
-  private async patch(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
+  private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
     const input=validateInput(e,body,[op.input!],false);
     if(Object.keys(input).length!==1||!Object.hasOwn(input,op.input!))
       throw new Problem(400,"Expected one patch property");
     const field=e.fields.find(f=>f.name===op.field)!;
+    const owner=e.fields.find(f=>f.ownerManaged);
+    if(owner&&(!subject||field.ownerManaged))throw new Problem(403,"Owner-scoped patch denied");
     const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+
-      "=$1 WHERE "+e.identityColumn+"=$2 RETURNING "+e.identityColumn,[input[op.input!],key]);
+      "=$1 WHERE "+e.identityColumn+"=$2"+(owner?" AND "+owner.column+"=$3":"")+
+      " RETURNING "+e.identityColumn,owner?[input[op.input!],key,subject]:[input[op.input!],key]);
     if(!changed.rowCount)throw new Problem(404,"Not found");
-    return this.row(e,key);
+    return this.row(e,key,subject);
   }
   private async increment(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
     if(!isRecord(body)||Object.keys(body).length!==1||
@@ -660,7 +663,7 @@ class RuntimeService{
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
-        case "patchFields":data=await this.patch(entity,op,identity,req.body);break;
+        case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;

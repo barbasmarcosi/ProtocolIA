@@ -142,7 +142,7 @@ public class DomainRuntime {
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
-      case "patchFields" -> result = patch(entity, matched, publicKey, body);
+      case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
@@ -565,14 +565,18 @@ public class DomainRuntime {
     return Map.of("items",rows,"total",total.intValue(),"limit",limit,"offset",offset);
   }
 
-  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
+  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body, String subject) {
     validate(e, body, false, Set.of(op.field()));
     if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
-    var params = Map.<String,Object>of("key", id, "value", body.get(op.input()));
-    int changed = jdbc.update("UPDATE " + e.table() + " SET " + col + "=:value WHERE " + e.identityColumn() + "=:key", params);
-    if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-    return row(e, id);
+    if(e.ownerField()!=null&&(subject==null||e.ownerField().equals(op.field())))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    var params=new MapSqlParameterSource().addValue("key",id).addValue("value",body.get(op.input()));
+    if(e.ownerField()!=null)params.addValue("owner",subject);
+    String guard=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+    int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:value WHERE "+e.identityColumn()+"=:key"+guard,params);
+    if(changed==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return row(e,id,subject);
   }
 
   private Map<String,Object> reassignReference(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {

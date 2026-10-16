@@ -260,7 +260,12 @@ export function generate(ir, openapi, outDir) {
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
       const expected=["create","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
-      if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
+      const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
+      if(ownerPatch){
+        if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
+          throw Error("Owner field patch requires independent capability "+op.name);
+        if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
+      }else if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
   readCaps.push(...new Set(inboxes.map(r=>r.readCapability)));
