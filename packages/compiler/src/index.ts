@@ -170,8 +170,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         source.afterField||end.type!=="utcDateTime"||end.nullable||
         end.unique||end.reference||end.initial||end.computedSum||end.requiredWhen||
         end.choices||end.decimal||metadata(p,"publicIdentity",
-          m.properties.get(end.name)!)||
-        fields.filter(f=>f.afterField!==undefined).length>3)
+          m.properties.get(end.name)!))
         reject("invalid-after-field",m.name+"."+end.name+
           " must be a UTC date-time after a required, nonnullable sibling UTC date-time",m);
     }

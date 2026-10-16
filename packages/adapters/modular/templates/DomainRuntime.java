@@ -274,12 +274,13 @@ public class DomainRuntime {
       }
     }
     if(create)for(var field : e.fields()){
-      if(field.afterField()==null||!body.containsKey(field.name()))continue;
+      if(field.afterField()==null)continue;
       String startValue=(String)body.get(field.afterField());
-      String endValue=(String)body.get(field.name());
       String strict="^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:[.]\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$";
       if(!Pattern.matches(strict,startValue))
         throw new InvalidInputField(field.afterField(),"invalid_format");
+      if(!body.containsKey(field.name()))continue;
+      String endValue=(String)body.get(field.name());
       if(!Pattern.matches(strict,endValue))
         throw new InvalidInputField(field.name(),"invalid_format");
       OffsetDateTime start=OffsetDateTime.parse(startValue);

@@ -97,7 +97,8 @@ function validateCreate(fields,values){
     if(field.choices?.length&&!field.choices.some(choice=>choice.value===text)){
       errors[field.name]="Elegí una opción válida.";continue;
     }
-    if(field.type==="utcDateTime"){
+    if(field.type==="utcDateTime"&&
+       (field.afterField||fields.some(other=>other.afterField===field.name))){
       if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(text)||
          !Number.isFinite(Date.parse(text))){
         errors[field.name]="Ingresá una fecha y hora ISO válida.";continue;

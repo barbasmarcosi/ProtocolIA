@@ -106,12 +106,13 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
     }
   }
   if(create)for(const f of e.fields){
-    if(!f.afterField||body[f.name]===undefined)continue;
+    if(!f.afterField)continue;
     const strict=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
-    if(typeof body[f.name]!=="string"||!strict.test(body[f.name] as string))
-      throw invalidField(f,"invalid_format");
     if(typeof body[f.afterField]!=="string"||!strict.test(body[f.afterField] as string))
       throw invalidField(e.fields.find(x=>x.name===f.afterField)!,"invalid_format");
+    if(body[f.name]===undefined)continue;
+    if(typeof body[f.name]!=="string"||!strict.test(body[f.name] as string))
+      throw invalidField(f,"invalid_format");
     const end=parseTimestamp(body[f.name]);
     const start=parseTimestamp(body[f.afterField]);
     if(Date.parse(end)<=Date.parse(start))throw invalidField(f,"invalid_order");
