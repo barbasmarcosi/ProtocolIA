@@ -14,7 +14,9 @@ const work=mkdtempSync(join(tmpdir(),"protocolia-b1-enum-"));
 const manager="enum_manager",reader="enum_reader";
 const pw=randomBytes(18).toString("hex"),rp=randomBytes(18).toString("hex");
 const basic=(user,pass)=>"Basic "+Buffer.from(user+":"+pass).toString("base64");
-const schema=readFileSync(join(generated,"src/schema.sql"),"utf8");
+const schema=readFileSync(join(generated,
+  generated.includes("b1-enum-spring")?
+    "src/main/resources/db/migration/V1__contract_baseline.sql":"src/schema.sql"),"utf8");
 assert.match(schema,/CHECK \(quality IN \('ready','needs_service','retired'\)\)|CHECK \(quality IN \('needs_service','ready','retired'\)\)/,
   "SQL must reject values outside the TypeSpec enum");
 function docker(args,timeout=600000){
