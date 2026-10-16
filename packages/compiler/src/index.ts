@@ -448,6 +448,34 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
     }
+    // Source-declared enum membership must not be weakened in an HTTP request DTO.
+    if(kind==="create"||kind==="patchFields"){
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      let mismatch=false;
+      for(const choiceField of entity.fields.filter(field=>
+        field.choices?.length&&(kind==="create"||field.name===f))){
+        const dto=props?.get(choiceField.name);
+        const dtoChoices=dto?typeOfField(dto)?.choices:undefined;
+        if((!dto&&choiceField.required)||dto&&(
+           !dtoChoices||dto.optional!==!choiceField.required||
+           dtoChoices.map(x=>x.value).join("\\0")!==choiceField.choices!.map(x=>x.value).join("\\0"))){
+          reject("enum-request-mismatch",op.name+" request field "+choiceField.name+
+            " must preserve TypeSpec enum values and optionality",op);
+          mismatch=true;break;
+        }
+      }
+      if(mismatch)continue;
+    }
+    if(kind==="transition"){
+      const state=entity.fields.find(field=>field.name===f);
+      const allowed=state?.choices?.map(choice=>choice.value);
+      if(allowed&&(!allowed.includes(String(metadata(p,"transition",op)?.from))||
+         !allowed.includes(String(metadata(p,"transition",op)?.to)))){
+        reject("enum-transition",op.name+" state transition contains a value absent from declared enum",op);
+        continue;
+      }
+    }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
       behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
