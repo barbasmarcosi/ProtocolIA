@@ -290,6 +290,14 @@ public class DomainRuntime {
              .isAfter(start.toInstant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)))
         throw new InvalidInputField(field.name(),"invalid_order");
     }
+    if(create)for(var field : e.fields()){
+      if(field.greaterThanField()==null||!body.containsKey(field.name()))continue;
+      Object source=body.get(field.greaterThanField()),target=body.get(field.name());
+      if(!(source instanceof Integer start))
+        throw new InvalidInputField(field.greaterThanField(),"invalid_type");
+      if(!(target instanceof Integer end)||end<=start)
+        throw new InvalidInputField(field.name(),"invalid_comparison");
+    }
   }
 
   private Object sqlValue(Manifest.Field f, Object v) {

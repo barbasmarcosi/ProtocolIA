@@ -17,6 +17,7 @@ export const $lib = createTypeSpecLibrary({
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
     afterField: {description:"A UTC date-time must be strictly after a required sibling UTC date-time"},
+    greaterThanField: {description:"Strictly greater signed int32 value than a required sibling int32"},
     exactDecimal: {description:"Exact base10 precision, scale and string-encoded minimum/maximum bounds"},
     transition: {description:"Atomic business state transition with guarded source/target"},
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
@@ -75,6 +76,9 @@ function exactDecimal(context: DecoratorContext, target: ModelProperty, precisio
 
 function afterField(context: DecoratorContext, target: ModelProperty, field: string): void {
   context.program.stateMap($lib.stateKeys.afterField).set(target,{field});
+}
+function greaterThanField(context: DecoratorContext, target: ModelProperty, field: string): void {
+  context.program.stateMap($lib.stateKeys.greaterThanField).set(target,{field});
 }
 
 function requiredWhen(context: DecoratorContext, target: ModelProperty, field: string, equals: string): void {
@@ -140,6 +144,7 @@ export const $decorators = {
     computedSum,
     requiredWhen,
     afterField,
+    greaterThanField,
     exactDecimal,
     transition,
     reserve,

@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/b1-3-date-order-20261015
+      - feature/b1-4-numeric-field-20261015
     paths:
       - 'packages/**'
       - 'examples/vnext/date-ordering/**'

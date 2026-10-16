@@ -77,6 +77,14 @@ export function generate(ir, openapi, outDir) {
       if(!["string","int32","utcDateTime","decimal"].includes(f.type))
         throw Error("Unsupported field type: "+f.type);
       assertDecimalField(f,e.name+"."+f.name);
+      if(f.greaterThanField!==undefined){
+        const source=e.fields.find(x=>x.name===f.greaterThanField);
+        if(!source||source===f||source.type!=="int32"||!source.required||source.nullable||
+           source.greaterThanField||source.computedSum||source.reference||
+           f.type!=="int32"||f.nullable||f.unique||f.reference||f.computedSum||
+           f.initial!==undefined||f.requiredWhen)
+          throw Error("Unsupported integer comparison "+e.name+"."+f.name);
+      }
       if(f.afterField!==undefined){
         const source=e.fields.find(x=>x.name===f.afterField);
         if(!source||source===f||source.type!=="utcDateTime"||!source.required||source.nullable||
@@ -260,7 +268,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -287,7 +295,8 @@ export function generate(ir, openapi, outDir) {
         "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
         f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null",
         n(f.decimal?.precision),n(f.decimal?.scale),f.decimal?.min!==undefined?j(f.decimal.min):"null",f.decimal?.max!==undefined?j(f.decimal.max):"null",
-        f.afterField!==undefined?j(f.afterField):"null"
+        f.afterField!==undefined?j(f.afterField):"null",
+        f.greaterThanField!==undefined?j(f.greaterThanField):"null"
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -393,7 +402,12 @@ export function generate(ir, openapi, outDir) {
       return "  CONSTRAINT ck_order_"+table+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...chronological].join(",\n")+"\n);");
+    const compared=e.fields.filter(f=>f.greaterThanField!==undefined).map(f=>{
+      const col=snake(f.name),source=snake(f.greaterThanField);
+      return "  CONSTRAINT ck_gt_"+table+"_"+col+" CHECK ("+
+        col+" IS NULL OR "+col+" > "+source+")";
+    });
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...chronological,...compared].join(",\n")+"\n);");
   }
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;

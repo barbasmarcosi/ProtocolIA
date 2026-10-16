@@ -17,6 +17,11 @@ test("afterField is a portable typed non-executable IR constraint",()=>{
   assert.equal(until.required,false);
   assert.equal(until.nullable,false);
   assert.equal(until.afterField,"installedAt");
+  const ceiling=entity.fields.find(f=>f.name==="readingCeiling");
+  assert.equal(ceiling.type,"int32");
+  assert.equal(ceiling.required,false);
+  assert.equal(ceiling.nullable,false);
+  assert.equal(ceiling.greaterThanField,"reading");
 });
 function rejectMutation(label,modify,code){
   const scratch=mkdtempSync(join("examples","vnext",".date-order-negative-"));
@@ -54,4 +59,32 @@ test("CREATE DTO must preserve both temporal field types",()=>{
     const n='calibratedAt?: utcDateTime;',at=s.lastIndexOf(n);
     return s.slice(0,at)+'calibratedAt?: string;'+s.slice(at+n.length);
   },/protocolia-after-field-request-mismatch/);
+});
+
+// Strict integer relation is a typed, fail-closed compiler rule, not a UI hint.
+test("greaterThanField rejects unknown, self, optional and non-integer operands",()=>{
+  rejectMutation("missing operand",s=>s.replace('@greaterThanField("reading")','@greaterThanField("absent")'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("self operand",s=>s.replace('@greaterThanField("reading")','@greaterThanField("readingCeiling")'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("optional source",s=>s.replace('reading: int32;','reading?: int32;'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("wrong target",s=>s.replace('readingCeiling?: int32;','readingCeiling?: string;'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("non-integer source",s=>s.replace('reading: int32;','reading: string;'),
+    /protocolia-invalid-greater-than-field/);
+});
+test("CREATE cannot weaken compared operands",()=>{
+  rejectMutation("DTO target type",s=>{
+    const n='readingCeiling?: int32;',at=s.lastIndexOf(n);
+    return s.slice(0,at)+'readingCeiling?: string;'+s.slice(at+n.length);
+  },/protocolia-greater-than-request-mismatch/);
+  rejectMutation("DTO source range",s=>{
+    const n='@minValue(0)\n    reading: int32;',at=s.lastIndexOf(n);
+    return s.slice(0,at)+'reading: int32;'+s.slice(at+n.length);
+  },/protocolia-greater-than-request-mismatch/);
+  rejectMutation("DTO target omission",s=>{
+    const n='    readingCeiling?: int32;',at=s.lastIndexOf(n);
+    return s.slice(0,at)+s.slice(at+n.length);
+  },/protocolia-greater-than-request-mismatch/);
 });

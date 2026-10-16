@@ -132,18 +132,30 @@ function validateCreate(fields,values){
       }
     }
   }
+  for(const field of fields.filter(f=>f.greaterThanField!==undefined&&!errors[f.name])){
+    const input=String(values[field.name]??"").trim();
+    const source=fields.find(f=>f.name===field.greaterThanField);
+    if(!input||!source||errors[source.name])continue;
+    const sourceRaw=String(values[source.name]??"").trim();
+    if(/^[-+]?\d+$/.test(input)&&/^[-+]?\d+$/.test(sourceRaw)&&
+       Number(input)<=Number(sourceRaw))
+      errors[field.name]="El valor debe ser mayor que "+fieldLabel(source)+".";
+  }
   return errors;
 }
 function createEmpty(fields){
   return Object.fromEntries(fields.filter(f=>!f.computedSum).map(field=>[field.name,
-    field.initial??(field.type==="int32"?0:"")]));
+    field.initial??(field.type==="int32"&&field.required?0:"")]));
 }
 function normalizePayload(fields,values){
   const result={};
   for(const field of fields){
     if(field.computedSum)continue;
     const value=values[field.name];
-    if(field.type==="int32"){result[field.name]=Number(value);continue;}
+    if(field.type==="int32"){
+      if(!field.required&&(value===undefined||value===null||String(value).trim()===""))continue;
+      result[field.name]=Number(value);continue;
+    }
     if(field.type==="utcDateTime"&&!value){continue;}
     if(!field.required&&!value){continue;}
     result[field.name]=value;
@@ -514,7 +526,7 @@ export default function App(){
       if(response.status===400&&Array.isArray(data.issues)){
         // Fail closed: never render arbitrary server-provided properties as field names or messages.
         const fields=new Set(active.entity.fields.map(field=>field.name));
-        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_choice","invalid_type","out_of_range","invalid_order"]);
+        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_choice","invalid_type","out_of_range","invalid_order","invalid_comparison"]);
         failure.issues=data.issues.filter(issue=>issue&&typeof issue==="object"&&
           fields.has(issue.field)&&allowed.has(issue.code)).map(issue=>({
           field:issue.field,code:issue.code
@@ -647,7 +659,8 @@ export default function App(){
           invalid_choice:"La opción seleccionada no está permitida.",
           invalid_type:"El tipo de dato ingresado no es válido.",
           out_of_range:"El valor está fuera de los límites permitidos.",
-          invalid_order:"La fecha no respeta el orden temporal requerido."
+          invalid_order:"La fecha no respeta el orden temporal requerido.",
+          invalid_comparison:"El valor debe ser mayor que el campo de referencia."
         };
         const errors=Object.fromEntries(e.issues.map(issue=>[issue.field,messages[issue.code]]));
         setFieldErrors(errors);

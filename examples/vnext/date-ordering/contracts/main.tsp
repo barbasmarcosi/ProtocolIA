@@ -26,6 +26,9 @@ namespace GaugeRegistry {
 
     @minValue(0)
     reading: int32;
+    @uiLabel("Límite superior de lectura")
+    @greaterThanField("reading")
+    readingCeiling?: int32;
 
     // Omitted and explicit null remain different in request semantics.
     @uiLabel("Estado de conservación")
@@ -51,6 +54,7 @@ namespace GaugeRegistry {
     label: string;
     @minValue(0)
     reading: int32;
+    readingCeiling?: int32;
     @uiLabel("Estado de conservación")
     quality?: GaugeQuality;
     @minLength(5) @maxLength(160)

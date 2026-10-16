@@ -26,6 +26,8 @@ assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
   "Generated PostgreSQL must independently require maintenance reason for needs_service");
+assert.ok(schema.includes("CONSTRAINT ck_gt_gauge_reading_ceiling CHECK (reading_ceiling IS NULL OR reading_ceiling > reading)"),
+  "PostgreSQL must independently enforce the optional numeric ceiling");
 function docker(args,timeout=600000){
  const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
  if(r.status!==0||r.error)throw Error("docker "+args.join(" ")+" failed "+(r.stderr??r.error?.message??"").slice(-1600));
@@ -104,6 +106,25 @@ try{
    assert.deepEqual(response.body?.issues,[{field:"maintenanceReason",code:"required"}]);
    assert.equal((await req(path+"/"+input.serial)).status,404);
  }
+ for(const [ceiling,code,i] of [[2,"invalid_comparison",1],[1,"invalid_comparison",2],[null,"required",3],["3","invalid_type",4]]){
+   const candidate={...payload,serial:token+"-bad-ceiling-"+i,readingCeiling:ceiling};
+   const response=await req(path,{method:"POST",body:candidate});
+   assert.equal(response.status,400,JSON.stringify(response.body));
+   assert.deepEqual(response.body.issues,[{field:"readingCeiling",code}]);
+   assert.equal((await req(path+"/"+candidate.serial)).status,404);
+ }
+ const validCeiling={...payload,serial:token+"-valid-ceiling",readingCeiling:3};
+ assert.equal((await req(path,{method:"POST",body:validCeiling})).status,201);
+ assert.equal((await req(path+"/"+validCeiling.serial)).body.readingCeiling,3);
+ const directCeiling=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,reading_ceiling,installed_at) VALUES ('"+
+     token+"-direct-ceiling','Direct numeric comparison',2,2,'2026-10-15T12:00:00Z')"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(directCeiling.status,0,"SQL cannot bypass the numerical field constraint");
+ assert.match((directCeiling.stderr??"")+(directCeiling.stdout??""),/ck_gt_gauge_reading_ceiling/i);
+ assert.equal((await req(path+"/"+token+"-direct-ceiling")).status,404);
  const serviced={...payload,serial:token+"-serviced",quality:"needs_service",
    maintenanceReason:"Pérdida de calibración verificada"};
  assert.equal((await req(path,{method:"POST",body:serviced})).status,201);
@@ -157,11 +178,16 @@ try{
    await form.getByTestId("create-serial").fill(selected);
    await form.getByTestId("create-label").fill("Instrumento generado");
    await form.getByTestId("create-reading").fill("3");
+   assert.equal(await form.getByTestId("create-readingCeiling").inputValue(),"",
+     "Optional int32 must start empty, not zero");
+   await form.getByTestId("create-readingCeiling").fill("3");
    await form.getByTestId("create-installedAt").fill("2026-10-15T12:00:00Z");
    await form.getByTestId("create-calibratedAt").fill("2026-10-15T12:00:00Z");
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    assert.equal(await form.getByTestId("create-calibratedAt").getAttribute("aria-invalid"),"true",
      "Mobile frontend must reject equal instants");
+   assert.equal(await form.getByTestId("create-readingCeiling").getAttribute("aria-invalid"),"true",
+     "Mobile frontend must highlight invalid number comparison");
    await form.getByTestId("create-quality").click();
    await page.getByRole("option",{name:"Needs Service"}).click();
    await form.getByRole("button",{name:"Crear",exact:true}).click();
@@ -173,12 +199,14 @@ try{
    assert.match(requiredLabel,/obligatorio/i,"Mobile form explains the conditional requirement");
    await form.getByTestId("create-maintenanceReason").fill("Falla en la calibración de prueba");
    await form.getByTestId("create-calibratedAt").fill("2026-10-15T12:05:00Z");
+   await form.getByTestId("create-readingCeiling").fill("4");
    await page.screenshot({path:join(generated,"protocolia-b1-enum-mobile.png"),fullPage:true});
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    const stored=await req(path+"/"+selected);
    assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
+   assert.equal(stored.body.readingCeiling,4);
    assert.equal(Date.parse(stored.body.calibratedAt),Date.parse("2026-10-15T12:05:00Z"));
    assert.equal(errors.length,0,"React errors: "+errors.join(";"));
    console.log("PROTOCOLIA_B1_DATE_ORDER_BROWSER_PASS "+JSON.stringify({choice:"needs_service",conditionalRequired:true,mobile:true,jsErrors:0}));

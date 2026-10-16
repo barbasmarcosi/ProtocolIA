@@ -47,6 +47,14 @@ export function generate(ir,spec,out){
       columns.add(snake(f.name));
       if(!["string","int32","utcDateTime","decimal"].includes(f.type))throw Error("Unsupported field type");
       assertDecimalField(f,e.name+"."+f.name);
+      if(f.greaterThanField!==undefined){
+        const source=e.fields.find(x=>x.name===f.greaterThanField);
+        if(!source||source===f||source.type!=="int32"||!source.required||source.nullable||
+           source.greaterThanField||source.computedSum||source.reference||
+           f.type!=="int32"||f.nullable||f.unique||f.reference||f.computedSum||
+           f.initial!==undefined||f.requiredWhen)
+          throw Error("Unsupported integer comparison "+e.name+"."+f.name);
+      }
       if(f.afterField!==undefined){
         const source=e.fields.find(x=>x.name===f.afterField);
         if(!source||source===f||source.type!=="utcDateTime"||!source.required||source.nullable||
@@ -294,7 +302,12 @@ export function generate(ir,spec,out){
       return "  CONSTRAINT ck_order_"+snake(e.name)+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...chronological].join(",\n")+"\n);");
+    const compared=e.fields.filter(f=>f.greaterThanField!==undefined).map(f=>{
+      const col=snake(f.name),source=snake(f.greaterThanField);
+      return "  CONSTRAINT ck_gt_"+snake(e.name)+"_"+col+" CHECK ("+
+        col+" IS NULL OR "+col+" > "+source+")";
+    });
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...chronological,...compared].join(",\n")+"\n);");
   }
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);
