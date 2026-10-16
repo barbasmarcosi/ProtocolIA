@@ -11,6 +11,9 @@ namespace ProtocolIA.Domain {
   extern dec unique(target: ModelProperty);
   // Portable compound uniqueness (2..4 distinct required columns), one rule per entity.
   extern dec uniqueTogether(target: Model, fields: valueof string);
+  // At most one record in a declared active state per non-null compound key.
+  extern dec uniqueWhen(target: Model, fields: valueof string,
+    stateField: valueof string, activeState: valueof string);
   extern dec reference(target: ModelProperty, entity: valueof string, onDelete?: valueof string);
   extern dec view(target: Model, label: valueof string);
   // Presentation metadata only: never changes business validation or authorization.
