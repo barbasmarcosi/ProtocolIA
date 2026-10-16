@@ -15,7 +15,7 @@ type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
   ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
-function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean } | null {
+function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
   let nullable = false;
   if (t.kind === "Union") {
@@ -24,6 +24,16 @@ function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: bo
     nullable = values.length !== choices.length;
     if (!nullable || values.length !== 1) return null;
     t = values[0];
+  }
+  if(t.kind==="Enum"){
+    // Only string enums with explicit, portable values are currently executable.
+    const choices=[...t.members.values()].map(member=>({
+      value:member.value,label:member.name.replace(/([a-z])([A-Z])/g,"$1 $2").replace(/_/g," ")
+    }));
+    if(choices.length<2||choices.length>16||choices.some(x=>typeof x.value!=="string"||
+      !/^[a-z][a-z0-9_-]{0,63}$/.test(x.value)||!x.label||
+      x.label.length>90)||new Set(choices.map(x=>x.value)).size!==choices.length)return null;
+    return {type:"string",nullable,choices:choices as Array<{value:string;label:string}>};
   }
   if (t.kind !== "Scalar") return null;
   const names: Record<string, IrField["type"]> = {
@@ -38,6 +48,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
+    ...(parsed.choices?{choices:parsed.choices}:{}),
     ...(metadata(p,"uiLabel",prop) ? {uiLabel:String(metadata(p,"uiLabel",prop)?.label)} : {}),
     ...(metadata(p,"uiHelp",prop) ? {uiHelp:String(metadata(p,"uiHelp",prop)?.help)} : {}),
     ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"} : {}),
@@ -90,6 +101,14 @@ export function compileDomain(p: Program): IrDocument | undefined {
       if(value.uiHelp!==undefined&&(value.uiHelp.trim()!==value.uiHelp||
          !value.uiHelp.length||value.uiHelp.length>240||/[\r\n<>]/.test(value.uiHelp)))
         reject("invalid-ui-help",m.name+"."+prop.name+" uiHelp must be a single-line 1..240 character description",prop);
+      if(value.choices!==undefined&&(
+        value.type!=="string"||value.unique||value.reference||value.computedSum||
+        metadata(p,"publicIdentity",prop)||value.pattern!==undefined||
+        value.choices.some(x=>x.value.length<(value.minLength??1)||
+          x.value.length>(value.maxLength??255))||
+        (value.initial!==undefined&&!value.choices.some(x=>x.value===value.initial))))
+        reject("invalid-enum-field",m.name+"."+prop.name+
+          " string enum must have distinct safe bounded values, no identity/reference, and declared initial value",prop);
       if(value.pattern!==undefined&&(value.pattern!=="^[0-9]{4}-(0[1-9]|1[0-2])$"||
          value.type!=="string"||value.minLength!==7||value.maxLength!==7))
         reject("unsupported-pattern",m.name+"."+prop.name+
