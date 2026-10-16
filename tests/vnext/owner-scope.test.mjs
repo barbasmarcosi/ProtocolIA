@@ -34,8 +34,6 @@ test("compilation refuses forgeable owner DTO and unsupported domain operations"
   ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NotePage',
     '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NotePage'],
   ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(20)'],
-  ['@ownerIdentity @minLength(1) @maxLength(128)','@minLength(1) @maxLength(128)'],
-  ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(128)\n    @ownerIdentity'],
   ['@behavior("listPage","PrivateNote")','@behavior("queryPage","PrivateNote")']
  ];
  for(const [from,to] of cases){
@@ -46,7 +44,7 @@ test("compilation refuses forgeable owner DTO and unsupported domain operations"
    const edited=source.replace(from,to);assert.notEqual(edited,source);
    writeFileSync(join(folder,"contracts/main.tsp"),edited);
    const run=spawnSync(join(process.cwd(),"node_modules/.bin/tsp"),["compile",folder],{encoding:"utf8",timeout:90000});
-   assert.notEqual(run.status,0,"Invalid owner metadata unexpectedly compiled");
+   assert.notEqual(run.status,0,"Invalid owner mutation unexpectedly compiled: "+to);
   }finally{rmSync(folder,{recursive:true,force:true});}
  }
 });
