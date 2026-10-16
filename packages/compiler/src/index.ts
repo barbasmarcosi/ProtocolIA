@@ -57,6 +57,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   const spec=metadata(p,"exactDecimal",prop);
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
+    ...(metadata(p,"ownerIdentity",prop)?{ownerManaged:true}:{}),
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
     ...(parsed.choices?{choices:parsed.choices}:{}),
     ...(spec?{decimal:{precision:Number(spec.precision),scale:Number(spec.scale),
@@ -382,6 +383,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-overdue-alert",m.name+" requires a UTC due field, finite-state field, terminal state, required recipient FK and inbox channel",m);
       }
     }
+    const owners=fields.filter(x=>x.ownerManaged);
+    if(owners.length>1||owners.some(f=>f.name===identity.name||f.type!=="string"||!f.required||
+      f.nullable||f.unique||f.reference||f.initial!==undefined||f.choices||f.computedSum||
+      f.requiredWhen||f.forbidWhen||f.greaterThanField||f.pattern||
+      (f.minLength??0)>1||(f.maxLength??255)<128))
+      reject("invalid-owner-identity",m.name+" requires one dedicated required string owner field with maxLength >= 128",m);
     entities.push({
       name:m.name,publicIdentity:identity.name,fields,
       ...(metadata(p,"recipientIdentity",m)?{recipientIdentity:true}:{}),
@@ -407,6 +414,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
           models.find(m=>m.name===entity.name)!);
       }
     }
+  }
+  // S1a deliberately rejects cross-entity FKs involving owner-scoped rows.
+  // Their reads/writes require additional join-aware authorization (future S1).
+  for(const entity of entities)for(const f of entity.fields.filter(x=>x.reference)){
+    const target=entities.find(x=>x.name===f.reference?.target);
+    if(entity.fields.some(x=>x.ownerManaged)||target?.fields.some(x=>x.ownerManaged))
+      reject("owner-cross-entity",entity.name+" cannot reference an owner-scoped entity in S1a",models.find(m=>m.name===entity.name)!);
   }
   const operations: IrOperation[] = [];
   const relevant = ops.filter((x)=> namespaces.has(x.namespace));
@@ -984,6 +998,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  // S1a: isolated ownership must cover every exposed operation, not just GET.
+  for(const entity of entities.filter(e=>e.fields.some(f=>f.ownerManaged))){
+    const owner=entity.fields.find(f=>f.ownerManaged)!;
+    const entityOps=operations.filter(o=>o.entity===entity.name);
+    if(entityOps.some(o=>!["create","get","listPage"].includes(o.behavior.kind))||
+      ["create","get","listPage"].some(k=>entityOps.filter(o=>o.behavior.kind===k).length!==1))
+      reject("owner-unsupported-behavior",entity.name+" S1a ownership supports only one create/get/listPage each; other behaviors need proven scope enforcement",models.find(m=>m.name===entity.name)!);
+    for(const operation of ops.filter(o=>entityOps.some(x=>x.name===o.name)&&metadata(p,"behavior",o)?.kind==="create")){
+      const payload=operation.parameters.properties.get("input")?.type;
+      if(payload?.kind!=="Model"||payload.properties.has(owner.name))
+        reject("owner-request-spoof",operation.name+" client request must omit server-managed "+owner.name,operation);
+    }
   }
   // A B2.5 exact reversal must be paired with one original debit. It cannot
   // be bypassed by a second transition, reassigning its FK or deleting the ledger.

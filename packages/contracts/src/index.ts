@@ -8,6 +8,7 @@ export const $lib = createTypeSpecLibrary({
     entity: {description:"ProtocolIA entity contract metadata"},
     publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
     unique: {description:"ProtocolIA unique contract metadata"},
+    ownerIdentity: {description:"Non-client-writable owner field bound to authenticated subject"},
     reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
     uiLabel: {description:"User-visible human label on a field, independent of persistence name"},
@@ -114,6 +115,9 @@ function forbidWhen(context: DecoratorContext, target: ModelProperty, field: str
   context.program.stateMap($lib.stateKeys.forbidWhen).set(target,{field,equals});
 }
 
+function ownerIdentity(context: DecoratorContext, target: ModelProperty): void {
+  context.program.stateMap($lib.stateKeys.ownerIdentity).set(target,{enabled:true});
+}
 function transition(context: DecoratorContext, target: Operation, from: string, to: string): void {
   context.program.stateMap($lib.stateKeys.transition).set(target, {from, to});
 }
@@ -184,6 +188,7 @@ export const $decorators = {
   "ProtocolIA.Domain": {
     entity,
     publicIdentity,
+    ownerIdentity,
     unique,
     reference,
     view,
