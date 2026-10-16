@@ -221,6 +221,12 @@ public class DomainRuntime {
       for (var f : e.fields()) if (f.required() && !f.computed() && !body.containsKey(f.name()) && f.initial()==null)
         throw new InvalidInputField(f.name(),"required");
     }
+    if (create) for (var f : e.fields()) {
+      if (f.requiredSource() == null || !f.requiredValue().equals(body.get(f.requiredSource()))) continue;
+      Object candidate=body.get(f.name());
+      if (!(candidate instanceof String text) || text.isBlank())
+        throw new InvalidInputField(f.name(),"required");
+    }
     for (var input : body.entrySet()) {
       var f = e.fields().stream().filter(x -> x.name().equals(input.getKey())).findFirst()
           .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown field"));
