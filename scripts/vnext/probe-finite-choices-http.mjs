@@ -88,6 +88,7 @@ try{
    await form.getByTestId("create-reading").fill("3");
    await form.getByTestId("create-quality").click();
    await page.getByRole("option",{name:"Needs Service"}).click();
+   await page.screenshot({path:join(generated,"protocolia-b1-enum-mobile.png"),fullPage:true});
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    assert.equal((await req(path+"/"+selected)).body.quality,"needs_service","UI persists source enum value, not caption");
