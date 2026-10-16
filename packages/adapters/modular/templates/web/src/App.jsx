@@ -4,7 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import PagedReferencePicker from "./PagedReferencePicker.jsx";
 import {beginPkce,finishPkce,hasPkceResponse} from "./OAuthPkce.js";
-import {authenticatedFetch,AUTH_REJECTED_EVENT,jwtExpiresAt} from "./AuthSession.js";
+import {authenticatedFetch,AUTH_REJECTED_EVENT,jwtExpiresAt,setBffCsrf,getBffCsrf} from "./AuthSession.js";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -470,7 +470,7 @@ export default function App(){
     let disposed=false,timer;
     function endSession(){
       if(disposed)return;
-      logOut();
+      clearSession();
       setLoginError("Tu sesión expiró o ya no es válida. Iniciá sesión nuevamente.");
     }
     function onRejected(event){
@@ -497,13 +497,27 @@ export default function App(){
     fetch("/api/_protocolia/auth/config",{cache:"no-store"}).then(async response=>{
       if(!response.ok)throw Error("No se pudo consultar la configuración de autenticación.");
       const value=await response.json();
-      if(!["demo","jwt"].includes(value.mode)||typeof value.enabled!=="boolean")
+      if(!["demo","jwt","bff"].includes(value.mode)||typeof value.enabled!=="boolean")
         throw Error("Configuración de autenticación inválida.");
       setAuthConfig(value);
     }).catch(error=>setStartupError(error.message));
   },[]);
   useEffect(()=>{
-    if(!authConfig?.enabled||!hasPkceResponse()||callbackOnce.current)return;
+    if(authConfig?.mode!=="bff")return;
+    let disposed=false;
+    fetch("/api/_protocolia/bff/session",{cache:"no-store"}).then(async response=>{
+      if(!response.ok)throw Error("No se pudo consultar la sesión BFF.");
+      return response.json();
+    }).then(session=>{
+      if(disposed||!session.authenticated)return;
+      if(!Array.isArray(session.capabilities)||!/^[A-Za-z0-9_-]{43}$/.test(session.csrf??""))
+        throw Error("El servidor devolvió una sesión inválida.");
+      setBffCsrf(session.csrf);setCapabilities(session.capabilities);setAuth("BFF");
+    }).catch(error=>{if(!disposed)setLoginError(error.message);});
+    return ()=>{disposed=true;};
+  },[authConfig]);
+  useEffect(()=>{
+    if(authConfig?.mode!=="jwt"||!authConfig.enabled||!hasPkceResponse()||callbackOnce.current)return;
     callbackOnce.current=true;
     setLoginBusy(true);setLoginError("");
     finishPkce(authConfig).then(async result=>{
@@ -839,10 +853,26 @@ export default function App(){
   }
   async function startExternalLogin(){
     setLoginBusy(true);setLoginError("");
-    try{await beginPkce(authConfig);}
+    try{
+      if(authConfig.mode==="bff"){window.location.assign("/api/_protocolia/bff/login");return;}
+      await beginPkce(authConfig);
+    }
     catch(error){setLoginError(error.message);setLoginBusy(false);}
   }
-  function logOut(){
+  async function logOut(){
+    if(auth==="BFF"){
+      try{
+        const response=await fetch("/api/_protocolia/bff/logout",{
+          method:"POST",headers:{"X-ProtocolIA-CSRF":getBffCsrf()},cache:"no-store"
+        });
+        if(response.status!==204&&response.status!==401)
+          throw Error("No se pudo cerrar la sesión en el servidor.");
+      }catch(error){setLoginError(error.message);setError(error.message);return;}
+    }
+    clearSession();
+  }
+  function clearSession(){
+    setBffCsrf("");
     listRequestEpoch.current++;
     setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);setLoginError("");
   }
@@ -899,7 +929,7 @@ export default function App(){
     </header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
-      {authConfig.mode==="jwt"?<>
+      {authConfig.mode==="jwt"||authConfig.mode==="bff"?<>
         {authConfig.enabled?<button type="button" disabled={loginBusy}
           data-testid="login-provider" onClick={startExternalLogin}>
           {loginBusy?<LoadingIndicator message="Verificando identidad… " compact/>:"Ingresar con proveedor de identidad"}
