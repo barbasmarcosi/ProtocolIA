@@ -19,7 +19,9 @@ const springSchema=join(generated,"src/main/resources/db/migration/V1__contract_
 const schema=readFileSync(existsSync(nestSchema)?nestSchema:springSchema,"utf8");
 assert.match(schema,/CHECK \(quality IN \('ready','needs_service','retired'\)\)|CHECK \(quality IN \('needs_service','ready','retired'\)\)/,
   "SQL must reject values outside the TypeSpec enum");
-assert.match(schema,/CONSTRAINT ck_cond_gauge_maintenance_reason CHECK \\(quality IS DISTINCT FROM 'needs_service' OR \\(maintenance_reason IS NOT NULL AND char_length\\(btrim\\(maintenance_reason\\)\\) > 0\\)\\)/,
+assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
+  schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
+  schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
   "Generated PostgreSQL must independently require maintenance reason for needs_service");
 function docker(args,timeout=600000){
  const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
