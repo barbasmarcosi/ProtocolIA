@@ -70,7 +70,7 @@ public class DomainRuntime {
   }
 
   @GetMapping("/api/_protocolia/auth/config")
-  public Map<String,Object> browserAuth(){return SecurityConfig.browserAuthConfig();}
+  public Map<String,Object> browserAuth(){return SecurityConfig.bffEnabled()?Map.of("mode","bff","enabled",true):SecurityConfig.browserAuthConfig();}
 
   @GetMapping("/health")
   public Map<String, String> health() { return Map.of("status", "UP"); }
