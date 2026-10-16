@@ -168,6 +168,28 @@ public class DomainRuntime {
           .addValue("before",before).addValue("after",after==null?null:String.valueOf(after)));
       }
     }
+    var sensitive=entity.fields().stream().filter(f->f.readCapability()!=null&&
+      (user==null||user.getAuthorities().stream().noneMatch(a->a.getAuthority().equals(f.readCapability()))))
+      .map(Manifest.Field::name).toList();
+    if(!sensitive.isEmpty()&&result instanceof Map<?,?> raw){
+      if(matched.kind().equals("listPage")){
+        var page=new LinkedHashMap<String,Object>();
+        raw.forEach((key,val)->page.put(String.valueOf(key),val));
+        var entries=(List<?>)page.get("items");
+        page.put("items",entries.stream().map(item->{
+          var record=new LinkedHashMap<String,Object>();
+          ((Map<?,?>)item).forEach((key,val)->record.put(String.valueOf(key),val));
+          sensitive.forEach(record::remove);
+          return record;
+        }).toList());
+        result=page;
+      }else if(Set.of("create","get","patchFields").contains(matched.kind())){
+        var record=new LinkedHashMap<String,Object>();
+        raw.forEach((key,val)->record.put(String.valueOf(key),val));
+        sensitive.forEach(record::remove);
+        result=record;
+      }
+    }
     int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
     return ResponseEntity.status(status).body(result);
   }

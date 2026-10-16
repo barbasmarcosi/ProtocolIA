@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;ownerManaged?:boolean;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
+type Field={name:string;column:string;ownerManaged?:boolean;readCapability?:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
@@ -19,7 +19,7 @@ type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
 class Problem extends Error{
@@ -238,7 +238,7 @@ class RuntimeService{
     const manager=equalSecrets(username,m)&&equalSecrets(password,process.env.PROTOCOLIA_MANAGER_PASSWORD!);
     const reader=equalSecrets(username,r)&&equalSecrets(password,process.env.PROTOCOLIA_READER_PASSWORD!);
     if(!manager&&!reader)throw new Problem(401,"Invalid credentials");
-    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[])])].sort():
+    return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])])].sort():
       [...spec.readCapabilities].sort()};
   }
   me(req:any,res:any):void{
@@ -670,6 +670,16 @@ class RuntimeService{
         case "delete":await this.remove(entity,identity);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }
+      const redacted=(record:unknown):unknown=>{
+        if(!isRecord(record))return record;
+        const copy={...record};
+        for(const f of entity.fields)if(f.readCapability&&!session.capabilities.includes(f.readCapability))
+          delete copy[f.name];
+        return copy;
+      };
+      if(["create","get","patchFields"].includes(op.kind))data=redacted(data);
+      else if(op.kind==="listPage"&&isRecord(data)&&Array.isArray(data.items))
+        data={...data,items:data.items.map(redacted)};
       res.status(op.kind==="create"?201:200).json(data);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){

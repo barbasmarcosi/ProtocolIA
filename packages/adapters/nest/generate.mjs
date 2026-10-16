@@ -124,6 +124,7 @@ export function generate(ir,spec,out){
   const exactReversals=compileExactReversals(ir);
   const exactReconciliations=compileExactReconciliations(ir);
   compileOwnerScopes(ir);
+  const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
@@ -378,6 +379,7 @@ export function generate(ir,spec,out){
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
     operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments,
+    fieldReadCapabilities,
     hasOverdueRules:overdueRules.length>0};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");

@@ -6,8 +6,21 @@ export function compileOwnerScopes(ir){
   const result=new Map(),entities=new Map(ir.entities.map(e=>[e.name,e]));
   for(const entity of ir.entities){
     const owners=entity.fields.filter(f=>f.ownerManaged);
-    if(!owners.length)continue;
+    if(!owners.length){
+      if(entity.fields.some(f=>f.readCapability!==undefined))throw Error("Field read capability requires owner identity");
+      continue;
+    }
     const field=owners[0],operations=ir.operations.filter(o=>o.entity===entity.name&&o.behavior.kind!=="health");
+    const guarded=entity.fields.filter(f=>f.readCapability!==undefined),caps=new Set(operations.map(o=>o.capability));
+    if(guarded.length>2||new Set(guarded.map(f=>f.readCapability)).size!==guarded.length||
+      guarded.some(f=>!ident(f.name)||f.name===entity.publicIdentity||f.ownerManaged||
+        f.type!=="string"||f.required||f.nullable||f.unique||f.reference||f.choices||
+        f.initial!==undefined||f.computedSum||f.computedProduct||f.computedRoundedProduct||
+        f.computedDiscountedTotal||f.requiredWhen||f.forbidWhen||f.afterField||f.greaterThanField||
+        typeof f.readCapability!=="string"||
+        !/^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/.test(f.readCapability)||
+        caps.has(f.readCapability)||operations.some(o=>o.behavior.field===f.name)))
+      throw Error("Invalid S1c field read scope "+entity.name);
     const counts=kind=>operations.filter(o=>o.behavior.kind===kind).length;
     const related=ir.entities.some(other=>other.fields.some(f=>
       f.reference?.target===entity.name||other.name===entity.name&&f.reference));
