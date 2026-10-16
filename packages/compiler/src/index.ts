@@ -424,12 +424,18 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
     }
   }
-  // S1a deliberately rejects cross-entity FKs involving owner-scoped rows.
-  // Their reads/writes require additional join-aware authorization (future S1).
-  for(const entity of entities)for(const f of entity.fields.filter(x=>x.reference)){
-    const target=entities.find(x=>x.name===f.reference?.target);
-    if(entity.fields.some(x=>x.ownerManaged)||target?.fields.some(x=>x.ownerManaged))
-      reject("owner-cross-entity",entity.name+" cannot reference an owner-scoped entity in S1a",models.find(m=>m.name===entity.name)!);
+  // S1d.2a: only a direct owner-to-owner child FK may cross private records.
+  // Unowned-to-owned, owned-to-unowned, chains and multiple FKs remain forbidden.
+  for(const entity of entities){
+    const refs=entity.fields.filter(f=>f.reference);
+    for(const f of refs){
+      const target=entities.find(x=>x.name===f.reference?.target);
+      const own=entity.fields.some(x=>x.ownerManaged),parentOwn=target?.fields.some(x=>x.ownerManaged);
+      if(!own&&!parentOwn)continue;
+      if(!own||!parentOwn||refs.length!==1||target!.fields.some(x=>x.reference)||
+        f.ownerManaged||f.name===entity.publicIdentity||f.unique||f.initial!==undefined)
+        reject("owner-cross-entity",entity.name+" supports only one required owner-scoped FK to a root owner-scoped parent",models.find(m=>m.name===entity.name)!);
+    }
   }
   const operations: IrOperation[] = [];
   const relevant = ops.filter((x)=> namespaces.has(x.namespace));
