@@ -39,3 +39,12 @@ The acceptance criteria are a clean two-backend GitHub Actions run, including di
 **Not yet supported:** general boolean formulas, nested conditions, conjunction/disjunction, conditional FK requirements, conditional mutation of existing records, remote/offline validation, automatic migrations of an existing populated database, decimal amounts, or workflow-level task screens. A conditional create rule does **not** imply all business policies can be generated.
 
 Deployment safety: do not alter the Railway/Neon volunteer-evaluations demo schema to exercise this independent fixture. Existing data and `main`/PR #52 remain untouched until separately authorized releases.
+
+## Isolated empirical acceptance — confirmed
+
+- [Isolated B1.2 integration #38834001072](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38834001072), source `0af1a1b37087b8fad9263d5d5f39f3044dcb0576`: **both generated NestJS + Spring Boot PostgreSQL jobs SUCCESS**. The preceding attempt #38833739251 passed application oracles but failed **only** because the screenshot upload path was wrong; it was fixed and the gate rerun successfully.
+- HTTP oracles explicitly rejected missing, empty and whitespace-only conditional reasons with `400` and `{issues:[{field:"maintenanceReason",code:"required"}]}`, preserved allowed reasons after write/restart, and permitted other enum values without that field.
+- A direct PostgreSQL `INSERT` of `needs_service` without a reason failed specifically on constraint `ck_cond_gauge_maintenance_reason`. The rejected row was not persisted.
+- Real Chromium at 390×780 submitted an incomplete conditional form, saw the required field error without navigation or insert, completed its reason, submitted successfully and fetched the exact persisted value; marker `PROTOCOLIA_B1_ENUM_BROWSER_PASS` included `conditionalRequired:true,mobile:true,jsErrors:0`.
+- Visual screenshot was preserved in Actions artifact **`protocolia-b1-generated-conditional-mobile`** (ID `12017753704`).
+- The full integration is isolated from the Railway/Neon volunteer-evaluations dataset. The existing demo is not automatically migrated or redeployed.
