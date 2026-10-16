@@ -46,6 +46,8 @@ namespace InventoryReservations {
     @minValue(0) total: int32;
   }
   model Health { status: string; }
+  // The value is a decimal integer wire string, avoiding SUM(int32) overflow.
+  model ActiveAllocationSummary { totalUnits: string; }
   @error model NotFound { @statusCode _: 404; message: string; }
   @error model Conflict { @statusCode _: 409; message: string; }
   @error model BadRequest { @statusCode _: 400; message: string; }
@@ -61,6 +63,13 @@ namespace InventoryReservations {
   @route("/api/parts/{sku}")
   @get @behavior("get", "Part") @capability("parts.read")
   op getPart(@path sku: string): Part | NotFound | Unauthorized | Forbidden;
+
+  @route("/api/parts/{sku}/allocation-summary")
+  @get @behavior("sumRelated", "Part")
+  @relatedSum("Allocation", "partSku", "units", "status", "active")
+  @capability("parts.read")
+  op activeAllocationSum(@path sku: string):
+    ActiveAllocationSummary | NotFound | Unauthorized | Forbidden;
 
   @route("/api/parts")
   @get @behavior("listPage", "Part") @capability("parts.read")
