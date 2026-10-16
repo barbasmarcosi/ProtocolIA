@@ -1,0 +1,57 @@
+name: vnext-b1-forbidden-combinations
+on:
+  push:
+    branches:
+      - feature/b1-3d-forbidden-combination-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/finite-choices/**'
+      - 'tests/vnext/finite-choices.test.mjs'
+      - 'scripts/vnext/probe-finite-choices-http.mjs'
+      - '.github/workflows/vnext-b1-forbidden-combinations.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forbidden-combinations-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile TypeSpec, IR, Nest/Spring and React
+        run: npm run app:build -- examples/vnext/finite-choices --target ${{ matrix.target }} --out "${RUNNER_TEMP}/generated"
+      - name: Compiler positive and negative tests
+        run: node --test tests/vnext/finite-choices.test.mjs
+      - name: Generated app and PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/generated"
+      - name: Install Chromium
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Black-box HTTP PostgreSQL and mobile Chromium
+        run: node scripts/vnext/probe-finite-choices-http.mjs "${RUNNER_TEMP}/generated" ${{ matrix.target == 'nestjs' && '--browser' || '' }}
+      - name: Preserve generated mobile screenshot
+        if: matrix.target == 'nestjs' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forbidden-combinations-mobile
+          path: ${{ runner.temp }}/generated/protocolia-b1-enum-mobile.png
+          if-no-files-found: error

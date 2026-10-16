@@ -62,9 +62,32 @@ test("requiredWhen survives TypeSpec into canonical domain IR",()=>{
   const target=entity.fields.find(f=>f.name==="maintenanceReason");
   const trigger=entity.fields.find(f=>f.name==="quality");
   assert.deepEqual(target.requiredWhen,{field:"quality",equals:"needs_service"});
+  assert.deepEqual(target.forbidWhen,{field:"quality",equals:"ready"});
   assert.equal(target.type,"string");assert.equal(target.required,false);
   assert.equal(target.nullable,false);
   assert.ok(trigger.choices.some(c=>c.value==="needs_service"));
+});
+test("forbidWhen rejects unsafe and contradictory source rules",()=>{
+  const anchor='@forbidWhen("quality","ready")';
+  for(const [description,replacement] of [
+    ["missing sibling",'@forbidWhen("missing","ready")'],
+    ["non-enum sibling",'@forbidWhen("reading","ready")'],
+    ["nonexistent enum choice",'@forbidWhen("quality","other_state")'],
+    ["self comparison",'@forbidWhen("maintenanceReason","ready")'],
+    ["conflicts with required",'@forbidWhen("quality","needs_service")']
+  ]){
+    const scratch=mkdtempSync(join("examples","vnext",".forbid-when-negative-"));
+    try{
+      cpSync(join(root,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+      cpSync(join(root,"contracts"),join(scratch,"contracts"),{recursive:true});
+      const mutated=source.replace(anchor,replacement);
+      assert.notEqual(mutated,source);
+      writeFileSync(join(scratch,"contracts/main.tsp"),mutated);
+      const run=spawnSync(join(process.cwd(),"node_modules/.bin/tsp"),["compile",scratch],{encoding:"utf8",timeout:90000});
+      assert.notEqual(run.status,0,"Invalid rule compiled: "+description);
+      assert.match((run.stdout??"")+(run.stderr??""),/protocolia-invalid-forbid-when/i);
+    }finally{rmSync(scratch,{recursive:true,force:true});}
+  }
 });
 test("conditional rules reject unknown trigger, unsafe values and always-required targets",()=>{
   const anchor='@requiredWhen("quality","needs_service")';

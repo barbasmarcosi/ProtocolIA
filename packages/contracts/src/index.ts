@@ -21,6 +21,7 @@ export const $lib = createTypeSpecLibrary({
     computedRoundedProduct: {description:"Read-only rounded positive decimal product, explicit half_up mode"},
     computedDiscountedTotal: {description:"Read-only discounted monetary total, typed half_up rounding"},
     requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
+    forbidWhen: {description:"Forbid an optional field when a sibling enum matches a declared value"},
     afterField: {description:"A UTC date-time must be strictly after a required sibling UTC date-time"},
     greaterThanField: {description:"Strict comparison between typed int32 fields or exact decimal fields"},
     exactDecimal: {description:"Exact base10 precision, scale and string-encoded minimum/maximum bounds"},
@@ -106,6 +107,9 @@ function greaterThanField(context: DecoratorContext, target: ModelProperty, fiel
 function requiredWhen(context: DecoratorContext, target: ModelProperty, field: string, equals: string): void {
   context.program.stateMap($lib.stateKeys.requiredWhen).set(target,{field,equals});
 }
+function forbidWhen(context: DecoratorContext, target: ModelProperty, field: string, equals: string): void {
+  context.program.stateMap($lib.stateKeys.forbidWhen).set(target,{field,equals});
+}
 
 function transition(context: DecoratorContext, target: Operation, from: string, to: string): void {
   context.program.stateMap($lib.stateKeys.transition).set(target, {from, to});
@@ -175,6 +179,7 @@ export const $decorators = {
     computedRoundedProduct,
     computedDiscountedTotal,
     requiredWhen,
+    forbidWhen,
     afterField,
     greaterThanField,
     exactDecimal,

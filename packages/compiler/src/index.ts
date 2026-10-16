@@ -68,6 +68,10 @@ function field(p: Program, prop: ModelProperty): IrField | null {
       field:String(metadata(p,"requiredWhen",prop)?.field),
       equals:String(metadata(p,"requiredWhen",prop)?.equals)
     }}:{}),
+    ...(metadata(p,"forbidWhen",prop)?{forbidWhen:{
+      field:String(metadata(p,"forbidWhen",prop)?.field),
+      equals:String(metadata(p,"forbidWhen",prop)?.equals)
+    }}:{}),
     ...(metadata(p,"uiLabel",prop) ? {uiLabel:String(metadata(p,"uiLabel",prop)?.label)} : {}),
     ...(metadata(p,"uiHelp",prop) ? {uiHelp:String(metadata(p,"uiHelp",prop)?.help)} : {}),
     ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"|"textarea"} : {}),
@@ -149,7 +153,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           d.precision-d.scale>=0;
         if(!valid||encoding?.type.name!=="string"||encoding.encoding!==undefined||
            d!.precision-d!.scale<0||getMinValue(p,prop)!==undefined||getMaxValue(p,prop)!==undefined||
-           value.unique||value.reference||value.initial||value.computedSum||value.choices||value.requiredWhen||
+           value.unique||value.reference||value.initial||value.computedSum||value.choices||value.requiredWhen||value.forbidWhen||
            value.minLength!==undefined||value.maxLength!==undefined||value.pattern!==undefined||
            metadata(p,"publicIdentity",prop))
           reject("invalid-exact-decimal",m.name+"."+prop.name+
@@ -326,6 +330,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-required-when",m.name+"."+conditionField.name+
           " requires an optional nonnullable string field and a sibling string enum with declared value",m);
       }
+    }
+    // Only a declared sibling enum equality may make a field forbidden.
+    for(const target of fields.filter(x=>x.forbidWhen!==undefined)){
+      const {field:sourceName,equals}=target.forbidWhen!;
+      const source=fields.find(x=>x.name===sourceName);
+      if(target.type!=="string"||target.required||target.nullable||target.unique||
+        target.reference||target.initial!==undefined||target.computedSum||
+        !/^[A-Za-z][A-Za-z0-9_]*$/.test(sourceName)||target.name===sourceName||
+        !source||source.type!=="string"||source.nullable||source.initial!==undefined||
+        !source.choices?.some(x=>x.value===equals)||
+        (target.requiredWhen?.field===sourceName&&target.requiredWhen.equals===equals))
+        reject("invalid-forbid-when",m.name+"."+target.name+
+          " needs an optional nonnullable string, sibling enum and noncontradictory rule",m);
     }
     for(const f of fields.filter(x=>x.computedSum!==undefined)) {
       const parts=f.computedSum!;
@@ -783,22 +800,31 @@ export function compileDomain(p: Program): IrDocument | undefined {
       if(mismatch)continue;
     }
     if(kind==="create"||kind==="patchFields"){
-      const guarded=entity.fields.filter(x=>x.requiredWhen);
+      const guarded=entity.fields.filter(x=>x.requiredWhen||x.forbidWhen);
       const dto=op.parameters.properties.get("input")?.type;
       const properties=dto?.kind==="Model"?dto.properties:undefined;
       let mismatch=false;
       for(const target of guarded){
-        if(kind==="patchFields"&&(target.name===f||target.requiredWhen!.field===f)){
+        if(kind==="patchFields"&&(target.name===f||target.requiredWhen?.field===f||target.forbidWhen?.field===f)){
           reject("conditional-patch-unsupported",op.name+
             " cannot patch conditional field or its enum trigger without a transactional rule-aware update",op);
           mismatch=true;break;
         }
-        if(kind==="create"){
+        if(kind==="create"&&target.requiredWhen){
           const payload=properties?.get(target.name);
           if(!payload||!payload.optional||typeOfField(payload)?.type!=="string"||
             typeOfField(payload)?.choices||typeOfField(payload)?.nullable){
             reject("conditional-request-mismatch",op.name+
               " must preserve optional plain string field "+target.name+" in create DTO",op);
+            mismatch=true;break;
+          }
+        }
+        if(kind==="create"&&target.forbidWhen){
+          const payload=properties?.get(target.name);
+          const parsed=payload?typeOfField(payload):undefined;
+          if(!payload||!payload.optional||parsed?.type!=="string"||parsed.nullable||
+             JSON.stringify(parsed.choices??[])!==JSON.stringify(target.choices??[])){
+            reject("forbid-request-mismatch",op.name+" must preserve optional "+target.name,op);
             mismatch=true;break;
           }
         }

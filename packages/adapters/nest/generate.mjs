@@ -84,6 +84,15 @@ export function generate(ir,spec,out){
         new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
         f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
         throw Error("Unsupported enum choices "+e.name+"."+f.name);
+      if(f.forbidWhen){
+        const source=e.fields.find(x=>x.name===f.forbidWhen.field);
+        if(f.type!=="string"||f.required||f.nullable||f.unique||f.reference||
+          f.initial!==undefined||f.computedSum||!source||source===f||
+          source.type!=="string"||source.nullable||source.initial!==undefined||
+          !source.choices?.some(x=>x.value===f.forbidWhen.equals)||
+          (f.requiredWhen?.field===source.name&&f.requiredWhen.equals===f.forbidWhen.equals))
+          throw Error("Invalid forbidden combination "+e.name+"."+f.name);
+      }
       if(f.requiredWhen){
         const source=e.fields.find(x=>x.name===f.requiredWhen.field);
         if(f.type!=="string"||f.required||f.nullable||f.unique||
@@ -313,6 +322,11 @@ export function generate(ir,spec,out){
         source+" IS DISTINCT FROM '"+f.requiredWhen.equals+"' OR "+
         "("+col+" IS NOT NULL AND char_length(btrim("+col+")) > 0))";
     });
+    const forbidden=e.fields.filter(f=>f.forbidWhen).map(f=>{
+      const col=snake(f.name),source=snake(f.forbidWhen.field);
+      return "  CONSTRAINT ck_forbid_"+snake(e.name)+"_"+col+" CHECK ("+
+        source+" IS DISTINCT FROM '"+f.forbidWhen.equals+"' OR "+col+" IS NULL)";
+    });
     const chronological=e.fields.filter(f=>f.afterField!==undefined).map(f=>{
       const col=snake(f.name),source=snake(f.afterField);
       return "  CONSTRAINT ck_order_"+snake(e.name)+"_"+col+" CHECK ("+
@@ -323,7 +337,7 @@ export function generate(ir,spec,out){
       return "  CONSTRAINT ck_gt_"+snake(e.name)+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...chronological,...compared].join(",\n")+"\n);");
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared].join(",\n")+"\n);");
   }
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);

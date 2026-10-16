@@ -20,6 +20,7 @@ export interface IrField {
   choices?: Array<{value:string;label:string}>;
   /** A sibling enum and value that conditionally require this otherwise-optional field. */
   requiredWhen?: {field:string;equals:string};
+  forbidWhen?: {field:string;equals:string};
   /** Portable strict chronological order after a required sibling. */
   afterField?: string;
   /** Strict ordering against a required sibling int32 or exact decimal; scales may differ. */

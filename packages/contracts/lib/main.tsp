@@ -25,6 +25,8 @@ namespace ProtocolIA.Domain {
     quantity: valueof string, discount: valueof string, mode: valueof string);
   // A string field is mandatory when an enum-valued sibling equals a declared value.
   extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
+  // A field is forbidden when a sibling TypeSpec enum equals the declared value.
+  extern dec forbidWhen(target: ModelProperty, field: valueof string, equals: valueof string);
   // Strict temporal order against another UTC date-time in the same entity.
   extern dec afterField(target: ModelProperty, field: valueof string);
   // Strict exact decimal or int32 comparison against a required sibling of the same scalar family.

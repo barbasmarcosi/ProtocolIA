@@ -143,6 +143,11 @@ function validateCreate(fields,values){
       }
     }
   }
+  for(const field of fields.filter(f=>f.forbidWhen&&!errors[f.name])){
+    if(values[field.forbidWhen.field]===field.forbidWhen.equals&&
+       String(values[field.name]??"").trim())
+      errors[field.name]="Este campo no se admite con el estado seleccionado.";
+  }
   for(const field of fields.filter(f=>f.greaterThanField!==undefined&&!errors[f.name])){
     const input=String(values[field.name]??"").trim();
     const source=fields.find(f=>f.name===field.greaterThanField);
@@ -878,7 +883,7 @@ export default function App(){
            })}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name||f.greaterThanField===name||f.afterField===name)delete updated[f.name];return updated;});}}/>)}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name||f.forbidWhen?.field===name||f.greaterThanField===name||f.afterField===name)delete updated[f.name];return updated;});}}/>)}</div>
           </section>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}

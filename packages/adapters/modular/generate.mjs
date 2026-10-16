@@ -65,6 +65,15 @@ export function generate(ir, openapi, outDir) {
         new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
         f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
         throw Error("Unsupported enum choices "+e.name+"."+f.name);
+      if(f.forbidWhen){
+        const source=e.fields.find(x=>x.name===f.forbidWhen.field);
+        if(f.type!=="string"||f.required||f.nullable||f.unique||f.reference||
+          f.initial!==undefined||f.computedSum||!source||source===f||
+          source.type!=="string"||source.nullable||source.initial!==undefined||
+          !source.choices?.some(x=>x.value===f.forbidWhen.equals)||
+          (f.requiredWhen?.field===source.name&&f.requiredWhen.equals===f.forbidWhen.equals))
+          throw Error("Invalid forbidden combination "+e.name+"."+f.name);
+      }
       if(f.requiredWhen){
         const source=e.fields.find(x=>x.name===f.requiredWhen.field);
         if(f.type!=="string"||f.required||f.nullable||f.unique||
@@ -275,7 +284,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -305,6 +314,7 @@ export function generate(ir, openapi, outDir) {
         n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal),
         "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
         f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null",
+        f.forbidWhen?j(f.forbidWhen.field):"null",f.forbidWhen?j(f.forbidWhen.equals):"null",
         n(f.decimal?.precision),n(f.decimal?.scale),f.decimal?.min!==undefined?j(f.decimal.min):"null",f.decimal?.max!==undefined?j(f.decimal.max):"null",
         f.afterField!==undefined?j(f.afterField):"null",
         f.greaterThanField!==undefined?j(f.greaterThanField):"null"
@@ -416,6 +426,11 @@ export function generate(ir, openapi, outDir) {
         source+" IS DISTINCT FROM '"+f.requiredWhen.equals+"' OR "+
         "("+col+" IS NOT NULL AND char_length(btrim("+col+")) > 0))";
     });
+    const forbidden=e.fields.filter(f=>f.forbidWhen).map(f=>{
+      const col=snake(f.name),source=snake(f.forbidWhen.field);
+      return "  CONSTRAINT ck_forbid_"+table+"_"+col+" CHECK ("+
+        source+" IS DISTINCT FROM '"+f.forbidWhen.equals+"' OR "+col+" IS NULL)";
+    });
     const chronological=e.fields.filter(f=>f.afterField!==undefined).map(f=>{
       const col=snake(f.name),source=snake(f.afterField);
       return "  CONSTRAINT ck_order_"+table+"_"+col+" CHECK ("+
@@ -426,7 +441,7 @@ export function generate(ir, openapi, outDir) {
       return "  CONSTRAINT ck_gt_"+table+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...chronological,...compared].join(",\n")+"\n);");
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared].join(",\n")+"\n);");
   }
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;

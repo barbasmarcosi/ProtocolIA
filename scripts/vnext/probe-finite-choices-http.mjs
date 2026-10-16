@@ -19,6 +19,9 @@ const springSchema=join(generated,"src/main/resources/db/migration/V1__contract_
 const schema=readFileSync(existsSync(nestSchema)?nestSchema:springSchema,"utf8");
 assert.match(schema,/CHECK \(quality IN \('ready','needs_service','retired'\)\)|CHECK \(quality IN \('needs_service','ready','retired'\)\)/,
   "SQL must reject values outside the TypeSpec enum");
+assert.ok(schema.includes("ck_forbid_gauge_maintenance_reason")&&
+  schema.includes("quality IS DISTINCT FROM 'ready' OR maintenance_reason IS NULL"),
+  "PostgreSQL must reject ready gauges carrying a maintenance reason");
 assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
@@ -101,6 +104,18 @@ try{
    assert.deepEqual(response.body?.issues,[{field:"maintenanceReason",code:"required"}]);
    assert.equal((await req(path+"/"+input.serial)).status,404);
  }
+ const forbidden={...payload,serial:token+"-forbidden",quality:"ready",maintenanceReason:"Esta combinación está prohibida"};
+ const blocked=await req(path,{method:"POST",body:forbidden});
+ assert.equal(blocked.status,400);
+ assert.deepEqual(blocked.body?.issues,[{field:"maintenanceReason",code:"invalid_combination"}]);
+ assert.equal((await req(path+"/"+forbidden.serial)).status,404);
+ const sqlForbidden="INSERT INTO gauge(serial,label,reading,quality,maintenance_reason) VALUES ('"+
+   token+"-sql-forbidden','SQL incompatible',1,'ready','No permitido')";
+ const directForbidden=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",sqlForbidden],
+   {cwd:generated,encoding:"utf8",timeout:15000});
+ assert.notEqual(directForbidden.status,0);
+ assert.match((directForbidden.stderr??"")+(directForbidden.stdout??""),/ck_forbid_gauge_maintenance_reason/i);
  const serviced={...payload,serial:token+"-serviced",quality:"needs_service",
    maintenanceReason:"Pérdida de calibración verificada"};
  assert.equal((await req(path,{method:"POST",body:serviced})).status,201);
@@ -145,6 +160,21 @@ try{
    const stored=await req(path+"/"+selected);
    assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
+   await page.getByTestId("open-create").click();
+   const forbiddenForm=page.getByTestId("create-form-Gauge");
+   await forbiddenForm.getByTestId("create-serial").fill(token+"-web-forbidden");
+   await forbiddenForm.getByTestId("create-label").fill("Calibrado y listo");
+   await forbiddenForm.getByTestId("create-reading").fill("2");
+   await forbiddenForm.getByTestId("create-quality").click();
+   await page.getByRole("option",{name:"Ready"}).click();
+   await forbiddenForm.getByTestId("create-maintenanceReason").fill("Debe quedar prohibido");
+   await forbiddenForm.getByRole("button",{name:"Crear",exact:true}).click();
+   assert.equal(await forbiddenForm.getByTestId("create-maintenanceReason").getAttribute("aria-invalid"),"true");
+   assert.equal((await req(path+"/"+token+"-web-forbidden")).status,404);
+   await forbiddenForm.getByTestId("create-maintenanceReason").fill("");
+   await forbiddenForm.getByRole("button",{name:"Crear",exact:true}).click();
+   await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
+   assert.equal((await req(path+"/"+token+"-web-forbidden")).status,200);
    assert.equal(errors.length,0,"React errors: "+errors.join(";"));
    console.log("PROTOCOLIA_B1_ENUM_BROWSER_PASS "+JSON.stringify({choice:"needs_service",conditionalRequired:true,mobile:true,jsErrors:0}));
   }finally{await browser.close();}

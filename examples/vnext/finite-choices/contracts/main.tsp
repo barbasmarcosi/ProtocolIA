@@ -33,6 +33,7 @@ namespace GaugeRegistry {
     @uiLabel("Motivo del mantenimiento")
     @uiHelp("Explicá por qué el instrumento requiere servicio.")
     @requiredWhen("quality","needs_service")
+    @forbidWhen("quality","ready")
     @minLength(5) @maxLength(160)
     maintenanceReason?: string;
     calibratedAt?: utcDateTime | null;
