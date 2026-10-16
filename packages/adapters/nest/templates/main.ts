@@ -2,6 +2,7 @@ import {Controller,Get,Inject,Injectable,Module,NestModule,RequestMapping,Reques
 import {NestFactory} from "@nestjs/core";
 import {NestExpressApplication} from "@nestjs/platform-express";
 import {createHash,timingSafeEqual} from "node:crypto";
+import {createRemoteJWKSet,jwtVerify} from "jose";
 import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
@@ -150,6 +151,7 @@ function equalSecrets(a:string,b:string):boolean{
 @Injectable()
 class RuntimeService{
   private readonly pool:Pool;
+  private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
   private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
   constructor(){
@@ -160,6 +162,24 @@ class RuntimeService{
     if(!connection.password)connection.password=process.env.PROTOCOLIA_JDBC_PASSWORD??"";
     if(!connection.username)throw Error("PostgreSQL username must be explicit");
     this.pool=new Pool({connectionString:connection.toString(),max:20});
+    const mode=process.env.PROTOCOLIA_AUTH_MODE??"demo";
+    if(!["demo","jwt"].includes(mode))throw Error("Unsupported ProtocolIA authentication mode");
+    if(mode==="jwt"){
+      if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true")throw Error("JWT mode cannot enable demo credentials");
+      const issuer=process.env.PROTOCOLIA_JWT_ISSUER??"",audience=process.env.PROTOCOLIA_JWT_AUDIENCE??"";
+      const jwks=process.env.PROTOCOLIA_JWT_JWKS_URI??"";
+      let issuerUrl:URL,jwksUrl:URL;
+      try{issuerUrl=new URL(issuer);jwksUrl=new URL(jwks);}catch{throw Error("JWT issuer and JWKS URL required");}
+      const testHttp=process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true";
+      if(!/^[A-Za-z0-9][A-Za-z0-9_.:/-]{2,190}$/.test(audience)||
+        !["https:",...(testHttp?["http:"]:[])].includes(issuerUrl.protocol)||
+        !["https:",...(testHttp?["http:"]:[])].includes(jwksUrl.protocol)||
+        issuerUrl.username||issuerUrl.password||jwksUrl.username||jwksUrl.password||
+        issuerUrl.hash||jwksUrl.hash||issuer.length>300||jwks.length>500)
+        throw Error("Invalid JWT issuer, audience or trusted JWKS URL");
+      this.jwtConfig={issuer,audience,verify:createRemoteJWKSet(jwksUrl,{
+        timeoutDuration:5000,cacheMaxAge:60000,cooldownDuration:1000})};
+    }else this.jwtConfig=null;
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true")
       for(const key of ["PROTOCOLIA_READER_USERNAME","PROTOCOLIA_READER_PASSWORD",
         "PROTOCOLIA_MANAGER_USERNAME","PROTOCOLIA_MANAGER_PASSWORD"])
@@ -242,7 +262,25 @@ class RuntimeService{
     }catch(e){await connection.query("ROLLBACK");throw e;}
     finally{connection.release();}
   }
-  login(req:any):{username:string;capabilities:string[]}{
+  async login(req:any):Promise<{username:string;capabilities:string[]}>{
+    if(this.jwtConfig){
+      const auth=req.headers.authorization;
+      if(typeof auth!=="string"||!/^Bearer [A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+$/.test(auth))
+        throw new Problem(401,"Bearer token required");
+      try{
+        const {payload,protectedHeader}=await jwtVerify(auth.slice(7),this.jwtConfig.verify,{
+          issuer:this.jwtConfig.issuer,audience:this.jwtConfig.audience,algorithms:["RS256"],
+          clockTolerance:30,requiredClaims:["exp","iat","sub"]});
+        const subject=payload.sub,raw=payload.protocolia_capabilities;
+        const allowed=new Set([...spec.readCapabilities,...spec.writeCapabilities,
+          ...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])]);
+        if(protectedHeader.alg!=="RS256"||typeof subject!=="string"||!subject.trim()||
+          subject.length>128||!Array.isArray(raw)||raw.length>16||
+          new Set(raw).size!==raw.length||raw.some(v=>typeof v!=="string"||v==="public"||!allowed.has(v)))
+          throw Error("Untrusted JWT capability or subject");
+        return {username:subject,capabilities:[...raw].sort()};
+      }catch{throw new Problem(401,"Invalid bearer token");}
+    }
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH!=="true")throw new Problem(401,"Authentication required");
     const auth=req.headers.authorization;
     if(typeof auth!=="string"||!/^Basic [A-Za-z0-9+/=]+$/.test(auth))
@@ -263,8 +301,8 @@ class RuntimeService{
     return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])])].sort():
       [...spec.readCapabilities].sort()};
   }
-  me(req:any,res:any):void{
-    try{res.status(200).json(this.login(req));}catch(e){sendProblem(res,e);}
+  async me(req:any,res:any):Promise<void>{
+    try{res.status(200).json(await this.login(req));}catch(e){sendProblem(res,e);}
   }
   private async inbox(e:Entity,op:Operation,req:any,subject:string):Promise<unknown>{
     const read=op.kind==="inboxPage",query=req.query??{};
@@ -671,7 +709,7 @@ class RuntimeService{
   }
   async dispatch(op:Operation,req:any,res:any):Promise<void>{
     try{
-      const session=this.login(req);
+      const session=await this.login(req);
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
       if(op.exactReverse&&!session.capabilities.includes(op.exactReverse.parentWriteCapability))
         throw new Problem(403,"Insufficient balance write capability");
@@ -727,7 +765,7 @@ class RuntimeService{
 class MetadataController{
   constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
   @Get("health")health(){return {status:"UP"};}
-  @Get("api/_protocolia/me")me(@Req() req:any,@Res() res:any):void{this.service.me(req,res);}
+  @Get("api/_protocolia/me")async me(@Req() req:any,@Res() res:any):Promise<void>{await this.service.me(req,res);}
 }
 function operationController(op:Operation):any{
   @Controller()

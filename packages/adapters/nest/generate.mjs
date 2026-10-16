@@ -392,7 +392,7 @@ export function generate(ir,spec,out){
     private:true,version:"0.0.1",
     scripts:{build:"tsc -p tsconfig.json",start:"node dist/main.js"},
     dependencies:{"@nestjs/common":"11.1.6","@nestjs/core":"11.1.6",
-      "@nestjs/platform-express":"11.1.6","pg":"8.16.3",
+      "@nestjs/platform-express":"11.1.6","pg":"8.16.3","jose":"5.10.0",
       "reflect-metadata":"0.2.2","rxjs":"7.8.2"},
     devDependencies:{"typescript":"5.9.3","@types/node":"24.3.0","@types/pg":"8.15.5"}
   },null,2)+"\n");
@@ -422,7 +422,10 @@ export function generate(ir,spec,out){
   ].join("\n"));
   write(".dockerignore","node_modules/\nweb/\n.protocolia-toolchain/\n.env\n");
   write(".env.example",[
-    "PROTOCOLIA_DB_PASSWORD=","PROTOCOLIA_ALLOW_DEMO_AUTH=false",
+    "PROTOCOLIA_DB_PASSWORD=","PROTOCOLIA_AUTH_MODE=demo",
+    "# Use jwt for verified Bearer resource-server APIs (demo and jwt are mutually exclusive).",
+    "PROTOCOLIA_JWT_ISSUER=","PROTOCOLIA_JWT_AUDIENCE=","PROTOCOLIA_JWT_JWKS_URI=",
+    "PROTOCOLIA_JWT_ALLOW_TEST_HTTP=false","PROTOCOLIA_ALLOW_DEMO_AUTH=false",
     "PROTOCOLIA_READER_USERNAME=reader","PROTOCOLIA_READER_PASSWORD=",
     "PROTOCOLIA_MANAGER_USERNAME=manager","PROTOCOLIA_MANAGER_PASSWORD=", 
     "# Optional test-only third subject: must supply all three when enabled.",
@@ -444,6 +447,11 @@ export function generate(ir,spec,out){
     "      PROTOCOLIA_JDBC_URL: postgresql://db:5432/protocolia",
     "      PROTOCOLIA_JDBC_USER: protocolia",
     '      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}',
+    '      PROTOCOLIA_AUTH_MODE: ${PROTOCOLIA_AUTH_MODE:-demo}',
+    '      PROTOCOLIA_JWT_ISSUER: ${PROTOCOLIA_JWT_ISSUER:-}',
+    '      PROTOCOLIA_JWT_AUDIENCE: ${PROTOCOLIA_JWT_AUDIENCE:-}',
+    '      PROTOCOLIA_JWT_JWKS_URI: ${PROTOCOLIA_JWT_JWKS_URI:-}',
+    '      PROTOCOLIA_JWT_ALLOW_TEST_HTTP: ${PROTOCOLIA_JWT_ALLOW_TEST_HTTP:-false}',
     '      PROTOCOLIA_ALLOW_DEMO_AUTH: ${PROTOCOLIA_ALLOW_DEMO_AUTH:-false}',
     '      PROTOCOLIA_READER_USERNAME: ${PROTOCOLIA_READER_USERNAME:-reader}',
     '      PROTOCOLIA_READER_PASSWORD: ${PROTOCOLIA_READER_PASSWORD:?set PROTOCOLIA_READER_PASSWORD}',
