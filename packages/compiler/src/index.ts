@@ -492,6 +492,35 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
     }
     const reservation = metadata(p,"reserve",op);
+    const exactDebit = metadata(p,"debitExact",op);
+    if(exactDebit){
+      const wallet=declared.get(String(exactDebit.stockEntity));
+      const balance=wallet?.fields.find(x=>x.name===exactDebit.availableField);
+      const reference=entity.fields.find(x=>x.name===exactDebit.referenceField);
+      const amount=entity.fields.find(x=>x.name===exactDebit.quantityField);
+      const payload=op.parameters.properties.get("input")?.type;
+      const props=payload?.kind==="Model"?payload.properties:undefined;
+      const requestAmount=props?.get(String(exactDebit.quantityField));
+      const requestReference=props?.get(String(exactDebit.referenceField));
+      const requestId=props?.get(entity.publicIdentity);
+      const bound=balance?.decimal,charge=amount?.decimal;
+      if(kind!=="create"||f!==undefined||input!==undefined||reservation||release||
+        metadata(p,"transition",op)||!wallet||wallet===entity||!balance||!amount||
+        balance.type!=="decimal"||amount.type!=="decimal"||!bound||!charge||
+        !balance.required||balance.nullable||!amount.required||amount.nullable||
+        bound.min!=="0"||charge.min===undefined||decimalUnits(charge.min,charge.scale)===undefined||
+        decimalUnits(charge.min,charge.scale)!<=0n||bound.scale!==charge.scale||
+        bound.precision<charge.precision||balance.computedProduct||balance.computedRoundedProduct||
+        balance.computedDiscountedTotal||balance.computedSum||amount.computedProduct||
+        amount.computedRoundedProduct||amount.computedDiscountedTotal||amount.computedSum||
+        !reference||reference.reference?.target!==wallet.name||!reference.required||reference.nullable||
+        !requestReference||requestReference.optional||typeOfField(requestReference)?.type!=="string"||
+        !requestAmount||requestAmount.optional||typeOfField(requestAmount)?.type!=="decimal"||
+        !requestId||requestId.optional||typeOfField(requestId)?.type!=="string"){
+        reject("invalid-exact-debit",op.name+" requires two required exact decimals with equal scale, positive debit, nonnegative balance, and a required parent FK",op);
+        continue;
+      }
+    }
     if (reservation) {
       if (kind !== "create" || f !== undefined || input !== undefined) {
         reject("reserve-behavior",op.name+" @reserve must annotate a create operation",op);
@@ -699,6 +728,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
          http.parameters.body !== undefined)) {
       reject("transition-http",op.name+" must POST without request body and return 200",op);continue;
     }
+    if (exactDebit && (!statuses.includes(400)||!statuses.includes(409)||
+        http.parameters.body?.bodyKind!=="single")){
+      reject("exact-debit-http",op.name+" requires POST create with 201/400/409 and typed body",op);continue;
+    }
     if (reservation && (!statuses.includes(400) || !statuses.includes(409) ||
          http.parameters.body?.bodyKind!=="single")) {
       reject("reserve-http",op.name+" requires POST body with declared 201, 400 and 409 responses",op);
@@ -860,6 +893,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
           quantityField:String(aggregate.quantityField),
           stateField:String(aggregate.stateField),
           activeState:String(aggregate.activeState)
+        }} : {}),
+        ...(exactDebit ? {debitExact:{
+          stockEntity:String(exactDebit.stockEntity),
+          availableField:String(exactDebit.availableField),
+          referenceField:String(exactDebit.referenceField),
+          quantityField:String(exactDebit.quantityField)
         }} : {}),
         ...(reservation ? {reserve:{
           stockEntity:String(reservation.stockEntity),

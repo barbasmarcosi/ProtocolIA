@@ -35,6 +35,9 @@ namespace ProtocolIA.Domain {
   extern dec exactDecimal(target: ModelProperty, precision: valueof int32, scale: valueof int32,
     min?: valueof string, max?: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
+  // Exact-decimal balance decrement and ledger row insert in one local transaction.
+  extern dec debitExact(target: Operation, balanceEntity: valueof string,
+    availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
   extern dec release(target: Operation, stockEntity: valueof string,
