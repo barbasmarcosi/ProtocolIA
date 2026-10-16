@@ -231,6 +231,28 @@ try{
  assert.equal((await req(path,{method:"POST",body:forgedRound})).status,400,
    "Computed rounded monetary value must be read-only over HTTP");
  assert.equal((await req(path+"/"+forgedRound.serial)).status,404);
+ const forbiddenTotal={...payload,serial:token+"-forged-net",discountedTotal:"0.00"};
+ assert.equal((await req(path,{method:"POST",body:forbiddenTotal})).status,400,
+   "Derived discounted amounts must not be writable via HTTP");
+ assert.equal((await req(path+"/"+forbiddenTotal.serial)).status,404);
+ for(const [price,discount,expected,suffix] of [
+   ["1.0050","0.00","1.01","undiscounted-tie"],
+   ["1.0100","50.00","0.51","discounted-tie"],
+   ["100.0000","12.50","87.50","discounted-fraction"],
+   ["500.0000","100.00","0.00","discounted-full"],
+   ["0.0000","0.00","0.00","discounted-zero"]
+ ]){
+   const row={...payload,serial:token+"-"+suffix,unitRate:price,
+     batchUnits:"1.000",discountPercent:discount};
+   assert.equal((await req(path,{method:"POST",body:row})).status,201,suffix);
+   assert.equal((await req(path+"/"+row.serial)).body.discountedTotal,expected,
+     "Exact PostgreSQL discounted total: "+suffix);
+ }
+ for(const [discountPercent,suffix] of [["100.01","above100"],["-0.01","negative"],[50,"numeric"]]){
+   const row={...payload,serial:token+"-discount-"+suffix,discountPercent};
+   assert.equal((await req(path,{method:"POST",body:row})).status,400,suffix);
+   assert.equal((await req(path+"/"+row.serial)).status,404);
+ }
  for(const [unitRate,expected,suffix] of [
    ["1.0050","1.01","tie"],["1.0049","1.00","below"],
    ["1.0150","1.02","second-tie"],["0.0000","0.00","zero"]
