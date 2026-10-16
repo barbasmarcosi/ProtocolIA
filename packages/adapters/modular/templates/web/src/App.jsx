@@ -7,7 +7,7 @@ import PagedReferencePicker from "./PagedReferencePicker.jsx";
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
 }
-const fieldWords={badge:"legajo",volunteer:"personal",period:"período",incident:"emergencias",mandatory:"asistencia",guard:"guardia",internal:"orden interno",other:"adicionales",base:"base",points:"puntos",status:"estado",number:"número",name:"nombre",code:"código",section:"sección",rank:"rango",leave:"licencia",kind:"tipo",days:"días",notes:"observaciones",evaluation:"evaluación",monthly:"mensual",created:"creado",updated:"actualizado"};
+const fieldWords={badge:"legajo",volunteer:"personal",period:"período",incident:"emergencias",mandatory:"asistencia",guard:"guardia",internal:"orden interno",other:"adicionales",base:"base",points:"puntos",status:"estado",number:"número",name:"nombre",code:"código",section:"sección",rank:"rango",leave:"licencia",kind:"tipo",days:"días",units:"unidades",available:"disponible",sku:"SKU",notes:"observaciones",evaluation:"evaluación",monthly:"mensual",created:"creado",updated:"actualizado"};
 function label(field){
   if(field.uiLabel)return field.uiLabel;
   if(field.label)return field.label;
@@ -33,7 +33,7 @@ function visibleColumns(entity){
 }
 function cellText(value){
   if(value===null||value===undefined||value==="")return "Sin dato";
-  const states={draft:"Borrador",closed:"Cerrado"};
+  const states={draft:"Borrador",closed:"Cerrado",active:"Activo",cancelled:"Cancelado"};
   return states[String(value)]??String(value);
 }
 function relationshipName(field,value,referenceOptions){
