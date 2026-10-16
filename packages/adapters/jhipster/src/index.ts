@@ -16,6 +16,8 @@ export interface IrField {
   pattern?: string;
   /** Source-declared TypeSpec string enum values and display labels; not arbitrary UI hints. */
   choices?: Array<{value:string;label:string}>;
+  /** A sibling enum and value that conditionally require this otherwise-optional field. */
+  requiredWhen?: {field:string;equals:string};
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
   computedSum?: string[];
