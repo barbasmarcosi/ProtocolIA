@@ -46,7 +46,8 @@ async function readJson(url:string,init:RequestInit,limit=32768):Promise<any>{
 // inline style attributes. This is stricter than the previous API-only CSP.
 export function installBffSecurityHeaders(app:NestExpressApplication):void{
   if(process.env.PROTOCOLIA_BFF_ENABLED!=="true")return;
-  const https=process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP!=="true";
+  // Security follows the registered browser origin; mock IdP may use test HTTP.
+  const https=(process.env.PROTOCOLIA_OIDC_BFF_REDIRECT_URI??"").startsWith("https://");
   const csp=[
     "default-src 'self'","script-src 'self'","script-src-attr 'none'",
     "style-src 'self'","style-src-elem 'self'",
@@ -93,10 +94,11 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
     client=config.clientId as string;
   const jwks=process.env.PROTOCOLIA_JWT_JWKS_URI!;
   const trusted=createRemoteJWKSet(new URL(jwks),{timeoutDuration:5000,cacheMaxAge:60000});
-  const sidCookie=http?"pia_bff_dev":"__Host-pia_bff";
-  const txnCookie=http?"pia_login_dev":"__Host-pia_login";
+  const secureBrowser=callbackUri.protocol==="https:";
+  const sidCookie=secureBrowser?"__Host-pia_bff":"pia_bff_dev";
+  const txnCookie=secureBrowser?"__Host-pia_login":"pia_login_dev";
   const flags=(max:number)=>"Path=/; HttpOnly; SameSite=Lax; "+
-    (http?"":"Secure; ")+"Max-Age="+max;
+    (secureBrowser?"Secure; ":"")+"Max-Age="+max;
   const writeCookie=(res:any,name:string,value:string,max:number)=>
     res.append("Set-Cookie",name+"="+value+"; "+flags(max));
   const seal=(value:unknown):string=>{
