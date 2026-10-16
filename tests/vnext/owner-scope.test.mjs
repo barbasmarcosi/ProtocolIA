@@ -51,8 +51,8 @@ test("adversarial IR mutations cannot evade owner scope",()=>{
 });
 test("compilation refuses forgeable owner DTO and unsupported domain operations",()=>{
  const cases=[
-  ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NoteTitleUpdate',
-    '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NoteTitleUpdate'],
+  ['@maxLength(180) privateMemo?: string;\n  }\n  model NoteTitleUpdate',
+    '@maxLength(180) privateMemo?: string;\n    owner: string;\n  }\n  model NoteTitleUpdate'],
   ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NotePage',
     '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NotePage'],
   ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(20)'],

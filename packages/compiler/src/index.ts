@@ -390,6 +390,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       f.type!=="string"||f.required||f.nullable||f.reference||f.unique||f.initial!==undefined||
       f.choices||f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal||
       f.requiredWhen||f.forbidWhen||f.afterField||f.greaterThanField||
+      f.readCapability==="public"||
       !/^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/.test(f.readCapability??"")))
       reject("invalid-field-read-capability",m.name+" must use optional non-null scalar strings for sensitive owner fields",m);
     if(owners.length>1||owners.some(f=>f.name===identity.name||f.type!=="string"||!f.required||

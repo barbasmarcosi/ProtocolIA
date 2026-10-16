@@ -17,7 +17,7 @@ export function compileOwnerScopes(ir){
         f.type!=="string"||f.required||f.nullable||f.unique||f.reference||f.choices||
         f.initial!==undefined||f.computedSum||f.computedProduct||f.computedRoundedProduct||
         f.computedDiscountedTotal||f.requiredWhen||f.forbidWhen||f.afterField||f.greaterThanField||
-        typeof f.readCapability!=="string"||
+        typeof f.readCapability!=="string"||f.readCapability==="public"||
         !/^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/.test(f.readCapability)||
         caps.has(f.readCapability)||operations.some(o=>o.behavior.field===f.name)))
       throw Error("Invalid S1c field read scope "+entity.name);
