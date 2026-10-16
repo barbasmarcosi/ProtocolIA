@@ -152,7 +152,7 @@ function equalSecrets(a:string,b:string):boolean{
 class RuntimeService{
   private readonly pool:Pool;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
-  private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean};
+  private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean;requireIdToken?:boolean};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
   private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
   constructor(){
@@ -333,11 +333,18 @@ class RuntimeService{
       return url;
     };
     safe(authorizationEndpoint);safe(tokenEndpoint);safe(redirectUri,true);
+    const proofPolicy=process.env.PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED??"false";
+    if(!["true","false"].includes(proofPolicy))throw Error("Invalid OIDC ID token policy");
+    if(proofPolicy==="true"&&process.env.PROTOCOLIA_OIDC_DISCOVERY_REQUIRED!=="true")
+      throw Error("OIDC ID token proof requires strict issuer discovery");
     const scope=(process.env.PROTOCOLIA_OIDC_SCOPE??"openid profile").trim();
     if(!/^[A-Za-z0-9_.:-]+(?: [A-Za-z0-9_.:-]+){0,12}$/.test(scope)||
       !/^[A-Za-z0-9_.:-]{3,128}$/.test(clientId))throw Error("Invalid PKCE client or scope");
+    if(proofPolicy==="true"&&!scope.split(" ").includes("openid"))
+      throw Error("OIDC ID token proof requires openid scope");
     return {mode:"jwt",enabled:true,issuer:this.jwtConfig!.issuer,
-      authorizationEndpoint,tokenEndpoint,clientId,redirectUri,scope};
+      authorizationEndpoint,tokenEndpoint,clientId,redirectUri,scope,
+      requireIdToken:proofPolicy==="true"};
   }
   authConfig():typeof this.browserAuth{return this.browserAuth;}
   async login(req:any):Promise<{username:string;capabilities:string[]}>{
@@ -381,7 +388,42 @@ class RuntimeService{
       [...spec.readCapabilities].sort()};
   }
   async me(req:any,res:any):Promise<void>{
-    try{res.status(200).json(await this.login(req));}catch(e){sendProblem(res,e);}
+    try{
+      const session=await this.login(req);
+      if(this.browserAuth.requireIdToken){
+        const idToken=req.headers["x-protocolia-id-token"];
+        const nonce=req.headers["x-protocolia-oidc-nonce"];
+        if(typeof idToken!=="string"||idToken.length>16384||
+           typeof nonce!=="string"||!/^[A-Za-z0-9_-]{43,}$/.test(nonce))
+          throw new Problem(401,"OIDC identity proof required");
+        try{
+          const {payload,protectedHeader}=await jwtVerify(idToken,this.jwtConfig!.verify,{
+            issuer:this.jwtConfig!.issuer,audience:this.browserAuth.clientId!,
+            algorithms:["RS256"],requiredClaims:["exp","iat","sub"]
+          });
+          const audience=payload.aud;
+          const audiences=typeof audience==="string"?[audience]:audience;
+          // Constrain this profile to exactly the public SPA client_id as audience.
+          // Identity and authorized API grants remain separate.
+          if(protectedHeader.alg!=="RS256"||
+             !Array.isArray(audiences)||audiences.length!==1||
+             audiences[0]!==this.browserAuth.clientId||
+             (payload.azp!==undefined&&payload.azp!==this.browserAuth.clientId)||
+             payload.nonce!==nonce||payload.sub!==session.username||
+             typeof payload.iat!=="number"||
+             payload.iat<Math.floor(Date.now()/1000)-600||
+             payload.iat>Math.floor(Date.now()/1000)+60)
+            throw Error("Invalid OIDC ID token claims");
+          // Optional at_hash is mandatory to verify when provided in code-flow ID Tokens.
+          if(payload.at_hash!==undefined){
+            const accessToken=req.headers.authorization?.slice(7);
+            const hash=createHash("sha256").update(accessToken??"").digest().subarray(0,16).toString("base64url");
+            if(payload.at_hash!==hash)throw Error("Invalid ID token access-token binding");
+          }
+        }catch{throw new Problem(401,"Invalid OIDC identity proof");}
+      }
+      res.status(200).json(session);
+    }catch(e){sendProblem(res,e);}
   }
   private async inbox(e:Entity,op:Operation,req:any,subject:string):Promise<unknown>{
     const read=op.kind==="inboxPage",query=req.query??{};
