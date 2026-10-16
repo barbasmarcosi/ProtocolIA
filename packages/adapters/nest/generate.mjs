@@ -161,6 +161,13 @@ export function generate(ir,spec,out){
       const b=op.behavior,kind=b?.kind;
       if(!methods[kind]||op.method!==methods[kind]||!op.statuses?.includes(ok[kind]))
         throw Error("Verb/status mismatch "+op.name);
+      if(kind==="patchFields"&&e.uniqueTogether?.includes(b.field)){
+        const f=e.fields.find(x=>x.name===b.field);
+        if(!f||f.type!=="string"||!f.required||f.nullable||f.reference||
+           f.ownerManaged||f.initial!==undefined||b.input!==f.name||
+           ![400,404,409].every(status=>op.statuses.includes(status)))
+          throw Error("Unsafe compound-key PATCH "+op.name);
+      }
       const cap=kind==="health"?"public":
         ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
       const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
