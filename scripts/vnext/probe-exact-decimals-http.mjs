@@ -31,6 +31,8 @@ assert.ok(schema.includes("price_ceiling NUMERIC(24,4)")&&
   "Both backends must preserve exact decimal comparison in independent PostgreSQL CHECK constraints");
 assert.ok(schema.includes("extended_value NUMERIC(26,7) GENERATED ALWAYS AS (unit_rate * batch_units) STORED"),
   "Product value must be a real PostgreSQL generated column with exact base10 scale");
+assert.ok(schema.includes("rounded_total NUMERIC(22,2) GENERATED ALWAYS AS (round(unit_rate * batch_units, 2)) STORED"),
+  "Both adapters must emit authoritative exact half_up rounding");
 assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
@@ -215,14 +217,47 @@ try{
  assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
  assert.equal((await req(path+"/"+payload.serial)).body.extendedValue,
    "9999999912490000.0000875","Server result must remain exact beyond JS safe integer range");
+ assert.equal((await req(path+"/"+payload.serial)).body.roundedTotal,
+   "9999999912490000.00","Large rounded result retains full exact digits and cents");
  const forged={...payload,serial:token+"-forged",extendedValue:"0.0000000"};
  const forgedResponse=await req(path,{method:"POST",body:forged});
  assert.equal(forgedResponse.status,400,"Computed product cannot be submitted by a client");
  assert.equal((await req(path+"/"+forged.serial)).status,404);
+ const forgedRound={...payload,serial:token+"-forged-round",roundedTotal:"0.00"};
+ assert.equal((await req(path,{method:"POST",body:forgedRound})).status,400,
+   "Computed rounded monetary value must be read-only over HTTP");
+ assert.equal((await req(path+"/"+forgedRound.serial)).status,404);
+ for(const [unitRate,expected,suffix] of [
+   ["1.0050","1.01","tie"],["1.0049","1.00","below"],
+   ["1.0150","1.02","second-tie"],["0.0000","0.00","zero"]
+ ]){
+   const record={...payload,serial:token+"-"+suffix,unitRate,batchUnits:"1.000"};
+   assert.equal((await req(path,{method:"POST",body:record})).status,201,suffix);
+   assert.equal((await req(path+"/"+record.serial)).body.roundedTotal,expected,
+     "PostgreSQL half_up "+suffix);
+ }
+ const directRound=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) "+
+   "VALUES ('"+token+"-sql-rounded','Direct SQL rounding',1,1.0000,1.000000,1.0050,1.000)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.equal(directRound.status,0,"Direct SQL inserts must compute rounded values");
+ assert.equal((await req(path+"/"+token+"-sql-rounded")).body.roundedTotal,"1.01");
+ const forgedSqlRound=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,rounded_total) "+
+   "VALUES ('"+token+"-sql-forged','Generated override',1,1.0000,1.000000,1.0050,1.000,0.00)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(forgedSqlRound.status,0,"Database must block overrides to generated rounded values");
+ assert.match((forgedSqlRound.stderr??"")+(forgedSqlRound.stdout??""),/generated column/i);
  const minimal={...payload,serial:token+"-small",unitRate:"0.0001",batchUnits:"0.001"};
  assert.equal((await req(path,{method:"POST",body:minimal})).status,201);
  assert.equal((await req(path+"/"+minimal.serial)).body.extendedValue,"0.0000001",
    "Exact scale 7 must persist the smallest representable multiplication");
+ assert.equal((await req(path+"/"+minimal.serial)).body.roundedTotal,"0.00",
+   "Half-up cent rounding is explicit and must not preserve sub-cent amounts");
  assert.equal((await req(path,{method:"POST",body:{...payload,serial:token+"-no-choice",quality:undefined}})).status,201);
  assert.equal((await req(path,{method:"POST",body:payload})).status,409);
  if(process.argv.includes("--browser")){
@@ -246,6 +281,8 @@ try{
    await form.getByTestId("create-quantity").fill("0.000001");
    assert.equal(await form.getByTestId("create-extendedValue").count(),0,
      "Generated exact product is read-only and never editable in React");
+   assert.equal(await form.getByTestId("create-roundedTotal").count(),0,
+     "Rounded total must not be editable from the generated React UI");
    await form.getByTestId("create-unitRate").fill("99999999.9999");
    await form.getByTestId("create-batchUnits").fill("99999999.125");
    await form.getByTestId("create-priceCeiling").fill("9007199254740993.1234");
@@ -276,6 +313,8 @@ try{
    assert.equal(stored.body.unitPrice,"9007199254740993.1234","UI persists exact decimal string");
    assert.equal(stored.body.extendedValue,"9999999912490000.0000875",
      "React submission never computes or rounds the PostgreSQL-generated product");
+   assert.equal(stored.body.roundedTotal,"9999999912490000.00",
+     "PostgreSQL returns a correctly rounded amount from browser-created operands");
    assert.equal(stored.body.priceCeiling,"9007199254740993.1235","UI keeps high-precision cross-field ordering");
    assert.equal(stored.body.quantityLimit,"0.0001","UI keeps mixed-scale exact decimal ordering");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
