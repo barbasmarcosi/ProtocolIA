@@ -368,6 +368,24 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("identity",m.name+" public key must be unique, non-null and required",m);
       continue;
     }
+    const together=metadata(p,"uniqueTogether",m);
+    let uniqueTogether: string[]|undefined;
+    if(together){
+      const raw=together.fields;
+      const parts=typeof raw==="string"?raw.split(",").map(x=>x.trim()):[];
+      const selected=parts.map(name=>fields.find(f=>f.name===name));
+      if(parts.length<2||parts.length>4||
+         parts.some(name=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(name))||
+         new Set(parts).size!==parts.length||
+         selected.some(f=>!f||!f.required||f.nullable||f.unique||
+           f.name===publicKeys[0]||f.computedSum||f.computedProduct||
+           f.computedRoundedProduct||f.computedDiscountedTotal||
+           f.initial!==undefined||f.requiredWhen||f.forbidWhen||
+           f.readCapability)){
+        reject("invalid-unique-together",m.name+
+          " @uniqueTogether requires 2..4 distinct, required, non-null, independent persisted fields",m);
+      }else uniqueTogether=parts;
+    }
     const alert=metadata(p,"overdueAlert",m);
     if(alert){
       const due=fields.find(f=>f.name===alert.dueField);
@@ -400,6 +418,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("invalid-owner-identity",m.name+" requires one dedicated required string owner field with maxLength >= 128",m);
     entities.push({
       name:m.name,publicIdentity:identity.name,fields,
+      ...(uniqueTogether?{uniqueTogether}:{}),
       ...(metadata(p,"recipientIdentity",m)?{recipientIdentity:true}:{}),
       ...(metadata(p,"view",m)?.label !== undefined ? {view:String(metadata(p,"view",m)?.label)} : {}),
       ...(alert ? {overdueAlert:{
