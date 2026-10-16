@@ -192,6 +192,47 @@ function LoadingIndicator({message,compact=false}){
     <span>{message}</span>
   </span>;
 }
+// One contract-generated read-only metric, not a hand-authored page or client-side sum.
+function RelatedSumPanel({operation,identity,auth,child,revision=0}){
+  const [revisionLocal,setRevisionLocal]=useState(0);
+  const [state,setState]=useState({loading:true,value:null,error:""});
+  const childName=child.view||label({name:child.entity.name});
+  const quantity=child.entity.fields.find(f=>f.name===operation.behavior.relatedSum.quantityField);
+  const title="Total activo · "+childName;
+  useEffect(()=>{
+    const controller=new AbortController();
+    setState({loading:true,value:null,error:""});
+    fetch(route(operation,identity),{
+      headers:{Authorization:"Basic "+auth},signal:controller.signal
+    }).then(async res=>{
+      if(!res.ok)throw Error(res.status===403?"Sin permiso para consultar el resumen.":
+        res.status===404?"El registro ya no existe.":"No se pudo cargar el resumen.");
+      const payload=await res.json();
+      if(!payload||typeof payload.totalUnits!=="string"||
+        !/^\\d{1,19}$/.test(payload.totalUnits))
+        throw Error("El servicio devolvió un total inválido.");
+      return BigInt(payload.totalUnits).toLocaleString("es-AR");
+    }).then(value=>{if(!controller.signal.aborted)setState({loading:false,value,error:""});})
+      .catch(error=>{
+        if(!controller.signal.aborted)setState({loading:false,value:null,error:error.message});
+      });
+    return ()=>controller.abort();
+  },[operation,identity,auth,revision,revisionLocal]);
+  return <section className="related-summary" data-testid="related-sum-panel"
+    aria-label={title}>
+    <div className="related-summary-head">
+      <div><h3>{title}</h3>
+        <p className="related-summary-hint">Suma de {quantity?fieldLabel(quantity).toLowerCase():"cantidades"} con estado {cellText(operation.behavior.relatedSum.activeState).toLowerCase()}.</p>
+      </div>
+      <button type="button" className="ghost" data-testid="related-sum-refresh"
+        disabled={state.loading} onClick={()=>setRevisionLocal(x=>x+1)}>Actualizar total</button>
+    </div>
+    {state.loading?<div className="related-summary-loading"><LoadingIndicator compact message="Calculando total…"/></div>:
+      state.error?<p role="alert" className="message error" data-testid="related-sum-error">{state.error}</p>:
+      <div className="related-summary-value" role="status" aria-live="polite"
+        data-testid="related-sum-value">{state.value}</div>}
+  </section>;
+}
 function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError,auth,onReferenceResolve,required=field.required,conditionallyRequired=false}){
   const fieldId=React.useId();
   const descriptionIds=[field.uiHelp?fieldId+"-hint":null,validationError?fieldId+"-error":null].filter(Boolean).join(" ")||undefined;
@@ -346,6 +387,7 @@ export default function App(){
   const discardReturnFocus=useRef(null);
   const continueDraftButton=useRef(null);
   const listHeading=useRef(null);
+  const [summaryRevision,setSummaryRevision]=useState(0);
   const [auditItems,setAuditItems]=useState([]);
   const [auditTotal,setAuditTotal]=useState(0);
   const [auditOffset,setAuditOffset]=useState(0);
@@ -380,6 +422,12 @@ export default function App(){
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
   const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
+  const relatedSum=operations.sumRelated;
+  const relatedSumChild=relatedSum?.behavior?.relatedSum?
+    config?.resources?.find(r=>r.entity.name===relatedSum.behavior.relatedSum.childEntity):null;
+  const canReadRelatedSum=Boolean(relatedSum&&relatedSumChild&&
+    capabilities.includes(relatedSum.capability)&&
+    capabilities.includes(relatedSumChild.operations?.get?.capability));
   // Generic draft baseline is built from the formal field manifest.
   const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
     if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
@@ -667,6 +715,7 @@ export default function App(){
     setError("");setNotice("");setLoading(true);
     try{
       const data=await request(kind,params);
+      setSummaryRevision(x=>x+1);
       if(kind==="delete"||kind==="create"){setDetailOpen(false);setSelected(null);}
       else if(data?.[active.entity.publicIdentity]){
         setSelected(data);
@@ -853,6 +902,13 @@ export default function App(){
             <div className="modal-scroll">
             {error&&<p className="message error" role="alert">{error}</p>}
             {notice&&<p className="message" role="status">{notice}</p>}
+        {canReadRelatedSum&&<RelatedSumPanel
+          key={active.entity.name+":"+selected[active.entity.publicIdentity]}
+          operation={relatedSum}
+          identity={selected[active.entity.publicIdentity]}
+          auth={auth}
+          child={relatedSumChild}
+          revision={summaryRevision}/>}
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         </div>

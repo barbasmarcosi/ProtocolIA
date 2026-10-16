@@ -389,3 +389,27 @@ button.discard-button:hover:not(:disabled){background:#79262a}
     border-top:1px solid var(--line);padding:12px 0 0;background:var(--surface);
   }
 }
+
+/* B2.4b: contract-generated active-related aggregate in every supported detail dialog. */
+.related-summary{
+  margin:0 0 24px;padding:20px 22px 21px;
+  border:1px solid #d6e4f7;border-radius:15px;
+  background:linear-gradient(125deg,#f1f6ff,#fbfcff 68%);
+  box-shadow:0 5px 18px rgba(35,73,122,.055);
+}
+.related-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.modal-scroll .related-summary h3{margin:0;font-size:.97rem;font-weight:760;
+  letter-spacing:-.012em;line-height:1.4;color:#284c7e}
+.related-summary-hint{font-size:.79rem;line-height:1.5;margin:5px 0 0;color:#627790}
+.related-summary-head button{white-space:nowrap;flex:none;min-height:36px;padding:7px 11px;font-size:.82rem}
+.related-summary-value{font-size:clamp(1.9rem,4vw,2.6rem);font-weight:780;letter-spacing:-.05em;
+  font-variant-numeric:tabular-nums;line-height:1.1;color:#142b50;margin-top:13px;overflow-wrap:anywhere}
+.related-summary-loading{min-height:50px;display:flex;align-items:center;margin-top:9px}
+.related-summary [role="alert"]{margin:13px 0 0}
+@media(max-width:700px){
+  .related-summary{margin-bottom:21px;padding:16px 17px}
+  .related-summary-head{gap:10px}
+  .related-summary-head button{padding:6px 9px;min-height:36px}
+  .related-summary-value{margin-top:11px}
+}
+@media(prefers-reduced-motion:reduce){.related-summary{scroll-behavior:auto}}
