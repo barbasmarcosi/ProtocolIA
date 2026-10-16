@@ -1,6 +1,6 @@
 # B2.4b — Panel de agregado relacionado autogenerado
 
-**Estado de validación:** pendiente de los gates en CI para el código funcional `3c47971f06ccdb67d248480be5d256d31b1a7586`.
+**Estado de validación: PASS acotado.** Código funcional `b4d9d6249849a51af60a86c1d320d3beff29a759` (16-10-2026 UTC). [Conformance NestJS/Spring/PostgreSQL/Chromium #38857062269](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38857062269) y [quality #38857062188](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38857062188), ambas `success`. Capturas de escritorio y móvil preservadas como artefactos por backend en el run. Inspección visual: panel legible, jerarquía correcta, sin recorte lateral ni superposición; revisión y traducción de etiquetas `units`/`active`. **Regresión independiente de Bomberos pendiente del fast-forward de integración.**
 
 ## Alcance
 
