@@ -9,6 +9,7 @@ import {compileRelatedSums} from "../related-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
+import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -53,6 +54,7 @@ export function generate(ir, openapi, outDir) {
     name(e.name);
     if(entityMap.has(e.name)||tableNames.has(snake(e.name)))
       throw Error("Duplicate entity or SQL table identifier");
+    uniqueTogetherSql(e); // Reject malformed or unsupported IR before any output.
     entityMap.set(e.name,e);
     tableNames.add(snake(e.name));
     const identity=e.fields.find(f=>f.name===e.publicIdentity);
@@ -479,7 +481,7 @@ export function generate(ir, openapi, outDir) {
       return "  CONSTRAINT ck_gt_"+table+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared].join(",\n")+"\n);");
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;
