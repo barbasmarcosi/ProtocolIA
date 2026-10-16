@@ -47,6 +47,7 @@ public class BffSession {
   private final SecretKeySpec key;
   private final SecureRandom random=new SecureRandom();
   private final boolean testHttp;
+  private final boolean secureBrowser;
   private final String origin;
   private final String sidCookie;
   record Session(String sid,String csrf,String access,Instant expires,Jwt jwt) {}
@@ -82,7 +83,8 @@ public class BffSession {
         (!"https".equals(uri.getScheme())&&!(testHttp&&"http".equals(uri.getScheme()))))
       throw new IllegalStateException("Invalid registered BFF callback");
     this.origin=uri.getScheme()+"://"+uri.getAuthority();
-    this.sidCookie=testHttp?"pia_bff_dev":"__Host-pia_bff";
+    this.secureBrowser="https".equals(uri.getScheme());
+    this.sidCookie=secureBrowser?"__Host-pia_bff":"pia_bff_dev";
     if(!Boolean.TRUE.equals(SecurityConfig.browserAuthConfig().get("requireIdToken")))
       throw new IllegalStateException("BFF requires verified OIDC identity");
     // Versioned Flyway V2 owns the schema; no runtime DDL from application code.
@@ -125,7 +127,7 @@ public class BffSession {
   }
   private void setCookie(HttpServletResponse res,String name,String value,long seconds){
     res.addHeader("Set-Cookie",name+"="+value+"; Path=/; HttpOnly; SameSite=Lax; "+
-      (testHttp?"":"Secure; ")+"Max-Age="+Math.max(0,seconds));
+      (secureBrowser?"Secure; ":"")+"Max-Age="+Math.max(0,seconds));
   }
   private void noStore(HttpServletResponse res){
     res.setHeader("Cache-Control","no-store");
