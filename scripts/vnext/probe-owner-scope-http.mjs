@@ -59,6 +59,7 @@ try{
   return {status:response.status,body:data};
  }
  const id=token+"-manager",readerId=token+"-reader",unknown=token+"-unknown";
+ const change=(code,body,who="manager")=>req("/api/notes/"+code+"/title",{method:"PATCH",body,who});
  assert.equal((await req("/api/notes",{who:null})).status,401);
  assert.equal((await req("/api/notes/"+id,{who:null})).status,401);
  assert.equal((await req("/api/notes",{method:"POST",who:"reader",body:{noteCode:unknown,title:"not allowed"}})).status,403);
@@ -71,6 +72,15 @@ try{
  assert.equal((await req("/api/notes",{method:"POST",body:{noteCode:id,title:"duplicate"}})).status,409);
  assert.equal((await req("/api/notes/"+id)).status,200);
  assert.equal((await req("/api/notes/"+id,{who:"reader"})).status,404,"Foreign row indistinguishable from missing");
+ assert.equal((await change(id,{title:"reader cannot edit"},"reader")).status,403);
+ assert.equal((await change(id,{owner:reader})).status,400);
+ assert.equal((await change(id,{title:"New title",owner:reader})).status,400);
+ assert.equal((await change(id,{title:""})).status,400);
+ assert.equal((await change(unknown,{title:"New title"})).status,404);
+ const changed=await change(id,{title:"Private and edited"});
+ assert.equal(changed.status,200,JSON.stringify(changed));
+ assert.equal(changed.body.title,"Private and edited");
+ assert.equal(changed.body.owner,manager);
  let page=await req("/api/notes?limit=25&offset=0");
  assert.equal(page.status,200);
  assert.equal(page.body.total,1);
@@ -85,6 +95,10 @@ try{
   "INSERT INTO private_note (note_code, owner, title) VALUES ('"+readerId+"','"+reader+"','Reader private')"],15000);
  assert.equal((await req("/api/notes/"+readerId,{who:"reader"})).status,200);
  assert.equal((await req("/api/notes/"+readerId)).status,404,"Manager must not bypass row ownership");
+ assert.equal((await change(readerId,{title:"Must not change foreign title"})).status,404,
+   "Even a manager with write capability cannot update a foreign row");
+ assert.equal((await req("/api/notes/"+readerId,{who:"reader"})).body.title,"Reader private");
+ assert.equal((await change(readerId,{title:"Reader cannot patch"},"reader")).status,403);
  const readerPage=await req("/api/notes?limit=25&offset=0",{who:"reader"});
  assert.equal(readerPage.body.total,1);
  assert.deepEqual(readerPage.body.items.map(x=>x.noteCode),[readerId]);
@@ -112,6 +126,15 @@ try{
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    assert.equal((await req("/api/notes/"+token+"-mobile")).body.owner,manager);
    assert.equal((await req("/api/notes/"+token+"-mobile",{who:"reader"})).status,404);
+   await page.getByTestId("open-detail-"+token+"-mobile").click();
+   await page.getByTestId("rename").fill("Mobile edited");
+   await page.getByRole("button",{name:"Guardar cambios"}).click();
+   const end=Date.now()+12000;let reflected=false;
+   while(Date.now()<end){
+     if((await req("/api/notes/"+token+"-mobile")).body.title==="Mobile edited"){reflected=true;break;}
+     await page.waitForTimeout(250);
+   }
+   assert.ok(reflected,"Generated mobile PATCH must respect independent field capability");
    assert.equal(errors.length,0,errors.join("; "));
    await page.screenshot({path:join(generated,"s1-owner-mobile.png"),fullPage:true});
   }finally{await browser.close();}
@@ -124,7 +147,7 @@ try{
   await new Promise(r=>setTimeout(r,1000));
  }
  assert.ok(persisted,"Ownership must persist after restart");
- console.log("PROTOCOLIA_S1A_OWNER_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,dualSubjects:true,persistent:true,mobile:process.argv.includes("--browser")}));
+ console.log("PROTOCOLIA_S1B_OWNER_FIELD_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,independentWriteCapability:true,fieldAllowlist:true,foreignWrites404:true,dualSubjects:true,persistent:true,mobile:process.argv.includes("--browser")}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}catch(error){console.error(error.message);process.exitCode=1;}
  rmSync(work,{recursive:true,force:true});

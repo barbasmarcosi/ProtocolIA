@@ -18,6 +18,9 @@ namespace PrivateNotes {
     @minLength(1) @maxLength(40) noteCode: string;
     @minLength(1) @maxLength(90) title: string;
   }
+  model NoteTitleUpdate {
+    @minLength(1) @maxLength(90) title: string;
+  }
   model NotePage {
     items: PrivateNote[];
     @minValue(1) @maxValue(50) limit: int32;
@@ -41,6 +44,10 @@ namespace PrivateNotes {
     @query @minValue(1) @maxValue(50) limit?: int32 = 25,
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0):
     NotePage | BadRequest | Unauthorized | Forbidden;
+  @route("/api/notes/{noteCode}/title") @patch
+  @behavior("patchFields","PrivateNote","title","title") @capability("notes.title.write")
+  op updateNoteTitle(@path noteCode: string, @body input: NoteTitleUpdate):
+    PrivateNote | BadRequest | NotFound | Unauthorized | Forbidden;
   @route("/health") @get @behavior("health","PrivateNote") @capability("public")
   op health(): Health;
 }

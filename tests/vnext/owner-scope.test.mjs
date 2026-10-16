@@ -7,12 +7,15 @@ import {compileOwnerScopes} from "../../packages/adapters/owner-scope.mjs";
 const root="examples/vnext/owner-scope";
 const source=readFileSync(join(root,"contracts/main.tsp"),"utf8");
 const ir=JSON.parse(readFileSync(join(root,"tsp-output/@protocolia/compiler/ir.json"),"utf8"));
-test("S1a scope maps server-managed field and isolated operations",()=>{
+test("S1b owner scope binds the single editable field to a separate capability",()=>{
  const e=ir.entities.find(x=>x.name==="PrivateNote");
  assert.equal(e.fields.filter(f=>f.ownerManaged).length,1);
  assert.equal(e.fields.find(f=>f.ownerManaged).name,"owner");
  assert.deepEqual(compileOwnerScopes(ir).get("PrivateNote"),{field:"owner",column:"owner"});
- assert.equal(ir.operations.filter(o=>o.entity==="PrivateNote").length,4); // includes public health
+ assert.equal(ir.operations.filter(o=>o.entity==="PrivateNote").length,5); // includes public health
+ const patch=ir.operations.find(o=>o.name==="updateNoteTitle");
+ assert.deepEqual([patch.behavior.field,patch.behavior.input,patch.capability],["title","title","notes.title.write"]);
+ assert.notEqual(patch.capability,ir.operations.find(o=>o.name==="createNote").capability);
 });
 test("adversarial IR mutations cannot evade owner scope",()=>{
  const mutations=[
@@ -23,6 +26,11 @@ test("adversarial IR mutations cannot evade owner scope",()=>{
   ir=>{ir.operations.find(o=>o.name==="getNote").capability="public";},
   ir=>{ir.operations.find(o=>o.name==="listNotes").behavior.kind="queryPage";},
   ir=>{ir.operations.push({...ir.operations.find(o=>o.name==="listNotes"),name:"rogue",behavior:{kind:"delete"}});},
+  ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.field="owner";},
+  ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").capability="notes.write";},
+  ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").capability="notes.read";},
+  ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.input="owner";},
+  ir=>{ir.operations.push({...ir.operations.find(o=>o.name==="updateNoteTitle"),name:"secondPatch"});},
   ir=>{ir.entities[0].fields.find(f=>f.name==="title").reference={target:"PrivateNote",onDelete:"restrict"};}
  ];
  for(const mutate of mutations){const copy=structuredClone(ir);mutate(copy);
@@ -34,7 +42,10 @@ test("compilation refuses forgeable owner DTO and unsupported domain operations"
   ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NotePage',
     '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NotePage'],
   ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(20)'],
-  ['@behavior("listPage","PrivateNote")','@behavior("queryPage","PrivateNote")']
+  ['@behavior("listPage","PrivateNote")','@behavior("queryPage","PrivateNote")'],
+  ['@behavior("patchFields","PrivateNote","title","title")','@behavior("patchFields","PrivateNote","owner","owner")'],
+  ['@capability("notes.title.write")','@capability("notes.write")'],
+  ['@behavior("patchFields","PrivateNote","title","title")','@behavior("patchFields","PrivateNote","noteCode","noteCode")']
  ];
  for(const [from,to] of cases){
   const folder=mkdtempSync(join("examples/vnext",".owner-negative-"));

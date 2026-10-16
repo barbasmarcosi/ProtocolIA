@@ -277,6 +277,18 @@ async function runOwnerScope(){
   assert.deepEqual(foreign.data.items,[]);
   assert.deepEqual(own.data.items.map(x=>x[id]),[publicKey]);
   assert.equal((await req("listPage",null,{query:{limit:25,offset:0}})).status,401);
+  if(operations.patchFields){
+    const op=operations.patchFields,field=op.behavior.field;
+    assert.notEqual(op.capability,operations.create.capability,"Field write needs independent authority");
+    assert.ok(session.capabilities.includes(op.capability),"Manager requires field write grant");
+    assert.equal((await req("patchFields",reader,{key:publicKey,body:{[field]:"Reader attempt"}})).status,403);
+    assert.equal((await req("patchFields",writer,{key:publicKey,body:{owner:readerName}})).status,400);
+    const change=await req("patchFields",writer,{key:publicKey,body:{[field]:"Edited by owner"}});
+    assert.equal(change.status,200,JSON.stringify(change.data));
+    assert.equal(change.data[field],"Edited by owner");
+    assert.equal((await req("get",writer,{key:publicKey})).data[field],"Edited by owner");
+    assert.equal((await req("patchFields",writer,{key:"absent-"+uuid,body:{[field]:"Other"}})).status,404);
+  }
   console.log("PROTOCOLIA_OWNER_SCOPE_CONFORMANCE_PASS "+JSON.stringify({entity:entity.name,owner:owner.name,isolated:true}));
 }
 async function main(){
