@@ -11,8 +11,8 @@ const generated=resolve(process.argv[2]??"");
 assert.ok(process.argv[2],"Provide generated app directory");
 const token=randomBytes(5).toString("hex"),project="s1a_owner_"+token;
 const work=mkdtempSync(join(tmpdir(),"protocolia-s1-owner-"));
-const manager="scope_manager",reader="scope_reader";
-const pw=randomBytes(18).toString("hex"),rp=randomBytes(18).toString("hex");
+const manager="scope_manager",reader="scope_reader",scoped="scope_private_reader";
+const pw=randomBytes(18).toString("hex"),rp=randomBytes(18).toString("hex"),sp=randomBytes(18).toString("hex");
 const basic=(u,p)=>"Basic "+Buffer.from(u+":"+p).toString("base64");
 const schemaPath=join(generated,"src/schema.sql");
 const migrationPath=join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql");
@@ -38,6 +38,9 @@ try{
   "PROTOCOLIA_MANAGER_PASSWORD="+pw,
   "PROTOCOLIA_READER_USERNAME="+reader,
   "PROTOCOLIA_READER_PASSWORD="+rp,
+  "PROTOCOLIA_SCOPED_USERNAME="+scoped,
+  "PROTOCOLIA_SCOPED_PASSWORD="+sp,
+  "PROTOCOLIA_SCOPED_CAPABILITIES=notes.read,notes.private.read",
   "PROTOCOLIA_HOST_PORT="+hostPort
  ].join("\n")+"\n",{mode:0o600});
  args=["compose","--project-name",project,"--env-file",env];
@@ -52,13 +55,14 @@ try{
  assert.ok(ready,"Generated app failed to become healthy");
  async function req(path,{method="GET",body,who="manager"}={}){
   const response=await fetch(base+path,{method,headers:{
-   ...(who==="manager"?{Authorization:basic(manager,pw)}:who==="reader"?{Authorization:basic(reader,rp)}:{}),
+   ...(who==="manager"?{Authorization:basic(manager,pw)}:who==="reader"?{Authorization:basic(reader,rp)}:
+      who==="scoped"?{Authorization:basic(scoped,sp)}:{}),
    ...(body===undefined?{}:{"Content-Type":"application/json"})
   },...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(15000)});
   const raw=await response.text();let data;try{data=JSON.parse(raw)}catch{data=raw}
   return {status:response.status,body:data};
  }
- const id=token+"-manager",readerId=token+"-reader",unknown=token+"-unknown";
+ const id=token+"-manager",readerId=token+"-reader",scopedId=token+"-scoped",unknown=token+"-unknown";
  const change=(code,body,who="manager")=>req("/api/notes/"+code+"/title",{method:"PATCH",body,who});
  assert.equal((await req("/api/notes",{who:null})).status,401);
  assert.equal((await req("/api/notes/"+id,{who:null})).status,401);
@@ -75,6 +79,14 @@ try{
  assert.ok(managerSession.body.capabilities.includes("notes.private.read"));
  assert.ok(!readerSession.body.capabilities.includes("notes.private.read"));
  assert.ok(readerSession.body.capabilities.includes("notes.read"));
+ const scopedSession=await req("/api/_protocolia/me",{who:"scoped"});
+ assert.equal(scopedSession.status,200);
+ assert.equal(scopedSession.body.username,scoped);
+ assert.deepEqual(scopedSession.body.capabilities,["notes.private.read","notes.read"]);
+ assert.equal((await req("/api/_protocolia/me?capabilities=notes.write",{who:"scoped"})).body.capabilities.length,2);
+ assert.equal((await req("/api/notes",{method:"POST",who:"scoped",
+   body:{noteCode:unknown,title:"Forged privilege"}})).status,403);
+ assert.equal((await req("/api/notes/"+id,{who:"scoped"})).status,404);
  assert.equal((await req("/api/notes",{method:"POST",body:{noteCode:id,title:"duplicate"}})).status,409);
  assert.equal((await req("/api/notes/"+id)).status,200);
  assert.equal((await req("/api/notes/"+id,{who:"reader"})).status,404,"Foreign row indistinguishable from missing");
@@ -109,6 +121,24 @@ try{
    "Even a manager with write capability cannot update a foreign row");
  assert.equal((await req("/api/notes/"+readerId,{who:"reader"})).body.title,"Reader private");
  assert.equal((await change(readerId,{title:"Reader cannot patch"},"reader")).status,403);
+ docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+  "INSERT INTO private_note (note_code, owner, title, private_memo) VALUES ('"+scopedId+"','"+scoped+"','Scoped own note','Scoped own secret')"],15000);
+ const scopedDetails=await req("/api/notes/"+scopedId,{who:"scoped"});
+ assert.equal(scopedDetails.status,200);
+ assert.equal(scopedDetails.body.privateMemo,"Scoped own secret");
+ assert.equal(scopedDetails.body.owner,scoped);
+ assert.equal((await req("/api/notes/"+scopedId,{who:"reader"})).status,404);
+ assert.equal((await req("/api/notes/"+scopedId)).status,404);
+ const scopedPage=await req("/api/notes?limit=25&offset=0",{who:"scoped"});
+ assert.equal(scopedPage.body.total,1);
+ assert.deepEqual(scopedPage.body.items.map(x=>x.noteCode),[scopedId]);
+ assert.equal(scopedPage.body.items[0].privateMemo,"Scoped own secret");
+ assert.equal((await change(scopedId,{title:"Cannot write despite read"},"scoped")).status,403);
+ assert.equal((await req("/api/notes/"+scopedId,{who:"scoped"})).body.title,"Scoped own note");
+ const forgedResponse=await fetch(base+"/api/notes/"+scopedId,{method:"PATCH",headers:{Authorization:basic(scoped,sp),
+   "X-ProtocolIA-Capabilities":"notes.write,notes.title.write", "Content-Type":"application/json"},
+   body:JSON.stringify({title:"Header forgery"}),signal:AbortSignal.timeout(15000)});
+ assert.equal(forgedResponse.status,403,"Client-selected authority header cannot escalate");
  const readerPage=await req("/api/notes?limit=25&offset=0",{who:"reader"});
  assert.equal(readerPage.body.total,1);
  assert.equal(Object.hasOwn(readerPage.body.items[0],"privateMemo"),false,"Paged content must also omit restricted field");
@@ -149,6 +179,17 @@ try{
      await page.waitForTimeout(250);
    }
    assert.ok(reflected,"Generated mobile PATCH must respect independent field capability");
+   const scopePage=await browser.newPage({viewport:{width:390,height:844},locale:"es-AR"});
+   try{
+     await scopePage.goto(base+"/",{waitUntil:"domcontentloaded"});
+     await scopePage.getByTestId("username").fill(scoped);
+     await scopePage.getByTestId("password").fill(sp);
+     await scopePage.getByRole("button",{name:"Entrar",exact:true}).click();
+     await scopePage.getByTestId("open-detail-"+scopedId).click();
+     await scopePage.getByTestId("detail-dialog").getByText("Scoped own secret").waitFor();
+     assert.equal(await scopePage.getByTestId("open-create").count(),0);
+     assert.equal(await scopePage.getByTestId("rename").count(),0);
+   }finally{await scopePage.close();}
    assert.equal(errors.length,0,errors.join("; "));
    await page.screenshot({path:join(generated,"s1-owner-mobile.png"),fullPage:true});
   }finally{await browser.close();}
@@ -161,7 +202,12 @@ try{
   await new Promise(r=>setTimeout(r,1000));
  }
  assert.ok(persisted,"Ownership must persist after restart");
- console.log("PROTOCOLIA_S1C_FIELD_READ_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,independentWriteCapability:true,fieldAllowlist:true,foreignWrites404:true,privateReadCapability:true,omittedInDetailAndPage:true,dualSubjects:true,persistent:true,mobile:process.argv.includes("--browser")}));
+ // Invalid test-only authority configuration must fail closed on startup.
+ const bad=spawnSync("docker",[...args,"run","--rm","--no-deps","-e","PROTOCOLIA_SCOPED_CAPABILITIES=notes.read,notes.nonexistent","app"],
+   {cwd:generated,encoding:"utf8",timeout:60000});
+ assert.notEqual(bad.status,0,"Unknown scoped capability must prevent app startup");
+ assert.match((bad.stdout??"")+"\n"+(bad.stderr??""),/Invalid scoped test authority allowlist/);
+ console.log("PROTOCOLIA_S1D_PARTIAL_AUTH_PASS "+JSON.stringify({creatorBound:true,noSpoof:true,foreignReads404:true,pagedTotalsScoped:true,independentWriteCapability:true,fieldAllowlist:true,foreignWrites404:true,privateReadCapability:true,omittedInDetailAndPage:true,thirdSubject:true,exactPartialGrants:true,unknownGrantFailsClosed:true,persistent:true,mobile:process.argv.includes("--browser")}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}catch(error){console.error(error.message);process.exitCode=1;}
  rmSync(work,{recursive:true,force:true});

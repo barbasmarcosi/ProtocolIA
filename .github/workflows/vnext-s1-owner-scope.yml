@@ -5,6 +5,7 @@ on:
       - feature/s1a-owner-scoped-records-20261016
       - feature/s1b-owner-field-write-20261016
       - feature/s1c-private-field-read-20261016
+      - feature/s1d-partial-authorities-20261016
     paths:
       - 'packages/**'
       - 'examples/vnext/owner-scope/**'
