@@ -113,9 +113,9 @@ try{
  // Reader has read-only demo role, so fixture seeds the second subject via local disposable DB.
  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
   "INSERT INTO private_note (note_code, owner, title, private_memo) VALUES ('"+readerId+"','"+reader+"','Reader private','Reader hidden secret')"],15000);
- const scoped=await req("/api/notes/"+readerId,{who:"reader"});
- assert.equal(scoped.status,200);
- assert.equal(Object.hasOwn(scoped.body,"privateMemo"),false,"Restricted field must be absent, not null");
+ const readerOwn=await req("/api/notes/"+readerId,{who:"reader"});
+ assert.equal(readerOwn.status,200);
+ assert.equal(Object.hasOwn(readerOwn.body,"privateMemo"),false,"Restricted field must be absent, not null");
  assert.equal((await req("/api/notes/"+readerId)).status,404,"Manager must not bypass row ownership");
  assert.equal((await change(readerId,{title:"Must not change foreign title"})).status,404,
    "Even a manager with write capability cannot update a foreign row");
