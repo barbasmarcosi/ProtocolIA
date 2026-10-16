@@ -6,6 +6,7 @@ on:
     paths:
       - 'packages/**'
       - 'scripts/vnext/probe-bff-browser-http.mjs'
+      - 'scripts/vnext/probe-bff-https-proxy.mjs'
       - '.github/workflows/vnext-s1-bff-https-csp.yml'
 permissions:
   contents: read
