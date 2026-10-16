@@ -42,6 +42,28 @@ async function readJson(url:string,init:RequestInit,limit=32768):Promise<any>{
   for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));
 }
+// Restrict scripts and network requests while permitting React's generated
+// inline style attributes. This is stricter than the previous API-only CSP.
+export function installBffSecurityHeaders(app:NestExpressApplication):void{
+  if(process.env.PROTOCOLIA_BFF_ENABLED!=="true")return;
+  const https=process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP!=="true";
+  const csp=[
+    "default-src 'self'","script-src 'self'","script-src-attr 'none'",
+    "style-src 'self'","style-src-elem 'self'",
+    "style-src-attr 'unsafe-inline'","img-src 'self' data:",
+    "font-src 'self' data:","connect-src 'self'","manifest-src 'self'",
+    "form-action 'self'","base-uri 'none'","object-src 'none'",
+    "frame-ancestors 'none'",...(https?["upgrade-insecure-requests"]:[ ])
+  ].join("; ");
+  app.use((_req:any,res:any,next:any)=>{
+    res.setHeader("Content-Security-Policy",csp);
+    res.setHeader("X-Content-Type-Options","nosniff");
+    res.setHeader("Referrer-Policy","no-referrer");
+    res.setHeader("X-Frame-Options","DENY");
+    if(https)res.setHeader("Strict-Transport-Security","max-age=31536000");
+    next();
+  });
+}
 export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Runtime):Promise<boolean>{
   const enabled=process.env.PROTOCOLIA_BFF_ENABLED??"false";
   if(!["true","false"].includes(enabled))throw Error("Invalid BFF policy");
@@ -109,12 +131,6 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
   void cleanup();
   setInterval(()=>{void cleanup();},cleanupMs).unref();
   const router=app.getHttpAdapter().getInstance();
-  router.use("/api",(req:any,res:any,next:any)=>{
-    res.set("X-Content-Type-Options","nosniff");
-    res.set("Referrer-Policy","no-referrer");
-    res.set("Content-Security-Policy","base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
-    next();
-  });
   const load=async(req:any):Promise<{sid:string;data:Stored;user:Identity}|null>=>{
     const sid=cookies(req)[sidCookie];
     if(typeof sid!=="string"||!/^[A-Za-z0-9_-]{43}$/.test(sid))return null;
