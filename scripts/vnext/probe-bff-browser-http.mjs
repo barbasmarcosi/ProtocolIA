@@ -10,6 +10,7 @@ import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 const generated=resolve(process.argv[2]??"");
 assert.ok(process.argv[2],"Generated app directory is required");
+const restartDuringOAuth=process.argv.includes("--restart-during-oauth");
 const project="s1bff_"+randomBytes(4).toString("hex");
 const temp=mkdtempSync(join(tmpdir(),"protocolia-bff-browser-"));
 const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
@@ -173,7 +174,37 @@ try{
   });
   await page.goto(base+"/",{waitUntil:"domcontentloaded"});
   await page.getByTestId("login-provider").waitFor({timeout:15000});
-  await page.getByTestId("login-provider").click();
+  if(restartDuringOAuth){
+    // Freeze only the browser's IdP hop. The BFF has already issued its
+    // PKCE authorization state and must commit JSESSIONID to PostgreSQL.
+    await page.route("**/authorize?*",async route=>{await route.abort("blockedbyclient");});
+    const intercepted=page.waitForRequest(r=>new URL(r.url()).pathname==="/authorize",{timeout:15000});
+    await page.getByTestId("login-provider").click({noWaitAfter:true});
+    const authorizationRequest=await intercepted;
+    const pendingCookies=await page.context().cookies(base);
+    assert.ok(pendingCookies.some(c=>c.name==="JSESSIONID"&&c.httpOnly),
+      "Spring OAuth transaction must issue a server-owned JSESSIONID");
+    const durableCount=Number(docker([...args,"exec","-T","db","psql",
+      "-U","protocolia","-d","protocolia","-Atc",
+      "SELECT COUNT(*) FROM SPRING_SESSION"],15000).trim());
+    assert.ok(durableCount>=1,"Authorization PKCE state must be stored in PostgreSQL");
+    docker([...args,"restart","app"],180000);
+    let restored=false;
+    const restartedUntil=Date.now()+90000;
+    while(Date.now()<restartedUntil){
+      try{
+        if((await fetch(base+"/health",{signal:AbortSignal.timeout(2000)})).status===200){
+          restored=true;break;
+        }
+      }catch{}
+      await new Promise(ok=>setTimeout(ok,850));
+    }
+    assert.ok(restored,"Spring backend must restart with existing PostgreSQL login state");
+    await page.unroute("**/authorize?*");
+    await page.goto(authorizationRequest.url(),{waitUntil:"domcontentloaded"});
+  }else{
+    await page.getByTestId("login-provider").click();
+  }
   try{await page.getByTestId("open-create").waitFor({timeout:15000});}
   catch(error){
     console.error("BFF_DIAGNOSTIC",JSON.stringify({
@@ -246,6 +277,7 @@ try{
  }finally{await browser.close();}
  console.log("PROTOCOLIA_S1D2G_NEST_BFF_PASS "+JSON.stringify({
    serverPkce:true,signedIdentity:true,encryptedDbSession:true,httpOnly:true,
+   oauthLoginRestartsAcrossSpringInstances:restartDuringOAuth,
    noBrowserBearer:true,csrf:true,originChecked:true,serverLogout:true,
    reloadRestoresSession:true,forgedCallbackDenied:true
  }));
