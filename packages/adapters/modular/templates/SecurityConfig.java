@@ -33,11 +33,34 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
+import org.springframework.web.filter.OncePerRequestFilter;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.FilterChain;
+import java.io.IOException;
 
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
   private static volatile Map<String,Object> cachedBrowserAuth;
+  static boolean bffEnabled(){
+    String flag=System.getenv().getOrDefault("PROTOCOLIA_BFF_ENABLED","false");
+    if(!flag.equals("true")&&!flag.equals("false"))
+      throw new IllegalStateException("Invalid BFF policy");
+    return flag.equals("true");
+  }
   private static volatile JwtDecoder identityDecoder;
   private static boolean discoveryRequired(){
     String policy=System.getenv().getOrDefault("PROTOCOLIA_OIDC_DISCOVERY_REQUIRED","false");
@@ -142,7 +165,7 @@ public class SecurityConfig {
       throw new IllegalStateException("OIDC provider does not advertise required PKCE/issuer response support");
   }
   static void verifyOidcIdentity(HttpServletRequest request,Authentication user){
-    if(!Boolean.TRUE.equals(browserAuthConfig().get("requireIdToken")))return;
+    if(bffEnabled()||!Boolean.TRUE.equals(browserAuthConfig().get("requireIdToken")))return;
     String idToken=request.getHeader("X-ProtocolIA-ID-Token");
     String nonce=request.getHeader("X-ProtocolIA-OIDC-Nonce");
     if(idToken==null||idToken.length()>16384||nonce==null||
@@ -273,16 +296,57 @@ public class SecurityConfig {
     return users;
   }
   @Bean
-  SecurityFilterChain security(HttpSecurity http) throws Exception {
+  @ConditionalOnProperty(name="PROTOCOLIA_BFF_ENABLED",havingValue="true")
+  ClientRegistrationRepository bffClientRegistration(){
+    Map<String,Object> config=browserAuthConfig();
+    if(!mode().equals("jwt")||
+       !"true".equals(System.getenv("PROTOCOLIA_OIDC_DISCOVERY_REQUIRED"))||
+       !"true".equals(System.getenv("PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED"))||
+       !Boolean.TRUE.equals(config.get("requireIssuerResponse"))||
+       !Boolean.TRUE.equals(config.get("requireIdToken")))
+      throw new IllegalStateException("BFF requires strict OIDC and signed ID Token policy");
+    String redirect=required("PROTOCOLIA_OIDC_BFF_REDIRECT_URI");
+    URI location=url(redirect,"BFF callback");
+    if(!"/api/_protocolia/bff/callback".equals(location.getRawPath())||
+       location.getRawQuery()!=null||location.getRawFragment()!=null)
+      throw new IllegalStateException("Unsafe Spring BFF callback");
+    ClientRegistration client=ClientRegistration.withRegistrationId("protocolia")
+      .clientId((String)config.get("clientId"))
+      .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+      .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+      .redirectUri(redirect)
+      .scope(((String)config.get("scope")).split(" "))
+      .authorizationUri((String)config.get("authorizationEndpoint"))
+      .tokenUri((String)config.get("tokenEndpoint"))
+      .jwkSetUri(required("PROTOCOLIA_JWT_JWKS_URI"))
+      .issuerUri((String)config.get("issuer"))
+      .userNameAttributeName("sub")
+      .clientName("ProtocolIA")
+      .build();
+    return new InMemoryClientRegistrationRepository(client);
+  }
+
+  @Bean
+  SecurityFilterChain security(HttpSecurity http,
+      ObjectProvider<BffSession> sessions,
+      ObjectProvider<ClientRegistrationRepository> registrations,
+      ObjectProvider<OAuth2AuthorizedClientRepository> clients) throws Exception {
     String selected=mode();
     if(selected.equals("jwt"))browserAuthConfig();
     if(selected.equals("jwt")&&"true".equals(System.getenv("PROTOCOLIA_ALLOW_DEMO_AUTH")))
       throw new IllegalStateException("Demo credentials forbidden in JWT mode");
+    boolean bff=bffEnabled();
+    if(bff&&!selected.equals("jwt"))
+      throw new IllegalStateException("BFF requires JWT mode");
     http.csrf(AbstractHttpConfigurer::disable)
-        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .sessionManagement(s -> s.sessionCreationPolicy(bff?
+            SessionCreationPolicy.IF_REQUIRED:SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(a -> a.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/health", "/", "/index.html", "/protocolia-ui.json", "/assets/**",
-                "/api/_protocolia/auth/config").permitAll()
+                "/api/_protocolia/auth/config",
+                "/api/_protocolia/bff/login","/api/_protocolia/bff/session",
+                "/api/_protocolia/bff/logout","/api/_protocolia/bff/callback",
+                "/oauth2/authorization/**").permitAll()
             .requestMatchers("/api/**").authenticated()
             .anyRequest().denyAll())
         ;
@@ -294,6 +358,33 @@ public class SecurityConfig {
       });
       http.oauth2ResourceServer(o->o.jwt(jwt->jwt.jwtAuthenticationConverter(converter)));
     }else http.httpBasic(Customizer.withDefaults());
+    if(bff){
+      BffSession store=sessions.getObject();
+      var resolver=new DefaultOAuth2AuthorizationRequestResolver(
+        registrations.getObject(),"/oauth2/authorization");
+      resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+      http.oauth2Login(o->o.authorizationEndpoint(end->end.authorizationRequestResolver(resolver))
+        .redirectionEndpoint(end->end.baseUri("/api/_protocolia/bff/callback"))
+        .successHandler((req,res,auth)->store.authenticated(
+          (OAuth2AuthenticationToken)auth,req,res,clients.getObject()))
+        .failureHandler((req,res,error)->res.sendError(401,"OIDC authentication failed")));
+      http.addFilterBefore(new OncePerRequestFilter(){
+        @Override protected boolean shouldNotFilter(jakarta.servlet.http.HttpServletRequest request){
+          return !request.getRequestURI().equals("/api/_protocolia/bff/callback");
+        }
+        @Override protected void doFilterInternal(jakarta.servlet.http.HttpServletRequest request,
+            HttpServletResponse response,FilterChain chain)throws ServletException,IOException{
+          String[] issuers=request.getParameterValues("iss");
+          if(issuers==null||issuers.length!=1||
+             !issuers[0].equals(System.getenv("PROTOCOLIA_JWT_ISSUER"))){
+            response.sendError(400,"OIDC issuer response rejected");return;
+          }
+          chain.doFilter(request,response);
+        }
+      },OAuth2LoginAuthenticationFilter.class);
+      http.addFilterBefore(store.bffFilter(),BearerTokenAuthenticationFilter.class);
+      http.exceptionHandling(e->e.authenticationEntryPoint((req,res,error)->res.sendError(401)));
+    }
     return http.build();
   }
 }
