@@ -457,7 +457,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         field.choices?.length&&(kind==="create"||field.name===f))){
         const dto=props?.get(choiceField.name);
         const dtoChoices=dto?typeOfField(dto)?.choices:undefined;
-        if((!dto&&choiceField.required)||dto&&(
+        if((!dto&&choiceField.required&&choiceField.initial===undefined)||dto&&(
            !dtoChoices||dto.optional!==!choiceField.required||
            dtoChoices.map(x=>x.value).join("\\0")!==choiceField.choices!.map(x=>x.value).join("\\0"))){
           reject("enum-request-mismatch",op.name+" request field "+choiceField.name+
