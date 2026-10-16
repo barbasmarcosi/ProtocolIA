@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import PagedReferencePicker from "./PagedReferencePicker.jsx";
 import {beginPkce,finishPkce,hasPkceResponse} from "./OAuthPkce.js";
+import {authenticatedFetch,AUTH_REJECTED_EVENT,jwtExpiresAt} from "./AuthSession.js";
 
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
@@ -221,7 +222,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
   useEffect(()=>{
     const controller=new AbortController();
     setState({loading:true,value:null,error:""});
-    fetch(route(operation,identity),{
+    authenticatedFetch(route(operation,identity),{
       headers:{Authorization:auth},signal:controller.signal
     }).then(async res=>{
       if(!res.ok)throw Error(res.status===403?"Sin permiso para consultar el resumen.":
@@ -258,7 +259,7 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
   useEffect(()=>{
     const controller=new AbortController();
     setState({loading:true,data:null,error:""});
-    fetch(route(operation,identity),{headers:{Authorization:auth},signal:controller.signal})
+    authenticatedFetch(route(operation,identity),{headers:{Authorization:auth},signal:controller.signal})
       .then(async response=>{
         if(!response.ok)throw Error(response.status===403?"Sin permisos para conciliar.":
           response.status===404?"El registro ya no existe.":"No se pudo conciliar el saldo.");
@@ -462,6 +463,36 @@ export default function App(){
   const [error,setError]=useState("");
   const [fieldErrors,setFieldErrors]=useState({});
   const [notice,setNotice]=useState("");
+  // Generated session boundary: reject only the credential whose request failed.
+  // Expiration decoded from JWT is an early UX hint, never proof of identity.
+  useEffect(()=>{
+    if(!auth)return;
+    let disposed=false,timer;
+    function endSession(){
+      if(disposed)return;
+      logOut();
+      setLoginError("Tu sesión expiró o ya no es válida. Iniciá sesión nuevamente.");
+    }
+    function onRejected(event){
+      if(event.detail?.authorization===auth)endSession();
+    }
+    window.addEventListener(AUTH_REJECTED_EVENT,onRejected);
+    const expiration=jwtExpiresAt(auth);
+    if(expiration!==null){
+      const checkExpiration=()=>{
+        if(disposed)return;
+        const remaining=expiration-Date.now();
+        if(remaining<=0)endSession();
+        else timer=setTimeout(checkExpiration,Math.min(remaining,2147483647));
+      };
+      checkExpiration();
+    }
+    return ()=>{
+      disposed=true;
+      window.removeEventListener(AUTH_REJECTED_EVENT,onRejected);
+      clearTimeout(timer);
+    };
+  },[auth]);
   useEffect(()=>{
     fetch("/api/_protocolia/auth/config",{cache:"no-store"}).then(async response=>{
       if(!response.ok)throw Error("No se pudo consultar la configuración de autenticación.");
@@ -679,7 +710,7 @@ export default function App(){
     const operation=operations[kind]??transitions.find(x=>x.name===kind);
     if(!operation)throw Error("Operation is not in the contract: "+kind);
     const suffix=query?"?"+new URLSearchParams(query):"";
-    const response=await fetch(route(operation,code)+suffix,{
+    const response=await authenticatedFetch(route(operation,code)+suffix,{
       method:operation.method,
       headers:{"Authorization":auth,...(body===undefined?{}:{"Content-Type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)})
@@ -744,7 +775,7 @@ export default function App(){
           continue;
         }
         try{
-          const response=await fetch(target.operations.listPage.path+"?limit=50&offset=0",{
+          const response=await authenticatedFetch(target.operations.listPage.path+"?limit=50&offset=0",{
             headers:{Authorization:auth}
           });
           if(!response.ok)throw Error("No se pudo consultar "+field.reference.target+" (HTTP "+response.status+").");
@@ -808,7 +839,7 @@ export default function App(){
   }
   function logOut(){
     listRequestEpoch.current++;
-    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);
+    setAuth("");setCapabilities([]);setPassword("");setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setError("");setNotice("");setAuditItems([]);setAuditOffset(0);setLoginError("");
   }
   async function act(kind,params){
     setError("");setNotice("");setLoading(true);
