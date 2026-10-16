@@ -126,6 +126,7 @@ try{
    "PROTOCOLIA_OIDC_REDIRECT_URI="+base+"/",
    "PROTOCOLIA_OIDC_BFF_REDIRECT_URI="+callback,
    "PROTOCOLIA_BFF_ENABLED=true",
+   "PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS=2000",
    "PROTOCOLIA_BFF_ENCRYPTION_KEY="+randomBytes(32).toString("hex"),
    "PROTOCOLIA_READER_USERNAME=unused-reader",
    "PROTOCOLIA_READER_PASSWORD="+randomBytes(20).toString("hex"),
@@ -233,6 +234,31 @@ try{
   const session=await sessionResponse.json();
   assert.equal(session.authenticated,true);
   assert.match(session.csrf,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal(sessionResponse.headers()["cache-control"],"no-store");
+  assert.equal(sessionResponse.headers()["x-content-type-options"],"nosniff");
+  assert.equal(sessionResponse.headers()["referrer-policy"],"no-referrer");
+  assert.match(sessionResponse.headers()["content-security-policy"],/frame-ancestors 'none'/);
+  // Real PostgreSQL housekeeping: bounded worker must delete expired records,
+  // retain future-dated records and preserve the authenticated browser session.
+  const expiredKey=randomBytes(32).toString("hex"),futureKey=randomBytes(32).toString("hex");
+  const sql=(q)=>docker([...args,"exec","-T","db","psql",
+    "-U","protocolia","-d","protocolia","-Atc",q],15000).trim();
+  sql("INSERT INTO protocolia_bff_sessions(sid_hash,payload,expires_at) VALUES "+
+    "('"+expiredKey+"','expired-probe',now()-INTERVAL '1 minute'),"+
+    "('"+futureKey+"','future-probe',now()+INTERVAL '1 hour')");
+  let expiredDeleted=false;
+  const cleanupDeadline=Date.now()+20000;
+  while(Date.now()<cleanupDeadline){
+    const count=Number(sql("SELECT count(*) FROM protocolia_bff_sessions WHERE sid_hash='"+expiredKey+"'"));
+    if(count===0){expiredDeleted=true;break;}
+    await new Promise(ok=>setTimeout(ok,1000));
+  }
+  assert.ok(expiredDeleted,"BFF expired rows must be cleaned without external cron");
+  assert.equal(Number(sql("SELECT count(*) FROM protocolia_bff_sessions WHERE sid_hash='"+futureKey+"'")),1,
+    "BFF housekeeping must not delete valid future-dated sessions");
+  assert.equal((await page.request.get(base+"/api/_protocolia/bff/session")).status(),200);
+  sql("DELETE FROM protocolia_bff_sessions WHERE sid_hash='"+futureKey+"'");
+
   const noCsrf=await page.request.post(base+"/api/notes",{
     data:{noteCode:"unauthorized",title:"CSRF attempted"}
   });
@@ -242,6 +268,11 @@ try{
     data:{noteCode:"wrong-origin",title:"Attempt"}
   });
   assert.equal(badOrigin.status(),403,"Cross-origin write forbidden even with CSRF");
+  const foreignFetch=await page.request.post(base+"/api/notes",{
+    headers:{"X-ProtocolIA-CSRF":session.csrf,"Sec-Fetch-Site":"cross-site"},
+    data:{noteCode:"fetch-site",title:"Cross-site attempt"}
+  });
+  assert.equal(foreignFetch.status(),403,"Cross-site fetch metadata must be blocked");
   const directBearer=await page.request.get(base+"/api/_protocolia/me",{
     headers:{Authorization:"Bearer "+token()}
   });
@@ -277,6 +308,7 @@ try{
  }finally{await browser.close();}
  console.log("PROTOCOLIA_S1D2G_NEST_BFF_PASS "+JSON.stringify({
    serverPkce:true,signedIdentity:true,encryptedDbSession:true,httpOnly:true,
+   expiredSessionCleanup:true,activeSessionPreserved:true,fetchMetadataEnforced:true,defensiveHeaders:true,
    oauthLoginRestartsAcrossSpringInstances:restartDuringOAuth,
    noBrowserBearer:true,csrf:true,originChecked:true,serverLogout:true,
    reloadRestoresSession:true,forgedCallbackDenied:true
