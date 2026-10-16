@@ -49,6 +49,8 @@ export interface IrEntity {
   name: string;
   /** Compound business identity invariant enforced atomically by PostgreSQL. */
   uniqueTogether?: string[];
+  /** PostgreSQL partial uniqueness for one declared terminal-intermediate state. */
+  uniqueWhen?: {fields:string[];stateField:string;activeState:string};
   publicIdentity: string;
   fields: IrField[];
   view?: string;
