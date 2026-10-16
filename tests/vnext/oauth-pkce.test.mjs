@@ -56,3 +56,30 @@ test("Cross-origin redirect configuration is refused",async()=>{
  callback("");
  await assert.rejects(()=>beginPkce({...config,redirectUri:"https://attacker.test/"}),/no corresponde/);
 });
+
+test("Strict discovery binding requires a single matching RFC 9207 issuer before token exchange",async()=>{
+ for(const uri of [
+   "?code=test&state=actual",
+   "?code=test&state=actual&iss=https%3A%2F%2Fevil.test",
+   "?code=test&state=actual&iss="+encodeURIComponent(config.issuer)+"&iss="+encodeURIComponent(config.issuer)
+ ]){
+   callback("");await beginPkce(config);
+   const transaction=JSON.parse([...store.values()][0]);
+   callback(uri.replace("state=actual","state="+transaction.state));
+   let exchanges=0;
+   globalThis.fetch=async()=>{exchanges++;throw Error("Must reject callback before exchange");};
+   await assert.rejects(()=>finishPkce({...config,requireIssuerResponse:true}),/no válida/);
+   assert.equal(exchanges,0);
+   assert.equal(store.size,0);
+   assert.equal(history.cleaned,"/");
+ }
+ callback("");await beginPkce(config);
+ const transaction=JSON.parse([...store.values()][0]);
+ callback("?code=good&state="+transaction.state+"&iss="+encodeURIComponent(config.issuer));
+ let requests=0;
+ globalThis.fetch=async()=>{requests++;return {
+   ok:true,async json(){return {token_type:"Bearer",access_token:"signed.token.payload"};}
+ };};
+ assert.equal(await finishPkce({...config,requireIssuerResponse:true}),"Bearer signed.token.payload");
+ assert.equal(requests,1);
+});
