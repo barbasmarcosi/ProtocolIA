@@ -139,7 +139,8 @@ async function runMulti(){
       assert.ok(resource.operations[kind],e.name+" requires "+kind);
     assert.ok(session.capabilities.includes(resource.operations.create.capability),
       "Manager missing write permission on "+e.name);
-    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal)
+    const owned=e.fields.some(f=>f.ownerManaged);
+    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.ownerManaged&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal)
       .map(f=>[f.name,f.reference?keys.get(f.reference.target):valueFor(f,f.name===identity)]));
     assert.ok(e.fields.filter(f=>f.reference).every(f=>typeof body[f.name]==="string"));
     const key=body[identity];
@@ -153,6 +154,7 @@ async function runMulti(){
     const created=await run(resource,"create",writer,{body});
     assert.equal(created.status,201,e.name+": "+JSON.stringify(created.data));
     assert.equal(created.data[identity],key);
+    if(owned)assert.equal(created.data[e.fields.find(f=>f.ownerManaged).name],managerName);
     assert.equal(Object.hasOwn(created.data,"id"),false);
     if(reserve){
       const afterStock=await run(parent,"get",reader,{key:body[reserve.referenceField]});
@@ -168,11 +170,17 @@ async function runMulti(){
         beforeStock.data[reserve.availableField]-body[reserve.quantityField],
         "Duplicate reservation must not retain a stock debit");
     }
-    assert.equal((await run(resource,"get",reader,{key})).status,200);
+    assert.equal((await run(resource,"get",reader,{key})).status,owned?404:200);
     const page=await run(resource,"listPage",reader,{query:{limit:1,offset:0}});
     assert.equal(page.status,200);
-    assert.ok(page.data.total>=1);
     assert.ok(Array.isArray(page.data.items));
+    if(owned){
+      assert.equal(page.data.total,0,"Owned page count must be scoped");
+      assert.deepEqual(page.data.items,[]);
+      const creatorPage=await run(resource,"listPage",writer,{query:{limit:1,offset:0}});
+      assert.equal(creatorPage.status,200);
+      assert.ok(creatorPage.data.total>=1);
+    }else assert.ok(page.data.total>=1);
     assert.equal((await run(resource,"create",writer,{body:{...body,unknown:true}})).status,400);
     keys.set(e.name,key);createBodies.set(e.name,body);
     if(resource.operations.patchFields){
