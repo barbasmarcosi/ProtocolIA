@@ -47,6 +47,8 @@ export interface IrField {
 }
 export interface IrEntity {
   name: string;
+  /** Compound business identity invariant enforced atomically by PostgreSQL. */
+  uniqueTogether?: string[];
   publicIdentity: string;
   fields: IrField[];
   view?: string;
