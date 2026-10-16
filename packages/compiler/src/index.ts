@@ -746,9 +746,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced"];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
-        names.every(n=>v.properties.has(n)&&!v.properties.get(n)!.optional&&
-          (n==="balanced"?v.properties.get(n)!.type.kind==="Scalar"&&v.properties.get(n)!.type.name==="boolean":
-          typeOfField(v.properties.get(n)!)?.type==="string")));
+        names.every(n=>{
+          const prop=v.properties.get(n),type=prop?.type;
+          return !!prop&&!prop.optional&&(n==="balanced"?
+            type?.kind==="Scalar"&&type.name==="boolean":typeOfField(prop)?.type==="string");
+        }));
       if(http.verb!=="get"||http.parameters.body||keys.length!==1||
         keys[0]!==entity.publicIdentity||op.parameters.properties.size!==1||
         ![200,401,403,404].every(s=>statuses.includes(s))||!shape){
