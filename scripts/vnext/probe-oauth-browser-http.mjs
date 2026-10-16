@@ -143,19 +143,41 @@ try{
   const detail=await fetch(base+"/api/notes/"+code,{headers:{Authorization:"Bearer "+token()}});
   assert.equal(detail.status,200);
   assert.equal((await detail.json()).owner,"alice");
+  // Exercise an actual protected request from the generated UI.
+  // The 401 must clear in-memory credentials and show a new login.
+  await page.route(url=>new URL(url).pathname==="/api/notes",async route=>{
+    if(route.request().method()==="GET")
+      await route.fulfill({status:401,contentType:"application/json",body:"{}"});
+    else await route.continue();
+  });
+  await page.getByRole("button",{name:"Actualizar",exact:true}).click();
+  await page.getByTestId("login-provider").waitFor({timeout:10000});
+  await page.getByRole("alert").getByText(/sesión expiró|ya no es válida/).waitFor();
+  assert.equal(await page.getByTestId("open-create").count(),0);
+  await page.unrouteAll();
+  // Logging back in is possible, and late 401 events from prior credentials
+  // must not invalidate a different authenticated session.
+  await page.getByTestId("login-provider").click();
+  await page.getByTestId("open-create").waitFor({timeout:20000});
+  assert.equal(exchanges,2,"The browser should perform a second real PKCE exchange");
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent("protocolia:auth-rejected",{
+    detail:{authorization:"Bearer stale-previous-session"}
+  })));
+  assert.equal(await page.getByTestId("open-create").count(),1);
   await page.getByRole("button",{name:"Cerrar sesión"}).click();
   await page.goto(callback+"?code=forged&state=wrong",{waitUntil:"domcontentloaded"});
   await page.getByRole("alert").getByText(/expiró|utilizada|no válida/i).waitFor();
   assert.equal(await page.getByTestId("open-create").count(),0);
   assert.ok(!page.url().includes("code=forged"));
-  assert.equal(exchanges,1,"Forged callback must not exchange");
+  assert.equal(exchanges,2,"Forged callback must not exchange");
   assert.deepEqual(errors,[]);
   await page.screenshot({path:join(generated,"s1-oauth-pkce-mobile.png"),fullPage:true});
  }finally{await browser.close();}
  console.log("PROTOCOLIA_S1D2C_PKCE_BROWSER_PASS "+JSON.stringify({
    realCodeVerifier:true,codeSingleUse:true,serverJWKS:true,
    signedAccessToken:true,callbackState:true,noTokenStorage:true,
-   forgedCallbackRejected:true,generatedCreate:true,mobile:true
+   forgedCallbackRejected:true,generatedCreate:true,mobile:true,
+   protectedRequest401EndsSession:true,reauthentication:true,stale401Isolated:true
  }));
 }finally{
  if(running)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
