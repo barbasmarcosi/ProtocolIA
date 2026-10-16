@@ -92,6 +92,43 @@ try{
  assert.ok(snapshots.every(r=>r.status===200&&r.data.totalUnits==="7"));
  await eq(403,"POST",alloc,{who:"reader",body:{number:"DENY-"+tag,partSku:id,units:1,status:"active"}});
  assert.deepEqual(await eq(200,"GET",summary,{who:"reader"}),{totalUnits:"7"});
+ if(process.argv.includes("--browser")){
+   const {chromium}=await import("playwright");
+   const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+   try{
+     const page=await browser.newPage({viewport:{width:1365,height:900},deviceScaleFactor:1});
+     await page.goto(base,{waitUntil:"networkidle"});
+     await page.getByTestId("username").fill(read);
+     await page.getByTestId("password").fill(readSecret);
+     await page.getByRole("button",{name:"Entrar"}).click();
+     await page.getByTestId("open-detail-"+id).waitFor();
+     await page.getByTestId("open-detail-"+id).click();
+     const card=page.getByTestId("related-sum-panel");
+     await card.waitFor();
+     await page.getByTestId("related-sum-value").getByText("7",{exact:true}).waitFor();
+     assert.match(await card.getAttribute("aria-label"),/Reservas/);
+     assert.equal(await page.getByTestId("related-sum-error").count(),0);
+     await page.screenshot({path:join(root,"protocolia-related-summary-desktop.png"),fullPage:false});
+     // A committed write outside the dialog is not reflected until the user requests a fresh snapshot.
+     await eq(201,"POST",alloc,{body:{number:"NEW-"+tag,partSku:id,units:2,status:"active"}});
+     assert.equal((await page.getByTestId("related-sum-value").textContent()).trim(),"7",
+       "Read-only metric must not invent live updates between requests");
+     await card.getByTestId("related-sum-refresh").click();
+     await page.getByTestId("related-sum-value").getByText("9",{exact:true}).waitFor();
+     await page.setViewportSize({width:390,height:844});
+     await page.screenshot({path:join(root,"protocolia-related-summary-mobile.png"),fullPage:false});
+     const panelRect=await card.boundingBox();
+     assert.ok(panelRect&&panelRect.width<=392,"Generated summary fits the mobile viewport");
+     assert.equal((await page.getByTestId("related-sum-value").textContent()).trim(),"9");
+     await page.getByRole("button",{name:"Cerrar detalle"}).click();
+     await eq(201,"POST",stock,{body:{sku:"EMPTY-"+tag,name:"Empty stock",available:0}});
+     await page.getByRole("button",{name:"Actualizar",exact:true}).click();
+     await page.getByTestId("open-detail-EMPTY-"+tag).click();
+     await page.getByTestId("related-sum-value").getByText("0",{exact:true}).waitFor();
+     await page.close();
+   }finally{await browser.close();}
+   console.log("B2_4B_REACT_CONTRACT_GENERATED_AGGREGATE_DESKTOP_MOBILE_PASS");
+ }
  console.log("B2_4A_RELATED_SUM_MVCC_RESERVE_RELEASE_CONCURRENCY_PASS",JSON.stringify({target:process.argv[2],active:"7"}));
 }finally{
  if(started)try{cmd([...opts,"down","--volumes","--remove-orphans"],120000)}
