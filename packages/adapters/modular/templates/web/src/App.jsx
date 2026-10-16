@@ -881,7 +881,10 @@ export default function App(){
     try{
       const data=await request(kind,params);
       setSummaryRevision(x=>x+1);
-      if(kind==="delete"||kind==="create"){setDetailOpen(false);setSelected(null);}
+      if(kind==="delete"||kind==="create"){
+        setDetailOpen(false);setSelected(null);
+        if(kind==="create"){setCreating(false);setConfirmDiscard(false);setActivePicker("");}
+      }
       else if(data?.[active.entity.publicIdentity]){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
