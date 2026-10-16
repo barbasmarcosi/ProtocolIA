@@ -67,6 +67,18 @@ try{
   assert.deepEqual(result.body.issues,[{field:"quality",code}],"Consistent Nest/Spring typed enum rejection");
  }
  assert.equal((await req(path+"/"+payload.serial)).status,404,"Invalid values cannot persist");
+ // Independent of HTTP code: bypass the app and prove PostgreSQL itself refuses an enum breach.
+ const dbIdentity=token+"-invalid-direct";
+ const sql="INSERT INTO gauge(serial,label,reading,quality) VALUES ('"+
+   dbIdentity+"','Direct PostgreSQL invariant probe',1,'unlisted_value')";
+ const direct=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(direct.status,0,"PostgreSQL must independently refuse undeclared enum values");
+ assert.match((direct.stderr??"")+(direct.stdout??""),/violates check constraint/i,
+   "Negative DB mutation must specifically fail its enum CHECK constraint");
+ assert.equal((await req(path+"/"+dbIdentity)).status,404,"Invalid direct SQL insert rolled back");
  assert.equal((await req(path,{method:"POST",body:payload})).status,201);
  assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
  assert.equal((await req(path,{method:"POST",body:{serial:token+"-no-choice",label:"Opcional",reading:0}})).status,201);
