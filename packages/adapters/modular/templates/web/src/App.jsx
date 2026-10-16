@@ -97,7 +97,7 @@ function decimalIssue(value,field){
   if(d.max!==undefined&&actual>units(d.max))return "El máximo permitido es "+d.max+".";
   return null;
 }
-function validateCreate(fields,values){
+function validateCreate(fields,values,reconciliation){
   const errors={};
   for(const field of fields){
     if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
@@ -170,6 +170,19 @@ function validateCreate(fields,values){
     }
     if(invalidComparison)errors[field.name]="El valor debe ser mayor que "+fieldLabel(source)+".";
   }
+  if(reconciliation){
+    const opening=fields.find(f=>f.name===reconciliation.openingField);
+    const available=fields.find(f=>f.name===reconciliation.availableField);
+    if(opening&&available&&!errors[opening.name]&&!errors[available.name]){
+      const scaled=(raw,scale)=>{
+        const negative=raw.startsWith("-"),[whole,fraction=""]=(negative?raw.slice(1):raw).split(".");
+        return BigInt((negative?"-":"")+whole+fraction.padEnd(scale,"0"));
+      };
+      if(scaled(String(values[opening.name]),opening.decimal.scale)!==
+         scaled(String(values[available.name]),available.decimal.scale))
+        errors[available.name]="El saldo disponible debe coincidir con el saldo inicial al crear la cuenta.";
+    }
+  }
   return errors;
 }
 function createEmpty(fields){
@@ -236,6 +249,46 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
       state.error?<p role="alert" className="message error" data-testid="related-sum-error">{state.error}</p>:
       <div className="related-summary-value" role="status" aria-live="polite"
         data-testid="related-sum-value">{state.value}</div>}
+  </section>;
+}
+function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
+  const [local,setLocal]=useState(0);
+  const [state,setState]=useState({loading:true,data:null,error:""});
+  useEffect(()=>{
+    const controller=new AbortController();
+    setState({loading:true,data:null,error:""});
+    fetch(route(operation,identity),{headers:{Authorization:"Basic "+auth},signal:controller.signal})
+      .then(async response=>{
+        if(!response.ok)throw Error(response.status===403?"Sin permisos para conciliar.":
+          response.status===404?"El registro ya no existe.":"No se pudo conciliar el saldo.");
+        const data=await response.json();
+        if(!data||typeof data.balanced!=="boolean"||
+          !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount"].every(key=>
+            typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(data[key])))
+          throw Error("El servidor devolvió una conciliación inválida.");
+        return data;
+      }).then(data=>{if(!controller.signal.aborted)setState({loading:false,data,error:""});})
+        .catch(error=>{if(!controller.signal.aborted)setState({loading:false,data:null,error:error.message});});
+    return ()=>controller.abort();
+  },[operation,identity,auth,revision,local]);
+  const report=state.data;
+  return <section className="related-summary" data-testid="ledger-reconciliation" aria-label="Conciliación de saldo">
+    <div className="related-summary-head"><div><h3>Conciliación del saldo</h3>
+      <p className="related-summary-hint">Comparación exacta con los movimientos de {child.view||child.entity.name}.</p>
+    </div><button type="button" className="ghost" data-testid="ledger-reconciliation-refresh"
+      disabled={state.loading} onClick={()=>setLocal(x=>x+1)}>Actualizar</button></div>
+    {state.loading?<LoadingIndicator compact message="Conciliando saldo…"/>:
+      state.error?<p role="alert" className="message error" data-testid="ledger-reconciliation-error">{state.error}</p>:
+      <div><p role={report.balanced?"status":"alert"} data-testid="ledger-reconciliation-status"
+        className={report.balanced?"message":"message error"}>
+        {report.balanced?"Saldo conciliado.":"Desvío detectado. Revisá los movimientos y el saldo."}</p>
+        <dl className="ledger-values">{[
+          ["Saldo inicial",report.openingBalance],["Saldo registrado",report.available],
+          ["Cargos vigentes",report.postedTotal],["Cargos revertidos",report.reversedTotal],
+          ["Saldo esperado",report.expectedAvailable],["Diferencia",report.difference],
+          ["Movimientos",report.postingCount]
+        ].map(([name,value])=><React.Fragment key={name}><dt>{name}</dt><dd>{value}</dd></React.Fragment>)}</dl>
+      </div>}
   </section>;
 }
 function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError,auth,onReferenceResolve,required=field.required,conditionallyRequired=false}){
@@ -427,6 +480,12 @@ export default function App(){
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
   const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
+  const ledgerReconciliation=operations.reconcileExact;
+  const ledgerChild=ledgerReconciliation?.behavior?.reconcileExact?
+    config?.resources?.find(r=>r.entity.name===ledgerReconciliation.behavior.reconcileExact.childEntity):null;
+  const canReconcile=Boolean(ledgerReconciliation&&ledgerChild&&
+    capabilities.includes(ledgerReconciliation.capability)&&
+    capabilities.includes(ledgerChild.operations?.get?.capability));
   const relatedSum=operations.sumRelated;
   const relatedSumChild=relatedSum?.behavior?.relatedSum?
     config?.resources?.find(r=>r.entity.name===relatedSum.behavior.relatedSum.childEntity):null;
@@ -858,7 +917,7 @@ export default function App(){
               {error&&<p className="message error" role="alert">{error}</p>}
         <form noValidate data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
-          const errors=validateCreate(active.entity.fields,form);
+          const errors=validateCreate(active.entity.fields,form,operations.reconcileExact?.behavior?.reconcileExact);
           setFieldErrors(errors);
           if(Object.keys(errors).length){
             setError("Revisá los campos marcados para continuar.");
@@ -907,6 +966,11 @@ export default function App(){
             <div className="modal-scroll">
             {error&&<p className="message error" role="alert">{error}</p>}
             {notice&&<p className="message" role="status">{notice}</p>}
+        {canReconcile&&<LedgerReconciliationPanel
+          key={active.entity.name+":"+selected[active.entity.publicIdentity]}
+          operation={ledgerReconciliation}
+          identity={selected[active.entity.publicIdentity]}
+          auth={auth} child={ledgerChild} revision={summaryRevision}/>}
         {canReadRelatedSum&&<RelatedSumPanel
           key={active.entity.name+":"+selected[active.entity.publicIdentity]}
           operation={relatedSum}
