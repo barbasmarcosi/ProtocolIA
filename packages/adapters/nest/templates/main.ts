@@ -265,7 +265,8 @@ class RuntimeService{
   async login(req:any):Promise<{username:string;capabilities:string[]}>{
     if(this.jwtConfig){
       const auth=req.headers.authorization;
-      if(typeof auth!=="string"||!/^Bearer [A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+$/.test(auth))
+      const segments=typeof auth==="string"&&auth.startsWith("Bearer ")?auth.slice(7).split("."):[];
+      if(segments.length!==3||segments.some(segment=>!/^[A-Za-z0-9_-]+$/.test(segment)))
         throw new Problem(401,"Bearer token required");
       try{
         const {payload,protectedHeader}=await jwtVerify(auth.slice(7),this.jwtConfig.verify,{
