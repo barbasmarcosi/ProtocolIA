@@ -399,9 +399,10 @@ export function generate(ir, openapi, outDir) {
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
-  for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java","BffSession.java"]) copy(base+filename,filename);
+  for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java","BffSession.java","BffHttpSessionConfig.java"]) copy(base+filename,filename);
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
+  copy("src/main/resources/db/migration/V2__protocolia_bff_http_session.sql","BffHttpSessionSchema.sql");
   const resources=entities.map(entity=>({
     entity,view:entity.view??entity.name,
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
