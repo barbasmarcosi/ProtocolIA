@@ -4,6 +4,7 @@ on:
     branches:
       - feature/b2-5a-exact-debit-20261016
       - feature/b2-5b-atomic-exact-reversal-20261016
+      - feature/b2-5c-exact-ledger-reconciliation-20261016
     paths:
       - 'packages/**'
       - 'examples/vnext/exact-debits/**'

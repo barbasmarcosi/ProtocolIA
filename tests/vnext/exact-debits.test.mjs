@@ -4,6 +4,7 @@ import {readFileSync,writeFileSync,mkdtempSync,cpSync,rmSync} from "node:fs";
 import {join} from "node:path";
 import {spawnSync} from "node:child_process";
 import {compileExactDebits,compileExactReversals} from "../../packages/adapters/exact-debit.mjs";
+import {compileExactReconciliations} from "../../packages/adapters/exact-reconciliation.mjs";
 const root="examples/vnext/exact-debits";
 const source=readFileSync(join(root,"contracts/main.tsp"),"utf8");
 const ir=JSON.parse(readFileSync(join(root,"tsp-output/@protocolia/compiler/ir.json"),"utf8"));
@@ -36,6 +37,27 @@ test("corrupted transaction metadata fails closed in both generators",()=>{
     assert.throws(()=>compileExactDebits(candidate),/Invalid exact debit transaction/);
   }
 });
+test("typed reconciliation is authorized and single-snapshot",()=>{
+  const plan=compileExactReconciliations(ir).get("reconcileWallet");
+  assert.ok(plan.sqlNest.includes("LEFT JOIN LATERAL")&&plan.sqlNest.includes("opening_balance")&&plan.sqlNest.includes("charge"));
+  assert.ok(plan.sqlNest.includes("$1")&&plan.sqlSpring.includes(":identity"));
+  assert.equal(plan.childReadCapability,"charges.read");
+  assert.deepEqual([plan.openingField,plan.availableField],["openingBalance","available"]);
+});
+test("forged reconciliation metadata fails closed",()=>{
+  const edits=[
+    x=>{x.operations.find(o=>o.name==="reconcileWallet").behavior.reconcileExact.openingField="name";},
+    x=>{x.operations.find(o=>o.name==="reconcileWallet").behavior.reconcileExact.childEntity="Missing";},
+    x=>{x.entities.find(e=>e.name==="Wallet").fields.find(f=>f.name==="openingBalance").decimal.scale=3;},
+    x=>{x.operations.find(o=>o.name==="reconcileWallet").capability="public";},
+    x=>{x.operations.find(o=>o.name==="reverseCharge").behavior.to="forged";},
+    x=>{x.operations.push({...x.operations.find(o=>o.name==="reconcileWallet"),name:"duplicateRecon"});},
+    x=>{x.operations.push({name:"bypass",entity:"Wallet",method:"PATCH",path:"/x",capability:"wallets.write",statuses:[200],behavior:{kind:"patchFields",field:"openingBalance",input:"openingBalance"}});}
+  ];
+  for(const edit of edits){const value=structuredClone(ir);edit(value);
+    assert.throws(()=>compileExactReconciliations(value),/Invalid exact ledger reconciliation|Invalid exact reversal lifecycle/);
+  }
+});
 test("corrupted exact reversal plans fail closed",()=>{
   const edits=[
     x=>{x.operations.find(o=>o.name==="reverseCharge").behavior.reverseExact.availableField="bad;drop";},
@@ -63,7 +85,9 @@ test("unbound, negative, mixed scale and unprotected request mutations fail Type
     ['@reverseExact("Wallet","available","walletCode","amount")','@reverseExact("Wallet","available","chargeNumber","amount")'],
     ['@reverseExact("Wallet","available","walletCode","amount")','@reverseExact("Missing","available","walletCode","amount")'],
     ['@transition("posted","reversed")','@transition("unknown","reversed")'],
-    ['@audit("status") @capability("charges.write")','@capability("charges.write")']
+    ['@audit("status") @capability("charges.write")','@capability("charges.write")'],
+    ['@reconcileExact("openingBalance","available","Charge","walletCode","amount","status","posted","reversed")','@reconcileExact("name","available","Charge","walletCode","amount","status","posted","reversed")'],
+    ['@reconcileExact("openingBalance","available","Charge","walletCode","amount","status","posted","reversed")','@reconcileExact("openingBalance","available","Charge","chargeNumber","amount","status","posted","reversed")']
   ];
   for(const [from,to] of cases){
     const temp=mkdtempSync(join("examples","vnext",".exact-debit-negative-"));
@@ -74,7 +98,7 @@ test("unbound, negative, mixed scale and unprotected request mutations fail Type
       writeFileSync(join(temp,"contracts/main.tsp"),replaced);
       const run=spawnSync(join(process.cwd(),"node_modules/.bin/tsp"),["compile",temp],{encoding:"utf8",timeout:90000});
       assert.notEqual(run.status,0,"Invalid exact debit mutation compiled: "+to);
-      assert.match((run.stdout??"")+(run.stderr??""),/protocolia-invalid-exact-debit|protocolia-decimal-request-mismatch|protocolia-invalid-exact-reversal|protocolia-exact-reversal-lifecycle/i);
+      assert.match((run.stdout??"")+(run.stderr??""),/protocolia-invalid-exact-debit|protocolia-decimal-request-mismatch|protocolia-invalid-exact-reversal|protocolia-exact-reversal-lifecycle|protocolia-invalid-exact-reconciliation/i);
     }finally{rmSync(temp,{recursive:true,force:true});}
   }
 });

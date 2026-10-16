@@ -264,7 +264,7 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
         const data=await response.json();
         if(!data||typeof data.balanced!=="boolean"||
           !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount"].every(key=>
-            typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(data[key])))
+            typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[key])))
           throw Error("El servidor devolvió una conciliación inválida.");
         return data;
       }).then(data=>{if(!controller.signal.aborted)setState({loading:false,data,error:""});})

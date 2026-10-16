@@ -60,14 +60,32 @@ try{
   return {status:response.status,body:data};
  }
  const wallet="/api/wallets",charge="/api/charges",key=token+"-main";
- const createWallet=body=>req(wallet,{method:"POST",body});
+ const createWallet=body=>req(wallet,{method:"POST",body:{openingBalance:body.available,...body}});
+ const reconcile=id=>req(wallet+"/"+id+"/reconciliation");
+ const scaled=value=>{const minus=value.startsWith("-"),[w,f=""]=(minus?value.slice(1):value).split(".");return BigInt((minus?"-":"")+w+f.padEnd(2,"0"));};
+ function check(data,opening,balance,posted,reversed,count,balanced=true){
+   assert.equal(data.balanced,balanced,JSON.stringify(data));
+   assert.equal(scaled(data.openingBalance),scaled(opening));
+   assert.equal(scaled(data.available),scaled(balance));
+   assert.equal(scaled(data.postedTotal),scaled(posted));
+   assert.equal(scaled(data.reversedTotal),scaled(reversed));
+   assert.equal(BigInt(data.postingCount),BigInt(count));
+   assert.equal(scaled(data.expectedAvailable),scaled(opening)-scaled(posted));
+   assert.equal(scaled(data.difference),scaled(balance)-scaled(data.expectedAvailable));
+ }
  const createCharge=body=>req(charge,{method:"POST",body});
  const getBalance=async name=>req(wallet+"/"+name);
  const reverse=id=>req(charge+"/"+id+"/reverse",{method:"POST"});
  const readCharge=id=>req(charge+"/"+id);
  assert.equal((await req(wallet,{who:null})).status,401);
+ assert.equal((await req(wallet+"/"+token+"-missing/reconciliation",{who:null})).status,401);
+ assert.equal((await reconcile(token+"-missing")).status,404);
+ const badOpening=await createWallet({walletCode:token+"-bad-opening",name:"No concilia al crear",openingBalance:"9.99",available:"10.00"});
+ assert.equal(badOpening.status,400,JSON.stringify(badOpening));
+ assert.deepEqual(badOpening.body.issues,[{field:"available",code:"invalid_comparison"}]);
  assert.equal((await createWallet({walletCode:key,name:"Saldo de prueba",available:"10.00"})).status,201);
  assert.equal((await req(wallet,{method:"POST",who:"reader",body:{walletCode:token+"-deny",name:"Sin permiso",available:"4.00"}})).status,403);
+ check((await reconcile(key)).body,"10.00","10.00","0.00","0.00",0);
  const payload={walletCode:key,amount:"1.00"};
  assert.equal((await req(charge,{method:"POST",who:"reader",body:{...payload,chargeNumber:token+"-unauthorized"}})).status,403);
  for(const [value,code] of [[0,"invalid_type"],["0.00","out_of_range"],["-1.00","out_of_range"],["0.001","invalid_format"],["NaN","invalid_format"],["1e3","invalid_format"]]){
@@ -91,6 +109,7 @@ try{
  assert.equal(outcomes.filter(x=>x.status===201).length,9,JSON.stringify(outcomes));
  assert.equal(outcomes.filter(x=>x.status===409).length,3,JSON.stringify(outcomes));
  assert.equal((await getBalance(key)).body.available,"0.00");
+ check((await reconcile(key)).body,"10.00","0.00","10.00","0.00",10);
  const page=await req(charge+"?limit=50&offset=0",{who:"reader"});
  assert.equal(page.status,200);
  assert.equal(page.body.total,10);
@@ -107,6 +126,7 @@ try{
  assert.equal((await reverse(token+"-one")).status,409,"A double credit is forbidden");
  assert.equal((await reverse(token+"-race-0")).status,200);
  assert.equal((await getBalance(key)).body.available,"2.00");
+ check((await reconcile(key)).body,"10.00","2.00","8.00","2.00",10);
  const reverseAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-t","-A","-c",
    "SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Charge' AND operation_name='reverseCharge' AND field_name='status'"],15000).trim();
  assert.equal(reverseAudit,"2","Exactly one audit event per committed reversal");
@@ -126,6 +146,7 @@ try{
  assert.equal((await reverse(token+"-precise")).status,200);
  assert.equal((await getBalance(huge)).body.available,"9007199254740993.99");
  assert.equal((await readCharge(token+"-precise")).body.status,"reversed");
+ check((await reconcile(huge)).body,big,big,"0","0.01",1);
  const audit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-t","-A","-c",
   "SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Charge' AND operation_name='createCharge' AND field_name='amount'"],15000).trim();
  assert.equal(audit,"11","Audits must roll back for duplicate/failed postings");
@@ -137,6 +158,14 @@ try{
  assert.notEqual(bad.status,0,"Direct SQL cannot make balance negative");
  assert.match((bad.stderr??"")+(bad.stdout??""),/violates check constraint/i);
  assert.equal((await getBalance(huge)).body.available,"9007199254740993.99");
+ // SQL tampering must be detected as drift and disappear when corrected.
+ docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "UPDATE wallet SET available=available-0.01 WHERE wallet_code='"+key+"'"],15000);
+ check((await reconcile(key)).body,"10.00","1.99","8.00","2.00",10,false);
+ assert.equal(scaled((await reconcile(key)).body.difference),-1n);
+ docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "UPDATE wallet SET available=available+0.01 WHERE wallet_code='"+key+"'"],15000);
+ check((await reconcile(key)).body,"10.00","2.00","8.00","2.00",10);
  if(process.argv.includes("--browser")){
   const {chromium}=await import("playwright");
   const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
@@ -153,10 +182,14 @@ try{
    await form.getByTestId("create-walletCode").fill(token+"-web");
    await form.getByTestId("create-name").fill("Cuenta desde móvil");
    await form.getByTestId("create-available").fill("5.25");
+   await form.getByTestId("create-openingBalance").fill("5.25");
    await page.screenshot({path:join(generated,"exact-debit-mobile.png"),fullPage:true});
    await form.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    assert.equal((await getBalance(token+"-web")).body.available,"5.25");
+   await page.getByTestId("open-detail-"+token+"-web").click();
+   await page.getByTestId("ledger-reconciliation-status").getByText("Saldo conciliado.").waitFor();
+   await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
    await page.getByRole("button",{name:"Cargos",exact:true}).click();
    await page.getByTestId("open-create").click();
    const chargeForm=page.getByTestId("create-form-Charge");
