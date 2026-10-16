@@ -89,8 +89,8 @@ try{
  assert.equal((await req(path+"/"+payload.serial)).status,404,"Invalid values cannot persist");
  // Independent of HTTP code: bypass the app and prove PostgreSQL itself refuses an enum breach.
  const dbIdentity=token+"-invalid-direct";
- const sql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units) VALUES ('"+
-   dbIdentity+"','Direct PostgreSQL invariant probe',1,1.0000,1.000000,'unlisted_value',1.0000,1.000)";
+ const sql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units,discount_percent) VALUES ('"+
+   dbIdentity+"','Direct PostgreSQL invariant probe',1,1.0000,1.000000,'unlisted_value',1.0000,1.000,0.00)";
  const direct=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],{
    cwd:generated,encoding:"utf8",timeout:15000
@@ -100,8 +100,8 @@ try{
    "Negative DB mutation must specifically fail its enum CHECK constraint");
  assert.equal((await req(path+"/"+dbIdentity)).status,404,"Invalid direct SQL insert rolled back");
  const incomplete=token+"-invalid-condition";
- const conditionalSql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units) VALUES ('"+
-   incomplete+"','Conditional SQL check',1,1.0000,1.000000,'needs_service',1.0000,1.000)";
+ const conditionalSql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units,discount_percent) VALUES ('"+
+   incomplete+"','Conditional SQL check',1,1.0000,1.000000,'needs_service',1.0000,1.000,0.00)";
  const rejected=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",conditionalSql],{
    cwd:generated,encoding:"utf8",timeout:15000
@@ -187,8 +187,8 @@ try{
  assert.equal(comparedRead.quantityLimit,comparable.quantityLimit);
  const invalidSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,price_ceiling,quantity,quantity_limit,unit_rate,batch_units) VALUES ('"+
-   token+"-sql-equal','SQL direct comparison',1,9007199254740993.1234,9007199254740993.1234,0.000001,0.0001,1.0000,1.000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,price_ceiling,quantity,quantity_limit,unit_rate,batch_units,discount_percent) VALUES ('"+
+   token+"-sql-equal','SQL direct comparison',1,9007199254740993.1234,9007199254740993.1234,0.000001,0.0001,1.0000,1.000,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(invalidSql.status,0,"Direct SQL must reject equal high-precision decimals");
@@ -196,22 +196,22 @@ try{
  assert.equal((await req(path+"/"+token+"-sql-equal")).status,404);
  const invalidScaleSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,quantity_limit,unit_rate,batch_units) VALUES ('"+
-   token+"-sql-scale','SQL direct scale',1,1.0000,0.100001,0.1000,1.0000,1.000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,quantity_limit,unit_rate,batch_units,discount_percent) VALUES ('"+
+   token+"-sql-scale','SQL direct scale',1,1.0000,0.100001,0.1000,1.0000,1.000,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(invalidScaleSql.status,0,"Mixed-scale comparison must reject direct SQL");
  assert.match((invalidScaleSql.stderr??"")+(invalidScaleSql.stdout??""),/ck_gt_gauge_quantity_limit/i);
  const directBad=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000,1.0000,1.000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,discount_percent) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000,1.0000,1.000,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(directBad.status,0,"DB NUMERIC(p,s) overflow must fail independently of HTTP");
  const sqlNaN=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) VALUES ('"+
-     token+"-nan-direct','Forbidden NaN',1,'NaN',1.000000,1.0000,1.000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,discount_percent) VALUES ('"+
+     token+"-nan-direct','Forbidden NaN',1,'NaN',1.000000,1.0000,1.000,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(sqlNaN.status,0,"PostgreSQL CHECK must reject non-finite numeric input");
@@ -242,16 +242,16 @@ try{
  }
  const directRound=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) "+
-   "VALUES ('"+token+"-sql-rounded','Direct SQL rounding',1,1.0000,1.000000,1.0050,1.000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,discount_percent) "+
+   "VALUES ('"+token+"-sql-rounded','Direct SQL rounding',1,1.0000,1.000000,1.0050,1.000,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.equal(directRound.status,0,"Direct SQL inserts must compute rounded values");
  assert.equal((await req(path+"/"+token+"-sql-rounded")).body.roundedTotal,"1.01");
  const forgedSqlRound=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,rounded_total) "+
-   "VALUES ('"+token+"-sql-forged','Generated override',1,1.0000,1.000000,1.0050,1.000,0.00)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units,rounded_total,discount_percent) "+
+   "VALUES ('"+token+"-sql-forged','Generated override',1,1.0000,1.000000,1.0050,1.000,0.00,0.00)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(forgedSqlRound.status,0,"Database must block overrides to generated rounded values");
