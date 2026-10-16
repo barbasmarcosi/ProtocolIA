@@ -13,7 +13,7 @@ assert.ok(process.argv[2],"Generated app directory is required");
 const project="s1pkce_"+randomBytes(4).toString("hex");
 const temp=mkdtempSync(join(tmpdir(),"protocolia-pkce-browser-"));
 const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
-const issuer="https://protocolia-idp.test",audience="protocolia-generated-api";
+let issuer="";const audience="protocolia-generated-api";
 const key={...publicKey.export({format:"jwk"}),kid:"pkce-test-key",alg:"RS256",use:"sig"};
 const b64=x=>Buffer.from(JSON.stringify(x)).toString("base64url");
 function token(subject="alice"){
@@ -34,12 +34,27 @@ function docker(args,timeout=600000){
  return result.stdout;
 }
 const pending=new Map();let exchanges=0,validPkce=false;
+let discoveryMode="wrongIssuer";
 let provider,running=false,args=[];
 try{
  const [appPort,idpPort]=await Promise.all([freePort(),freePort()]);
  const base="http://127.0.0.1:"+appPort,callback=base+"/";
+ issuer="http://host.docker.internal:"+idpPort;
  provider=httpServer(async(req,res)=>{
   const url=new URL(req.url??"/","http://127.0.0.1:"+idpPort);
+  if(url.pathname==="/.well-known/openid-configuration"){
+   res.setHeader("Content-Type","application/json");
+   res.setHeader("Cache-Control","no-store");
+   res.end(JSON.stringify({
+     issuer:discoveryMode==="wrongIssuer"?"https://untrusted-idp.example":issuer,
+     authorization_endpoint:"http://127.0.0.1:"+idpPort+"/authorize",
+     token_endpoint:"http://127.0.0.1:"+idpPort+"/token",
+     jwks_uri:"http://host.docker.internal:"+idpPort+"/jwks",
+     response_types_supported:["code"],
+     code_challenge_methods_supported:["S256"],
+     authorization_response_iss_parameter_supported:true
+   }));return;
+  }
   if(url.pathname==="/jwks"){
    res.setHeader("Content-Type","application/json");
    res.end(JSON.stringify({keys:[key]}));return;
@@ -89,6 +104,7 @@ try{
    "PROTOCOLIA_JWT_AUDIENCE="+audience,
    "PROTOCOLIA_JWT_JWKS_URI=http://host.docker.internal:"+idpPort+"/jwks",
    "PROTOCOLIA_JWT_ALLOW_TEST_HTTP=true",
+   "PROTOCOLIA_OIDC_DISCOVERY_REQUIRED=true",
    "PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT=http://127.0.0.1:"+idpPort+"/authorize",
    "PROTOCOLIA_OIDC_TOKEN_ENDPOINT=http://127.0.0.1:"+idpPort+"/token",
    "PROTOCOLIA_OIDC_CLIENT_ID=protocolia-browser",
@@ -104,6 +120,16 @@ try{
    "--project-name",project,"--env-file",envFile];
  docker([...args,"config","--quiet"],15000);running=true;
  docker([...args,"up","--detach","--build"]);
+ let rejected=false;
+ const negativeUntil=Date.now()+70000;
+ while(Date.now()<negativeUntil){
+   const logs=docker([...args,"logs","--no-color","app"],15000);
+   if(logs.includes("OIDC discovery metadata mismatch: issuer")){rejected=true;break;}
+   await new Promise(ok=>setTimeout(ok,900));
+ }
+ assert.ok(rejected,"Generated backend must reject mismatched OIDC issuer before serving traffic");
+ discoveryMode="valid";
+ docker([...args,"up","--detach","--force-recreate","app"],180000);
  let healthy=false;
  const until=Date.now()+130000;
  while(Date.now()<until){
@@ -114,6 +140,7 @@ try{
  const config=await (await fetch(base+"/api/_protocolia/auth/config")).json();
  assert.equal(config.mode,"jwt");assert.equal(config.enabled,true);
  assert.equal(config.redirectUri,callback);
+ assert.equal(config.requireIssuerResponse,true);
  const {chromium}=await import("playwright");
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
@@ -177,7 +204,8 @@ try{
    realCodeVerifier:true,codeSingleUse:true,serverJWKS:true,
    signedAccessToken:true,callbackState:true,noTokenStorage:true,
    forgedCallbackRejected:true,generatedCreate:true,mobile:true,
-   protectedRequest401EndsSession:true,reauthentication:true,stale401Isolated:true
+   protectedRequest401EndsSession:true,reauthentication:true,stale401Isolated:true,
+   oidcDiscoveryBound:true,issuerMismatchFailsStartup:true,issuerResponseRequired:true
  }));
 }finally{
  if(running)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
