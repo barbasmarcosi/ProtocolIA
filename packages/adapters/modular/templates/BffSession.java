@@ -131,7 +131,7 @@ public class BffSession {
     res.setHeader("Cache-Control","no-store");
     res.setHeader("X-Content-Type-Options","nosniff");
     res.setHeader("Referrer-Policy","no-referrer");
-    res.setHeader("Content-Security-Policy","base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+    // Global BFF response filter supplies a single CSP for HTML, assets and API.
   }
   // PostgreSQL SKIP LOCKED prevents concurrent replicas deleting the same row;
   // 200 rows per iteration bounds transaction duration and write amplification.
