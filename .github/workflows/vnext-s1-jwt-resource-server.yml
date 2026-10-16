@@ -1,0 +1,41 @@
+name: vnext-s1-jwt-resource-server
+on:
+  push:
+    branches:
+      - feature/s1d2b-jwt-resource-server-20261016
+    paths:
+      - 'packages/**'
+      - 'scripts/vnext/probe-jwt-resource-server-http.mjs'
+      - '.github/workflows/vnext-s1-jwt-resource-server.yml'
+permissions:
+  contents: read
+concurrency:
+  group: s1-jwt-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  jwt-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate independent TypeSpec application in both auth modes
+        run: npm run app:build -- examples/vnext/owner-scope --target ${{ matrix.target }} --out "${RUNNER_TEMP}/s1-jwt-generated"
+      - name: Preserve unchanged demo Basic authentication conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/s1-jwt-generated"
+      - name: Independent RS256/JWKS bearer authorization oracle
+        run: node scripts/vnext/probe-jwt-resource-server-http.mjs "${RUNNER_TEMP}/s1-jwt-generated"
