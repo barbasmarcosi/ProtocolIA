@@ -174,7 +174,16 @@ try{
   await page.goto(base+"/",{waitUntil:"domcontentloaded"});
   await page.getByTestId("login-provider").waitFor({timeout:15000});
   await page.getByTestId("login-provider").click();
-  await page.getByTestId("open-create").waitFor({timeout:20000});
+  try{await page.getByTestId("open-create").waitFor({timeout:15000});}
+  catch(error){
+    console.error("BFF_DIAGNOSTIC",JSON.stringify({
+      url:page.url(),body:(await page.locator("body").innerText()).slice(0,1700),
+      cookies:(await page.context().cookies()).map(c=>({name:c.name,httpOnly:c.httpOnly,sameSite:c.sameSite})),
+      errors
+    }));
+    console.error("BFF_SERVER_DIAGNOSTIC",docker([...args,"logs","--no-color","app"],15000).slice(-9500));
+    throw error;
+  }
   assert.equal(exchanges,1,"Exactly one server PKCE exchange required");
   assert.ok(validPkce);
   assert.ok(!page.url().includes("code="));
