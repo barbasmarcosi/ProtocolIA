@@ -46,4 +46,4 @@ Igualdad sobre `9007199254740993.1234`, diferencia de una diezmilésima `9007199
 - No está demostrado un contrato comercial completo, autorización multinivel o disponibilidad para producción; Basic Auth continúa siendo modo demo.
 - No desplegar esta iteración sobre Railway/Neon durables ni modificar `main` o PR #52.
 
-**Pendiente:** completar el gate de regresión oficial de Bomberos luego del fast-forward a `independent/volunteer-evaluations`. Posteriormente abordar B1.4 (formularios), B2 (cálculos/transacciones), S1 (autoridad sobre datos).
+**Promoción — PASS:** fast-forward a `independent/volunteer-evaluations`, SHA integrado `cd1b0895b2ea039ebf1ca584f3d1e0b045a2465d`. [Regresión independiente oficial de Bomberos NestJS/Spring Boot/PostgreSQL/Chromium #38844421859](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38844421859) y [quality integrada #38844421842](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38844421842) finalizaron ambas con `success`. Posteriormente abordar reglas compuestas tipadas, B1.4 (formularios), B2 (cálculos/transacciones) y S1 (autoridad sobre datos).
