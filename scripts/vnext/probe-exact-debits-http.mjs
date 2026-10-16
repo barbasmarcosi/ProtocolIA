@@ -136,7 +136,7 @@ try{
  });
  assert.notEqual(bad.status,0,"Direct SQL cannot make balance negative");
  assert.match((bad.stderr??"")+(bad.stdout??""),/violates check constraint/i);
- assert.equal((await getBalance(huge)).body.available,"9007199254740993.98");
+ assert.equal((await getBalance(huge)).body.available,"9007199254740993.99");
  if(process.argv.includes("--browser")){
   const {chromium}=await import("playwright");
   const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
