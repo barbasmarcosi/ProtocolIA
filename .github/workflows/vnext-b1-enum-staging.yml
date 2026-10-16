@@ -1,0 +1,75 @@
+name: vnext-b1-enum-staging
+on:
+  push:
+    branches:
+      - feature/b1-typespec-enum-contracts-20261015
+    paths:
+      - '.github/workflows/vnext-b1-enum-staging.yml'
+      - 'packages/**'
+      - 'examples/vnext/finite-choices/**'
+      - 'scripts/vnext/probe-finite-choices-http.mjs'
+      - 'tests/vnext/finite-choices.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b1-enum-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  enum-generated-nest-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install locked compiler
+        run: npm ci
+      - name: Generate Nest and React from native string enum contract
+        run: npm run app:build -- examples/vnext/finite-choices --target nestjs --out "${RUNNER_TEMP}/b1-enum-nest"
+      - name: Validate real TypeSpec enum IR and mutated invalid contracts
+        run: node --test tests/vnext/finite-choices.test.mjs
+      - name: Generated app PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/b1-enum-nest"
+      - name: Install Chromium for real generated choice UI
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Black-box enum HTTP PostgreSQL and mobile Chromium oracle
+        run: node scripts/vnext/probe-finite-choices-http.mjs "${RUNNER_TEMP}/b1-enum-nest" --browser
+      - name: Preserve generated mobile finite-choice UI
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocolia-b1-generated-enum-mobile
+          path: ${{ runner.temp }}/b1-enum-nest/protocolia-b1-enum-mobile.png
+          if-no-files-found: error
+
+  enum-generated-spring-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+      - name: Install locked compiler
+        run: npm ci
+      - name: Generate Spring Boot React from identical native string enum contract
+        run: npm run app:build -- examples/vnext/finite-choices --target modular-spring --out "${RUNNER_TEMP}/b1-enum-spring"
+      - name: Generated Spring PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/b1-enum-spring"
+      - name: Black-box enum HTTP PostgreSQL oracle on Spring Boot
+        run: node scripts/vnext/probe-finite-choices-http.mjs "${RUNNER_TEMP}/b1-enum-spring"
