@@ -11,6 +11,9 @@ namespace ExactBalancePosting {
     walletCode: string;
     @minLength(1) @maxLength(80)
     name: string;
+    @uiLabel("Saldo inicial")
+    @encode(string) @exactDecimal(24,2,"0")
+    openingBalance: decimal;
     @uiLabel("Saldo disponible")
     @encode(string) @exactDecimal(24,2,"0")
     available: decimal;
@@ -31,6 +34,7 @@ namespace ExactBalancePosting {
     @minLength(1) @maxLength(40) walletCode: string;
     @minLength(1) @maxLength(80) name: string;
     @encode(string) @exactDecimal(24,2,"0") available: decimal;
+    @encode(string) @exactDecimal(24,2,"0") openingBalance: decimal;
   }
   model ChargeRequest {
     @minLength(1) @maxLength(40) chargeNumber: string;
@@ -40,6 +44,16 @@ namespace ExactBalancePosting {
   model WalletPage { items: Wallet[]; @minValue(1) @maxValue(50) limit: int32; @minValue(0) offset: int32; @minValue(0) total: int32; }
   model ChargePage { items: Charge[]; @minValue(1) @maxValue(50) limit: int32; @minValue(0) offset: int32; @minValue(0) total: int32; }
   model Health { status: string; }
+  model ExactLedgerSnapshot {
+    openingBalance: string;
+    available: string;
+    postedTotal: string;
+    reversedTotal: string;
+    expectedAvailable: string;
+    difference: string;
+    postingCount: string;
+    balanced: boolean;
+  }
   @error model BadRequest { @statusCode _: 400; message: string; }
   @error model Conflict { @statusCode _: 409; message: string; }
   @error model NotFound { @statusCode _: 404; message: string; }
@@ -49,6 +63,12 @@ namespace ExactBalancePosting {
   @route("/api/wallets") @post @behavior("create","Wallet") @capability("wallets.write")
   op createWallet(@body input: WalletRequest):
     { @statusCode _: 201; @body wallet: Wallet; } | BadRequest | Conflict | Unauthorized | Forbidden;
+  @route("/api/wallets/{walletCode}/reconciliation") @get
+  @behavior("reconcileExact","Wallet")
+  @reconcileExact("openingBalance","available","Charge","walletCode","amount","status","posted","reversed")
+  @capability("wallets.read")
+  op reconcileWallet(@path walletCode: string):
+    ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;
   @route("/api/wallets/{walletCode}") @get @behavior("get","Wallet") @capability("wallets.read")
   op getWallet(@path walletCode: string): Wallet | NotFound | Unauthorized | Forbidden;
   @route("/api/wallets") @get @behavior("listPage","Wallet") @capability("wallets.read")

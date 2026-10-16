@@ -742,7 +742,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       continue;
     }
     if(kind==="reconcileExact"){
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced"];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
