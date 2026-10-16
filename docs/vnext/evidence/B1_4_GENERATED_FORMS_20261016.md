@@ -29,3 +29,7 @@ La primera captura móvil mostró texto que se filtraba **debajo** del pie flota
 - `main`, PR #52, demo Railway UX9 y Neon durable permanecen fuera del alcance.
 
 **Gate final de promoción:** al integrar a `independent/volunteer-evaluations`, ejecutar automáticamente una nueva regresión oficial sobre el SHA integrado. Las modificaciones posteriores exclusivamente documentales no requieren reejecutar GitHub Actions.
+
+## Promoción definitiva
+
+**PASS** sobre el SHA integrado `f6dd03b69be27183c2d377053fab599f90b61c4c`. [CI oficial Bomberos de dos backends + Chromium #38846058686](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38846058686) y [quality integrada #38846058751](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38846058751): ambos `success`. El merge fue un fast-forward a la rama `independent/volunteer-evaluations`; `main`, PR #52, Railway UX9 y Neon no se tocaron. Los cambios posteriores para registrar estos resultados afectan solo documentación.
