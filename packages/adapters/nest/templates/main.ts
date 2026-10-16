@@ -152,7 +152,7 @@ function equalSecrets(a:string,b:string):boolean{
 class RuntimeService{
   private readonly pool:Pool;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
-  private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string};
+  private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
   private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
   constructor(){
@@ -176,7 +176,7 @@ class RuntimeService{
         !["https:",...(testHttp?["http:"]:[])].includes(issuerUrl.protocol)||
         !["https:",...(testHttp?["http:"]:[])].includes(jwksUrl.protocol)||
         issuerUrl.username||issuerUrl.password||jwksUrl.username||jwksUrl.password||
-        issuerUrl.hash||jwksUrl.hash||issuer.length>300||jwks.length>500)
+        issuerUrl.hash||issuerUrl.search||jwksUrl.hash||jwksUrl.search||issuer.length>300||jwks.length>500)
         throw Error("Invalid JWT issuer, audience or trusted JWKS URL");
       this.jwtConfig={issuer,audience,verify:createRemoteJWKSet(jwksUrl,{
         timeoutDuration:5000,cacheMaxAge:60000,cooldownDuration:1000})};
@@ -218,7 +218,59 @@ class RuntimeService{
       [new Date().toISOString(),25]);
     console.log("PROTOCOLIA_ALERT_TICK "+JSON.stringify(result.rows[0]));
   }
+  private async verifyOidcDiscovery():Promise<void>{
+    const policy=process.env.PROTOCOLIA_OIDC_DISCOVERY_REQUIRED??"false";
+    if(policy!=="true"&&policy!=="false")throw Error("Invalid OIDC discovery policy");
+    if(policy==="false")return;
+    if(!this.jwtConfig||!this.browserAuth.enabled)
+      throw Error("OIDC discovery requires configured JWT browser PKCE");
+    const issuer=this.jwtConfig.issuer,base=new URL(issuer);
+    if(base.search||base.hash||base.username||base.password)
+      throw Error("Unsafe OIDC issuer");
+    // The discovery URL comes only from the operator-pinned issuer, never user input.
+    const discovery=issuer.replace(/\/$/,"")+"/.well-known/openid-configuration";
+    let document:any;
+    try{
+      const response=await fetch(discovery,{method:"GET",redirect:"error",
+        headers:{Accept:"application/json"},signal:AbortSignal.timeout(4000),cache:"no-store"});
+      if(!response.ok||!response.headers.get("content-type")?.toLowerCase().includes("application/json"))
+        throw Error("Invalid OIDC discovery response");
+      const reader=response.body?.getReader();
+      if(!reader)throw Error("Empty OIDC discovery document");
+      const fragments:Uint8Array[]=[];let length=0;
+      try{
+        while(true){
+          const next=await reader.read();
+          if(next.done)break;
+          length+=next.value.byteLength;
+          if(length>32768)throw Error("Oversized OIDC metadata");
+          fragments.push(next.value);
+        }
+      }finally{await reader.cancel().catch(()=>{});}
+      const bytes=new Uint8Array(length);let offset=0;
+      for(const fragment of fragments){bytes.set(fragment,offset);offset+=fragment.length;}
+      document=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));
+    }catch{throw Error("OIDC discovery unavailable or invalid; refusing startup");}
+    if(!document||Array.isArray(document)||typeof document!=="object")
+      throw Error("Invalid OIDC discovery document");
+    const expected={
+      issuer,authorization_endpoint:this.browserAuth.authorizationEndpoint!,
+      token_endpoint:this.browserAuth.tokenEndpoint!,
+      jwks_uri:process.env.PROTOCOLIA_JWT_JWKS_URI!
+    };
+    for(const [field,value] of Object.entries(expected))
+      if(typeof document[field]!=="string"||document[field]!==value)
+        throw Error("OIDC discovery metadata mismatch: "+field);
+    if(!Array.isArray(document.response_types_supported)||
+       !document.response_types_supported.includes("code")||
+       !Array.isArray(document.code_challenge_methods_supported)||
+       !document.code_challenge_methods_supported.includes("S256")||
+       document.authorization_response_iss_parameter_supported!==true)
+      throw Error("OIDC provider does not advertise required PKCE/issuer response support");
+    this.browserAuth.requireIssuerResponse=true;
+  }
   async init():Promise<void>{
+    await this.verifyOidcDiscovery();
     const connection=await this.pool.connect();
     try{
       await connection.query("BEGIN");
