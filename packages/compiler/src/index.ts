@@ -845,13 +845,32 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
     }
-    // A business key is not a UI-only hint: CREATE must preserve the required
-    // types and boundaries, while PATCH remains unsupported until its 409 path
-    // is uniformly translated in both runtimes.
+    // A scalar compound-key update is a single atomic PostgreSQL UPDATE.
+    // The constraint arbitrates races; generated runtimes translate 23505 to
+    // HTTP 409. Do not permit FK reassignment through the ordinary patch path.
     if(kind==="patchFields"&&entity.uniqueTogether?.includes(f??"")){
-      reject("unique-together-patch-unsupported",op.name+
-        " cannot patch compound-key fields without a guarded conflict handler",op);
-      continue;
+      const keyField=entity.fields.find(x=>x.name===f);
+      const model=op.parameters.properties.get("input")?.type;
+      const props=model?.kind==="Model"?model.properties:undefined;
+      const fieldProp=props?.get(String(input));
+      const actual=fieldProp?field(p,fieldProp):undefined;
+      const expected=keyField;
+      if(!expected||!actual||!statuses.includes(409)||
+         !statuses.includes(400)||!statuses.includes(404)||
+         http.verb!=="patch"||input!==f||!props||props.size!==1||
+         !expected.required||expected.nullable||expected.type!=="string"||
+         expected.reference||expected.ownerManaged||expected.initial!==undefined||
+         expected.computedSum||expected.computedProduct||
+         expected.computedRoundedProduct||expected.computedDiscountedTotal||
+         actual.type!==expected.type||!actual.required||actual.nullable||
+         actual.minLength!==expected.minLength||
+         actual.maxLength!==expected.maxLength||
+         actual.pattern!==expected.pattern||
+         JSON.stringify(actual.choices)!==JSON.stringify(expected.choices)){
+        reject("unique-together-patch-invalid",op.name+
+          " must PATCH one non-FK required string compound-key field, preserve DTO constraints and declare 400/404/409",op);
+        continue;
+      }
     }
     if(kind==="create"&&entity.uniqueTogether){
       const request=op.parameters.properties.get("input")?.type;
