@@ -72,3 +72,12 @@ TypeSpec string enums on persisted entity properties now compile to `IrField.cho
 This capability is not equivalent to `@uiControl`, whose hints are presentation-only. An enum is a **server-authoritative domain constraint**; changing its members requires an explicit schema-evolution review for existing data.
 
 Concrete validation: [B1.1 TypeSpec enums evidence](./evidence/B1_1_TYPESPEC_ENUMS_20261015.md), generated Nest/Spring/PostgreSQL HTTP and direct SQL checks, plus mobile Chromium.
+
+
+## B1.2 — Conditionally required string fields from a TypeSpec enum
+
+A field such as `maintenanceReason?: string` may use `@requiredWhen("quality","needs_service")` when `quality` is a declared sibling string enum containing `needs_service`. This is a **domain constraint**: the compiler carries it in the neutral IR, both generated backends validate it on create, PostgreSQL enforces a conditional CHECK against direct writes, and the shared React form indicates and validates the requirement dynamically. The enum trigger may be omitted when optional; the conditional target must be optional and nonnullable in TypeSpec.
+
+Only an equality condition against a **single enum value** and an optional string target is currently supported. Unsafe/unknown rules are rejected by the compiler. Existing-record single-field PATCH of a conditional source/target is explicitly blocked until a transactional rule-aware mutation model exists. No ad hoc SQL or UI-only interpretation is permitted. This does not yet support arbitrary conditions, decimals or automatic database migrations.
+
+Evidence and independent acceptance: [B1.2 conditional required fields](./evidence/B1_2_CONDITIONAL_REQUIRED_20261015.md).
