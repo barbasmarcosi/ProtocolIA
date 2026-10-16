@@ -38,3 +38,21 @@ test("numeric, unsafe and excessively broad enum declarations fail before genera
     }finally{rmSync(scratch,{recursive:true,force:true});}
   }
 });
+
+test("the compiler refuses a DTO that silently weakens its domain enum",()=>{
+  const scratch=mkdtempSync(join("examples","vnext",".enum-dto-negative-"));
+  try{
+    cpSync(join(root,"tspconfig.yaml"),join(scratch,"tspconfig.yaml"));
+    cpSync(join(root,"contracts"),join(scratch,"contracts"),{recursive:true});
+    const needle="quality?: GaugeQuality;";
+    const last=source.lastIndexOf(needle);
+    assert.ok(last>source.indexOf(needle));
+    const mutated=source.slice(0,last)+"quality?: string;"+source.slice(last+needle.length);
+    writeFileSync(join(scratch,"contracts/main.tsp"),mutated);
+    const run=spawnSync(join(process.cwd(),"node_modules/.bin/tsp"),["compile",scratch],{
+      encoding:"utf8",timeout:90000
+    });
+    assert.notEqual(run.status,0,"Unconstrained request DTO must not compile");
+    assert.match((run.stdout??"")+(run.stderr??""),/protocolia-enum-request-mismatch/i);
+  }finally{rmSync(scratch,{recursive:true,force:true});}
+});
