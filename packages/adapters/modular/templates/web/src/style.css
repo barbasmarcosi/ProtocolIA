@@ -315,6 +315,23 @@ button.relation-trigger:disabled{background:#f6f8fd;color:#6b7890}
  .relation-search-pagination{flex-wrap:wrap}
 }
 
+/* B1.4 generated form metadata: presentation only. */
+.form-groups{display:grid;gap:20px}
+.form-section{min-width:0}
+.form-section + .form-section{border-top:1px solid var(--line);padding-top:19px}
+.form-section-title{font-size:.91rem;font-weight:740;line-height:1.4;letter-spacing:-.01em;
+  margin:0 0 14px;color:var(--ink)}
+.modal-scroll .form-section .fields{gap:14px 18px}
+.field-multiline{grid-column:1/-1}
+.field textarea{display:block;width:100%;max-width:100%;min-height:96px;resize:vertical;
+  padding:12px 14px;border:1px solid var(--line-strong);border-radius:10px;
+  background:#fff;color:var(--ink);font:inherit;line-height:1.5}
+.field textarea:focus-visible{outline:3px solid var(--ring);outline-offset:2px}
+.field textarea[aria-invalid="true"]{border-color:#b42332;background:#fffafa;box-shadow:0 0 0 1px #b423321f}
+.field textarea[aria-invalid="true"]:focus-visible{outline:2px solid #b42332}
+.field input::placeholder,.field textarea::placeholder{color:#7a899e;opacity:1}
+@media(max-width:700px){.form-groups{gap:16px}.form-section + .form-section{padding-top:15px}.form-section-title{margin-bottom:11px}}
+
 /* Reusable generated draft protection with an in-dialog confirmation. */
 .draft-discard-panel{max-width:520px;margin:16px auto 8px;padding:18px 10px 8px;text-align:center}
 .draft-discard-panel h3{font-size:1.12rem;letter-spacing:-.015em;margin:12px 0 6px;color:var(--ink)}

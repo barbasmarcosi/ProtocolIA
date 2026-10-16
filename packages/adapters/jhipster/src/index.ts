@@ -30,7 +30,11 @@ export interface IrField {
   /** Display-only hints. Domain semantics and server validations remain authoritative. */
   uiLabel?: string;
   uiHelp?: string;
-  uiControl?: "month";
+  uiControl?: "month" | "textarea";
+  /** Presentation-only grouping of editable inputs. */
+  uiSection?: string;
+  /** Sample text only; never persisted as a default. */
+  uiPlaceholder?: string;
 }
 export interface IrEntity {
   name: string;

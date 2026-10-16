@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - independent/volunteer-evaluations
+      - feature/b1-4-generated-form-sections-20261016
     paths:
       - '.github/workflows/vnext-independent-volunteer-evaluations.yml'
       - 'examples/vnext/volunteer-evaluations/**'
@@ -65,6 +66,8 @@ jobs:
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-server-field-error-desktop.png
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-server-field-error-mobile.png
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-compact-create-mobile.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-sectioned-form-desktop.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-sectioned-form-mobile.png
           if-no-files-found: error
       - name: Upload browser failure evidence
         if: failure()

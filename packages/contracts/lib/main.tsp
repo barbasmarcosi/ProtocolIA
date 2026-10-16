@@ -11,6 +11,8 @@ namespace ProtocolIA.Domain {
   extern dec uiLabel(target: ModelProperty, label: valueof string);
   extern dec uiHelp(target: ModelProperty, help: valueof string);
   extern dec uiControl(target: ModelProperty, control: valueof string);
+  extern dec uiSection(target: ModelProperty, section: valueof string);
+  extern dec uiPlaceholder(target: ModelProperty, placeholder: valueof string);
   extern dec initial(target: ModelProperty, value: valueof string);
   extern dec computedSum(target: ModelProperty, fields: valueof string);
   // A string field is mandatory when an enum-valued sibling equals a declared value.

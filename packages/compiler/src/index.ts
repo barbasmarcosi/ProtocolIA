@@ -70,7 +70,9 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     }}:{}),
     ...(metadata(p,"uiLabel",prop) ? {uiLabel:String(metadata(p,"uiLabel",prop)?.label)} : {}),
     ...(metadata(p,"uiHelp",prop) ? {uiHelp:String(metadata(p,"uiHelp",prop)?.help)} : {}),
-    ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"} : {}),
+    ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"|"textarea"} : {}),
+    ...(metadata(p,"uiSection",prop) ? {uiSection:String(metadata(p,"uiSection",prop)?.section)} : {}),
+    ...(metadata(p,"uiPlaceholder",prop) ? {uiPlaceholder:String(metadata(p,"uiPlaceholder",prop)?.placeholder)} : {}),
     ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
     ...(metadata(p,"computedSum",prop) ? {computedSum:String(metadata(p,"computedSum",prop)?.fields).split(",").map(s=>s.trim())} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
@@ -151,9 +153,28 @@ export function compileDomain(p: Program): IrDocument | undefined {
          value.type!=="string"||value.minLength!==7||value.maxLength!==7))
         reject("unsupported-pattern",m.name+"."+prop.name+
           " requires a supported, portable YYYY-MM regex on seven-character string",prop);
-      if(value.uiControl!==undefined&&(value.uiControl!=="month"||
-         value.type!=="string"||value.minLength!==7||value.maxLength!==7))
-        reject("invalid-ui-control",m.name+"."+prop.name+" uiControl month requires a YYYY-MM-shaped 7-character string; this is a presentation hint only",prop);
+      if(value.uiSection!==undefined&&(value.uiSection.trim()!==value.uiSection||
+         value.uiSection.length<1||value.uiSection.length>64||/[\r\n<>]/.test(value.uiSection)||
+         value.initial!==undefined||value.computedSum!==undefined))
+        reject("invalid-ui-section",m.name+"."+prop.name+
+          " section must be a trimmed, single-line 1..64 character title on an editable field",prop);
+      if(value.uiPlaceholder!==undefined&&(value.uiPlaceholder.trim()!==value.uiPlaceholder||
+         value.uiPlaceholder.length<1||value.uiPlaceholder.length>90||/[\r\n<>]/.test(value.uiPlaceholder)||
+         !["string","decimal","int32"].includes(value.type)||
+         value.reference!==undefined||value.choices!==undefined||
+         value.initial!==undefined||value.computedSum!==undefined||
+         value.uiControl==="month"))
+        reject("invalid-ui-placeholder",m.name+"."+prop.name+
+          " placeholder requires a short, plain example on a simple editable field",prop);
+      if(value.uiControl!==undefined&&!((value.uiControl==="month"&&
+         value.type==="string"&&value.minLength===7&&value.maxLength===7)||
+        (value.uiControl==="textarea"&&value.type==="string"&&
+         value.maxLength!==undefined&&value.maxLength>=1&&value.maxLength<=2000&&
+         value.reference===undefined&&value.choices===undefined&&value.pattern===undefined&&
+         value.initial===undefined&&value.computedSum===undefined&&
+         !metadata(p,"publicIdentity",prop))))
+        reject("invalid-ui-control",m.name+"."+prop.name+
+          " uiControl requires a bounded YYYY-MM input or a <=2000 character plain textarea",prop);
       if (value.initial !== undefined &&
           (value.type !== "string" || !value.required || value.nullable ||
            value.unique || value.reference || !/^[a-z][a-z0-9_-]{0,63}$/.test(value.initial) ||

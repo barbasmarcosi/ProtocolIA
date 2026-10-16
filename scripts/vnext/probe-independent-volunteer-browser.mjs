@@ -19,12 +19,21 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     const form=page.getByTestId("create-form-"+entity);
     await form.waitFor({state:"visible",timeout:20000});
     if(entity==="Volunteer"){
+      assert.equal(await form.getByTestId("create-name").getAttribute("placeholder"),"Nombre y apellido",
+        "Generated placeholder follows the TypeSpec contract");
       await form.getByText(/^Guardia asignada\s*\*$/).waitFor();
       await form.getByText("Podés reasignarla más adelante desde el detalle.").waitFor();
       const help=await form.getByTestId("create-guardCode").getAttribute("aria-describedby");
       assert.ok(help?.length>0,"Generated reference picker exposes the contract hint to assistive technology");
     }
     if(entity==="MonthlyEvaluation"){
+      const groups=form.locator(".form-section");
+      assert.deepEqual(await groups.locator("h3").allTextContents(),["Identificación","Puntajes"],
+        "Accessible form section headings follow TypeSpec metadata");
+      assert.deepEqual(await groups.first().locator('[data-testid^="create-"]').evaluateAll(
+        nodes=>nodes.map(node=>node.getAttribute("data-testid"))),
+        ["create-number","create-volunteerBadge","create-period"],
+        "Identity grouping retains the input order");
       await form.getByText(/^Período de evaluación\s*\*$/).waitFor();
       await form.getByText("Seleccioná el mes de la evaluación.").waitFor();
       const help=await form.getByTestId("create-period").getAttribute("aria-describedby");
@@ -301,8 +310,26 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await volunteerModal.getByRole("button",{name:"Cerrar detalle"}).click();
     await volunteerModal.waitFor({state:"hidden"});
     await page.screenshot({path:join(generated,"protocolia-generated-list-desktop.png"),fullPage:true});
+    // Validate the generated multiline control on a different, unmodified domain field.
+    const notesForm=await navigate("Licencias","LeaveRecord");
+    const notes=notesForm.getByTestId("create-notes");
+    assert.equal(await notes.evaluate(el=>el.tagName),"TEXTAREA");
+    assert.equal(await notes.getAttribute("maxlength"),"160");
+    assert.equal(await notes.getAttribute("placeholder"),"Anotá un detalle relevante de la licencia");
+    assert.ok((await notes.getAttribute("aria-describedby"))?.length>0,
+      "Textarea contract help is linked accessibly");
+    await notes.fill("Breve descripción desde React generado.");
+    assert.equal(await notes.inputValue(),"Breve descripción desde React generado.");
+    await notesForm.getByRole("button",{name:"Cancelar",exact:true}).click();
+    await page.getByTestId("unsaved-changes-confirmation")
+      .getByRole("button",{name:"Descartar cambios"}).click();
+    await page.getByTestId("create-dialog").waitFor({state:"hidden"});
     form=await navigate("Calificaciones mensuales","MonthlyEvaluation");
+    await page.getByTestId("create-dialog").screenshot({
+      path:join(generated,"protocolia-generated-sectioned-form-desktop.png")});
     await page.setViewportSize({width:390,height:780});
+    await page.getByTestId("create-dialog").screenshot({
+      path:join(generated,"protocolia-generated-sectioned-form-mobile.png")});
     const longBounds=await page.getByTestId("create-dialog").evaluate(element=>({
       height:element.getBoundingClientRect().height,windowHeight:window.innerHeight
     }));

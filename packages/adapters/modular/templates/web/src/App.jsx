@@ -62,6 +62,17 @@ function isMonthField(field){
   if(field.uiControl!==undefined)return field.uiControl==="month";
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
+function groupCreateFields(fields){
+  const visible=fields.filter(field=>!field.computedSum&&field.initial===undefined);
+  if(!visible.some(field=>field.uiSection))return [{title:null,fields:visible}];
+  const grouped=new Map();
+  for(const field of visible){
+    const title=field.uiSection??"Datos generales";
+    if(!grouped.has(title))grouped.set(title,[]);
+    grouped.get(title).push(field);
+  }
+  return [...grouped].map(([title,fields])=>({title,fields}));
+}
 function isRequiredInForm(field,values){
   return field.required||Boolean(field.requiredWhen&&
     values[field.requiredWhen.field]===field.requiredWhen.equals);
@@ -259,14 +270,20 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
     {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </div>;
-  return <label className="field">
+  return <label className={"field"+(field.uiControl==="textarea"?" field-multiline":"")}>
     <span>{label(field)}{required?" *":""}</span>
-    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"}
-      inputMode={field.type==="decimal"?"decimal":undefined} autoComplete={field.type==="decimal"?"off":undefined} required={required}
-      aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
-      min={field.min??undefined} max={field.max??undefined}
-      maxLength={field.maxLength??undefined}
-      value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
+    {field.uiControl==="textarea"?
+      <textarea data-testid={"create-"+field.name} rows={3} required={required}
+        placeholder={field.uiPlaceholder??undefined} maxLength={field.maxLength??undefined}
+        aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
+        value={value??""} onChange={event=>onChange(field.name,event.target.value)}/>:
+      <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"}
+        inputMode={field.type==="decimal"?"decimal":undefined} autoComplete={field.type==="decimal"?"off":undefined} required={required}
+        aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
+        placeholder={field.uiPlaceholder??undefined}
+        min={field.min??undefined} max={field.max??undefined}
+        maxLength={field.maxLength??undefined}
+        value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>}
     {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
     {conditionallyRequired&&<span className="field-hint" role="note">Este campo es obligatorio por el estado seleccionado.</span>}
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
@@ -366,7 +383,7 @@ export default function App(){
   // Generic draft baseline is built from the formal field manifest.
   const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
     if(field.computedSum||field.initial!==undefined)return false;
-    const initial=field.type==="int32"?0:"";
+    const initial=field.type==="int32"&&field.required?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
   navigationSnapshot.current={resourceIndex,createDirty,saving:creating&&loading};
@@ -797,7 +814,11 @@ export default function App(){
           }
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
           if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});commitCreateClose();}
-        }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+        }}><div className="form-groups">{groupCreateFields(active.entity.fields).map((group,index)=>
+          <section className="form-section" key={group.title??"ungrouped"} data-testid={"create-section-"+index}
+            aria-label={group.title??"Datos del registro"}>
+            {group.title&&<h3 className="form-section-title">{group.title}</h3>}
+            <div className="fields">{group.fields.map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
           required={isRequiredInForm(field,form)}
           conditionallyRequired={Boolean(field.requiredWhen&&form[field.requiredWhen.field]===field.requiredWhen.equals)}
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
@@ -808,7 +829,8 @@ export default function App(){
            })}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name)delete updated[f.name];return updated;});}}/>)}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name||f.greaterThanField===name||f.afterField===name)delete updated[f.name];return updated;});}}/>)}</div>
+          </section>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}
             </div>

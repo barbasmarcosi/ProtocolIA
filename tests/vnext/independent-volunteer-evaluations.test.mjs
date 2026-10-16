@@ -55,6 +55,12 @@ test("presentation metadata is compiled verbatim without changing domain invaria
   assert.equal(period.uiControl,"month");
   assert.equal(period.pattern,"^[0-9]{4}-(0[1-9]|1[0-2])$","Authoritative month pattern survives TypeSpec IR");
   assert.equal(period.uiLabel,"Período de evaluación");
+  assert.equal(period.uiSection,"Identificación");
+  assert.equal(entities.get("MonthlyEvaluation").fields.find(f=>f.name==="incidentPoints").uiSection,"Puntajes");
+  assert.equal(entities.get("Volunteer").fields.find(f=>f.name==="name").uiPlaceholder,"Nombre y apellido");
+  const notes=entities.get("LeaveRecord").fields.find(f=>f.name==="notes");
+  assert.equal(notes.uiControl,"textarea");
+  assert.equal(notes.uiPlaceholder,"Anotá un detalle relevante de la licencia");
   assert.equal(period.minLength,7);
   assert.equal(period.maxLength,7);
   const leave=entities.get("LeaveRecord").fields.find(f=>f.name==="period");
@@ -86,7 +92,14 @@ test("malformed presentation hints fail closed before application generation",()
     ["oversized help",'@uiHelp("Podés reasignarla más adelante desde el detalle.")',
       '@uiHelp("'+ "A".repeat(250)+'")',"protocolia-invalid-ui-help"],
     ["wrong field type",'@uiLabel("Puntos por emergencias")',
-      '@uiControl("month") @uiLabel("Puntos por emergencias")',"protocolia-invalid-ui-control"]
+      '@uiControl("month") @uiLabel("Puntos por emergencias")',"protocolia-invalid-ui-control"],
+    ["unsafe section",'@uiSection("Identificación")','@uiSection("Identificación<bad>")',"protocolia-invalid-ui-section"],
+    ["empty section",'@uiSection("Identificación")','@uiSection("")',"protocolia-invalid-ui-section"],
+    ["unsafe placeholder",'@uiPlaceholder("Nombre y apellido")','@uiPlaceholder("<img>")',"protocolia-invalid-ui-placeholder"],
+    ["unbounded textarea",'@minLength(1) @maxLength(160)\n    @uiLabel("Observaciones")',
+      '@minLength(1) @maxLength(2001)\n    @uiLabel("Observaciones")',"protocolia-invalid-ui-control"],
+    ["textarea integer",'@uiLabel("Puntos por emergencias")',
+      '@uiControl("textarea") @uiLabel("Puntos por emergencias")',"protocolia-invalid-ui-control"]
   ]){
     const scratch=mkdtempSync(join("examples","vnext",".presentation-negative-"));
     try{

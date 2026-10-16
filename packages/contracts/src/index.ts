@@ -13,6 +13,8 @@ export const $lib = createTypeSpecLibrary({
     uiLabel: {description:"User-visible human label on a field, independent of persistence name"},
     uiHelp: {description:"Contextual user guidance on a field"},
     uiControl: {description:"Display-only input control hint, no business semantic change"},
+    uiSection: {description:"Declarative visual grouping for editable form fields"},
+    uiPlaceholder: {description:"Presentation-only sample text, not a default or constraint"},
     initial: {description:"Initial immutable state for a finite-state field"},
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
@@ -60,6 +62,12 @@ function uiHelp(context: DecoratorContext, target: ModelProperty, help: string):
 }
 function uiControl(context: DecoratorContext, target: ModelProperty, control: string): void {
   context.program.stateMap($lib.stateKeys.uiControl).set(target,{control});
+}
+function uiSection(context: DecoratorContext, target: ModelProperty, section: string): void {
+  context.program.stateMap($lib.stateKeys.uiSection).set(target,{section});
+}
+function uiPlaceholder(context: DecoratorContext, target: ModelProperty, placeholder: string): void {
+  context.program.stateMap($lib.stateKeys.uiPlaceholder).set(target,{placeholder});
 }
 
 function initial(context: DecoratorContext, target: ModelProperty, value: string): void {
@@ -140,6 +148,8 @@ export const $decorators = {
     uiLabel,
     uiHelp,
     uiControl,
+    uiSection,
+    uiPlaceholder,
     initial,
     computedSum,
     requiredWhen,

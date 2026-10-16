@@ -72,10 +72,10 @@ namespace VolunteerEvaluations {
     @uiLabel("Guardia asignada") @uiHelp("Podés reasignarla más adelante desde el detalle.")
     guardCode: string;
     @minLength(1) @maxLength(120)
-    @uiLabel("Nombre completo")
+    @uiLabel("Nombre completo") @uiPlaceholder("Nombre y apellido")
     name: string;
     @minLength(1) @maxLength(80)
-    @uiLabel("Jerarquía")
+    @uiLabel("Jerarquía") @uiPlaceholder("Ej.: Aspirante")
     rank: string;
   }
 
@@ -101,28 +101,30 @@ namespace VolunteerEvaluations {
   @view("Calificaciones mensuales")
   model MonthlyEvaluation {
     @publicIdentity @unique @minLength(1) @maxLength(40)
-    @uiLabel("Número de evaluación")
+    @uiLabel("Número de evaluación") @uiSection("Identificación")
     number: string;
     @reference("Volunteer","restrict") @minLength(1) @maxLength(40)
     @uiLabel("Persona evaluada") @uiHelp("Elegí el personal al que corresponde esta evaluación.")
+    @uiSection("Identificación")
     volunteerBadge: string;
     @minLength(7) @maxLength(7) @pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")
     @uiLabel("Período de evaluación") @uiHelp("Seleccioná el mes de la evaluación.") @uiControl("month")
+    @uiSection("Identificación")
     period: string;
     @minValue(0) @maxValue(25)
-    @uiLabel("Puntos por emergencias")
+    @uiLabel("Puntos por emergencias") @uiSection("Puntajes")
     incidentPoints: int32;
     @minValue(0) @maxValue(35)
-    @uiLabel("Puntos por asistencia obligatoria")
+    @uiLabel("Puntos por asistencia obligatoria") @uiSection("Puntajes")
     mandatoryPoints: int32;
     @minValue(0) @maxValue(20)
-    @uiLabel("Puntos por guardia")
+    @uiLabel("Puntos por guardia") @uiSection("Puntajes")
     guardPoints: int32;
     @minValue(0) @maxValue(20)
-    @uiLabel("Puntos por orden interno")
+    @uiLabel("Puntos por orden interno") @uiSection("Puntajes")
     internalPoints: int32;
     @minValue(0)
-    @uiLabel("Puntos adicionales")
+    @uiLabel("Puntos adicionales") @uiSection("Puntajes")
     otherPoints: int32;
     // Automatically computed base; NOT the final monthly total including leave/other points.
     @computedSum("incidentPoints,mandatoryPoints,guardPoints,internalPoints")
@@ -182,6 +184,7 @@ namespace VolunteerEvaluations {
     days: int32;
     @minLength(1) @maxLength(160)
     @uiLabel("Observaciones") @uiHelp("Agregá una breve explicación si hace falta.")
+    @uiControl("textarea") @uiPlaceholder("Anotá un detalle relevante de la licencia")
     notes?: string;
   }
 
