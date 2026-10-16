@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string}};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string}};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -49,6 +49,26 @@ function checkString(value:unknown,f:Field):boolean{
     value.length>=(f.minLength??0)&&value.length<=(f.maxLength??255)&&
     (f.pattern===undefined||new RegExp(f.pattern).test(value));
 }
+// Exact base-10 wire values are strings; never convert via IEEE-754 Number.
+function decimalUnits(value:string,scale:number):bigint{
+  const neg=value.startsWith("-");
+  const [whole,fraction=""]=(neg?value.slice(1):value).split(".");
+  return BigInt((neg?"-":"")+whole+fraction.padEnd(scale,"0"));
+}
+function decimalIssue(value:unknown,f:Field):string|null{
+  if(typeof value!=="string")return "invalid_type";
+  const d=f.decimal;
+  if(!d||value.length>d.precision+d.scale+4||
+    !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value))return "invalid_format";
+  const unsigned=value.replace(/^-/,"");
+  const [whole,fraction=""]=unsigned.split(".");
+  if(whole.replace(/^0+/,"").length>d.precision-d.scale)return "out_of_range";
+  if(fraction.length>d.scale)return "invalid_format";
+  const scaled=decimalUnits(value,d.scale);
+  if(d.min!==undefined&&scaled<decimalUnits(d.min,d.scale))return "out_of_range";
+  if(d.max!==undefined&&scaled>decimalUnits(d.max,d.scale))return "out_of_range";
+  return null;
+}
 function parseTimestamp(value:unknown):string{
   if(typeof value!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value))
     throw new Problem(400,"Invalid date-time");
@@ -78,6 +98,9 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
     if(f.type==="int32"&&(!Number.isInteger(value)||(value as number)<-2147483648||
        (value as number)>2147483647||(f.min!==undefined&&(value as number)<f.min)||
        (f.max!==undefined&&(value as number)>f.max)))throw invalidField(f,Number.isInteger(value)?"out_of_range":"invalid_type");
+    if(f.type==="decimal"){
+      const error=decimalIssue(value,f);if(error)throw invalidField(f,error);
+    }
     if(f.type==="utcDateTime"){
       try{parseTimestamp(value);}catch{throw invalidField(f,"invalid_format");}
     }

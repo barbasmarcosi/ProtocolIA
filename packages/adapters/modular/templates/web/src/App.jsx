@@ -66,6 +66,26 @@ function isRequiredInForm(field,values){
   return field.required||Boolean(field.requiredWhen&&
     values[field.requiredWhen.field]===field.requiredWhen.equals);
 }
+function decimalIssue(value,field){
+  const d=field.decimal,raw=String(value??"");
+  if(!d||raw.length>d.precision+d.scale+4||
+     !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw))
+    return "Ingresá un decimal válido usando punto, sin exponentes.";
+  const neg=raw.startsWith("-");
+  const [whole,fraction=""]=(neg?raw.slice(1):raw).split(".");
+  if(whole.replace(/^0+/,"").length>d.precision-d.scale)
+    return "El valor excede la precisión permitida.";
+  if(fraction.length>d.scale)
+    return "Se permiten como máximo "+d.scale+" decimales.";
+  const units=s=>{
+    const sign=s.startsWith("-"),[left,right=""]=(sign?s.slice(1):s).split(".");
+    return BigInt((sign?"-":"")+left+right.padEnd(d.scale,"0"));
+  };
+  const actual=units(raw);
+  if(d.min!==undefined&&actual<units(d.min))return "El mínimo permitido es "+d.min+".";
+  if(d.max!==undefined&&actual>units(d.max))return "El máximo permitido es "+d.max+".";
+  return null;
+}
 function validateCreate(fields,values){
   const errors={};
   for(const field of fields){
@@ -77,7 +97,9 @@ function validateCreate(fields,values){
     if(field.choices?.length&&!field.choices.some(choice=>choice.value===text)){
       errors[field.name]="Elegí una opción válida.";continue;
     }
-    if(field.type==="int32"){
+    if(field.type==="decimal"){
+      const problem=decimalIssue(value,field);if(problem){errors[field.name]=problem;continue;}
+    }else if(field.type==="int32"){
       const n=Number(text);
       if(!Number.isInteger(n)){errors[field.name]="Ingresá un número entero válido.";continue;}
       if(field.min!==undefined&&n<field.min){errors[field.name]="El mínimo permitido es "+field.min+".";continue;}
@@ -201,7 +223,8 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
   </div>;
   return <label className="field">
     <span>{label(field)}{required?" *":""}</span>
-    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={required}
+    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"}
+      inputMode={field.type==="decimal"?"decimal":undefined} autoComplete={field.type==="decimal"?"off":undefined} required={required}
       aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}

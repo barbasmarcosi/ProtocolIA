@@ -4,6 +4,7 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URLDecoder;
 import java.sql.SQLException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
@@ -198,7 +199,8 @@ public class DomainRuntime {
     Map<String,Object> converted = new LinkedHashMap<>(original);
     for (var f : e.fields()) {
       Object value = converted.get(f.name());
-      if (f.type().equals("utcDateTime") && value instanceof Timestamp ts) converted.put(f.name(), ts.toInstant().toString());
+      if (f.type().equals("decimal") && value instanceof BigDecimal bd) converted.put(f.name(), bd.toPlainString());
+      else if (f.type().equals("utcDateTime") && value instanceof Timestamp ts) converted.put(f.name(), ts.toInstant().toString());
       else if (f.type().equals("utcDateTime") && value instanceof OffsetDateTime odt) converted.put(f.name(), odt.toInstant().toString());
     }
     return converted;
@@ -248,6 +250,22 @@ public class DomainRuntime {
       } else if (f.type().equals("int32")) {
         if (!(v instanceof Integer n) || (f.min()!=null && n < f.min()) || (f.max()!=null && n > f.max()))
           throw new InvalidInputField(f.name(),v instanceof Integer?"out_of_range":"invalid_type");
+      } else if (f.type().equals("decimal")) {
+        if (!(v instanceof String s))throw new InvalidInputField(f.name(),"invalid_type");
+        if (s.length() > f.precision()+f.scale()+4 ||
+            !Pattern.matches("^-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?$",s))
+          throw new InvalidInputField(f.name(),"invalid_format");
+        String positive=s.startsWith("-")?s.substring(1):s;
+        int dot=positive.indexOf('.');
+        String integerPart=dot<0?positive:positive.substring(0,dot);
+        int fractionalDigits=dot<0?0:positive.length()-dot-1;
+        if(integerPart.replaceFirst("^0+","").length()>f.precision()-f.scale())
+          throw new InvalidInputField(f.name(),"out_of_range");
+        if(fractionalDigits>f.scale())throw new InvalidInputField(f.name(),"invalid_format");
+        BigDecimal decimal=new BigDecimal(s);
+        if((f.decimalMin()!=null && decimal.compareTo(new BigDecimal(f.decimalMin()))<0) ||
+           (f.decimalMax()!=null && decimal.compareTo(new BigDecimal(f.decimalMax()))>0))
+          throw new InvalidInputField(f.name(),"out_of_range");
       } else if (f.type().equals("utcDateTime")) {
         if (!(v instanceof String s)) throw new InvalidInputField(f.name(),"invalid_type");
         try { OffsetDateTime.parse(s); } catch (RuntimeException ex) { throw new InvalidInputField(f.name(),"invalid_format"); }
@@ -259,6 +277,7 @@ public class DomainRuntime {
 
   private Object sqlValue(Manifest.Field f, Object v) {
     if (v instanceof String s && f.type().equals("utcDateTime")) return OffsetDateTime.parse(s);
+    if (v instanceof String s && f.type().equals("decimal")) return new BigDecimal(s);
     return v;
   }
 
