@@ -63,3 +63,12 @@ Proof is maintained in [UX4_PAGED_RELATIONSHIPS_20261015.md](./evidence/UX4_PAGE
 The standard TypeSpec `@pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")` now compiles to the technology-neutral `IrField.pattern`. Both NestJS and Spring Boot reject invalid input and invalid typed period filters; PostgreSQL enforces matching `CHECK` constraints. The original `@uiControl("month")` remains only a hint and never creates a validation permission or invariant by itself.
 
 Only the exact, portable, anchored year-month pattern is supported in this increment. Arbitrary regular expressions are rejected until a safe cross-language compiler subset exists. Existing schemas are tightened with a versioned, transactional and data-preserving `addPattern` migration; the generator preserves the immutable old baseline and rejects older rows that violate the new constraint without rewriting them. Full tests and release evidence: [UX5_YEAR_MONTH_20261015.md](./evidence/UX5_YEAR_MONTH_20261015.md).
+
+
+## B1.1 — Native TypeSpec enum fields (domain rules, not UI hints)
+
+TypeSpec string enums on persisted entity properties now compile to `IrField.choices` and remain authoritative from API to PostgreSQL. The shared React generator derives an accessible finite-choice selector and human-readable member labels without application-specific patches. The API and database reject values outside the enum, and the compiler refuses an incompatible plain-string request DTO. Numeric/mixed enums, arbitrary member labels/localizations, automatic enum changes on populated production tables, and full domain-level decimal/conditional expressions remain **unsupported** until explicitly implemented.
+
+This capability is not equivalent to `@uiControl`, whose hints are presentation-only. An enum is a **server-authoritative domain constraint**; changing its members requires an explicit schema-evolution review for existing data.
+
+Concrete validation: [B1.1 TypeSpec enums evidence](./evidence/B1_1_TYPESPEC_ENUMS_20261015.md), generated Nest/Spring/PostgreSQL HTTP and direct SQL checks, plus mobile Chromium.
