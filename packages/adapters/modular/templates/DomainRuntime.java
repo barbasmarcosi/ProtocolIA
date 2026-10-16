@@ -77,8 +77,13 @@ public class DomainRuntime {
   public Map<String, Object> session(Authentication user) {
     if (user == null || !user.isAuthenticated())
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-    return Map.of("username", user.getName(),
-      "capabilities", user.getAuthorities().stream().map(a -> a.getAuthority()).sorted().toList());
+    var declared=java.util.stream.Stream.of(Manifest.READ_CAPABILITIES,
+        Manifest.WRITE_CAPABILITIES,Manifest.AUDIT_CAPABILITIES,
+        Manifest.ASSIGN_CAPABILITIES,Manifest.FIELD_READ_CAPABILITIES)
+        .flatMap(java.util.List::stream).collect(java.util.stream.Collectors.toSet());
+    return Map.of("username",user.getName(),
+      "capabilities",user.getAuthorities().stream().map(a->a.getAuthority())
+        .filter(declared::contains).distinct().sorted().toList());
   }
 
   @Transactional

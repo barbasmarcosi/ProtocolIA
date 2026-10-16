@@ -135,7 +135,7 @@ try{
  assert.equal(scopedPage.body.items[0].privateMemo,"Scoped own secret");
  assert.equal((await change(scopedId,{title:"Cannot write despite read"},"scoped")).status,403);
  assert.equal((await req("/api/notes/"+scopedId,{who:"scoped"})).body.title,"Scoped own note");
- const forgedResponse=await fetch(base+"/api/notes/"+scopedId,{method:"PATCH",headers:{Authorization:basic(scoped,sp),
+ const forgedResponse=await fetch(base+"/api/notes/"+scopedId+"/title",{method:"PATCH",headers:{Authorization:basic(scoped,sp),
    "X-ProtocolIA-Capabilities":"notes.write,notes.title.write", "Content-Type":"application/json"},
    body:JSON.stringify({title:"Header forgery"}),signal:AbortSignal.timeout(15000)});
  assert.equal(forgedResponse.status,403,"Client-selected authority header cannot escalate");
