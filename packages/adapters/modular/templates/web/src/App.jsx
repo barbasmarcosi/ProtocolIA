@@ -41,7 +41,10 @@ function relationshipName(field,value,referenceOptions){
   return ref?.displayName??cellText(value);
 }
 function displayCell(field,value,referenceOptions){
-  if(!field.reference)return cellText(value);
+  if(!field.reference){
+    const choice=field.choices?.find(option=>option.value===value);
+    return choice?choice.label:cellText(value);
+  }
   const name=relationshipName(field,value,referenceOptions);
   if(name===cellText(value))return name;
   return <span className="entity-reference"><span>{name}</span><span className="entity-reference-code">{value}</span></span>;
@@ -67,6 +70,9 @@ function validateCreate(fields,values){
     const text=String(value??"").trim();
     if(field.required&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
     if(!text)continue;
+    if(field.choices?.length&&!field.choices.some(choice=>choice.value===text)){
+      errors[field.name]="Elegí una opción válida.";continue;
+    }
     if(field.type==="int32"){
       const n=Number(text);
       if(!Number.isInteger(n)){errors[field.name]="Ingresá un número entero válido.";continue;}
@@ -168,6 +174,27 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       </span>}
     </div>;
   }
+  if(field.choices?.length)return <div className="field relation-field">
+    <span className="field-label" id={fieldId}>{fieldLabel(field)}{field.required?" *":""}</span>
+    <Select.Root value={value??""} onValueChange={next=>onChange(field.name,next)}
+      open={pickerOpen} onOpenChange={onPickerOpenChange} required={field.required}>
+      <Select.Trigger className="relation-trigger" data-testid={"create-"+field.name}
+        aria-labelledby={fieldId} aria-describedby={descriptionIds} aria-invalid={Boolean(validationError)}>
+        <Select.Value placeholder={"Seleccionar "+fieldLabel(field).toLowerCase()}/>
+        <Select.Icon className="relation-chevron" aria-hidden="true">⌄</Select.Icon>
+      </Select.Trigger>
+      <Select.Portal><Select.Content className="relation-dropdown" position="popper" sideOffset={5}
+        collisionPadding={12}><Select.Viewport className="relation-options">
+        {field.choices.map(choice=><Select.Item className="relation-option"
+          key={choice.value} value={choice.value}>
+          <Select.ItemText>{choice.label}</Select.ItemText>
+          <Select.ItemIndicator className="relation-option-check" aria-hidden="true">✓</Select.ItemIndicator>
+        </Select.Item>)}
+      </Select.Viewport></Select.Content></Select.Portal>
+    </Select.Root>
+    {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
+    {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
+  </div>;
   return <label className="field">
     <span>{label(field)}{field.required?" *":""}</span>
     <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={field.required}
@@ -446,7 +473,7 @@ export default function App(){
       if(response.status===400&&Array.isArray(data.issues)){
         // Fail closed: never render arbitrary server-provided properties as field names or messages.
         const fields=new Set(active.entity.fields.map(field=>field.name));
-        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_type","out_of_range"]);
+        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_choice","invalid_type","out_of_range"]);
         failure.issues=data.issues.filter(issue=>issue&&typeof issue==="object"&&
           fields.has(issue.field)&&allowed.has(issue.code)).map(issue=>({
           field:issue.field,code:issue.code
@@ -576,6 +603,7 @@ export default function App(){
           required:"Este campo es obligatorio.",
           invalid_initial:"El valor inicial no está permitido.",
           invalid_format:"El formato ingresado no es válido.",
+          invalid_choice:"La opción seleccionada no está permitida.",
           invalid_type:"El tipo de dato ingresado no es válido.",
           out_of_range:"El valor está fuera de los límites permitidos."
         };
