@@ -56,6 +56,11 @@ export function generate(ir,spec,out){
         f.reference||typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
         f.initial.length<(f.minLength??1)||f.initial.length>(f.maxLength??255)))
         throw Error("Invalid finite-state initial value "+e.name+"."+f.name);
+      if(f.choices!==undefined&&(f.type!=="string"||f.reference||f.unique||
+        !Array.isArray(f.choices)||f.choices.length<2||f.choices.length>16||
+        new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
+        f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
+        throw Error("Unsupported enum choices "+e.name+"."+f.name);
       if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
          f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
       if(f.type==="string"&&(!Number.isInteger(f.maxLength??255)||(f.maxLength??255)<1))
@@ -244,6 +249,7 @@ export function generate(ir,spec,out){
         f.type==="string"&&f.minLength!==undefined?"CHECK (char_length("+col+") >= "+f.minLength+")":"",
         f.type==="string"&&f.required&&!f.nullable?"CHECK (char_length(btrim("+col+")) > 0)":"",
         f.pattern!==undefined?"CHECK ("+col+" ~ '"+YEAR_MONTH_PATTERN+"')":"",
+        f.choices?.length?"CHECK ("+col+" IN ("+f.choices.map(c=>"'"+c.value+"'").join(",")+"))":"",
         f.min!==undefined?"CHECK ("+col+">="+f.min+")":"",
         f.max!==undefined?"CHECK ("+col+"<="+f.max+")":""].filter(Boolean);
       if(f.initial!==undefined){
