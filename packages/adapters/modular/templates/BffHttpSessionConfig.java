@@ -42,7 +42,8 @@ public class BffHttpSessionConfig {
       @Override protected void doFilterInternal(HttpServletRequest request,
           HttpServletResponse response,FilterChain chain)
           throws ServletException,IOException {
-        boolean production=!"true".equals(System.getenv("PROTOCOLIA_JWT_ALLOW_TEST_HTTP"));
+        boolean production=(System.getenv().getOrDefault(
+          "PROTOCOLIA_OIDC_BFF_REDIRECT_URI","")).startsWith("https://");
         response.setHeader("Content-Security-Policy",CSP+
           (production?"; upgrade-insecure-requests":""));
         response.setHeader("X-Content-Type-Options","nosniff");
@@ -62,8 +63,8 @@ public class BffHttpSessionConfig {
     cookie.setCookiePath("/");
     cookie.setSameSite("Lax");
     cookie.setUseHttpOnlyCookie(true);
-    cookie.setUseSecureCookie(!"true".equals(
-      System.getenv("PROTOCOLIA_JWT_ALLOW_TEST_HTTP")));
+    cookie.setUseSecureCookie(System.getenv().getOrDefault(
+      "PROTOCOLIA_OIDC_BFF_REDIRECT_URI","").startsWith("https://"));
     return cookie;
   }
 }
