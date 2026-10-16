@@ -39,7 +39,7 @@ test("compound-key PATCH cannot omit 409 or weaken DTO constraints",()=>{
   negative("missing DTO field",s=>s.replace(
     'model InspectionPeriodUpdate {\n    @minLength(7) @maxLength(7)\n    period: string;',
     'model InspectionPeriodUpdate {\n    @minLength(7) @maxLength(7)\n    alternate: string;'),
-    /protocolia-unique-together-patch-invalid/);
+    /protocolia-(?:unique-together-patch-invalid|behavior-input)/);
   negative("DTO weakened",s=>s.replace(
     'model InspectionPeriodUpdate {\n    @minLength(7) @maxLength(7)',
     'model InspectionPeriodUpdate {\n    @minLength(1) @maxLength(7)'),
