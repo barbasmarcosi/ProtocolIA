@@ -139,7 +139,7 @@ public class DomainRuntime {
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
-      case "create" -> result = create(entity, matched, body, user.getName());
+      case "create" -> result = create(entity, matched, body, user);
       case "get" -> result = row(entity, publicKey, user.getName());
       case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
@@ -396,7 +396,8 @@ public class DomainRuntime {
     return false;
   }
 
-  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, String subject) {
+  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, Authentication user) {
+    String subject=user.getName();
     if(e.ownerField()!=null){
       if(body==null||body.containsKey(e.ownerField()))
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Owner field cannot be supplied");
@@ -459,8 +460,20 @@ public class DomainRuntime {
     for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
     String values = e.fields().stream().filter(f -> !f.computed()).map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
+    var relation=e.ownerRelation();
+    if(relation!=null){
+      if(user.getAuthorities().stream().noneMatch(a->a.getAuthority().equals(relation.parentReadCapability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Parent read permission required");
+      params.addValue("parentKey",body.get(relation.field())).addValue("authenticatedOwner",subject);
+    }
+    String insert="INSERT INTO "+e.table()+" ("+names+") "+
+      (relation==null?"VALUES ("+values+")":"SELECT "+values+" WHERE EXISTS (SELECT 1 FROM "+
+        relation.parentTable()+" WHERE "+relation.parentKey()+"=:parentKey AND "+
+        relation.parentOwnerColumn()+"=:authenticatedOwner)");
     try {
-      jdbc.update("INSERT INTO " + e.table() + " (" + names + ") VALUES (" + values + ")", params);
+      int changed=jdbc.update(insert,params);
+      if(relation!=null&&changed==0)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Referenced resource unavailable");
     } catch (DataIntegrityViolationException ex) {
       if (constraintSqlState(ex,"23503"))
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Referenced resource does not exist");

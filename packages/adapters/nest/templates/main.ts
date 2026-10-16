@@ -9,7 +9,8 @@ import "reflect-metadata";
 import contract from "./manifest.json";
 
 type Field={name:string;column:string;ownerManaged?:boolean;readCapability?:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
-type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
+type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[];
+ ownerRelation?:{field:string;parentTable:string;parentKey:string;parentOwnerColumn:string;parentReadCapability:string}};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -444,7 +445,7 @@ class RuntimeService{
         [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
     }
   }
-  private async create(e:Entity,op:Operation,body:unknown,actor:string):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[]):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!isRecord(body)||Object.hasOwn(body,owner.name)))throw new Problem(400,"Server-managed owner must not be supplied");
     const ownedBody=owner?{...(body as Record<string,unknown>),[owner.name]:actor}:body;
@@ -462,8 +463,17 @@ class RuntimeService{
     const cols=persisted.map(f=>f.column);
     const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
-    const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
-      cols.map((_,i)=>"$"+(i+1)).join(",")+")";
+    const relation=e.ownerRelation;
+    if(relation&&!capabilities.includes(relation.parentReadCapability))
+      throw new Problem(403,"Parent read capability required for linking");
+    // One SQL statement atomically checks that the parent is visible to this actor.
+    // The FK separately protects against concurrent parent deletion.
+    const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") "+
+      (relation?"SELECT ":"VALUES (")+cols.map((_,i)=>"$"+(i+1)).join(",")+
+      (relation?" WHERE EXISTS (SELECT 1 FROM "+relation.parentTable+" WHERE "+
+        relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
+        "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
+    const insertParams=relation?[...params,input[relation.field],actor]:params;
     if(op.reserve||op.exactDebit||op.audit?.length){
       const reservation=op.reserve;
       const exactDebit=op.exactDebit;
@@ -503,14 +513,18 @@ class RuntimeService{
               found.rowCount?"Insufficient exact balance":"Balance resource not found");
           }
         }
-        await client.query(insert,params);
+        const created=await client.query(insert,insertParams);
+        if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
         if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
         await client.query("COMMIT");
       }catch(error){
         await client.query("ROLLBACK");
         throw error;
       }finally{client.release();}
-    }else await this.pool.query(insert,params);
+    }else {
+      const created=await this.pool.query(insert,insertParams);
+      if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
+    }
     return this.row(e,String(input[e.publicIdentity]),actor);
   }
   private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
@@ -676,7 +690,7 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body,session.username);break;
+        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities);break;
         case "get":data=await this.row(entity,identity,session.username);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;

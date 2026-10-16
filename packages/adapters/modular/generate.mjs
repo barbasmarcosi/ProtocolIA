@@ -298,7 +298,8 @@ export function generate(ir, openapi, outDir) {
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField,String readCapability) {}",
-    "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,List<Field> fields) {}",
+    "  public record OwnerRelation(String field,String parentTable,String parentKey,String parentOwnerColumn,String parentReadCapability) {}",
+    "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,OwnerRelation ownerRelation,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
     "  public record ExactReverse(String balanceTable,String balanceKey,String balanceColumn,String referenceColumn,String amountColumn,String parentWriteCapability,String maxBalance) {}",
@@ -342,7 +343,9 @@ export function generate(ir, openapi, outDir) {
         f.readCapability!==undefined?j(f.readCapability):"null"
       ].join(",")+")").join(",\n");
       const owned=ownerScopes.get(e.name);
-      return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity)),owned?j(owned.field):"null",owned?j(owned.column):"null"].join(",")+
+      const rel=owned?.relation;
+      const ownerRelation=rel?"new OwnerRelation("+[j(rel.field),j(rel.parentTable),j(rel.parentKey),j(rel.parentOwnerColumn),j(rel.parentReadCapability)].join(",")+")":"null";
+      return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity)),owned?j(owned.field):"null",owned?j(owned.column):"null",ownerRelation].join(",")+
         ",List.of(\n"+parts+"\n    ))";
     }).join(",\n"),
     "  );",

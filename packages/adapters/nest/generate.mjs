@@ -123,7 +123,7 @@ export function generate(ir,spec,out){
   const exactDebits=compileExactDebits(ir);
   const exactReversals=compileExactReversals(ir);
   const exactReconciliations=compileExactReconciliations(ir);
-  compileOwnerScopes(ir);
+  const ownerScopes=compileOwnerScopes(ir);
   const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
@@ -377,6 +377,7 @@ export function generate(ir,spec,out){
   schema.push(...recipientInboxSql(inboxes));
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
+    ...(ownerScopes.get(e.name)?.relation?{ownerRelation:ownerScopes.get(e.name).relation}:{}),
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
     operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments,
     fieldReadCapabilities,
