@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;reference?:{target:string;onDelete:string};initial?:string};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -68,6 +68,8 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
     if(create&&f.initial!==undefined&&value!==f.initial)throw invalidField(f,"invalid_initial");
     if(value===null){if(!f.nullable)throw invalidField(f,"required");continue;}
     if(f.type==="string"&&!checkString(value,f))throw invalidField(f,typeof value==="string"?"invalid_format":"invalid_type");
+    if(f.type==="string"&&f.choices?.length&&!f.choices.some(c=>c.value===value))
+      throw invalidField(f,"invalid_choice");
     if(f.type==="int32"&&(!Number.isInteger(value)||(value as number)<-2147483648||
        (value as number)>2147483647||(f.min!==undefined&&(value as number)<f.min)||
        (f.max!==undefined&&(value as number)>f.max)))throw invalidField(f,Number.isInteger(value)?"out_of_range":"invalid_type");
