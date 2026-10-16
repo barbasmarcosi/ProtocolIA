@@ -42,9 +42,17 @@ jobs:
         run: npm run app:test -- "${RUNNER_TEMP}/pkce-system"
       - name: Regression - RSA JWT resource server
         run: node scripts/vnext/probe-jwt-resource-server-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - name: Install Chromium for true browser OAuth2 flow
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: External authorization code + PKCE browser acceptance
+        if: matrix.target == 'nestjs'
+        run: node scripts/vnext/probe-oauth-browser-http.mjs "${RUNNER_TEMP}/pkce-system"
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'nestjs' && success()
         with:
           name: s1-pkce-evidence
           path: ${{ runner.temp }}/pkce-system/s1-oauth-pkce-mobile.png
-          if-no-files-found: ignore
+          if-no-files-found: error
