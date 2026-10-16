@@ -91,3 +91,10 @@ Secciones y placeholders son textos de una sola línea, sin etiquetas, con lími
 Los hints solo afectan presentación; NestJS, Spring Boot, PostgreSQL, OpenAPI, reglas de negocio y autorizaciones permanecen independientes. Chromium verifica edición, accesibilidad y capturas mobile/desktop sobre la aplicación generada. No implica soporte para formularios condicionales complejos, rich text o autorización de producción.
 
 **Control visual adicional:** en formularios largos de móvil, la región interna de campos se desplaza independientemente y los botones «Cancelar»/«Crear» permanecen visibles sin solaparse con campos. Un oráculo de geometría en Chromium verifica que el último input quede completamente por encima de la barra de acciones.
+
+
+## B1.3d — Combinaciones prohibidas mediante enums TypeSpec
+
+`@forbidWhen("quality", "ready")` en un campo de texto opcional indica que **debe omitirse** cuando un enum hermano tenga el valor indicado. La restricción es de dominio, no una pista de presentación. El compilador verifica enums y valores declarados, tipo de destino, optionalidad, referencias inseguras y contradicciones con `@requiredWhen`; el IR conserva `forbidWhen: {field,equals}`. NestJS y Spring Boot rechazan un `POST` incompatible con HTTP 400 e `issues: [{field,code:"invalid_combination"}]`; PostgreSQL genera un `CHECK` y React señala el campo antes del envío.
+
+Los PATCH del campo protegido o de su disparador se rechazan en compilación mientras no exista una mutación transaccional que revalide el registro completo. La regla soportada es una comparación de igualdad contra un solo valor de un enum de texto, con destino `string` opcional no nullable; no soporta predicados anidados, condiciones entre entidades ni migraciones automáticas a esquemas ya poblados. OpenAPI conserva el tipo y la estructura del DTO, pero la restricción condicional vive en el IR y la implementación; no se finge que un esquema OpenAPI de propiedades independientes la expresa. [Evidencia empírica](./evidence/B1_3D_FORBIDDEN_COMBINATIONS_20261016.md).
