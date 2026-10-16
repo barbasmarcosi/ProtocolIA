@@ -49,6 +49,10 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
     ...(parsed.choices?{choices:parsed.choices}:{}),
+    ...(metadata(p,"requiredWhen",prop)?{requiredWhen:{
+      field:String(metadata(p,"requiredWhen",prop)?.field),
+      equals:String(metadata(p,"requiredWhen",prop)?.equals)
+    }}:{}),
     ...(metadata(p,"uiLabel",prop) ? {uiLabel:String(metadata(p,"uiLabel",prop)?.label)} : {}),
     ...(metadata(p,"uiHelp",prop) ? {uiHelp:String(metadata(p,"uiHelp",prop)?.help)} : {}),
     ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"} : {}),
@@ -124,6 +128,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-initial",m.name+"."+prop.name+" requires a valid required string state field",prop);
       }
       fields.push(value);
+    }
+    // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
+    for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
+      const {field:sourceName,equals}=conditionField.requiredWhen!;
+      const source=fields.find(x=>x.name===sourceName);
+      if(conditionField.type!=="string"||conditionField.required||
+        conditionField.nullable||conditionField.unique||conditionField.reference||
+        conditionField.computedSum||conditionField.initial!==undefined||
+        conditionField.choices!==undefined||conditionField.name===sourceName||
+        !/^[A-Za-z][A-Za-z0-9_]*$/.test(sourceName)||
+        !source||source.type!=="string"||source.nullable||source.initial!==undefined||
+        !source.choices?.some(x=>x.value===equals)){
+        reject("invalid-required-when",m.name+"."+conditionField.name+
+          " requires an optional nonnullable string field and a sibling string enum with declared value",m);
+      }
     }
     for(const f of fields.filter(x=>x.computedSum!==undefined)) {
       const parts=f.computedSum!;
@@ -463,6 +482,29 @@ export function compileDomain(p: Program): IrDocument | undefined {
           reject("enum-request-mismatch",op.name+" request field "+choiceField.name+
             " must preserve TypeSpec enum values and optionality",op);
           mismatch=true;break;
+        }
+      }
+      if(mismatch)continue;
+    }
+    if(kind==="create"||kind==="patchFields"){
+      const guarded=entity.fields.filter(x=>x.requiredWhen);
+      const dto=op.parameters.properties.get("input")?.type;
+      const properties=dto?.kind==="Model"?dto.properties:undefined;
+      let mismatch=false;
+      for(const target of guarded){
+        if(kind==="patchFields"&&(target.name===f||target.requiredWhen!.field===f)){
+          reject("conditional-patch-unsupported",op.name+
+            " cannot patch conditional field or its enum trigger without a transactional rule-aware update",op);
+          mismatch=true;break;
+        }
+        if(kind==="create"){
+          const payload=properties?.get(target.name);
+          if(!payload||!payload.optional||typeOfField(payload)?.type!=="string"||
+            typeOfField(payload)?.choices||typeOfField(payload)?.nullable){
+            reject("conditional-request-mismatch",op.name+
+              " must preserve optional plain string field "+target.name+" in create DTO",op);
+            mismatch=true;break;
+          }
         }
       }
       if(mismatch)continue;
