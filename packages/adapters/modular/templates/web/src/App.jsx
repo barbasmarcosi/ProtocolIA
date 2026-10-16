@@ -25,8 +25,8 @@ function visibleColumns(entity){
   const identity=fields.find(f=>f.name===entity.publicIdentity);
   const named=fields.find(f=>f.name==="name"&&f!==identity);
   const relations=fields.filter(f=>f.reference);
-  const preferred=fields.filter(f=>f.computedSum||f.computedProduct||f.computedRoundedProduct);
-  const others=fields.filter(f=>f!==identity&&f!==named&&!f.reference&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&
+  const preferred=fields.filter(f=>f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal);
+  const others=fields.filter(f=>f!==identity&&f!==named&&!f.reference&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
     (f.name==="period"||f.name==="status"||f.type==="utcDateTime"));
   const candidates=[identity,named,...relations,...others,...preferred].filter(Boolean);
   return [...new Map(candidates.map(f=>[f.name,f])).values()].slice(0,5);
@@ -63,7 +63,7 @@ function isMonthField(field){
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
 function groupCreateFields(fields){
-  const visible=fields.filter(field=>!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&field.initial===undefined);
+  const visible=fields.filter(field=>!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&field.initial===undefined);
   if(!visible.some(field=>field.uiSection))return [{title:null,fields:visible}];
   const grouped=new Map();
   for(const field of visible){
@@ -100,7 +100,7 @@ function decimalIssue(value,field){
 function validateCreate(fields,values){
   const errors={};
   for(const field of fields){
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.initial!==undefined)continue;
+    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
     const value=values[field.name];
     const text=String(value??"").trim();
     if(isRequiredInForm(field,values)&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
@@ -168,13 +168,13 @@ function validateCreate(fields,values){
   return errors;
 }
 function createEmpty(fields){
-  return Object.fromEntries(fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct).map(field=>[field.name,
+  return Object.fromEntries(fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(field=>[field.name,
     field.initial??(field.type==="int32"&&field.required?0:"")]));
 }
 function normalizePayload(fields,values){
   const result={};
   for(const field of fields){
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct)continue;
+    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal)continue;
     const value=values[field.name];
     if(field.type==="int32"){
       if(!field.required&&(value===undefined||value===null||String(value).trim()===""))continue;
@@ -382,7 +382,7 @@ export default function App(){
   const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
   // Generic draft baseline is built from the formal field manifest.
   const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.initial!==undefined)return false;
+    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
     const initial=field.type==="int32"&&field.required?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
@@ -518,8 +518,8 @@ export default function App(){
   // Compact, simple create tasks should not waste an entire mobile viewport.
   // Relationship selectors and longer workflows retain full-height dialogs.
   const compactCreate=Boolean(active?.entity?.fields&&
-    active.entity.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&f.initial===undefined).length<=4&&
-    !active.entity.fields.some(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&f.initial===undefined&&f.reference));
+    active.entity.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&f.initial===undefined).length<=4&&
+    !active.entity.fields.some(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&f.initial===undefined&&f.reference));
   const referencesReady=active?.entity?.fields.filter(f=>f.reference)
     .every(f=>["ready","paged"].includes(referenceStatus[f.name]?.state))??true;
   function listing(){

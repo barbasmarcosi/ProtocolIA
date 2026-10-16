@@ -4,7 +4,7 @@ import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
-import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
+import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -79,6 +79,7 @@ export function generate(ir, openapi, outDir) {
       assertDecimalField(f,e.name+"."+f.name);
       assertComputedProduct(f,e);
       assertComputedRoundedProduct(f,e);
+      assertComputedDiscountedTotal(f,e);
       if(f.greaterThanField!==undefined){
         const source=e.fields.find(x=>x.name===f.greaterThanField);
         if(!source||source===f||!source.required||source.nullable||
@@ -295,7 +296,7 @@ export function generate(ir, openapi, outDir) {
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
-        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum||f.computedProduct||f.computedRoundedProduct),
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal),
         "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
         f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null",
         n(f.decimal?.precision),n(f.decimal?.scale),f.decimal?.min!==undefined?j(f.decimal.min):"null",f.decimal?.max!==undefined?j(f.decimal.max):"null",
@@ -396,7 +397,11 @@ export function generate(ir, openapi, outDir) {
         f.computedProduct?" GENERATED ALWAYS AS ("+f.computedProduct.map(snake).join(" * ")+") STORED":
         f.computedRoundedProduct?" GENERATED ALWAYS AS (round("+
           snake(f.computedRoundedProduct.left)+" * "+snake(f.computedRoundedProduct.right)+
-          ", "+f.decimal.scale+")) STORED":"";
+          ", "+f.decimal.scale+")) STORED":
+        f.computedDiscountedTotal?" GENERATED ALWAYS AS (round(("+
+          snake(f.computedDiscountedTotal.price)+" * "+snake(f.computedDiscountedTotal.quantity)+
+          " * (100 - "+snake(f.computedDiscountedTotal.discount)+")) / 100, "+
+          f.decimal.scale+")) STORED":"";
       return "  "+col+" "+type+generated+" "+checks.join(" ");
     });
     const conditional=e.fields.filter(f=>f.requiredWhen).map(f=>{

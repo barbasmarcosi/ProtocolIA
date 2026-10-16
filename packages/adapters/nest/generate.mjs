@@ -2,7 +2,7 @@ import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../r
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
-import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
+import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -49,6 +49,7 @@ export function generate(ir,spec,out){
       assertDecimalField(f,e.name+"."+f.name);
       assertComputedProduct(f,e);
       assertComputedRoundedProduct(f,e);
+      assertComputedDiscountedTotal(f,e);
       if(f.greaterThanField!==undefined){
         const source=e.fields.find(x=>x.name===f.greaterThanField);
         if(!source||source===f||!source.required||source.nullable||
@@ -296,7 +297,11 @@ export function generate(ir,spec,out){
         f.computedProduct?" GENERATED ALWAYS AS ("+f.computedProduct.map(snake).join(" * ")+") STORED":
         f.computedRoundedProduct?" GENERATED ALWAYS AS (round("+
           snake(f.computedRoundedProduct.left)+" * "+snake(f.computedRoundedProduct.right)+
-          ", "+f.decimal.scale+")) STORED":"";
+          ", "+f.decimal.scale+")) STORED":
+        f.computedDiscountedTotal?" GENERATED ALWAYS AS (round(("+
+          snake(f.computedDiscountedTotal.price)+" * "+snake(f.computedDiscountedTotal.quantity)+
+          " * (100 - "+snake(f.computedDiscountedTotal.discount)+")) / 100, "+
+          f.decimal.scale+")) STORED":"";
       return "  "+col+" "+sqlType+generated+" "+checks.join(" ");
     });
     const conditional=e.fields.filter(f=>f.requiredWhen).map(f=>{

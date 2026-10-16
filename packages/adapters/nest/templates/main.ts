@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -80,7 +80,7 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
   if(!isRecord(body))throw new Problem(400,"Expected JSON object");
   if(Object.keys(body).some(key=>!writable.includes(key)))throw new Problem(400,"Unknown field");
   if(create)for(const f of e.fields)
-    if(f.required&&f.initial===undefined&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!Object.hasOwn(body,f.name))
+    if(f.required&&f.initial===undefined&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&!Object.hasOwn(body,f.name))
       throw invalidField(f,"required");
   if(create)for(const f of e.fields){
     if(!f.requiredWhen||body[f.requiredWhen.field]!==f.requiredWhen.equals)continue;
@@ -392,10 +392,10 @@ class RuntimeService{
     }
   }
   private async create(e:Entity,op:Operation,body:unknown,actor:string):Promise<Record<string,unknown>>{
-    const input={...validateInput(e,body,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct).map(f=>f.name),true)};
+    const input={...validateInput(e,body,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
-    const persisted=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct);
+    const persisted=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
     const cols=persisted.map(f=>f.column);
     const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
