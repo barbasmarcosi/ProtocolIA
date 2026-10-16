@@ -8,6 +8,7 @@ import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,as
 import {compileRelatedSums} from "../related-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
+import {compileOwnerScopes} from "../owner-scope.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -129,6 +130,7 @@ export function generate(ir, openapi, outDir) {
   const exactDebits=compileExactDebits(ir);
   const exactReversals=compileExactReversals(ir);
   const exactReconciliations=compileExactReconciliations(ir);
+  const ownerScopes=compileOwnerScopes(ir);
   for(const op of ops)assertInboxOpenApi(openapi,op);
   const routes = new Set();
   for(const op of ops){
@@ -290,7 +292,7 @@ export function generate(ir, openapi, outDir) {
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField) {}",
-    "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
+    "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
     "  public record ExactReverse(String balanceTable,String balanceKey,String balanceColumn,String referenceColumn,String amountColumn,String parentWriteCapability,String maxBalance) {}",
@@ -331,7 +333,8 @@ export function generate(ir, openapi, outDir) {
         f.afterField!==undefined?j(f.afterField):"null",
         f.greaterThanField!==undefined?j(f.greaterThanField):"null"
       ].join(",")+")").join(",\n");
-      return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
+      const owned=ownerScopes.get(e.name);
+      return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity)),owned?j(owned.field):"null",owned?j(owned.column):"null"].join(",")+
         ",List.of(\n"+parts+"\n    ))";
     }).join(",\n"),
     "  );",

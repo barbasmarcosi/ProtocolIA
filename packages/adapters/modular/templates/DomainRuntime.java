@@ -134,11 +134,11 @@ public class DomainRuntime {
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
-      case "create" -> result = create(entity, matched, body);
-      case "get" -> result = row(entity, publicKey);
+      case "create" -> result = create(entity, matched, body, user.getName());
+      case "get" -> result = row(entity, publicKey, user.getName());
       case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
-      case "listPage" -> result = page(entity, query, matched);
+      case "listPage" -> result = page(entity, query, matched, user.getName());
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
@@ -246,11 +246,18 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> row(Manifest.Entity e, String id) {
+    return row(e,id,null);
+  }
+  private Map<String,Object> row(Manifest.Entity e, String id, String subject) {
     if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    if(e.ownerField()!=null && subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     try {
+      String condition=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+      var args=new MapSqlParameterSource().addValue("key",id);
+      if(e.ownerField()!=null)args.addValue("owner",subject);
       return serialized(jdbc.queryForMap(
-          selectSql(e) + " WHERE " + e.identityColumn() + " = :key",
-          Map.of("key", id)), e);
+          selectSql(e) + " WHERE " + e.identityColumn() + " = :key"+condition,
+          args), e);
     } catch (EmptyResultDataAccessException ex) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     }
@@ -362,7 +369,13 @@ public class DomainRuntime {
     return false;
   }
 
-  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body) {
+  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, String subject) {
+    if(e.ownerField()!=null){
+      if(body==null||body.containsKey(e.ownerField()))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Owner field cannot be supplied");
+      body=new java.util.LinkedHashMap<>(body);
+      body.put(e.ownerField(),subject);
+    }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
     body = new java.util.LinkedHashMap<>(body);
@@ -430,10 +443,10 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Database constraint violation");
       throw ex;
     }
-    return row(e, (String) body.get(e.identity()));
+    return row(e, (String) body.get(e.identity()),subject);
   }
 
-  private Map<String,Object> page(Manifest.Entity e, Map<String,String> query, Manifest.Op op) {
+  private Map<String,Object> page(Manifest.Entity e, Map<String,String> query, Manifest.Op op, String subject) {
     if (!query.keySet().stream().allMatch(k -> k.equals("limit") || k.equals("offset")))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     int limit, offset;
@@ -443,10 +456,16 @@ public class DomainRuntime {
     } catch (NumberFormatException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST); }
     if (limit < op.limitMin() || limit > op.limitMax() || offset < 0 || offset > op.offsetMax())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-    var args = Map.<String,Object>of("limit", limit, "offset", offset);
-    var result = jdbc.queryForList(selectSql(e) + " ORDER BY " + e.identityColumn() + " LIMIT :limit OFFSET :offset", args);
+    var args=new MapSqlParameterSource().addValue("limit",limit).addValue("offset",offset);
+    if(e.ownerField()!=null){
+      if(subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+      args.addValue("owner",subject);
+    }
+    String predicate=e.ownerField()==null?"":" WHERE "+e.ownerColumn()+"=:owner";
+    var result=jdbc.queryForList(selectSql(e)+predicate+" ORDER BY "+e.identityColumn()+
+      " LIMIT :limit OFFSET :offset",args);
     List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
-    Number count = jdbc.queryForObject("SELECT COUNT(*) FROM " + e.table(), new MapSqlParameterSource(), Number.class);
+    Number count=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+predicate,args,Number.class);
     return Map.of("items", items, "total", count.intValue(), "limit", limit, "offset", offset);
   }
 
