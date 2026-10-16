@@ -106,6 +106,9 @@ public class DomainRuntime {
         (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(authorized.capability())))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
+    if (matched.exactDebit()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.exactDebit().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -364,6 +367,24 @@ public class DomainRuntime {
         if (exists==null || exists.intValue()==0)
           throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Stock item does not exist");
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Insufficient availability");
+      }
+    }
+    if(op.exactDebit()!=null){
+      var debit=op.exactDebit();
+      Object id=body.get(debit.referenceField()),raw=body.get(debit.amountField());
+      if(!(id instanceof String key)||!(raw instanceof String wire))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact debit input");
+      BigDecimal amount=new BigDecimal(wire);
+      if(amount.signum()<=0)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Nonpositive debit");
+      int changed=jdbc.update("UPDATE "+debit.balanceTable()+" SET "+
+          debit.balanceColumn()+"="+debit.balanceColumn()+"-:amount WHERE "+
+          debit.balanceKey()+"=:key AND "+debit.balanceColumn()+">=:amount",
+          Map.of("key",key,"amount",amount));
+      if(changed==0){
+        Number found=jdbc.queryForObject("SELECT COUNT(*) FROM "+debit.balanceTable()+
+            " WHERE "+debit.balanceKey()+"=:key",Map.of("key",key),Number.class);
+        throw new ResponseStatusException(found!=null&&found.intValue()>0?
+            HttpStatus.CONFLICT:HttpStatus.BAD_REQUEST,"Missing or insufficient exact balance");
       }
     }
     var params = new MapSqlParameterSource();

@@ -11,11 +11,12 @@ import contract from "./manifest.json";
 type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
+type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -415,8 +416,13 @@ class RuntimeService{
       parseTimestamp(input[f.name]):input[f.name]??null);
     const insert="INSERT INTO "+e.table+" ("+cols.join(",")+") VALUES ("+
       cols.map((_,i)=>"$"+(i+1)).join(",")+")";
-    if(op.reserve||op.audit?.length){
+    if(op.reserve||op.exactDebit||op.audit?.length){
       const reservation=op.reserve;
+      const exactDebit=op.exactDebit;
+      const balanceId=exactDebit?input[exactDebit.referenceField]:undefined;
+      const money=exactDebit?input[exactDebit.amountField]:undefined;
+      if(exactDebit&&(typeof balanceId!=="string"||typeof money!=="string"))
+        throw new Problem(400,"Invalid exact debit input");
       const stock=reservation?input[reservation.referenceField]:undefined;
       const amount=reservation?input[reservation.quantityField]:undefined;
       if(reservation&&(typeof stock!=="string"||!Number.isInteger(amount)||(amount as number)<1))
@@ -436,6 +442,18 @@ class RuntimeService{
           throw new Problem(existing.rowCount?409:400,
             existing.rowCount?"Insufficient stock":"Stock item not found");
         }
+        }
+        if(exactDebit){
+          const result=await client.query("UPDATE "+exactDebit.balanceTable+" SET "+
+            exactDebit.balanceColumn+"="+exactDebit.balanceColumn+"-$1::numeric WHERE "+
+            exactDebit.balanceKey+"=$2 AND "+exactDebit.balanceColumn+">=$1::numeric",
+            [money,balanceId]);
+          if(!result.rowCount){
+            const found=await client.query("SELECT 1 FROM "+exactDebit.balanceTable+
+              " WHERE "+exactDebit.balanceKey+"=$1",[balanceId]);
+            throw new Problem(found.rowCount?409:400,
+              found.rowCount?"Insufficient exact balance":"Balance resource not found");
+          }
         }
         await client.query(insert,params);
         if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
@@ -565,6 +583,8 @@ class RuntimeService{
     try{
       const session=this.login(req);
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
+      if(op.exactDebit&&!session.capabilities.includes(op.exactDebit.parentWriteCapability))
+        throw new Problem(403,"Insufficient balance write capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
       if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))

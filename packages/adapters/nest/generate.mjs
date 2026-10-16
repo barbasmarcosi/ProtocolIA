@@ -4,6 +4,7 @@ import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {compileRelatedSums} from "../related-sum.mjs";
+import {compileExactDebits} from "../exact-debit.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -117,6 +118,7 @@ export function generate(ir,spec,out){
   }
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
+  const exactDebits=compileExactDebits(ir);
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",delete:"DELETE",health:"GET"};
@@ -242,6 +244,7 @@ export function generate(ir,spec,out){
           quantityField:b.reserve.quantityField,stockWriteCapability:stockCreate.capability
         };
       }
+      if(b.debitExact)item.exactDebit=exactDebits.get(op.name);
       if(b.release){
         const stock=entities.get(b.release.stockEntity);
         const write=of("create",stock.name)[0];

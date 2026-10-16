@@ -6,6 +6,7 @@ import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {compileRelatedSums} from "../related-sum.mjs";
+import {compileExactDebits} from "../exact-debit.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -124,6 +125,7 @@ export function generate(ir, openapi, outDir) {
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
+  const exactDebits=compileExactDebits(ir);
   for(const op of ops)assertInboxOpenApi(openapi,op);
   const routes = new Set();
   for(const op of ops){
@@ -287,6 +289,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
+    "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
     "  public record QuerySpec(String projection,String source,String order,List<QueryFilter> filters) {}",
     "  public record RelatedSum(String sql,String childReadCapability) {}",
@@ -302,7 +305,7 @@ export function generate(ir, openapi, outDir) {
         ].join(",")+")").join(",")+")"].join(",")+
       "))").join(",\n"),
     "  );",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,List<String> audit) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,ExactDebit exactDebit,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
@@ -356,9 +359,14 @@ export function generate(ir, openapi, outDir) {
         j(b.release.referenceField),j(b.release.quantityField),j(stockWrite)
       ].join(",")+")";
     }
+    const debit=exactDebits.get(op.name);
+    const exactDebit=debit?"new ExactDebit("+[
+      j(debit.balanceTable),j(debit.balanceKey),j(debit.balanceColumn),
+      j(debit.referenceField),j(debit.amountField),j(debit.parentWriteCapability)
+    ].join(",")+")":"null";
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,exactDebit,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
