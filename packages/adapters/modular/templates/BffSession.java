@@ -77,8 +77,7 @@ public class BffSession {
     this.sidCookie=testHttp?"pia_bff_dev":"__Host-pia_bff";
     if(!Boolean.TRUE.equals(SecurityConfig.browserAuthConfig().get("requireIdToken")))
       throw new IllegalStateException("BFF requires verified OIDC identity");
-    jdbc.execute("CREATE TABLE IF NOT EXISTS protocolia_bff_sessions ("+
-      "sid_hash CHAR(64) PRIMARY KEY,payload TEXT NOT NULL,expires_at TIMESTAMPTZ NOT NULL)");
+    // Versioned Flyway V2 owns the schema; no runtime DDL from application code.
   }
 
   private String randomId(){
