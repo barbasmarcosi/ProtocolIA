@@ -6,6 +6,7 @@ import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,as
 import {compileRelatedSums} from "../related-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
+import {compileOwnerScopes} from "../owner-scope.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -122,6 +123,7 @@ export function generate(ir,spec,out){
   const exactDebits=compileExactDebits(ir);
   const exactReversals=compileExactReversals(ir);
   const exactReconciliations=compileExactReconciliations(ir);
+  compileOwnerScopes(ir);
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};

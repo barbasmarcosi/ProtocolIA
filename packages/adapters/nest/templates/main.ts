@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
+type Field={name:string;column:string;ownerManaged?:boolean;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
@@ -279,8 +279,11 @@ class RuntimeService{
   private select(e:Entity):string{
     return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+" FROM "+e.table;
   }
-  private async row(e:Entity,id:string):Promise<Record<string,unknown>>{
-    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1",[id]);
+  private async row(e:Entity,id:string,subject?:string):Promise<Record<string,unknown>>{
+    const owner=e.fields.find(f=>f.ownerManaged);
+    if(owner&&!subject)throw new Problem(403,"Owner identity is required");
+    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+
+      (owner?" AND "+owner.column+"=$2":""),owner?[id,subject]:[id]);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
   }
@@ -293,7 +296,7 @@ class RuntimeService{
     if(!result.rows.length)throw new Problem(404,"Parent not found");
     return {totalUnits:String(result.rows[0].totalUnits)};
   }
-  private async page(e:Entity,op:Operation,query:Record<string,unknown>):Promise<unknown>{
+  private async page(e:Entity,op:Operation,query:Record<string,unknown>,subject?:string):Promise<unknown>{
     if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
     function integer(value:unknown,def:number):number{
       if(value===undefined)return def;
@@ -305,9 +308,13 @@ class RuntimeService{
     const limit=integer(query.limit,op.limitDefault??25),offset=integer(query.offset,op.offsetDefault??0);
     if(limit<(op.limitMin??1)||limit>(op.limitMax??50)||offset<0||offset>(op.offsetMax??1000000))
       throw new Problem(400,"Invalid page bounds");
+    const owner=e.fields.find(f=>f.ownerManaged);
+    if(owner&&!subject)throw new Problem(403,"Owner identity is required");
+    const clause=owner?" WHERE "+owner.column+"=$1":"";
     const [items,count]=await Promise.all([
-      this.pool.query(this.select(e)+" ORDER BY "+e.identityColumn+" LIMIT $1 OFFSET $2",[limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table)
+      this.pool.query(this.select(e)+clause+" ORDER BY "+e.identityColumn+
+        (owner?" LIMIT $2 OFFSET $3":" LIMIT $1 OFFSET $2"),owner?[subject,limit,offset]:[limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,owner?[subject]:[])
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
@@ -417,7 +424,10 @@ class RuntimeService{
     }
   }
   private async create(e:Entity,op:Operation,body:unknown,actor:string):Promise<Record<string,unknown>>{
-    const input={...validateInput(e,body,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
+    const owner=e.fields.find(f=>f.ownerManaged);
+    if(owner&&(!isRecord(body)||Object.hasOwn(body,owner.name)))throw new Problem(400,"Server-managed owner must not be supplied");
+    const ownedBody=owner?{...(body as Record<string,unknown>),[owner.name]:actor}:body;
+    const input={...validateInput(e,ownedBody,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
     const reconciled=spec.operations.find(x=>x.kind==="reconcileExact"&&x.entity===e.name)?.exactReconciliation;
@@ -480,7 +490,7 @@ class RuntimeService{
         throw error;
       }finally{client.release();}
     }else await this.pool.query(insert,params);
-    return this.row(e,String(input[e.publicIdentity]));
+    return this.row(e,String(input[e.publicIdentity]),actor);
   }
   private async patch(e:Entity,op:Operation,key:string,body:unknown):Promise<Record<string,unknown>>{
     const input=validateInput(e,body,[op.input!],false);
@@ -643,10 +653,10 @@ class RuntimeService{
       let data:unknown;
       switch(op.kind){
         case "create": data=await this.create(entity,op,req.body,session.username);break;
-        case "get":data=await this.row(entity,identity);break;
+        case "get":data=await this.row(entity,identity,session.username);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
-        case "listPage":data=await this.page(entity,op,req.query??{});break;
+        case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
