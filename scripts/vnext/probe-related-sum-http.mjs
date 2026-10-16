@@ -101,11 +101,12 @@ try{
      await page.getByTestId("username").fill(read);
      await page.getByTestId("password").fill(readSecret);
      await page.getByRole("button",{name:"Entrar"}).click();
+     await page.getByRole("navigation",{name:"Secciones de la aplicación"}).getByRole("button",{name:"Partes disponibles"}).click();
      await page.getByTestId("open-detail-"+id).waitFor();
      await page.getByTestId("open-detail-"+id).click();
      const card=page.getByTestId("related-sum-panel");
      await card.waitFor();
-     await page.getByTestId("related-sum-value").getByText("7",{exact:true}).waitFor();
+     await page.waitForFunction(()=>document.querySelector('[data-testid="related-sum-value"]')?.textContent?.trim()==="7");
      assert.match(await card.getAttribute("aria-label"),/Reservas/);
      assert.equal(await page.getByTestId("related-sum-error").count(),0);
      await page.screenshot({path:join(root,"protocolia-related-summary-desktop.png"),fullPage:false});
@@ -114,7 +115,7 @@ try{
      assert.equal((await page.getByTestId("related-sum-value").textContent()).trim(),"7",
        "Read-only metric must not invent live updates between requests");
      await card.getByTestId("related-sum-refresh").click();
-     await page.getByTestId("related-sum-value").getByText("9",{exact:true}).waitFor();
+     await page.waitForFunction(()=>document.querySelector('[data-testid="related-sum-value"]')?.textContent?.trim()==="9");
      await page.setViewportSize({width:390,height:844});
      await page.screenshot({path:join(root,"protocolia-related-summary-mobile.png"),fullPage:false});
      const panelRect=await card.boundingBox();
@@ -124,7 +125,7 @@ try{
      await eq(201,"POST",stock,{body:{sku:"EMPTY-"+tag,name:"Empty stock",available:0}});
      await page.getByRole("button",{name:"Actualizar",exact:true}).click();
      await page.getByTestId("open-detail-EMPTY-"+tag).click();
-     await page.getByTestId("related-sum-value").getByText("0",{exact:true}).waitFor();
+     await page.waitForFunction(()=>document.querySelector('[data-testid="related-sum-value"]')?.textContent?.trim()==="0");
      await page.close();
    }finally{await browser.close();}
    console.log("B2_4B_REACT_CONTRACT_GENERATED_AGGREGATE_DESKTOP_MOBILE_PASS");
