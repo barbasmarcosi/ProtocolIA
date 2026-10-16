@@ -34,11 +34,13 @@ test("adversarial IR mutations cannot evade owner scope",()=>{
   ir=>{ir.entities[0].fields.find(f=>f.name==="title").reference={target:"PrivateNote",onDelete:"restrict"};}
  ];
  for(const mutate of mutations){const copy=structuredClone(ir);mutate(copy);
-  assert.throws(()=>compileOwnerScopes(copy),/Invalid S1a owner/);
+  assert.throws(()=>compileOwnerScopes(copy),/Invalid S1[ab] owner/);
  }
 });
 test("compilation refuses forgeable owner DTO and unsupported domain operations",()=>{
  const cases=[
+  ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NoteTitleUpdate',
+    '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NoteTitleUpdate'],
   ['@minLength(1) @maxLength(90) title: string;\n  }\n  model NotePage',
     '@minLength(1) @maxLength(90) title: string;\n    owner: string;\n  }\n  model NotePage'],
   ['@ownerIdentity @minLength(1) @maxLength(128)','@ownerIdentity @minLength(1) @maxLength(20)'],

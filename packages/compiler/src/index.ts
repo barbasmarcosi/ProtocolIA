@@ -1021,6 +1021,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
       ["create","get","listPage"].some(k=>entityOps.filter(o=>o.behavior.kind===k).length!==1)||
       patches.length>1||invalidPatch)
       reject("owner-unsupported-behavior",entity.name+" requires create/get/listPage and at most one independently authorized owner-guarded string PATCH",models.find(m=>m.name===entity.name)!);
+    for(const patch of ops.filter(o=>entityOps.some(x=>x.name===o.name)&&metadata(p,"behavior",o)?.kind==="patchFields")){
+      const meta=metadata(p,"behavior",patch);
+      const target=entity.fields.find(x=>x.name===meta?.field);
+      const request=patch.parameters.properties.get("input")?.type;
+      const prop=request?.kind==="Model"?request.properties.get(target?.name??""):undefined;
+      const parsed=prop?field(p,prop):undefined;
+      if(request?.kind!=="Model"||request.properties.size!==1||!prop||prop.optional||
+        !target||parsed?.type!==target.type||parsed?.nullable!==target.nullable||
+        parsed.minLength!==target.minLength||parsed.maxLength!==target.maxLength||
+        parsed.pattern!==target.pattern||parsed.choices||
+        Object.keys(metadata(p,"ownerIdentity",prop)??{}).length>0)
+        reject("owner-field-dto",patch.name+" must patch exactly its authorized field with unchanged constraints",patch);
+    }
     for(const operation of ops.filter(o=>entityOps.some(x=>x.name===o.name)&&metadata(p,"behavior",o)?.kind==="create")){
       const payload=operation.parameters.properties.get("input")?.type;
       if(payload?.kind!=="Model"||payload.properties.has(owner.name))
