@@ -30,6 +30,11 @@ namespace GaugeRegistry {
     // Omitted and explicit null remain different in request semantics.
     @uiLabel("Estado de conservación")
     quality?: GaugeQuality;
+    @uiLabel("Motivo del mantenimiento")
+    @uiHelp("Explicá por qué el instrumento requiere servicio.")
+    @requiredWhen("quality","needs_service")
+    @minLength(5) @maxLength(160)
+    maintenanceReason?: string;
     calibratedAt?: utcDateTime | null;
   }
 
@@ -44,6 +49,8 @@ namespace GaugeRegistry {
     reading: int32;
     @uiLabel("Estado de conservación")
     quality?: GaugeQuality;
+    @minLength(5) @maxLength(160)
+    maintenanceReason?: string;
     calibratedAt?: utcDateTime | null;
   }
 
