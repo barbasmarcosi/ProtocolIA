@@ -121,3 +121,34 @@ test("computed products fail closed for wrong precision, scale, cycles or input 
       '    cost?: decimal | null;\n    @encode(string) @exactDecimal(26,7,"0") extendedValue?: decimal;');
   },/protocolia-computed-product-request/);
 });
+
+// B2.2 fixed monetary rounding: verify both contract safety and the IR.
+test("rounded product reserves a carry digit and explicit half_up",()=>{
+  const t=decimal("roundedTotal");
+  assert.deepEqual(t.computedRoundedProduct,{left:"unitRate",right:"batchUnits",mode:"half_up"});
+  assert.equal(t.decimal.precision,22);
+  assert.equal(t.decimal.scale,2);
+  assert.equal((12-4)+(14-3)+1+2,22);
+});
+test("reject unsupported rounding, precision overflow and request edits",()=>{
+  rejectMutation("half_even unsupported",s=>s.replace(
+    '@computedRoundedProduct("unitRate","batchUnits","half_up")',
+    '@computedRoundedProduct("unitRate","batchUnits","half_even")'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("carry digit omitted",s=>s.replace(
+    '@exactDecimal(22, 2, "0")','@exactDecimal(21, 2, "0")'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("output scale not reduced",s=>s.replace(
+    '@exactDecimal(22, 2, "0")','@exactDecimal(27, 7, "0")'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("unknown operand",s=>s.replace(
+    '@computedRoundedProduct("unitRate","batchUnits","half_up")',
+    '@computedRoundedProduct("unknown","batchUnits","half_up")'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("self-operand",s=>s.replace(
+    '@computedRoundedProduct("unitRate","batchUnits","half_up")',
+    '@computedRoundedProduct("unitRate","unitRate","half_up")'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("optional computed total",s=>s.replace(
+    'roundedTotal: decimal;','roundedTotal?: decimal;'),/protocolia-invalid-computed-rounded-product/);
+  rejectMutation("DTO writes rounded total",s=>{
+    const where=s.lastIndexOf("  model GaugeRequest {");
+    return s.slice(0,where)+s.slice(where).replace('    cost?: decimal | null;',
+      '    cost?: decimal | null;\n    @encode(string) @exactDecimal(22, 2, "0") roundedTotal?: decimal;');
+  },/protocolia-computed-product-request/);
+});

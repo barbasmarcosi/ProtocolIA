@@ -71,6 +71,12 @@ namespace GaugeRegistry {
     @computedProduct("unitRate","batchUnits")
     extendedValue: decimal;
 
+    @uiLabel("Total redondeado a centavos")
+    @encode(string)
+    @exactDecimal(22, 2, "0")
+    @computedRoundedProduct("unitRate","batchUnits","half_up")
+    roundedTotal: decimal;
+
     @uiLabel("Costo")
     @encode(string)
     @exactDecimal(24, 4, "0")

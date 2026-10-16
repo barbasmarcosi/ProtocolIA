@@ -5,6 +5,7 @@ on:
       - feature/b1-exact-decimals-20261015
       - feature/b1-3c-exact-decimal-order-20261016
       - feature/b2-exact-computed-product-20261016
+      - feature/b2-2-rounded-product-half-up-20261016
     paths:
       - 'packages/**'
       - 'examples/vnext/exact-decimals/**'
