@@ -40,7 +40,31 @@ public class SecurityConfig {
           java.util.stream.Stream.concat(Manifest.AUDIT_CAPABILITIES.stream(),
               java.util.stream.Stream.concat(Manifest.ASSIGN_CAPABILITIES.stream(),
                 Manifest.FIELD_READ_CAPABILITIES.stream()))).distinct().toArray(String[]::new)).build();
-    return new InMemoryUserDetailsManager(reader, manager);
+    var users=new InMemoryUserDetailsManager(reader,manager);
+    var keys=java.util.List.of("PROTOCOLIA_SCOPED_USERNAME","PROTOCOLIA_SCOPED_PASSWORD",
+        "PROTOCOLIA_SCOPED_CAPABILITIES");
+    boolean configured=keys.stream().anyMatch(k->System.getenv(k)!=null&&!System.getenv(k).isBlank());
+    if(configured){
+      for(var key:keys)required(key);
+      String scopedUsername=required("PROTOCOLIA_SCOPED_USERNAME");
+      String scopedPassword=required("PROTOCOLIA_SCOPED_PASSWORD");
+      if(scopedPassword.length()<16||scopedUsername.equalsIgnoreCase(reader.getUsername())||
+          scopedUsername.equalsIgnoreCase(manager.getUsername()))
+        throw new IllegalStateException("Unsafe scoped test credential");
+      var capabilities=java.util.Arrays.stream(required("PROTOCOLIA_SCOPED_CAPABILITIES").split(",",-1))
+          .map(String::trim).toList();
+      var allowed=java.util.stream.Stream.of(Manifest.READ_CAPABILITIES,
+          Manifest.WRITE_CAPABILITIES,Manifest.AUDIT_CAPABILITIES,
+          Manifest.ASSIGN_CAPABILITIES,Manifest.FIELD_READ_CAPABILITIES)
+          .flatMap(java.util.List::stream).collect(java.util.stream.Collectors.toSet());
+      if(capabilities.size()>16||new java.util.HashSet<>(capabilities).size()!=capabilities.size()||
+          capabilities.stream().anyMatch(c->c.equals("public")||!allowed.contains(c)))
+        throw new IllegalStateException("Invalid scoped test authority allowlist");
+      users.createUser(User.withUsername(scopedUsername)
+          .password("{bcrypt}"+encoder.encode(scopedPassword))
+          .authorities(capabilities.toArray(String[]::new)).build());
+    }
+    return users;
   }
   @Bean
   SecurityFilterChain security(HttpSecurity http) throws Exception {

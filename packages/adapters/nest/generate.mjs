@@ -423,7 +423,9 @@ export function generate(ir,spec,out){
   write(".env.example",[
     "PROTOCOLIA_DB_PASSWORD=","PROTOCOLIA_ALLOW_DEMO_AUTH=false",
     "PROTOCOLIA_READER_USERNAME=reader","PROTOCOLIA_READER_PASSWORD=",
-    "PROTOCOLIA_MANAGER_USERNAME=manager","PROTOCOLIA_MANAGER_PASSWORD=",""
+    "PROTOCOLIA_MANAGER_USERNAME=manager","PROTOCOLIA_MANAGER_PASSWORD=", 
+    "# Optional test-only third subject: must supply all three when enabled.",
+    "PROTOCOLIA_SCOPED_USERNAME=","PROTOCOLIA_SCOPED_PASSWORD=","PROTOCOLIA_SCOPED_CAPABILITIES=",""
   ].join("\n"));
   write("compose.yaml",[
     "services:","  db:","    image: postgres:16.15-alpine",
@@ -446,6 +448,9 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_READER_PASSWORD: ${PROTOCOLIA_READER_PASSWORD:?set PROTOCOLIA_READER_PASSWORD}',
     '      PROTOCOLIA_MANAGER_USERNAME: ${PROTOCOLIA_MANAGER_USERNAME:-manager}',
     '      PROTOCOLIA_MANAGER_PASSWORD: ${PROTOCOLIA_MANAGER_PASSWORD:?set PROTOCOLIA_MANAGER_PASSWORD}',
+    '      PROTOCOLIA_SCOPED_USERNAME: ${PROTOCOLIA_SCOPED_USERNAME:-}',
+    '      PROTOCOLIA_SCOPED_PASSWORD: ${PROTOCOLIA_SCOPED_PASSWORD:-}',
+    '      PROTOCOLIA_SCOPED_CAPABILITIES: ${PROTOCOLIA_SCOPED_CAPABILITIES:-}',
     "volumes:","  protocolia_nest_data:",""
   ].join("\n"));
   const result={adapter:"nestjs",irVersion:ir.irVersion,

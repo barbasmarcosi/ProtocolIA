@@ -149,6 +149,7 @@ function equalSecrets(a:string,b:string):boolean{
 @Injectable()
 class RuntimeService{
   private readonly pool:Pool;
+  private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
   private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
   constructor(){
     const source=(process.env.PROTOCOLIA_JDBC_URL??"").replace(/^jdbc:/,"");
@@ -164,6 +165,23 @@ class RuntimeService{
         if(!process.env[key])throw Error("Missing demo credential: "+key);
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true"&&process.env.PROTOCOLIA_READER_USERNAME?.toLowerCase()===process.env.PROTOCOLIA_MANAGER_USERNAME?.toLowerCase())
       throw Error("Demo subjects must be distinct");
+    const scopedKeys=["PROTOCOLIA_SCOPED_USERNAME","PROTOCOLIA_SCOPED_PASSWORD","PROTOCOLIA_SCOPED_CAPABILITIES"] as const;
+    if(scopedKeys.some(key=>(process.env[key]??"").trim().length>0)){
+      if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH!=="true"||
+        scopedKeys.some(key=>!(process.env[key]??"").trim()))
+        throw Error("Incomplete test-only scoped credentials");
+      const username=process.env.PROTOCOLIA_SCOPED_USERNAME!,password=process.env.PROTOCOLIA_SCOPED_PASSWORD!;
+      if(password.length<16||[process.env.PROTOCOLIA_READER_USERNAME,process.env.PROTOCOLIA_MANAGER_USERNAME]
+        .some(name=>name!.toLowerCase()===username.toLowerCase()))
+        throw Error("Unsafe scoped test credential");
+      const capabilities=process.env.PROTOCOLIA_SCOPED_CAPABILITIES!.split(",").map(x=>x.trim());
+      const known=new Set([...spec.readCapabilities,...spec.writeCapabilities,...
+        (spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])]);
+      if(capabilities.length>16||new Set(capabilities).size!==capabilities.length||
+        capabilities.some(cap=>cap==="public"||!known.has(cap)))
+        throw Error("Invalid scoped test authority allowlist");
+      this.scopedUser={username,password,capabilities:capabilities.sort()};
+    }
     for(const e of spec.entities){
       safeIdentifier(e.table);safeIdentifier(e.identityColumn);
       for(const f of e.fields)safeIdentifier(f.column);
@@ -237,7 +255,10 @@ class RuntimeService{
     const m=process.env.PROTOCOLIA_MANAGER_USERNAME!,r=process.env.PROTOCOLIA_READER_USERNAME!;
     const manager=equalSecrets(username,m)&&equalSecrets(password,process.env.PROTOCOLIA_MANAGER_PASSWORD!);
     const reader=equalSecrets(username,r)&&equalSecrets(password,process.env.PROTOCOLIA_READER_PASSWORD!);
-    if(!manager&&!reader)throw new Problem(401,"Invalid credentials");
+    const scoped=this.scopedUser;
+    const limited=!!scoped&&equalSecrets(username,scoped.username)&&equalSecrets(password,scoped.password);
+    if(!manager&&!reader&&!limited)throw new Problem(401,"Invalid credentials");
+    if(limited)return {username,capabilities:[...scoped!.capabilities]};
     return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])])].sort():
       [...spec.readCapabilities].sort()};
   }
