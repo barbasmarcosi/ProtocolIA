@@ -1,0 +1,57 @@
+name: vnext-s1-owner-scope
+on:
+  push:
+    branches:
+      - feature/s1a-owner-scoped-records-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/owner-scope/**'
+      - 'tests/vnext/owner-scope.test.mjs'
+      - 'scripts/vnext/probe-owner-scope-http.mjs'
+      - '.github/workflows/vnext-s1-owner-scope.yml'
+permissions:
+  contents: read
+concurrency:
+  group: s1-owner-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  owner-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate isolated TypeSpec owner-scoped contract
+        run: npm run app:build -- examples/vnext/owner-scope --target ${{ matrix.target }} --out "${RUNNER_TEMP}/s1-owner"
+      - name: Source and untrusted IR negative tests
+        run: node --test tests/vnext/owner-scope.test.mjs
+      - name: Generated app build and compose conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/s1-owner"
+      - name: Install Chromium
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Independent dual-subject authorization oracle
+        run: node scripts/vnext/probe-owner-scope-http.mjs "${RUNNER_TEMP}/s1-owner" ${{ matrix.target == 'nestjs' && '--browser' || '' }}
+      - name: Preserve mobile artifact
+        if: matrix.target == 'nestjs' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s1-owner-mobile
+          path: ${{ runner.temp }}/s1-owner/s1-owner-mobile.png
+          if-no-files-found: error
