@@ -330,6 +330,28 @@ export async function verifyGeneratedFkBrowser({base,manager,managerPassword,tok
     await page.setViewportSize({width:390,height:780});
     await page.getByTestId("create-dialog").screenshot({
       path:join(generated,"protocolia-generated-sectioned-form-mobile.png")});
+    // Long mobile create forms must scroll only their fields, never beneath the
+    // fixed actions. Assert geometry against the actual rendered Chromium DOM.
+    const createDialog=page.getByTestId("create-dialog");
+    const fieldsViewport=createDialog.locator(".form-groups");
+    assert.equal(await fieldsViewport.evaluate(el=>getComputedStyle(el).overflowY),"auto",
+      "Grouped mobile fields must have an independent scroll region");
+    const lastInput=form.getByTestId("create-otherPoints");
+    await lastInput.scrollIntoViewIfNeeded();
+    const regions=await createDialog.evaluate(el=>{
+      const form=el.querySelector("form"),fields=form.querySelector(".form-groups"),
+        actions=form.querySelector(".modal-actions"),last=form.querySelector('[data-testid="create-otherPoints"]');
+      return {lastBottom:last.getBoundingClientRect().bottom,actionsTop:actions.getBoundingClientRect().top,
+        scrollable:fields.scrollHeight>fields.clientHeight,
+        actionsBottom:actions.getBoundingClientRect().bottom,dialogBottom:el.getBoundingClientRect().bottom};
+    });
+    assert.equal(regions.scrollable,true,"Long form fields must scroll");
+    assert.ok(regions.lastBottom<=regions.actionsTop-2,
+      "Last generated field must be fully visible above create/cancel buttons");
+    assert.ok(regions.actionsBottom<=regions.dialogBottom,
+      "Mobile form actions must remain inside their dialog");
+    await createDialog.screenshot({path:join(generated,"protocolia-generated-sectioned-form-mobile-scrolled.png")});
+    await fieldsViewport.evaluate(el=>{el.scrollTop=0;});
     const longBounds=await page.getByTestId("create-dialog").evaluate(element=>({
       height:element.getBoundingClientRect().height,windowHeight:window.innerHeight
     }));

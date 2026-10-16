@@ -368,3 +368,24 @@ button.discard-button:hover:not(:disabled){background:#79262a}
   }
   .modal-content.modal-content-compact .modal-header{flex-shrink:0}
 }
+
+/* B1.4 mobile: one internal scroll region, with an opaque, non-overlapping action bar.
+   Only full-length generated create forms use this layout; compact bottom sheets
+   and detail dialogs retain their existing interaction model. */
+@media(max-width:700px){
+  .modal-content:not(.modal-content-compact) .modal-scroll:has(> form > .form-groups){
+    display:flex;flex-direction:column;overflow:hidden;min-height:0;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+  }
+  .modal-content:not(.modal-content-compact) .modal-scroll > form:has(> .form-groups){
+    display:flex;flex-direction:column;flex:1;min-height:0;
+  }
+  .modal-content:not(.modal-content-compact) .modal-scroll .form-groups{
+    min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;
+    padding:0 3px 12px 0;
+  }
+  .modal-content:not(.modal-content-compact) .modal-scroll form > .modal-actions{
+    flex:none;position:relative;bottom:auto;margin-top:0;z-index:2;
+    border-top:1px solid var(--line);padding:12px 0 0;background:var(--surface);
+  }
+}

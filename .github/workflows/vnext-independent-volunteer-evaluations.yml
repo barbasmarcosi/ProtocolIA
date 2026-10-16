@@ -68,6 +68,7 @@ jobs:
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-compact-create-mobile.png
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-sectioned-form-desktop.png
             ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-sectioned-form-mobile.png
+            ${{ runner.temp }}/volunteer-evaluations-generated/protocolia-generated-sectioned-form-mobile-scrolled.png
           if-no-files-found: error
       - name: Upload browser failure evidence
         if: failure()
