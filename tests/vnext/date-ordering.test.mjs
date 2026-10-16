@@ -71,7 +71,7 @@ test("greaterThanField rejects unknown, self, optional and non-integer operands"
     /protocolia-invalid-greater-than-field/);
   rejectMutation("wrong target",s=>s.replace('readingCeiling?: int32;','readingCeiling?: string;'),
     /protocolia-invalid-greater-than-field/);
-  rejectMutation("non-integer source",s=>s.replace('reading: int32;','reading: string;'),
+  rejectMutation("non-integer source",s=>s.replace('    @minValue(0)\n    reading: int32;','    reading: string;'),
     /protocolia-invalid-greater-than-field/);
 });
 test("CREATE cannot weaken compared operands",()=>{
