@@ -33,6 +33,8 @@ assert.ok(schema.includes("extended_value NUMERIC(26,7) GENERATED ALWAYS AS (uni
   "Product value must be a real PostgreSQL generated column with exact base10 scale");
 assert.ok(schema.includes("rounded_total NUMERIC(22,2) GENERATED ALWAYS AS (round(unit_rate * batch_units, 2)) STORED"),
   "Both adapters must emit authoritative exact half_up rounding");
+assert.ok(schema.includes("discounted_total NUMERIC(22,2) GENERATED ALWAYS AS (round((unit_rate * batch_units * (100 - discount_percent)) / 100, 2)) STORED"),
+  "Exact discounted total must be computed by PostgreSQL");
 assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
@@ -76,7 +78,7 @@ try{
   const raw=await response.text();let json;try{json=JSON.parse(raw)}catch{json=raw}
   return {status:response.status,body:json};
  }
- const path="/api/gauges",payload={serial:token+"-one",label:"Medidor ficticio",reading:2,quality:"ready",unitPrice:"9007199254740993.1234",quantity:"0.000001",unitRate:"99999999.9999",batchUnits:"99999999.125"};
+ const path="/api/gauges",payload={serial:token+"-one",label:"Medidor ficticio",reading:2,quality:"ready",unitPrice:"9007199254740993.1234",quantity:"0.000001",unitRate:"99999999.9999",batchUnits:"99999999.125",discountPercent:"12.50"};
  assert.equal((await req(path,{who:null})).status,401);
  assert.equal((await req(path,{method:"POST",body:payload,who:"reader"})).status,403);
  for(const [bad,code] of [["unknown","invalid_choice"],[17,"invalid_type"],["READY","invalid_choice"]]){
@@ -219,6 +221,8 @@ try{
    "9999999912490000.0000875","Server result must remain exact beyond JS safe integer range");
  assert.equal((await req(path+"/"+payload.serial)).body.roundedTotal,
    "9999999912490000.00","Large rounded result retains full exact digits and cents");
+ assert.equal((await req(path+"/"+payload.serial)).body.discountedTotal,
+   "8749999923428750.00","Large exact fractional discounts retain decimal precision");
  const forged={...payload,serial:token+"-forged",extendedValue:"0.0000000"};
  const forgedResponse=await req(path,{method:"POST",body:forged});
  assert.equal(forgedResponse.status,400,"Computed product cannot be submitted by a client");
