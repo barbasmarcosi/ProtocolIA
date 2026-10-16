@@ -19,7 +19,8 @@ export function compileOwnerScopes(ir){
       (field.minLength??0)>1||(field.maxLength??255)<128||
       !([3,4].includes(operations.length))||["create","get","listPage"].some(k=>counts(k)!==1)||
       counts("patchFields")>1||
-      operations.some(o=>o.capability==="public"||!o.capability||
+      operations.some(o=>!["create","get","listPage","patchFields"].includes(o.behavior.kind)||
+        o.capability==="public"||!o.capability||
         o.behavior.reserve||o.behavior.release||o.behavior.debitExact||o.behavior.reverseExact||
         o.behavior.reconcileExact||o.behavior.relatedSum||o.behavior.audit)||
       related)

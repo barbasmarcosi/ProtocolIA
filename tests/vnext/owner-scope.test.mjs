@@ -31,6 +31,7 @@ test("adversarial IR mutations cannot evade owner scope",()=>{
   ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").capability="notes.read";},
   ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.input="owner";},
   ir=>{ir.operations.push({...ir.operations.find(o=>o.name==="updateNoteTitle"),name:"secondPatch"});},
+  ir=>{ir.operations.find(o=>o.name==="updateNoteTitle").behavior.kind="delete";},
   ir=>{ir.entities[0].fields.find(f=>f.name==="title").reference={target:"PrivateNote",onDelete:"restrict"};}
  ];
  for(const mutate of mutations){const copy=structuredClone(ir);mutate(copy);
