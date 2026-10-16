@@ -1,12 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createHash,webcrypto} from "node:crypto";
+import {createHash} from "node:crypto";
 import {beginPkce,finishPkce,hasPkceResponse} from "../../packages/adapters/modular/templates/web/src/OAuthPkce.js";
 const config={mode:"jwt",enabled:true,issuer:"https://issuer.test",
  authorizationEndpoint:"https://issuer.test/authorize",tokenEndpoint:"https://issuer.test/token",
  clientId:"protocolia-spa",redirectUri:"https://app.test/",scope:"openid profile"};
 const store=new Map();
-globalThis.crypto=webcrypto;
 globalThis.btoa=s=>Buffer.from(s,"binary").toString("base64");
 globalThis.sessionStorage={getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
 const loc={origin:"https://app.test",protocol:"https:",hostname:"app.test",pathname:"/",search:"",href:"https://app.test/",assign(url){this.next=url;}};
