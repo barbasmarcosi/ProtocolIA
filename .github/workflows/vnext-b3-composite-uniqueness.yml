@@ -35,10 +35,10 @@ jobs:
           java-version: '21'
           cache: maven
       - run: npm ci
-      - name: Contract and negative compiler tests
-        run: node --test tests/vnext/composite-uniqueness.test.mjs
       - name: Generate full application from TypeSpec
         run: npm run app:build -- examples/vnext/composite-uniqueness --target ${{ matrix.target }} --out "${RUNNER_TEMP}/composite-generated"
+      - name: Contract and negative compiler tests
+        run: node --test tests/vnext/composite-uniqueness.test.mjs
       - name: Generated runtime smoke and PostgreSQL
         run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
       - name: Concurrent HTTP POST unique business key and persisted DB oracle
