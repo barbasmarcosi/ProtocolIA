@@ -58,6 +58,11 @@ export function generate(ir, openapi, outDir) {
       name(f.name);
       if(cols.has(snake(f.name)))throw Error("Duplicate SQL column identifier");
       cols.add(snake(f.name));
+      if(f.choices!==undefined&&(f.type!=="string"||f.reference||f.unique||
+        !Array.isArray(f.choices)||f.choices.length<2||f.choices.length>16||
+        new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
+        f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
+        throw Error("Unsupported enum choices "+e.name+"."+f.name);
       if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
          f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
       if(!["string","int32","utcDateTime"].includes(f.type))
@@ -236,7 +241,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -259,7 +264,8 @@ export function generate(ir, openapi, outDir) {
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
-        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum)
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum),
+        "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")"
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -339,6 +345,7 @@ export function generate(ir, openapi, outDir) {
       if(f.type==="string"&&f.required&&!f.nullable)
         checks.push("CHECK (char_length(btrim("+col+")) > 0)");
       if(f.pattern!==undefined)checks.push("CHECK ("+col+" ~ '"+YEAR_MONTH_PATTERN+"' )");
+      if(f.choices?.length)checks.push("CHECK ("+col+" IN ("+f.choices.map(c=>"'"+c.value+"'").join(",")+"))");
       if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
       if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
       if(f.initial!==undefined){
