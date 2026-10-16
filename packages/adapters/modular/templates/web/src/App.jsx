@@ -209,7 +209,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
         res.status===404?"El registro ya no existe.":"No se pudo cargar el resumen.");
       const payload=await res.json();
       if(!payload||typeof payload.totalUnits!=="string"||
-        !/^\\d{1,19}$/.test(payload.totalUnits))
+        !/^\d{1,19}$/.test(payload.totalUnits))
         throw Error("El servicio devolvió un total inválido.");
       return BigInt(payload.totalUnits).toLocaleString("es-AR");
     }).then(value=>{if(!controller.signal.aborted)setState({loading:false,value,error:""});})
