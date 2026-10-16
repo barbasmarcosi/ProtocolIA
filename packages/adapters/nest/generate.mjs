@@ -114,7 +114,6 @@ export function generate(ir,spec,out){
         throw Error("Invalid string maximum length");
     }
   }
-  for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const target=entities.get(f.reference.target);
     const targetField=target?.fields.find(x=>x.name===target.publicIdentity);
@@ -368,6 +367,7 @@ export function generate(ir,spec,out){
     });
     schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
+  for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);
     schema.push("ALTER TABLE "+snake(e.name)+" ADD CONSTRAINT fk_"+snake(e.name)+"_"+
