@@ -118,10 +118,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
           Number.isInteger(d.scale)&&d.scale>=0&&d.scale<=d.precision&&
           (d.min===undefined||decimalUnits(d.min,d.scale)!==undefined)&&
           (d.max===undefined||decimalUnits(d.max,d.scale)!==undefined)&&
-          (d.min===undefined||d.min.replace(/^-?(\d+)/,(_,n)=>n.replace(/^0+/,"")).length<=d.precision)&&
-          (d.max===undefined||d.max.replace(/^-?(\d+)/,(_,n)=>n.replace(/^0+/,"")).length<=d.precision)&&
+          (d.min===undefined||d.min.split(".")[0].replace(/^-/,"").replace(/^0+/,"").length<=d.precision-d.scale)&&
+          (d.max===undefined||d.max.split(".")[0].replace(/^-/,"").replace(/^0+/,"").length<=d.precision-d.scale)&&
           (d.min===undefined||d.max===undefined||decimalUnits(d.min,d.scale)!<=decimalUnits(d.max,d.scale)!)&&
-          d.minLength===undefined;
+          d.precision-d.scale>=0;
         if(!valid||encoding?.type.name!=="string"||encoding.encoding!==undefined||
            d!.precision-d!.scale<0||getMinValue(p,prop)!==undefined||getMaxValue(p,prop)!==undefined||
            value.unique||value.reference||value.initial||value.computedSum||value.choices||value.requiredWhen||

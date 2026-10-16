@@ -4,6 +4,7 @@ import { resolve, join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
+import {assertDecimalField,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import { fileURLToPath } from "node:url";
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
@@ -73,8 +74,9 @@ export function generate(ir, openapi, outDir) {
       }
       if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
          f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
-      if(!["string","int32","utcDateTime"].includes(f.type))
+      if(!["string","int32","utcDateTime","decimal"].includes(f.type))
         throw Error("Unsupported field type: "+f.type);
+      assertDecimalField(f,e.name+"."+f.name);
     }
   }
   for(const e of entities)for(const f of e.fields){
@@ -243,13 +245,15 @@ export function generate(ir, openapi, outDir) {
   }
   const overdueRules=compileOverduePolicies(ir);
   const queryPlans=ops.filter(op=>op.behavior.kind==="queryPage").map(op=>({op,plan:buildQueryPlan(ir,op)}));
+  for(const op of ops.filter(o=>o.behavior.kind==="create"))
+    assertDecimalWireSchema(openapi,op,entityMap.get(op.entity));
   const classes=[
     "package dev.protocolia.modular;",
     "import java.util.List;",
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,Integer precision,Integer scale,String decimalMin,String decimalMax) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -274,7 +278,8 @@ export function generate(ir, openapi, outDir) {
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
         n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum),
         "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
-        f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null"
+        f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null",
+        n(f.decimal?.precision),n(f.decimal?.scale),f.decimal?.min!==undefined?j(f.decimal.min):"null",f.decimal?.max!==undefined?j(f.decimal.max):"null"
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -344,7 +349,7 @@ export function generate(ir, openapi, outDir) {
     const columns=e.fields.map(f=>{
       const col=snake(f.name);
       const type=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":
-        f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
+        f.type==="int32"?"INTEGER":f.type==="decimal"?decimalSql(f,col).type:"TIMESTAMP WITH TIME ZONE";
       const checks=[];
       if(f.name===key)checks.push("PRIMARY KEY");
       if(f.required&&!f.nullable)checks.push("NOT NULL");
@@ -357,6 +362,7 @@ export function generate(ir, openapi, outDir) {
       if(f.choices?.length)checks.push("CHECK ("+col+" IN ("+f.choices.map(c=>"'"+c.value+"'").join(",")+"))");
       if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
       if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
+      if(f.type==="decimal")checks.push(...decimalSql(f,col).checks);
       if(f.initial!==undefined){
         const values=new Set([f.initial,...ops.filter(op=>
           op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)

@@ -2,6 +2,7 @@ import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../r
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
+import {assertDecimalField,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -44,7 +45,8 @@ export function generate(ir,spec,out){
       safe(f.name);
       if(columns.has(snake(f.name)))throw Error("Duplicate SQL column");
       columns.add(snake(f.name));
-      if(!["string","int32","utcDateTime"].includes(f.type))throw Error("Unsupported field type");
+      if(!["string","int32","utcDateTime","decimal"].includes(f.type))throw Error("Unsupported field type");
+      assertDecimalField(f,e.name+"."+f.name);
       if(f.computedSum!==undefined && (f.type!=="int32"||f.name===e.publicIdentity||!f.required||f.nullable||
         !Array.isArray(f.computedSum)||f.computedSum.length<2||f.computedSum.length>8||
         new Set(f.computedSum).size!==f.computedSum.length||
@@ -245,12 +247,14 @@ export function generate(ir,spec,out){
     const full=join(out,p);mkdirSync(dirname(full),{recursive:true});
     copyFileSync(source,full);contents.push(p);
   };
+  for(const op of ir.operations.filter(o=>o.behavior.kind==="create"))
+    assertDecimalWireSchema(spec,op,ir.entities.find(e=>e.name===op.entity));
   const overdueRules=compileOverduePolicies(ir);
   const schema=[];
   for(const e of ir.entities){
     const fields=e.fields.map(f=>{
       const col=snake(f.name),sqlType=f.type==="string"?"VARCHAR("+(f.maxLength??255)+")":
-        f.type==="int32"?"INTEGER":"TIMESTAMP WITH TIME ZONE";
+        f.type==="int32"?"INTEGER":f.type==="decimal"?decimalSql(f,col).type:"TIMESTAMP WITH TIME ZONE";
       const checks=[f.name===e.publicIdentity?"PRIMARY KEY":"",
         f.required&&!f.nullable?"NOT NULL":"",
         f.unique&&f.name!==e.publicIdentity?"UNIQUE":"",
@@ -259,7 +263,8 @@ export function generate(ir,spec,out){
         f.pattern!==undefined?"CHECK ("+col+" ~ '"+YEAR_MONTH_PATTERN+"')":"",
         f.choices?.length?"CHECK ("+col+" IN ("+f.choices.map(c=>"'"+c.value+"'").join(",")+"))":"",
         f.min!==undefined?"CHECK ("+col+">="+f.min+")":"",
-        f.max!==undefined?"CHECK ("+col+"<="+f.max+")":""].filter(Boolean);
+        f.max!==undefined?"CHECK ("+col+"<="+f.max+")":"",
+        ...(f.type==="decimal"?decimalSql(f,col).checks:[])].filter(Boolean);
       if(f.initial!==undefined){
         const states=new Set([f.initial,...ir.operations.filter(op=>
           op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)
