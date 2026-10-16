@@ -237,6 +237,8 @@ public class DomainRuntime {
             (f.maxLength()!=null && s.length() > f.maxLength()) ||
              (f.pattern()!=null && !Pattern.matches(f.pattern(),s)))
           throw new InvalidInputField(f.name(),v instanceof String?"invalid_format":"invalid_type");
+        if (!f.choices().isEmpty() && !f.choices().contains(v))
+          throw new InvalidInputField(f.name(),"invalid_choice");
       } else if (f.type().equals("int32")) {
         if (!(v instanceof Integer n) || (f.min()!=null && n < f.min()) || (f.max()!=null && n > f.max()))
           throw new InvalidInputField(f.name(),v instanceof Integer?"out_of_range":"invalid_type");
