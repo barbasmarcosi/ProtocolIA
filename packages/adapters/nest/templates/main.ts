@@ -6,7 +6,7 @@ import {createRemoteJWKSet,jwtVerify} from "jose";
 import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
-import {installBff} from "./BffSession";
+import {installBff,installBffSecurityHeaders} from "./BffSession";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
@@ -913,6 +913,7 @@ function operationController(op:Operation):any{
 class ContractModule{}
 async function bootstrap(){
   const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"]});
+  installBffSecurityHeaders(app);
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
   await engine.init();
