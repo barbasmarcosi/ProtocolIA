@@ -62,13 +62,17 @@ function isMonthField(field){
   if(field.uiControl!==undefined)return field.uiControl==="month";
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
+function isRequiredInForm(field,values){
+  return field.required||Boolean(field.requiredWhen&&
+    values[field.requiredWhen.field]===field.requiredWhen.equals);
+}
 function validateCreate(fields,values){
   const errors={};
   for(const field of fields){
     if(field.computedSum||field.initial!==undefined)continue;
     const value=values[field.name];
     const text=String(value??"").trim();
-    if(field.required&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
+    if(isRequiredInForm(field,values)&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
     if(!text)continue;
     if(field.choices?.length&&!field.choices.some(choice=>choice.value===text)){
       errors[field.name]="Elegí una opción válida.";continue;
@@ -117,7 +121,7 @@ function LoadingIndicator({message,compact=false}){
     <span>{message}</span>
   </span>;
 }
-function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError,auth,onReferenceResolve}){
+function FormField({field,value,onChange,choices,referenceState,pickerOpen=false,onPickerOpenChange,validationError,auth,onReferenceResolve,required=field.required,conditionallyRequired=false}){
   const fieldId=React.useId();
   const descriptionIds=[field.uiHelp?fieldId+"-hint":null,validationError?fieldId+"-error":null].filter(Boolean).join(" ")||undefined;
   if(field.reference){
@@ -126,7 +130,7 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
     const title=fieldLabel(field);
     const targetLabel=referenceState?.resourceLabel??label({name:field.reference.target});
     if(state==="paged")return <div className="field relation-field">
-      <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
+      <span className="field-label" id={fieldId}>{title}{required?" *":""}</span>
       <PagedReferencePicker field={field} value={value} onChange={onChange} onResolve={onReferenceResolve}
         target={referenceState.target} auth={auth} choices={choices??[]}
         pickerOpen={pickerOpen} onPickerOpenChange={onPickerOpenChange}
@@ -135,10 +139,10 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
       {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
     </div>;
     return <div className="field relation-field">
-      <span className="field-label" id={fieldId}>{title}{field.required?" *":""}</span>
+      <span className="field-label" id={fieldId}>{title}{required?" *":""}</span>
       <Select.Root name={field.name} value={value??""} open={pickerOpen}
         onOpenChange={onPickerOpenChange} onValueChange={next=>onChange(field.name,next)}
-        required={field.required} disabled={blocked}>
+        required={required} disabled={blocked}>
         <Select.Trigger data-testid={"create-"+field.name} data-selected-key={value??""}
           className="relation-trigger" aria-labelledby={fieldId} aria-busy={state==="loading"} aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}>
           <Select.Value placeholder={state==="loading"?"Preparando opciones…":"Seleccionar "+title.toLowerCase()}/>
@@ -175,9 +179,9 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
     </div>;
   }
   if(field.choices?.length)return <div className="field relation-field">
-    <span className="field-label" id={fieldId}>{fieldLabel(field)}{field.required?" *":""}</span>
+    <span className="field-label" id={fieldId}>{fieldLabel(field)}{required?" *":""}</span>
     <Select.Root value={value??""} onValueChange={next=>onChange(field.name,next)}
-      open={pickerOpen} onOpenChange={onPickerOpenChange} required={field.required}>
+      open={pickerOpen} onOpenChange={onPickerOpenChange} required={required}>
       <Select.Trigger className="relation-trigger" data-testid={"create-"+field.name}
         aria-labelledby={fieldId} aria-describedby={descriptionIds} aria-invalid={Boolean(validationError)}>
         <Select.Value placeholder={"Seleccionar "+fieldLabel(field).toLowerCase()}/>
@@ -196,13 +200,14 @@ function FormField({field,value,onChange,choices,referenceState,pickerOpen=false
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </div>;
   return <label className="field">
-    <span>{label(field)}{field.required?" *":""}</span>
-    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={field.required}
+    <span>{label(field)}{required?" *":""}</span>
+    <input data-testid={"create-"+field.name} type={field.type==="int32"?"number":isMonthField(field)?"month":"text"} required={required}
       aria-invalid={Boolean(validationError)} aria-describedby={descriptionIds}
       min={field.min??undefined} max={field.max??undefined}
       maxLength={field.maxLength??undefined}
       value={value??""} readOnly={field.initial!==undefined} onChange={event=>onChange(field.name,event.target.value)}/>
     {field.uiHelp&&<span id={fieldId+"-hint"} className="field-hint field-help-copy">{field.uiHelp}</span>}
+    {conditionallyRequired&&<span className="field-hint" role="note">Este campo es obligatorio por el estado seleccionado.</span>}
     {validationError&&<span id={fieldId+"-error"} className="field-hint error" role="alert">{validationError}</span>}
   </label>;
 }
@@ -730,6 +735,8 @@ export default function App(){
           const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
           if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});commitCreateClose();}
         }}><div className="fields">{active.entity.fields.filter(field=>!field.computedSum&&field.initial===undefined).map(field=><FormField key={field.name} field={field} value={form[field.name]} choices={referenceOptions[field.name]}
+          required={isRequiredInForm(field,form)}
+          conditionallyRequired={Boolean(field.requiredWhen&&form[field.requiredWhen.field]===field.requiredWhen.equals)}
           referenceState={referenceStatus[field.name]} validationError={fieldErrors[field.name]}
            auth={auth} onReferenceResolve={(name,choice)=>setReferenceOptions(prev=>{
              const entries=prev[name]??[];
@@ -738,7 +745,7 @@ export default function App(){
            })}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];return updated;});}}/>)}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name)delete updated[f.name];return updated;});}}/>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}
             </div>
