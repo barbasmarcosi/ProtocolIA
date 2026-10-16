@@ -280,6 +280,9 @@ async function runOwnerScope(){
   if(operations.patchFields){
     const op=operations.patchFields,field=op.behavior.field;
     assert.notEqual(op.capability,operations.create.capability,"Field write needs independent authority");
+    const me=await fetch(base.replace(/\/$/,"")+"/api/_protocolia/me",{headers:{Authorization:writer}});
+    assert.equal(me.status,200);
+    const session=await me.json();
     assert.ok(session.capabilities.includes(op.capability),"Manager requires field write grant");
     assert.equal((await req("patchFields",reader,{key:publicKey,body:{[field]:"Reader attempt"}})).status,403);
     assert.equal((await req("patchFields",writer,{key:publicKey,body:{owner:readerName}})).status,400);
