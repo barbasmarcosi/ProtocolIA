@@ -408,7 +408,8 @@ try{
       oldPayload.split(":")[2]+"' WHERE sid_hash='"+oldHash+"'");
     await rotate(nextKey,initialKey);
     assert.equal((await old.tab.request.get(base+"/api/_protocolia/bff/session")).status(),200);
-    assert.equal((await old.tab.request.get(base+"/api/_protocolia/bff/session")).then(x=>x.json())).authenticated,true);
+    const legacySession=await old.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.equal((await legacySession.json()).authenticated,true);
     const current=await freshPage();
     const newHash=cookieHash(current.cookie);
     const newPayload=sqlRaw("SELECT payload FROM protocolia_bff_sessions WHERE sid_hash='"+newHash+"'");
@@ -462,8 +463,8 @@ try{
     assert.deepEqual(await removed.json(),{authenticated:false},
       "Removing retired key must fail closed for old legacy ciphertext");
     const latest=await freshPage();
-    assert.equal((await latest.tab.request.get(base+"/api/_protocolia/bff/session")
-      .then(x=>x.json())).authenticated,true);
+    const freshSession=await latest.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.equal((await freshSession.json()).authenticated,true);
     await latest.context.close();
     await old.context.close();
     console.log("PROTOCOLIA_S1D2J_KEYRING_PASS "+
