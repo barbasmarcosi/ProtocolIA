@@ -116,7 +116,6 @@ export function generate(ir, openapi, outDir) {
       }
     }
   }
-  for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;
     const parent=entityMap.get(f.reference.target);
@@ -493,6 +492,7 @@ export function generate(ir, openapi, outDir) {
     });
     sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
+  for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;
     const parent=entityMap.get(f.reference.target);
