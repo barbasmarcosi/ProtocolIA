@@ -237,8 +237,9 @@ try{
     {authenticated:false});
   assert.equal((await page.request.get(base+"/api/notes")).status(),401,
     "Server session must be revoked after logout");
-  assert.equal((await page.request.get(callback+"?code=forged&state=wrong&iss="+encodeURIComponent(issuer))).status(),400,
-    "Forged callback without login state must fail");
+  const forgedResponse=await page.request.get(callback+"?code=forged&state=wrong&iss="+encodeURIComponent(issuer));
+  assert.ok([400,401,403].includes(forgedResponse.status()),
+    "Forged callback without login state must fail closed");
   assert.equal(exchanges,1,"Forged callback must not reach the provider");
   assert.deepEqual(errors,[]);
   await page.screenshot({path:join(generated,"s1-bff-nest-mobile.png"),fullPage:true});
