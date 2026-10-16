@@ -8,6 +8,7 @@ import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
+import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -43,6 +44,7 @@ export function generate(ir,spec,out){
     safe(e.name);safe(e.publicIdentity);
     if(entities.has(e.name)||tables.has(snake(e.name)))throw Error("Duplicate entity/table");
     uniqueTogetherSql(e); // Reject unsupported business rule before generation.
+    uniqueWhenSql(e,ir.operations); // Check partial-key lifecycle before generation.
     entities.set(e.name,e);tables.add(snake(e.name));
     if(!e.fields.some(f=>f.name===e.publicIdentity&&f.type==="string"&&f.unique&&f.required&&!f.nullable))
       throw Error("Public identity must be required unique string");
@@ -112,6 +114,7 @@ export function generate(ir,spec,out){
         throw Error("Invalid string maximum length");
     }
   }
+  for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const target=entities.get(f.reference.target);
     const targetField=target?.fields.find(x=>x.name===target.publicIdentity);
