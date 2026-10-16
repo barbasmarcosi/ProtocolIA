@@ -1,5 +1,6 @@
 // Nest BFF: bearer kept only in encrypted PostgreSQL sessions; no browser access tokens.
-import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual} from "node:crypto";
+import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
+import {createBffKeyring} from "./BffKeyring";
 import {createRemoteJWKSet,decodeJwt,jwtVerify} from "jose";
 import type {NestExpressApplication} from "@nestjs/platform-express";
 import type {Pool} from "pg";
@@ -78,9 +79,9 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
      process.env.PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED!=="true"||
      !config.enabled||!config.requireIssuerResponse||!config.requireIdToken)
     throw Error("BFF requires verified JWT, OIDC discovery and signed identity proof");
-  const rawKey=process.env.PROTOCOLIA_BFF_ENCRYPTION_KEY??"";
-  if(!/^[a-fA-F0-9]{64}$/.test(rawKey))throw Error("BFF requires 32-byte encryption key (64 hex chars)");
-  const key=Buffer.from(rawKey,"hex"),http=process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true";
+  const keyring=createBffKeyring(process.env.PROTOCOLIA_BFF_ENCRYPTION_KEY??"",
+    process.env.PROTOCOLIA_BFF_DECRYPTION_KEYS??"");
+  const http=process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true";
   const callback=process.env.PROTOCOLIA_OIDC_BFF_REDIRECT_URI??"";
   let callbackUri:URL;
   try{callbackUri=new URL(callback);}catch{throw Error("Invalid BFF redirect URI");}
@@ -101,18 +102,7 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
     (secureBrowser?"Secure; ":"")+"Max-Age="+max;
   const writeCookie=(res:any,name:string,value:string,max:number)=>
     res.append("Set-Cookie",name+"="+value+"; "+flags(max));
-  const seal=(value:unknown):string=>{
-    const iv=randomBytes(12),cipher=createCipheriv("aes-256-gcm",key,iv);
-    const ciphertext=Buffer.concat([cipher.update(JSON.stringify(value),"utf8"),cipher.final()]);
-    return Buffer.concat([iv,cipher.getAuthTag(),ciphertext]).toString("base64url");
-  };
-  const open=(encoded:string):any=>{
-    const data=Buffer.from(encoded,"base64url");
-    if(data.length<29||data.length>18000)throw Error("Bad encrypted session");
-    const decipher=createDecipheriv("aes-256-gcm",key,data.subarray(0,12));
-    decipher.setAuthTag(data.subarray(12,28));
-    return JSON.parse(Buffer.concat([decipher.update(data.subarray(28)),decipher.final()]).toString("utf8"));
-  };
+  const seal=keyring.seal,open=keyring.open;
   await pool.query("CREATE TABLE IF NOT EXISTS protocolia_bff_sessions ("+
     "sid_hash CHAR(64) PRIMARY KEY,payload TEXT NOT NULL,expires_at TIMESTAMPTZ NOT NULL)");
   await pool.query("CREATE INDEX IF NOT EXISTS protocolia_bff_expiration_idx "+
