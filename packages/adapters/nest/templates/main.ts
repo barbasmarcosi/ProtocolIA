@@ -14,7 +14,8 @@ type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
-type Operation={query?:QuerySpec;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -275,6 +276,15 @@ class RuntimeService{
     const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1",[id]);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
+  }
+  private async sumRelated(op:Operation,id:string):Promise<{totalUnits:string}>{
+    const plan=op.relatedSum;
+    if(!plan)throw new Error("Missing compiled related aggregate");
+    // A single SELECT is an MVCC snapshot of parent plus active children.
+    // No JS Number arithmetic, and SQL identifiers are validated by the generator.
+    const result=await this.pool.query(plan.sqlNest,[id]);
+    if(!result.rows.length)throw new Problem(404,"Parent not found");
+    return {totalUnits:String(result.rows[0].totalUnits)};
   }
   private async page(e:Entity,op:Operation,query:Record<string,unknown>):Promise<unknown>{
     if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
@@ -553,6 +563,8 @@ class RuntimeService{
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
+      if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))
+        throw new Problem(403,"Insufficient related entity read capability");
       if(op.release&&!session.capabilities.includes(op.release.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
       const entity=this.entities.get(op.entity);
@@ -562,6 +574,7 @@ class RuntimeService{
       switch(op.kind){
         case "create": data=await this.create(entity,op,req.body,session.username);break;
         case "get":data=await this.row(entity,identity);break;
+        case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;

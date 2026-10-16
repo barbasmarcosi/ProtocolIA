@@ -109,6 +109,12 @@ public class DomainRuntime {
     if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.kind().equals("sumRelated")) {
+      var plan=Manifest.RELATED_SUMS.get(matched.name());
+      if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
+          a.getAuthority().equals(plan.childReadCapability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    }
     if (matched.release()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.release().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -118,6 +124,7 @@ public class DomainRuntime {
     switch (matched.kind()) {
       case "create" -> result = create(entity, matched, body);
       case "get" -> result = row(entity, publicKey);
+      case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "listPage" -> result = page(entity, query, matched);
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
@@ -204,6 +211,16 @@ public class DomainRuntime {
       else if (f.type().equals("utcDateTime") && value instanceof OffsetDateTime odt) converted.put(f.name(), odt.toInstant().toString());
     }
     return converted;
+  }
+
+  private Map<String,Object> sumRelated(Manifest.Op op,String id){
+    if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    var plan=Manifest.RELATED_SUMS.get(op.name());
+    if(plan==null)throw new IllegalStateException("Missing authorized aggregate plan");
+    // Single MVCC snapshot of parent and all active related records.
+    var result=jdbc.queryForList(plan.sql(),Map.of("identity",id));
+    if(result.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return Map.of("totalUnits",String.valueOf(result.get(0).get("totalUnits")));
   }
 
   private Map<String,Object> row(Manifest.Entity e, String id) {
