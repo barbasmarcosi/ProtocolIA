@@ -2,7 +2,7 @@ import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../r
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
-import {assertDecimalField,assertComputedProduct,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
+import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -48,6 +48,7 @@ export function generate(ir,spec,out){
       if(!["string","int32","utcDateTime","decimal"].includes(f.type))throw Error("Unsupported field type");
       assertDecimalField(f,e.name+"."+f.name);
       assertComputedProduct(f,e);
+      assertComputedRoundedProduct(f,e);
       if(f.greaterThanField!==undefined){
         const source=e.fields.find(x=>x.name===f.greaterThanField);
         if(!source||source===f||!source.required||source.nullable||
@@ -292,7 +293,10 @@ export function generate(ir,spec,out){
         checks.push("CHECK ("+col+" IN ("+[...states].sort().map(v=>"'"+v+"'").join(",")+"))");
       }
       const generated=f.computedSum?" GENERATED ALWAYS AS ("+f.computedSum.map(snake).join(" + ")+") STORED":
-        f.computedProduct?" GENERATED ALWAYS AS ("+f.computedProduct.map(snake).join(" * ")+") STORED":"";
+        f.computedProduct?" GENERATED ALWAYS AS ("+f.computedProduct.map(snake).join(" * ")+") STORED":
+        f.computedRoundedProduct?" GENERATED ALWAYS AS (round("+
+          snake(f.computedRoundedProduct.left)+" * "+snake(f.computedRoundedProduct.right)+
+          ", "+f.decimal.scale+")) STORED":"";
       return "  "+col+" "+sqlType+generated+" "+checks.join(" ");
     });
     const conditional=e.fields.filter(f=>f.requiredWhen).map(f=>{

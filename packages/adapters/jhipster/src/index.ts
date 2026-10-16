@@ -29,6 +29,8 @@ export interface IrField {
   computedSum?: string[];
   /** Database-generated exact product of two required source decimals. */
   computedProduct?: [string,string];
+  /** Exact decimal multiplication rounded at the output scale with an explicit mode. */
+  computedRoundedProduct?: {left:string;right:string;mode:"half_up"};
   /** Display-only hints. Domain semantics and server validations remain authoritative. */
   uiLabel?: string;
   uiHelp?: string;

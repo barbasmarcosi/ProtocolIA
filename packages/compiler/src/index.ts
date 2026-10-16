@@ -79,6 +79,11 @@ function field(p: Program, prop: ModelProperty): IrField | null {
       String(metadata(p,"computedProduct",prop)?.left),
       String(metadata(p,"computedProduct",prop)?.right)
     ] as [string,string]} : {}),
+    ...(metadata(p,"computedRoundedProduct",prop) ? {computedRoundedProduct:{
+      left:String(metadata(p,"computedRoundedProduct",prop)?.left),
+      right:String(metadata(p,"computedRoundedProduct",prop)?.right),
+      mode:String(metadata(p,"computedRoundedProduct",prop)?.mode) as "half_up"
+    }} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
       target:String(metadata(p,"reference",prop)?.entity),
       onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
@@ -120,6 +125,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if(value.computedRoundedProduct!==undefined&&value.type!=="decimal")
+        reject("invalid-computed-rounded-product",m.name+"."+prop.name+" target must be exact decimal",prop);
       if(value.computedProduct!==undefined&&value.type!=="decimal")
         reject("invalid-computed-product",m.name+"."+prop.name+" target must be exact decimal",prop);
       if(value.type==="decimal"){
@@ -228,9 +235,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
         left.type!=="decimal"||right.type!=="decimal"||result.type!=="decimal"||
         !left.required||!right.required||left.nullable||right.nullable||
         !result.required||result.nullable||result.unique||result.reference||
-        result.initial!==undefined||result.computedSum||result.requiredWhen||
+        result.initial!==undefined||result.computedSum||result.computedRoundedProduct||result.requiredWhen||
         result.afterField||result.greaterThanField||
-        left.computedProduct||right.computedProduct||left.computedSum||right.computedSum||
+        left.computedProduct||right.computedProduct||left.computedRoundedProduct||
+        right.computedRoundedProduct||left.computedSum||right.computedSum||
         left.reference||right.reference||left.greaterThanField||right.greaterThanField||
         !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
         a.precision+b.precision>38||c.precision!==a.precision+b.precision||
@@ -239,6 +247,32 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-computed-product",m.name+"."+result.name+
           " must multiply distinct required nonnegative decimals, with output precision "+
           "and scale equal to the sums of operand metadata (max 38)",m);
+    }
+    // Half-up matches PostgreSQL round(numeric,scale) for nonnegative operands.
+    // One extra integer digit makes a carry on rounding provably safe.
+    for(const result of fields.filter(f=>f.computedRoundedProduct!==undefined)){
+      const spec=result.computedRoundedProduct!;
+      const left=fields.find(f=>f.name===spec.left);
+      const right=fields.find(f=>f.name===spec.right);
+      const a=left?.decimal,b=right?.decimal,c=result.decimal;
+      const integerDigits=a&&b?a.precision-a.scale+b.precision-b.scale+1:undefined;
+      if(![spec.left,spec.right].every(s=>/^[A-Za-z][A-Za-z0-9_]*$/.test(s))||
+        spec.mode!=="half_up"||!left||!right||left===right||left===result||right===result||
+        left.type!=="decimal"||right.type!=="decimal"||result.type!=="decimal"||
+        !left.required||!right.required||left.nullable||right.nullable||
+        !result.required||result.nullable||result.unique||result.reference||
+        result.initial!==undefined||result.computedSum||result.computedProduct||
+        result.requiredWhen||result.afterField||result.greaterThanField||
+        left.computedRoundedProduct||right.computedRoundedProduct||
+        left.computedProduct||right.computedProduct||left.computedSum||right.computedSum||
+        left.reference||right.reference||left.greaterThanField||right.greaterThanField||
+        !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
+        c.max!==undefined||c.scale>=a.scale+b.scale||
+        c.precision!==integerDigits!+c.scale||c.precision>38||
+        metadata(p,"publicIdentity",m.properties.get(result.name)!))
+        reject("invalid-computed-rounded-product",m.name+"."+result.name+
+          " requires distinct required nonnegative decimal fields, explicit half_up mode, "+
+          "scale reduction and output precision with a carry digit (max 38)",m);
     }
     // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
     for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
@@ -629,7 +663,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
-      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct)){
+      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct&&!field.computedRoundedProduct)){
         const dto=props?.get(exact.name);
         const actual=dto?field(p,dto):undefined;
         const expected=exact.decimal;
@@ -643,7 +677,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         }
       }
       if(mismatch)continue;
-      for(const computed of entity.fields.filter(field=>field.computedProduct))
+      for(const computed of entity.fields.filter(field=>field.computedProduct||field.computedRoundedProduct))
         if(props?.has(computed.name)){
           reject("computed-product-request",op.name+
             " must not accept read-only computed field "+computed.name,op);

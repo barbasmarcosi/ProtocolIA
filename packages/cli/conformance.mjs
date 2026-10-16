@@ -66,7 +66,7 @@ function valueFor(field, identity=false){
   value=value.slice(0,maximum).padEnd(minimum,"x");
   return value;
 }
-const body=Object.fromEntries(fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct).map(f=>[f.name,valueFor(f,f.name===id)]));
+const body=Object.fromEntries(fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct).map(f=>[f.name,valueFor(f,f.name===id)]));
 const publicKey=body[id];
 assert.equal(typeof publicKey,"string");
 const urlFor=(kind,key)=> {
@@ -139,7 +139,7 @@ async function runMulti(){
       assert.ok(resource.operations[kind],e.name+" requires "+kind);
     assert.ok(session.capabilities.includes(resource.operations.create.capability),
       "Manager missing write permission on "+e.name);
-    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct)
+    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct)
       .map(f=>[f.name,f.reference?keys.get(f.reference.target):valueFor(f,f.name===identity)]));
     assert.ok(e.fields.filter(f=>f.reference).every(f=>typeof body[f.name]==="string"));
     const key=body[identity];

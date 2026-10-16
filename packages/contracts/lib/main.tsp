@@ -17,6 +17,9 @@ namespace ProtocolIA.Domain {
   extern dec computedSum(target: ModelProperty, fields: valueof string);
   // Read-only base-10 multiplication, materialized exactly in PostgreSQL.
   extern dec computedProduct(target: ModelProperty, left: valueof string, right: valueof string);
+  // Output scale is @exactDecimal(...). PostgreSQL half-up is defined for nonnegative products.
+  extern dec computedRoundedProduct(target: ModelProperty, left: valueof string,
+    right: valueof string, mode: valueof string);
   // A string field is mandatory when an enum-valued sibling equals a declared value.
   extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
   // Strict temporal order against another UTC date-time in the same entity.

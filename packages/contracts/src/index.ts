@@ -18,6 +18,7 @@ export const $lib = createTypeSpecLibrary({
     initial: {description:"Initial immutable state for a finite-state field"},
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     computedProduct: {description:"Read-only exact decimal product of two required nonnegative fields"},
+    computedRoundedProduct: {description:"Read-only rounded positive decimal product, explicit half_up mode"},
     requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
     afterField: {description:"A UTC date-time must be strictly after a required sibling UTC date-time"},
     greaterThanField: {description:"Strict comparison between typed int32 fields or exact decimal fields"},
@@ -81,6 +82,9 @@ function computedSum(context: DecoratorContext, target: ModelProperty, fields: s
 
 function computedProduct(context: DecoratorContext, target: ModelProperty, left: string, right: string): void {
   context.program.stateMap($lib.stateKeys.computedProduct).set(target,{left,right});
+}
+function computedRoundedProduct(context: DecoratorContext, target: ModelProperty, left: string, right: string, mode: string): void {
+  context.program.stateMap($lib.stateKeys.computedRoundedProduct).set(target,{left,right,mode});
 }
 function exactDecimal(context: DecoratorContext, target: ModelProperty, precision: number, scale: number, min?: string, max?: string): void {
   context.program.stateMap($lib.stateKeys.exactDecimal).set(target,{precision,scale,min,max});
@@ -157,6 +161,7 @@ export const $decorators = {
     initial,
     computedSum,
     computedProduct,
+    computedRoundedProduct,
     requiredWhen,
     afterField,
     greaterThanField,
