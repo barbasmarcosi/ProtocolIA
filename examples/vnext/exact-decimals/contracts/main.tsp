@@ -55,6 +55,22 @@ namespace GaugeRegistry {
     @greaterThanField("quantity")
     quantityLimit?: decimal;
 
+    @uiLabel("Tarifa calculable")
+    @encode(string)
+    @exactDecimal(12, 4, "0")
+    unitRate: decimal;
+
+    @uiLabel("Unidades del lote")
+    @encode(string)
+    @exactDecimal(14, 3, "0")
+    batchUnits: decimal;
+
+    @uiLabel("Importe exacto")
+    @encode(string)
+    @exactDecimal(26, 7, "0")
+    @computedProduct("unitRate","batchUnits")
+    extendedValue: decimal;
+
     @uiLabel("Costo")
     @encode(string)
     @exactDecimal(24, 4, "0")
@@ -101,6 +117,16 @@ namespace GaugeRegistry {
     @encode(string)
     @exactDecimal(16, 4, "0")
     quantityLimit?: decimal;
+
+    @uiLabel("Tarifa calculable")
+    @encode(string)
+    @exactDecimal(12, 4, "0")
+    unitRate: decimal;
+
+    @uiLabel("Unidades del lote")
+    @encode(string)
+    @exactDecimal(14, 3, "0")
+    batchUnits: decimal;
 
     @uiLabel("Costo")
     @encode(string)

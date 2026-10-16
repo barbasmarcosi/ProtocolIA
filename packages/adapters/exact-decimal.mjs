@@ -10,7 +10,7 @@ function units(value,scale){
 }
 export function assertDecimalField(field,identity){
   if(field.type!=="decimal"){
-    if(field.decimal!==undefined)throw Error("Unbound exact decimal metadata "+identity);
+    if(field.decimal!==undefined||field.computedProduct!==undefined)throw Error("Unbound exact decimal metadata "+identity);
     return;
   }
   const d=field.decimal;
@@ -29,6 +29,28 @@ export function assertDecimalField(field,identity){
   if(d.min!==undefined&&d.max!==undefined&&units(d.min,d.scale)>units(d.max,d.scale))
     throw Error("Inverted exact decimal range "+identity);
 }
+// Both executable adapters defend against handwritten or corrupted canonical IR.
+export function assertComputedProduct(field,entity){
+  if(field.computedProduct===undefined)return;
+  const parts=field.computedProduct;
+  const left=entity.fields.find(f=>f.name===parts?.[0]);
+  const right=entity.fields.find(f=>f.name===parts?.[1]);
+  const a=left?.decimal,b=right?.decimal,c=field.decimal;
+  if(!Array.isArray(parts)||parts.length!==2||
+     parts.some(x=>typeof x!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
+     !left||!right||left===right||left===field||right===field||
+     left.type!=="decimal"||right.type!=="decimal"||field.type!=="decimal"||
+     !left.required||!right.required||left.nullable||right.nullable||
+     !field.required||field.nullable||field.unique||field.reference||
+     field.initial!==undefined||field.computedSum||field.requiredWhen||
+     field.afterField||field.greaterThanField||
+     left.computedProduct||right.computedProduct||left.computedSum||right.computedSum||
+     left.reference||right.reference||left.greaterThanField||right.greaterThanField||
+     !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
+     a.precision+b.precision>38||c.precision!==a.precision+b.precision||
+     c.scale!==a.scale+b.scale)
+    throw Error("Invalid exact computed product "+entity.name+"."+field.name);
+}
 export function decimalSql(field,column){
   const d=field.decimal;
   return {
@@ -46,7 +68,7 @@ export function assertDecimalWireSchema(spec,op,entity){
   const http=spec.paths?.[op.path]?.[op.method.toLowerCase()];
   const body=deref(http?.requestBody);
   const model=deref(body?.content?.["application/json"]?.schema);
-  for(const f of entity.fields.filter(f=>f.type==="decimal")){
+  for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct)){
     const property=deref(model?.properties?.[f.name]);
     // A required/optional decimal must be a JSON string (and never a JSON number).
     const leaf=property?.anyOf?.find(x=>deref(x)?.type==="string")??property?.oneOf?.find(x=>deref(x)?.type==="string")??property;

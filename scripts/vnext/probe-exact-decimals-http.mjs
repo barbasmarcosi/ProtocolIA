@@ -29,6 +29,8 @@ assert.ok(schema.includes("price_ceiling NUMERIC(24,4)")&&
   schema.includes("CONSTRAINT ck_gt_gauge_price_ceiling CHECK (price_ceiling IS NULL OR price_ceiling > unit_price)")&&
   schema.includes("CONSTRAINT ck_gt_gauge_quantity_limit CHECK (quantity_limit IS NULL OR quantity_limit > quantity)"),
   "Both backends must preserve exact decimal comparison in independent PostgreSQL CHECK constraints");
+assert.ok(schema.includes("extended_value NUMERIC(26,7) GENERATED ALWAYS AS (unit_rate * batch_units) STORED"),
+  "Product value must be a real PostgreSQL generated column with exact base10 scale");
 assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
@@ -72,7 +74,7 @@ try{
   const raw=await response.text();let json;try{json=JSON.parse(raw)}catch{json=raw}
   return {status:response.status,body:json};
  }
- const path="/api/gauges",payload={serial:token+"-one",label:"Medidor ficticio",reading:2,quality:"ready",unitPrice:"9007199254740993.1234",quantity:"0.000001"};
+ const path="/api/gauges",payload={serial:token+"-one",label:"Medidor ficticio",reading:2,quality:"ready",unitPrice:"9007199254740993.1234",quantity:"0.000001",unitRate:"99999999.9999",batchUnits:"99999999.125"};
  assert.equal((await req(path,{who:null})).status,401);
  assert.equal((await req(path,{method:"POST",body:payload,who:"reader"})).status,403);
  for(const [bad,code] of [["unknown","invalid_choice"],[17,"invalid_type"],["READY","invalid_choice"]]){
@@ -83,8 +85,8 @@ try{
  assert.equal((await req(path+"/"+payload.serial)).status,404,"Invalid values cannot persist");
  // Independent of HTTP code: bypass the app and prove PostgreSQL itself refuses an enum breach.
  const dbIdentity=token+"-invalid-direct";
- const sql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality) VALUES ('"+
-   dbIdentity+"','Direct PostgreSQL invariant probe',1,1.0000,1.000000,'unlisted_value')";
+ const sql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units) VALUES ('"+
+   dbIdentity+"','Direct PostgreSQL invariant probe',1,1.0000,1.000000,'unlisted_value',1.0000,1.000)";
  const direct=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],{
    cwd:generated,encoding:"utf8",timeout:15000
@@ -94,8 +96,8 @@ try{
    "Negative DB mutation must specifically fail its enum CHECK constraint");
  assert.equal((await req(path+"/"+dbIdentity)).status,404,"Invalid direct SQL insert rolled back");
  const incomplete=token+"-invalid-condition";
- const conditionalSql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality) VALUES ('"+
-   incomplete+"','Conditional SQL check',1,1.0000,1.000000,'needs_service')";
+ const conditionalSql="INSERT INTO gauge(serial,label,reading,unit_price,quantity,quality,unit_rate,batch_units) VALUES ('"+
+   incomplete+"','Conditional SQL check',1,1.0000,1.000000,'needs_service',1.0000,1.000)";
  const rejected=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",conditionalSql],{
    cwd:generated,encoding:"utf8",timeout:15000
@@ -181,8 +183,8 @@ try{
  assert.equal(comparedRead.quantityLimit,comparable.quantityLimit);
  const invalidSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,price_ceiling,quantity,quantity_limit) VALUES ('"+
-   token+"-sql-equal','SQL direct comparison',1,9007199254740993.1234,9007199254740993.1234,0.000001,0.0001)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,price_ceiling,quantity,quantity_limit,unit_rate,batch_units) VALUES ('"+
+   token+"-sql-equal','SQL direct comparison',1,9007199254740993.1234,9007199254740993.1234,0.000001,0.0001,1.0000,1.000)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(invalidSql.status,0,"Direct SQL must reject equal high-precision decimals");
@@ -190,27 +192,37 @@ try{
  assert.equal((await req(path+"/"+token+"-sql-equal")).status,404);
  const invalidScaleSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,quantity_limit) VALUES ('"+
-   token+"-sql-scale','SQL direct scale',1,1.0000,0.100001,0.1000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,quantity_limit,unit_rate,batch_units) VALUES ('"+
+   token+"-sql-scale','SQL direct scale',1,1.0000,0.100001,0.1000,1.0000,1.000)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(invalidScaleSql.status,0,"Mixed-scale comparison must reject direct SQL");
  assert.match((invalidScaleSql.stderr??"")+(invalidScaleSql.stdout??""),/ck_gt_gauge_quantity_limit/i);
  const directBad=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000,1.0000,1.000)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(directBad.status,0,"DB NUMERIC(p,s) overflow must fail independently of HTTP");
  const sqlNaN=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
-   "INSERT INTO gauge(serial,label,reading,unit_price,quantity) VALUES ('"+
-     token+"-nan-direct','Forbidden NaN',1,'NaN',1.000000)"],{
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,unit_rate,batch_units) VALUES ('"+
+     token+"-nan-direct','Forbidden NaN',1,'NaN',1.000000,1.0000,1.000)"],{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(sqlNaN.status,0,"PostgreSQL CHECK must reject non-finite numeric input");
  assert.equal((await req(path,{method:"POST",body:payload})).status,201);
  assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
+ assert.equal((await req(path+"/"+payload.serial)).body.extendedValue,
+   "9999999912490000.0000875","Server result must remain exact beyond JS safe integer range");
+ const forged={...payload,serial:token+"-forged",extendedValue:"0.0000000"};
+ const forgedResponse=await req(path,{method:"POST",body:forged});
+ assert.equal(forgedResponse.status,400,"Computed product cannot be submitted by a client");
+ assert.equal((await req(path+"/"+forged.serial)).status,404);
+ const minimal={...payload,serial:token+"-small",unitRate:"0.0001",batchUnits:"0.001"};
+ assert.equal((await req(path,{method:"POST",body:minimal})).status,201);
+ assert.equal((await req(path+"/"+minimal.serial)).body.extendedValue,"0.0000001",
+   "Exact scale 7 must persist the smallest representable multiplication");
  assert.equal((await req(path,{method:"POST",body:{...payload,serial:token+"-no-choice",quality:undefined}})).status,201);
  assert.equal((await req(path,{method:"POST",body:payload})).status,409);
  if(process.argv.includes("--browser")){
@@ -232,6 +244,10 @@ try{
    await form.getByTestId("create-reading").fill("3");
    await form.getByTestId("create-unitPrice").fill("9007199254740993.1234");
    await form.getByTestId("create-quantity").fill("0.000001");
+   assert.equal(await form.getByTestId("create-extendedValue").count(),0,
+     "Generated exact product is read-only and never editable in React");
+   await form.getByTestId("create-unitRate").fill("99999999.9999");
+   await form.getByTestId("create-batchUnits").fill("99999999.125");
    await form.getByTestId("create-priceCeiling").fill("9007199254740993.1234");
    await form.getByTestId("create-quantityLimit").fill("0.0000");
    await form.getByRole("button",{name:"Crear",exact:true}).click();
@@ -258,6 +274,8 @@ try{
    const stored=await req(path+"/"+selected);
    assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
    assert.equal(stored.body.unitPrice,"9007199254740993.1234","UI persists exact decimal string");
+   assert.equal(stored.body.extendedValue,"9999999912490000.0000875",
+     "React submission never computes or rounds the PostgreSQL-generated product");
    assert.equal(stored.body.priceCeiling,"9007199254740993.1235","UI keeps high-precision cross-field ordering");
    assert.equal(stored.body.quantityLimit,"0.0001","UI keeps mixed-scale exact decimal ordering");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");

@@ -75,6 +75,10 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     ...(metadata(p,"uiPlaceholder",prop) ? {uiPlaceholder:String(metadata(p,"uiPlaceholder",prop)?.placeholder)} : {}),
     ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
     ...(metadata(p,"computedSum",prop) ? {computedSum:String(metadata(p,"computedSum",prop)?.fields).split(",").map(s=>s.trim())} : {}),
+    ...(metadata(p,"computedProduct",prop) ? {computedProduct:[
+      String(metadata(p,"computedProduct",prop)?.left),
+      String(metadata(p,"computedProduct",prop)?.right)
+    ] as [string,string]} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
       target:String(metadata(p,"reference",prop)?.entity),
       onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
@@ -116,6 +120,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if(value.computedProduct!==undefined&&value.type!=="decimal")
+        reject("invalid-computed-product",m.name+"."+prop.name+" target must be exact decimal",prop);
       if(value.type==="decimal"){
         const d=value.decimal,encoding=getEncode(p,prop);
         const valid=!!d&&Number.isInteger(d.precision)&&d.precision>=1&&d.precision<=38&&
@@ -209,6 +215,30 @@ export function compileDomain(p: Program): IrDocument | undefined {
         metadata(p,"publicIdentity",m.properties.get(greater.name)!))
         reject("invalid-greater-than-field",m.name+"."+greater.name+
           " must be an int32 or exact decimal strictly greater than a required sibling of the same type",m);
+    }
+    // A multiplication is exact only when the output scale and precision are
+    // statically sufficient. PostgreSQL computes the value, not React/JS floats.
+    for(const result of fields.filter(f=>f.computedProduct!==undefined)){
+      const operands=result.computedProduct!;
+      const left=fields.find(f=>f.name===operands[0]);
+      const right=fields.find(f=>f.name===operands[1]);
+      const a=left?.decimal,b=right?.decimal,c=result.decimal;
+      if(operands.length!==2||operands.some(x=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
+        !left||!right||left===right||left===result||right===result||
+        left.type!=="decimal"||right.type!=="decimal"||result.type!=="decimal"||
+        !left.required||!right.required||left.nullable||right.nullable||
+        !result.required||result.nullable||result.unique||result.reference||
+        result.initial!==undefined||result.computedSum||result.requiredWhen||
+        result.afterField||result.greaterThanField||
+        left.computedProduct||right.computedProduct||left.computedSum||right.computedSum||
+        left.reference||right.reference||left.greaterThanField||right.greaterThanField||
+        !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
+        a.precision+b.precision>38||c.precision!==a.precision+b.precision||
+        c.scale!==a.scale+b.scale||
+        metadata(p,"publicIdentity",m.properties.get(result.name)!))
+        reject("invalid-computed-product",m.name+"."+result.name+
+          " must multiply distinct required nonnegative decimals, with output precision "+
+          "and scale equal to the sums of operand metadata (max 38)",m);
     }
     // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
     for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
@@ -599,7 +629,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
-      for(const exact of entity.fields.filter(field=>field.type==="decimal")){
+      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct)){
         const dto=props?.get(exact.name);
         const actual=dto?field(p,dto):undefined;
         const expected=exact.decimal;
@@ -612,6 +642,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
           mismatch=true;break;
         }
       }
+      if(mismatch)continue;
+      for(const computed of entity.fields.filter(field=>field.computedProduct))
+        if(props?.has(computed.name)){
+          reject("computed-product-request",op.name+
+            " must not accept read-only computed field "+computed.name,op);
+          mismatch=true;
+        }
       if(mismatch)continue;
     }
     // Source-declared enum membership must not be weakened in an HTTP request DTO.

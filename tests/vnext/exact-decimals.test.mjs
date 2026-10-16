@@ -97,3 +97,27 @@ test("decimal compared HTTP DTOs cannot omit or change precision and scale",()=>
     return s.slice(0,i)+needle.replace('16, 4','16, 3')+s.slice(i+needle.length);
   },/protocolia-greater-than-request-mismatch|protocolia-decimal-request-mismatch/);
 });
+
+// B2: no floating point or client-supplied product is part of the calculation.
+test("exact product metadata is server-generated and carries sufficient precision",()=>{
+  const target=decimal("extendedValue");
+  assert.deepEqual(target.computedProduct,["unitRate","batchUnits"]);
+  assert.equal(target.decimal.precision,26);
+  assert.equal(target.decimal.scale,7);
+  assert.equal(decimal("unitRate").decimal.scale+decimal("batchUnits").decimal.scale,7);
+});
+test("computed products fail closed for wrong precision, scale, cycles or input DTO",()=>{
+  rejectMutation("too little target precision",s=>s.replace('@exactDecimal(26, 7, "0")','@exactDecimal(25, 7, "0")'),
+    /protocolia-invalid-computed-product/);
+  rejectMutation("target scale would round",s=>s.replace('@exactDecimal(26, 7, "0")','@exactDecimal(26, 6, "0")'),
+    /protocolia-invalid-computed-product/);
+  rejectMutation("unknown operand",s=>s.replace('@computedProduct("unitRate","batchUnits")','@computedProduct("absent","batchUnits")'),
+    /protocolia-invalid-computed-product/);
+  rejectMutation("same operand",s=>s.replace('@computedProduct("unitRate","batchUnits")','@computedProduct("unitRate","unitRate")'),
+    /protocolia-invalid-computed-product/);
+  rejectMutation("numeric output write",s=>{
+    const where=s.lastIndexOf("  model GaugeRequest {");
+    return s.slice(0,where)+s.slice(where).replace("    cost?: decimal | null;",
+      '    cost?: decimal | null;\n    @encode(string) @exactDecimal(26,7,"0") extendedValue?: decimal;');
+  },/protocolia-computed-product-request/);
+});

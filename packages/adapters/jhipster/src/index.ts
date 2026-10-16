@@ -27,6 +27,8 @@ export interface IrField {
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
   computedSum?: string[];
+  /** Database-generated exact product of two required source decimals. */
+  computedProduct?: [string,string];
   /** Display-only hints. Domain semantics and server validations remain authoritative. */
   uiLabel?: string;
   uiHelp?: string;
