@@ -32,6 +32,11 @@ Compiler negative tests: `tests/vnext/exact-decimals.test.mjs`.
 PostgreSQL/HTTP/Chromium oracle: `scripts/vnext/probe-exact-decimals-http.mjs`.
 CI: `.github/workflows/vnext-b1-exact-decimals.yml`.
 
-**Status:** Code committed in an isolated implementation branch; no completion
-claim until both runtimes, PostgreSQL, Chromium and quality checks pass on
-the exact same SHA. The Railway UX9 demo remains pinned and unchanged.
+**Isolated acceptance at tested source commit `4cbfc62a13175e57fdb7f57d94601a6c3401ec2e`:**
+- [Two-backend generated-runtime acceptance #38838670042](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38838670042): SUCCESS. Both NestJS and Spring Boot compiled and passed generated Docker Compose/HTTP/PostgreSQL tests, and a separate exact-decimal black-box probe. Nest additionally passed real Chromium at 390×780 and uploaded the mobile screenshot.
+- [Quality #38838670116](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38838670116): SUCCESS on the same tested SHA.
+- Black-box markers: `PROTOCOLIA_B1_EXACT_DECIMAL_HTTP_PASS` (both) and `PROTOCOLIA_B1_EXACT_DECIMAL_BROWSER_PASS` (Nest/Chromium; zero JS errors). Exact large values survived DB/server restart.
+
+A follow-up source commit adds direct PostgreSQL nonfinite rejection and inclusive min/max probes to strengthen acceptance. Re-run targeted CI on that new SHA before promotion; earlier green results must not be imputed to a later commit.
+
+**Deployment:** the Railway UX9 demo and persistent Neon schema remain unchanged.

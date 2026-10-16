@@ -123,6 +123,27 @@ try{
   assert.equal(attempt.status,400,JSON.stringify({value,attempt}));
   assert.deepEqual(attempt.body.issues,[{field:"unitPrice",code}]);
  }
+ // Exact inclusive bounds, values beyond JS safe integer range and nullable fields.
+ const maxExact={...payload,serial:token+"-max",
+   unitPrice:"99999999999999999999.9999",quantity:"9999999999.999999",
+   percentage:"100.000",cost:"0.0100"};
+ const maxResponse=await req(path,{method:"POST",body:maxExact});
+ assert.equal(maxResponse.status,201,JSON.stringify(maxResponse.body));
+ const maxRead=(await req(path+"/"+maxExact.serial)).body;
+ assert.equal(maxRead.unitPrice,maxExact.unitPrice,"Exact precision maximum round trip");
+ assert.equal(maxRead.quantity,maxExact.quantity,"Exact quantity maximum round trip");
+ assert.equal(maxRead.cost,"0.0100","No precision loss for optional nullable cost");
+ const minExact={...payload,serial:token+"-min",unitPrice:"0.0000",quantity:"0.000001",
+   percentage:"0.000"};
+ assert.equal((await req(path,{method:"POST",body:minExact})).status,201);
+ assert.equal((await req(path+"/"+minExact.serial)).body.unitPrice,"0.0000");
+ const belowQuantity={...payload,serial:token+"-below",quantity:"0.000000"};
+ const belowResult=await req(path,{method:"POST",body:belowQuantity});
+ assert.equal(belowResult.status,400,JSON.stringify(belowResult.body));
+ assert.deepEqual(belowResult.body.issues,[{field:"quantity",code:"out_of_range"}]);
+ const nullRequired=await req(path,{method:"POST",body:{...payload,serial:token+"-null-required",unitPrice:null}});
+ assert.equal(nullRequired.status,400);
+ assert.deepEqual(nullRequired.body.issues,[{field:"unitPrice",code:"required"}]);
  const omittedOptional={...payload,serial:token+"-omitted"};
  assert.equal((await req(path,{method:"POST",body:omittedOptional})).status,201);
  assert.equal((await req(path+"/"+omittedOptional.serial)).body.cost,null);
@@ -137,6 +158,13 @@ try{
    cwd:generated,encoding:"utf8",timeout:15000
  });
  assert.notEqual(directBad.status,0,"DB NUMERIC(p,s) overflow must fail independently of HTTP");
+ const sqlNaN=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity) VALUES ('"+
+     token+"-nan-direct','Forbidden NaN',1,'NaN',1.000000)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(sqlNaN.status,0,"PostgreSQL CHECK must reject non-finite numeric input");
  assert.equal((await req(path,{method:"POST",body:payload})).status,201);
  assert.equal((await req(path+"/"+payload.serial,{who:"reader"})).body.quality,"ready");
  assert.equal((await req(path,{method:"POST",body:{...payload,serial:token+"-no-choice",quality:undefined}})).status,201);
@@ -189,7 +217,7 @@ try{
   await new Promise(ok=>setTimeout(ok,1000));
  }
  assert.ok(returned,"PostgreSQL value persisted across restart");
- console.log("PROTOCOLIA_B1_EXACT_DECIMAL_HTTP_PASS "+JSON.stringify({source:"TypeSpec native enum",invalidChoice400:true,postgresConstraint:true,conditionalRequired:true,dbRejectsIncomplete:true,persisted:true}));
+ console.log("PROTOCOLIA_B1_EXACT_DECIMAL_HTTP_PASS "+JSON.stringify({source:"TypeSpec exact decimal",invalidChoice400:true,postgresConstraint:true,conditionalRequired:true,dbRejectsIncomplete:true,persisted:true}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
  catch(e){console.error("B1 cleanup failed",e.message);process.exitCode=1}
