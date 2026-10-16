@@ -7,6 +7,7 @@ import {compileRelatedSums} from "../related-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
+import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -41,6 +42,7 @@ export function generate(ir,spec,out){
   for(const e of ir.entities){
     safe(e.name);safe(e.publicIdentity);
     if(entities.has(e.name)||tables.has(snake(e.name)))throw Error("Duplicate entity/table");
+    uniqueTogetherSql(e); // Reject unsupported business rule before generation.
     entities.set(e.name,e);tables.add(snake(e.name));
     if(!e.fields.some(f=>f.name===e.publicIdentity&&f.type==="string"&&f.unique&&f.required&&!f.nullable))
       throw Error("Public identity must be required unique string");
@@ -354,7 +356,7 @@ export function generate(ir,spec,out){
       return "  CONSTRAINT ck_gt_"+snake(e.name)+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared].join(",\n")+"\n);");
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);
