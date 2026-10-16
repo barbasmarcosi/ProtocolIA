@@ -12,11 +12,12 @@ type Field={name:string;column:string;type:string;required:boolean;nullable:bool
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
+type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -491,6 +492,31 @@ class RuntimeService{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(op.exactReverse){
+      const plan=op.exactReverse;
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const moved=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+          e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
+          plan.referenceColumn+" AS reference, "+plan.amountColumn+"::text AS amount",
+          [op.to,key,op.from]);
+        if(!moved.rowCount){
+          const exists=await client.query("SELECT 1 FROM "+e.table+" WHERE "+e.identityColumn+"=$1",[key]);
+          throw new Problem(exists.rowCount?409:404,exists.rowCount?"Already reversed":"Not found");
+        }
+        const {reference,amount}=moved.rows[0];
+        const credited=await client.query("UPDATE "+plan.balanceTable+" SET "+
+          plan.balanceColumn+"="+plan.balanceColumn+"+$1::numeric WHERE "+
+          plan.balanceKey+"=$2 AND "+plan.balanceColumn+"<=($3::numeric-$1::numeric)",
+          [amount,reference,plan.maxBalance]);
+        if(credited.rowCount!==1)throw new Problem(409,"Cannot restore exact balance");
+        await this.recordAudit(client,e,op,key,actor,{[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     if(op.release){
       const release=op.release;
       const client=await this.pool.connect();
@@ -583,6 +609,8 @@ class RuntimeService{
     try{
       const session=this.login(req);
       if(!session.capabilities.includes(op.capability))throw new Problem(403,"Insufficient capability");
+      if(op.exactReverse&&!session.capabilities.includes(op.exactReverse.parentWriteCapability))
+        throw new Problem(403,"Insufficient balance write capability");
       if(op.exactDebit&&!session.capabilities.includes(op.exactDebit.parentWriteCapability))
         throw new Problem(403,"Insufficient balance write capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))

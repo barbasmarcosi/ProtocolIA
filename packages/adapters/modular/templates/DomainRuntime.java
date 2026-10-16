@@ -106,6 +106,9 @@ public class DomainRuntime {
         (user == null || user.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals(authorized.capability())))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
+    if (matched.exactReverse()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.exactReverse().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.exactDebit()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.exactDebit().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -572,6 +575,25 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    if(op.exactReverse()!=null){
+      var reverse=op.exactReverse();
+      var rows=jdbc.queryForList("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
+        e.identityColumn()+"=:key AND "+col+"=:source RETURNING "+
+        reverse.referenceColumn()+", "+reverse.amountColumn(),
+        Map.of("key",id,"source",op.fromState(),"target",op.toState()));
+      if(rows.isEmpty()){
+        row(e,id);
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Already reversed");
+      }
+      String wallet=(String)rows.get(0).get(reverse.referenceColumn());
+      BigDecimal amount=(BigDecimal)rows.get(0).get(reverse.amountColumn());
+      int credited=jdbc.update("UPDATE "+reverse.balanceTable()+" SET "+
+        reverse.balanceColumn()+"="+reverse.balanceColumn()+"+:amount WHERE "+
+        reverse.balanceKey()+"=:key AND "+reverse.balanceColumn()+"<=(:max-:amount)",
+        Map.of("key",wallet,"amount",amount,"max",new BigDecimal(reverse.maxBalance())));
+      if(credited!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot restore exact balance");
+      return row(e,id);
+    }
     if (op.release()!=null) {
       var release=op.release();
       String referenceColumn=e.fields().stream().filter(f -> f.name().equals(release.referenceField()))
