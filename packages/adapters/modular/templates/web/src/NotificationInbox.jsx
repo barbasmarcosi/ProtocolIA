@@ -1,3 +1,4 @@
+import {authenticatedFetch} from "./AuthSession.js";
 import React,{useEffect,useState} from 'react';
 
 export default function NotificationInbox({operations,auth,capabilities}){
@@ -7,7 +8,7 @@ export default function NotificationInbox({operations,auth,capabilities}){
  const canRead=page&&capabilities.includes(page.capability);
  const canAck=ack&&capabilities.includes(ack.capability);
  async function request(operation,url,signal){
-  const response=await fetch(url,{method:operation.method,headers:{Authorization:auth},signal});
+  const response=await authenticatedFetch(url,{method:operation.method,headers:{Authorization:auth},signal});
   if(!response.ok)throw Error(response.status===403?'No tenés una identidad destinataria habilitada o el permiso necesario.':
    response.status===404?'La notificación no está disponible.':response.status===401?'Volvé a iniciar sesión.':'No se pudo completar la operación.');
   return response.json();
