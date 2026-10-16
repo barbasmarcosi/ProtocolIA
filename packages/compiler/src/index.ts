@@ -519,7 +519,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
       for(const order of entity.fields.filter(field=>field.afterField!==undefined)){
-        for(const expected of [order,entity.fields.find(field=>field.name===order.afterField)!]){
+        const source=entity.fields.find(field=>field.name===order.afterField);
+        if(!source){mismatch=true;break;}
+        for(const expected of [order,source]){
           const actual=props?.get(expected.name);
           const parsed=actual?typeOfField(actual):undefined;
           if(!actual||parsed?.type!=="utcDateTime"||parsed.nullable!==expected.nullable||

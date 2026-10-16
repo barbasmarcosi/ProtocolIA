@@ -47,6 +47,13 @@ export function generate(ir,spec,out){
       columns.add(snake(f.name));
       if(!["string","int32","utcDateTime","decimal"].includes(f.type))throw Error("Unsupported field type");
       assertDecimalField(f,e.name+"."+f.name);
+      if(f.afterField!==undefined){
+        const source=e.fields.find(x=>x.name===f.afterField);
+        if(!source||source===f||source.type!=="utcDateTime"||!source.required||source.nullable||
+           source.afterField||f.type!=="utcDateTime"||f.nullable||f.reference||f.computedSum||
+           f.initial||f.requiredWhen||f.decimal||f.unique)
+          throw Error("Unsupported temporal rule "+e.name+"."+f.name);
+      }
       if(f.computedSum!==undefined && (f.type!=="int32"||f.name===e.publicIdentity||!f.required||f.nullable||
         !Array.isArray(f.computedSum)||f.computedSum.length<2||f.computedSum.length>8||
         new Set(f.computedSum).size!==f.computedSum.length||
@@ -282,7 +289,12 @@ export function generate(ir,spec,out){
         source+" IS DISTINCT FROM '"+f.requiredWhen.equals+"' OR "+
         "("+col+" IS NOT NULL AND char_length(btrim("+col+")) > 0))";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional].join(",\n")+"\n);");
+    const chronological=e.fields.filter(f=>f.afterField!==undefined).map(f=>{
+      const col=snake(f.name),source=snake(f.afterField);
+      return "  CONSTRAINT ck_order_"+snake(e.name)+"_"+col+" CHECK ("+
+        col+" IS NULL OR "+col+" > "+source+")";
+    });
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...chronological].join(",\n")+"\n);");
   }
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
     const parent=entities.get(f.reference.target);

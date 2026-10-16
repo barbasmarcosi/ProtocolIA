@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string}};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -104,6 +104,12 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
     if(f.type==="utcDateTime"){
       try{parseTimestamp(value);}catch{throw invalidField(f,"invalid_format");}
     }
+  }
+  if(create)for(const f of e.fields){
+    if(!f.afterField||body[f.name]===undefined)continue;
+    const end=parseTimestamp(body[f.name]);
+    const start=parseTimestamp(body[f.afterField]);
+    if(Date.parse(end)<=Date.parse(start))throw invalidField(f,"invalid_order");
   }
   return body;
 }

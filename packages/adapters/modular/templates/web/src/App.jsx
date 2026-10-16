@@ -97,7 +97,19 @@ function validateCreate(fields,values){
     if(field.choices?.length&&!field.choices.some(choice=>choice.value===text)){
       errors[field.name]="Elegí una opción válida.";continue;
     }
-    if(field.type==="decimal"){
+    if(field.type==="utcDateTime"){
+      if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(text)||
+         !Number.isFinite(Date.parse(text))){
+        errors[field.name]="Ingresá una fecha y hora ISO válida.";continue;
+      }
+      if(field.afterField&&values[field.afterField]){
+        const previous=Date.parse(String(values[field.afterField]));
+        if(Number.isFinite(previous)&&Date.parse(text)<=previous){
+          errors[field.name]="La fecha debe ser posterior a "+fieldLabel(fields.find(f=>f.name===field.afterField))+".";
+          continue;
+        }
+      }
+    }else if(field.type==="decimal"){
       const problem=decimalIssue(value,field);if(problem){errors[field.name]=problem;continue;}
     }else if(field.type==="int32"){
       const n=Number(text);
@@ -501,7 +513,7 @@ export default function App(){
       if(response.status===400&&Array.isArray(data.issues)){
         // Fail closed: never render arbitrary server-provided properties as field names or messages.
         const fields=new Set(active.entity.fields.map(field=>field.name));
-        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_choice","invalid_type","out_of_range"]);
+        const allowed=new Set(["required","invalid_initial","invalid_format","invalid_choice","invalid_type","out_of_range","invalid_order"]);
         failure.issues=data.issues.filter(issue=>issue&&typeof issue==="object"&&
           fields.has(issue.field)&&allowed.has(issue.code)).map(issue=>({
           field:issue.field,code:issue.code
@@ -633,7 +645,8 @@ export default function App(){
           invalid_format:"El formato ingresado no es válido.",
           invalid_choice:"La opción seleccionada no está permitida.",
           invalid_type:"El tipo de dato ingresado no es válido.",
-          out_of_range:"El valor está fuera de los límites permitidos."
+          out_of_range:"El valor está fuera de los límites permitidos.",
+          invalid_order:"La fecha no respeta el orden temporal requerido."
         };
         const errors=Object.fromEntries(e.issues.map(issue=>[issue.field,messages[issue.code]]));
         setFieldErrors(errors);

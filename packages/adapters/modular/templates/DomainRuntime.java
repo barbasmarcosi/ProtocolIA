@@ -273,6 +273,15 @@ public class DomainRuntime {
         throw new IllegalStateException("Unsupported field type");
       }
     }
+    if(create)for(var field : e.fields()){
+      if(field.afterField()==null||!body.containsKey(field.name()))continue;
+      OffsetDateTime start=OffsetDateTime.parse((String)body.get(field.afterField()));
+      OffsetDateTime end=OffsetDateTime.parse((String)body.get(field.name()));
+      // Match the milliseconds used by the generated JS runtime and React.
+      if(!end.toInstant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+             .isAfter(start.toInstant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)))
+        throw new InvalidInputField(field.name(),"invalid_order");
+    }
   }
 
   private Object sqlValue(Manifest.Field f, Object v) {
