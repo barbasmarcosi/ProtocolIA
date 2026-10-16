@@ -74,7 +74,7 @@ try{
       p.get("client_id")!=="protocolia-browser"||
       p.get("redirect_uri")!==callback||p.get("code_challenge_method")!=="S256"||
       !/^[A-Za-z0-9_-]{43,}$/.test(p.get("code_challenge")??"")||
-      !/^[A-Za-z0-9_-]{43,}$/.test(p.get("state")??"")||
+      !/^[A-Za-z0-9_-]{32,128}={0,2}$/.test(p.get("state")??"")||
      !/^[A-Za-z0-9_-]{43,}$/.test(p.get("nonce")??"")){
      res.writeHead(400);res.end("Invalid authorization request");return;
    }
