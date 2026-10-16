@@ -1,0 +1,45 @@
+name: vnext-b3-composite-uniqueness
+on:
+  push:
+    branches:
+      - feature/b3-composite-business-uniqueness-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/composite-uniqueness/**'
+      - 'tests/vnext/composite-uniqueness.test.mjs'
+      - 'scripts/vnext/probe-composite-uniqueness-http.mjs'
+      - '.github/workflows/vnext-b3-composite-uniqueness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b3-composite-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Contract and negative compiler tests
+        run: node --test tests/vnext/composite-uniqueness.test.mjs
+      - name: Generate full application from TypeSpec
+        run: npm run app:build -- examples/vnext/composite-uniqueness --target ${{ matrix.target }} --out "${RUNNER_TEMP}/composite-generated"
+      - name: Generated runtime smoke and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
+      - name: Concurrent HTTP POST unique business key and persisted DB oracle
+        run: node scripts/vnext/probe-composite-uniqueness-http.mjs "${RUNNER_TEMP}/composite-generated"
