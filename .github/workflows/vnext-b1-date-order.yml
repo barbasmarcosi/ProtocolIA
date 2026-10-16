@@ -1,0 +1,58 @@
+name: vnext-b1-date-order
+on:
+  push:
+    branches:
+      - feature/b1-3-date-order-20261015
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/date-ordering/**'
+      - 'tests/vnext/date-ordering.test.mjs'
+      - 'scripts/vnext/probe-date-ordering-http.mjs'
+      - '.github/workflows/vnext-b1-date-order.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: date-order-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile independent temporal fixture
+        run: npm run app:build -- examples/vnext/date-ordering --target ${{ matrix.target }} --out "${RUNNER_TEMP}/date-order-generated"
+      - name: IR and adversarial TypeSpec compilation
+        run: node --test tests/vnext/date-ordering.test.mjs
+      - name: Docker PostgreSQL and generated-app generic conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/date-order-generated"
+      - name: Install Chromium
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Independent HTTP SQL and mobile chronological acceptance
+        run: node scripts/vnext/probe-date-ordering-http.mjs "${RUNNER_TEMP}/date-order-generated" ${{ matrix.target == 'nestjs' && '--browser' || '' }}
+      - name: Preserve generated mobile visual
+        if: matrix.target == 'nestjs' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: date-order-generated-mobile
+          path: ${{ runner.temp }}/date-order-generated/protocolia-b1-enum-mobile.png
+          if-no-files-found: error
