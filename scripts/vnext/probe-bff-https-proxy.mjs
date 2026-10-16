@@ -12,6 +12,7 @@ import {join,resolve} from "node:path";
 const generated=resolve(process.argv[2]??"");
 assert.ok(process.argv[2],"Generated app directory is required");
 const restartDuringOAuth=process.argv.includes("--restart-during-oauth");
+const rotateKeys=process.argv.includes("--rotate-keyring");
 const project="s1tls_"+randomBytes(4).toString("hex");
 const temp=mkdtempSync(join(tmpdir(),"protocolia-bff-browser-"));
 const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
@@ -133,6 +134,7 @@ try{
  });
  await new Promise((ok,fail)=>provider.once("error",fail).listen(idpPort,"0.0.0.0",ok));
  const envFile=join(temp,".env"),composeOverride=join(temp,"compose-override.yaml");
+ const initialKey=randomBytes(32).toString("hex"),nextKey=randomBytes(32).toString("hex");
  writeFileSync(envFile,[
    "PROTOCOLIA_DB_PASSWORD="+randomBytes(20).toString("hex"),
    "PROTOCOLIA_AUTH_MODE=jwt",
@@ -150,7 +152,8 @@ try{
    "PROTOCOLIA_OIDC_BFF_REDIRECT_URI="+callback,
    "PROTOCOLIA_BFF_ENABLED=true",
    "PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS=2000",
-   "PROTOCOLIA_BFF_ENCRYPTION_KEY="+randomBytes(32).toString("hex"),
+   "PROTOCOLIA_BFF_ENCRYPTION_KEY="+initialKey,
+   "PROTOCOLIA_BFF_DECRYPTION_KEYS=",
    "PROTOCOLIA_READER_USERNAME=unused-reader",
    "PROTOCOLIA_READER_PASSWORD="+randomBytes(20).toString("hex"),
    "PROTOCOLIA_MANAGER_USERNAME=unused-manager",
@@ -365,6 +368,108 @@ try{
     "Forged callback without login state must fail closed");
   assert.equal(exchanges,1,"Forged callback must not reach the provider");
   assert.deepEqual(errors,[]);
+  if(rotateKeys){
+    const sqlRaw=(q)=>docker([...args,"exec","-T","db","psql",
+      "-U","protocolia","-d","protocolia","-Atc",q],15000).trim();
+    const cookieHash=(cookie)=>createHash("sha256").update(cookie.value).digest("hex");
+    const rotate=async(active,retired)=>{
+      let raw=readFileSync(envFile,"utf8");
+      raw=raw.replace(/^PROTOCOLIA_BFF_ENCRYPTION_KEY=.*$/m,"PROTOCOLIA_BFF_ENCRYPTION_KEY="+active)
+        .replace(/^PROTOCOLIA_BFF_DECRYPTION_KEYS=.*$/m,"PROTOCOLIA_BFF_DECRYPTION_KEYS="+retired);
+      writeFileSync(envFile,raw,{mode:0o600});
+      docker([...args,"up","--detach","--force-recreate","app"],180000);
+      let healthy=false;
+      for(let attempt=0;attempt<90;attempt++){
+        try{if((await fetch(upstream+"/health",{signal:AbortSignal.timeout(2000)})).ok){
+          healthy=true;break;
+        }}catch{}
+        await new Promise(ok=>setTimeout(ok,800));
+      }
+      assert.ok(healthy,"New BFF backend must restore from the existing PostgreSQL store");
+    };
+    const freshPage=async()=>{
+      const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
+      const tab=await context.newPage();
+      await tab.goto(base+"/",{waitUntil:"domcontentloaded"});
+      await tab.getByTestId("login-provider").waitFor({timeout:15000});
+      await tab.getByTestId("login-provider").click();
+      await tab.getByTestId("open-create").waitFor({timeout:15000});
+      const cookie=(await context.cookies()).find(x=>x.name==="__Host-pia_bff");
+      assert.ok(cookie?.secure&&cookie.httpOnly);
+      return {context,tab,cookie};
+    };
+    const old=await freshPage();
+    const oldHash=cookieHash(old.cookie);
+    const oldPayload=sqlRaw("SELECT payload FROM protocolia_bff_sessions WHERE sid_hash='"+oldHash+"'");
+    assert.match(oldPayload,/^v1:[a-f0-9]{16}:[A-Za-z0-9_-]+$/);
+    // Exercise migration from S1d.2i untagged ciphertext, without exposing
+    // either the encrypted payload or any token to logs.
+    sqlRaw("UPDATE protocolia_bff_sessions SET payload='"+
+      oldPayload.split(":")[2]+"' WHERE sid_hash='"+oldHash+"'");
+    await rotate(nextKey,initialKey);
+    assert.equal((await old.tab.request.get(base+"/api/_protocolia/bff/session")).status(),200);
+    assert.equal((await old.tab.request.get(base+"/api/_protocolia/bff/session")).then(x=>x.json())).authenticated,true);
+    const current=await freshPage();
+    const newHash=cookieHash(current.cookie);
+    const newPayload=sqlRaw("SELECT payload FROM protocolia_bff_sessions WHERE sid_hash='"+newHash+"'");
+    const newTag=createHash("sha256").update(Buffer.from(nextKey,"hex")).digest("hex").slice(0,16);
+    assert.ok(newPayload.startsWith("v1:"+newTag+":"),"Rotated BFF must encrypt with new key only");
+    // Bring up a concurrent replica sharing the same DB and current keyring.
+    const secondaryPort=await freePort(),secondaryTlsPort=await freePort();
+    const replica=docker([...args,"run","--detach","--no-deps",
+      "-p","127.0.0.1:"+secondaryPort+":8080","app"],120000).trim();
+    const replicaUrl="https://127.0.0.1:"+secondaryTlsPort;
+    const replicaProxy=httpsServer({key:readFileSync(keyFile),cert:readFileSync(cert)},(req,res)=>{
+      const headers={...req.headers,"x-forwarded-proto":"https","x-forwarded-host":req.headers.host};
+      delete headers.forwarded;
+      const proxy=httpRequest({host:"127.0.0.1",port:secondaryPort,
+        method:req.method,path:req.url,headers},r=>{
+        res.writeHead(r.statusCode??502,r.headers);r.pipe(res);
+      });
+      proxy.on("error",()=>{if(!res.headersSent)res.writeHead(502);res.end();});
+      req.pipe(proxy);
+    });
+    try{
+      await new Promise((ok,fail)=>replicaProxy.once("error",fail).listen(
+        secondaryTlsPort,"127.0.0.1",ok));
+      let replicaReady=false;
+      for(let attempt=0;attempt<90;attempt++){
+        try{if((await fetch("http://127.0.0.1:"+secondaryPort+"/health",
+            {signal:AbortSignal.timeout(2000)})).ok){replicaReady=true;break;}}catch{}
+        await new Promise(ok=>setTimeout(ok,800));
+      }
+      assert.ok(replicaReady,"Concurrent Spring/Nest BFF replica must start");
+      const throughReplica=await old.tab.request.get(replicaUrl+"/api/_protocolia/bff/session");
+      assert.equal((await throughReplica.json()).authenticated,true,
+        "Legacy AES session must survive across concurrent BFF replicas");
+      const newOnReplica=await current.tab.request.get(replicaUrl+"/api/_protocolia/bff/session");
+      assert.equal((await newOnReplica.json()).authenticated,true);
+      const activeSession=await current.tab.request.get(base+"/api/_protocolia/bff/session");
+      const csrf=(await activeSession.json()).csrf;
+      const remoteLogout=await current.tab.request.post(replicaUrl+"/api/_protocolia/bff/logout",{
+        headers:{"X-ProtocolIA-CSRF":csrf,Origin:base}
+      });
+      assert.equal(remoteLogout.status(),204,"Replica must revoke PostgreSQL session");
+      assert.equal(Number(sqlRaw("SELECT COUNT(*) FROM protocolia_bff_sessions WHERE sid_hash='"+
+        newHash+"'")),0,"Revocation must remove the shared database session");
+    }finally{
+      docker(["stop",replica],30000);
+      await new Promise(ok=>replicaProxy.close(ok));
+      await current.context.close();
+    }
+    await rotate(nextKey,"");
+    const removed=await old.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.deepEqual(await removed.json(),{authenticated:false},
+      "Removing retired key must fail closed for old legacy ciphertext");
+    const latest=await freshPage();
+    assert.equal((await latest.tab.request.get(base+"/api/_protocolia/bff/session")
+      .then(x=>x.json())).authenticated,true);
+    await latest.context.close();
+    await old.context.close();
+    console.log("PROTOCOLIA_S1D2J_KEYRING_PASS "+
+      JSON.stringify({oldLegacySurvivesRotation:true,currentKeyWritesOnly:true,
+        concurrentReplicaReads:true,replicaRevocation:true,retiredKeyRemovalFailsClosed:true}));
+  }
   await page.screenshot({path:join(generated,"s1-bff-nest-mobile.png"),fullPage:true});
  }finally{await browser.close();}
  console.log("PROTOCOLIA_S1D2G_NEST_BFF_PASS "+JSON.stringify({
