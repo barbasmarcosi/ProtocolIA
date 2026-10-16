@@ -26,11 +26,12 @@ export function hasPkceResponse(){
 export async function beginPkce(config){
   checkedConfig(config);
   const state=randomUrlSafe(),verifier=randomUrlSafe(),created=Date.now();
+  const nonce=config.requireIdToken===true?randomUrlSafe():null;
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier));
   const challenge=btoa(String.fromCharCode(...new Uint8Array(digest)))
     .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
   sessionStorage.setItem(key,JSON.stringify({
-    state,verifier,created,clientId:config.clientId,issuer:config.issuer,
+    state,verifier,nonce,created,clientId:config.clientId,issuer:config.issuer,
     redirectUri:config.redirectUri
   }));
   const url=new URL(config.authorizationEndpoint);
@@ -39,6 +40,7 @@ export async function beginPkce(config){
   url.searchParams.set("redirect_uri",config.redirectUri);
   url.searchParams.set("scope",config.scope);
   url.searchParams.set("state",state);
+  if(nonce)url.searchParams.set("nonce",nonce);
   url.searchParams.set("code_challenge",challenge);
   url.searchParams.set("code_challenge_method","S256");
   location.assign(url.toString());
@@ -61,6 +63,7 @@ export async function finishPkce(config){
     transaction.redirectUri!==config.redirectUri||
     transaction.clientId!==config.clientId||transaction.issuer!==config.issuer||
     !Number.isFinite(transaction.created)||Date.now()-transaction.created>300000||
+    (config.requireIdToken===true&&!/^[A-Za-z0-9_-]{43,}$/.test(transaction.nonce??""))||
     transaction.created>Date.now()+30000||
     !/^[A-Za-z0-9_-]{43,}$/.test(transaction.verifier??"")||
     !/^[A-Za-z0-9_-]{43,}$/.test(transaction.state??"")||
@@ -82,6 +85,13 @@ export async function finishPkce(config){
   if(data.token_type?.toLowerCase()!=="bearer"||typeof data.access_token!=="string"||
     data.access_token.length>16384||data.access_token.split(".").length!==3)
     throw Error("El proveedor no entregó un token de acceso JWT válido.");
-  // The generated backend, not this UI, verifies the signed token and grants.
+  // No trust in unverified ID-token claims; only the backend verifies this proof.
+  if(config.requireIdToken===true){
+    if(typeof data.id_token!=="string"||data.id_token.length>16384||
+      data.id_token.split(".").length!==3)
+      throw Error("El proveedor no entregó una identidad OIDC verificable.");
+    return {authorization:"Bearer "+data.access_token,
+      proof:{idToken:data.id_token,nonce:transaction.nonce}};
+  }
   return "Bearer "+data.access_token;
 }
