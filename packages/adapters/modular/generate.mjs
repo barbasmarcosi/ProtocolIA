@@ -144,6 +144,13 @@ export function generate(ir, openapi, outDir) {
     if(op.method !== methods[op.behavior.kind] ||
        !Array.isArray(op.statuses) || !op.statuses.includes(success[op.behavior.kind]))
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
+    if(op.behavior.kind==="patchFields"&&bound.uniqueTogether?.includes(op.behavior.field)){
+      const f=bound.fields.find(x=>x.name===op.behavior.field);
+      if(!f||f.type!=="string"||!f.required||f.nullable||f.reference||
+         f.ownerManaged||f.initial!==undefined||op.behavior.input!==f.name||
+         ![400,404,409].every(status=>op.statuses.includes(status)))
+        throw Error("Unsafe compound-key PATCH "+op.name);
+    }
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
     const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(op.behavior.kind);
