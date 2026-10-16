@@ -83,3 +83,31 @@ test("Strict discovery binding requires a single matching RFC 9207 issuer before
  assert.equal(await finishPkce({...config,requireIssuerResponse:true}),"Bearer signed.token.payload");
  assert.equal(requests,1);
 });
+
+test("OIDC client emits an unpredictable per-login nonce and passes ID Token only for server-side verification",async()=>{
+ callback("");store.clear();
+ const enabled={...config,requireIssuerResponse:true,requireIdToken:true};
+ await beginPkce(enabled);
+ const url=new URL(loc.next),txn=JSON.parse([...store.values()][0]);
+ assert.equal(url.searchParams.get("nonce"),txn.nonce);
+ assert.match(txn.nonce,/^[A-Za-z0-9_-]{43,}$/);
+ assert.notEqual(txn.nonce,txn.state);
+ callback("?code=valid&state="+txn.state+"&iss="+encodeURIComponent(config.issuer));
+ globalThis.fetch=async()=>({ok:true,async json(){
+   return {token_type:"Bearer",access_token:"signed.token.payload",id_token:"signed.identity.payload"};
+ }});
+ const result=await finishPkce(enabled);
+ assert.deepEqual(result,{authorization:"Bearer signed.token.payload",
+   proof:{idToken:"signed.identity.payload",nonce:txn.nonce}});
+ assert.equal(store.size,0);
+ assert.equal(history.cleaned,"/");
+ callback("");await beginPkce(enabled);
+ const next=JSON.parse([...store.values()][0]);
+ assert.notEqual(txn.nonce,next.nonce);
+ callback("?code=valid2&state="+next.state+"&iss="+encodeURIComponent(config.issuer));
+ globalThis.fetch=async()=>({ok:true,async json(){
+   return {token_type:"Bearer",access_token:"signed.token.payload"};
+ }});
+ await assert.rejects(()=>finishPkce(enabled),/identidad OIDC/);
+ assert.equal(store.size,0);
+});
