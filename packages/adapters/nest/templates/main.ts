@@ -8,7 +8,7 @@ import {Pool} from "pg";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string};
+type Field={name:string;column:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string}};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[]};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -62,6 +62,11 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
   if(create)for(const f of e.fields)
     if(f.required&&f.initial===undefined&&!f.computedSum&&!Object.hasOwn(body,f.name))
       throw invalidField(f,"required");
+  if(create)for(const f of e.fields){
+    if(!f.requiredWhen||body[f.requiredWhen.field]!==f.requiredWhen.equals)continue;
+    const candidate=body[f.name];
+    if(typeof candidate!=="string"||!candidate.trim())throw invalidField(f,"required");
+  }
   for(const [key,value] of Object.entries(body)){
     const f=e.fields.find(x=>x.name===key);
     if(!f)throw new Problem(400,"Unknown field");
