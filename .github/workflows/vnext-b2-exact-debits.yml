@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/b2-5a-exact-debit-20261016
+      - feature/b2-5b-atomic-exact-reversal-20261016
     paths:
       - 'packages/**'
       - 'examples/vnext/exact-debits/**'
@@ -53,5 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: exact-debit-mobile
-          path: ${{ runner.temp }}/exact-debits/exact-debit-mobile.png
+          path: |
+            ${{ runner.temp }}/exact-debits/exact-debit-mobile.png
+            ${{ runner.temp }}/exact-debits/exact-reversal-mobile.png
           if-no-files-found: error

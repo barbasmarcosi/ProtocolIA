@@ -63,6 +63,8 @@ try{
  const createWallet=body=>req(wallet,{method:"POST",body});
  const createCharge=body=>req(charge,{method:"POST",body});
  const getBalance=async name=>req(wallet+"/"+name);
+ const reverse=id=>req(charge+"/"+id+"/reverse",{method:"POST"});
+ const readCharge=id=>req(charge+"/"+id);
  assert.equal((await req(wallet,{who:null})).status,401);
  assert.equal((await createWallet({walletCode:key,name:"Saldo de prueba",available:"10.00"})).status,201);
  assert.equal((await req(wallet,{method:"POST",who:"reader",body:{walletCode:token+"-deny",name:"Sin permiso",available:"4.00"}})).status,403);
@@ -93,11 +95,37 @@ try{
  assert.equal(page.status,200);
  assert.equal(page.body.total,10);
  assert.equal((await req(charge+"/"+token+"-one",{who:"reader"})).body.amount,"1.00");
+ assert.equal((await readCharge(token+"-one")).body.status,"posted");
+ assert.equal((await req(charge+"/"+token+"-one"+"/reverse",{method:"POST",who:"reader"})).status,403);
+ assert.equal((await reverse(token+"-missing")).status,404);
+ assert.equal((await getBalance(key)).body.available,"0.00");
+ const competingReversals=await Promise.all(Array.from({length:10},()=>reverse(token+"-one")));
+ assert.equal(competingReversals.filter(x=>x.status===200).length,1,JSON.stringify(competingReversals));
+ assert.equal(competingReversals.filter(x=>x.status===409).length,9,JSON.stringify(competingReversals));
+ assert.equal((await getBalance(key)).body.available,"1.00");
+ assert.equal((await readCharge(token+"-one")).body.status,"reversed");
+ assert.equal((await reverse(token+"-one")).status,409,"A double credit is forbidden");
+ assert.equal((await reverse(token+"-race-0")).status,200);
+ assert.equal((await getBalance(key)).body.available,"2.00");
+ const reverseAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-t","-A","-c",
+   "SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Charge' AND operation_name='reverseCharge' AND field_name='status'"],15000).trim();
+ assert.equal(reverseAudit,"2","Exactly one audit event per committed reversal");
  // No IEEE-754 conversion: a decimal balance above Number.MAX_SAFE_INTEGER.
  const huge=token+"-huge",big="9007199254740993.99";
  assert.equal((await createWallet({walletCode:huge,name:"High precision",available:big})).status,201);
  assert.equal((await createCharge({chargeNumber:token+"-precise",walletCode:huge,amount:"0.01"})).status,201);
  assert.equal((await getBalance(huge)).body.available,"9007199254740993.98");
+ const ceiling="9999999999999999999999.99";
+ docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "UPDATE wallet SET available='"+ceiling+"' WHERE wallet_code='"+huge+"'"],15000);
+ assert.equal((await reverse(token+"-precise")).status,409,"Overflow credit refused");
+ assert.equal((await readCharge(token+"-precise")).body.status,"posted","Failed credit rolls back state");
+ assert.equal((await getBalance(huge)).body.available,ceiling);
+ docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "UPDATE wallet SET available='9007199254740993.98' WHERE wallet_code='"+huge+"'"],15000);
+ assert.equal((await reverse(token+"-precise")).status,200);
+ assert.equal((await getBalance(huge)).body.available,"9007199254740993.99");
+ assert.equal((await readCharge(token+"-precise")).body.status,"reversed");
  const audit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia","-t","-A","-c",
   "SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Charge' AND operation_name='createCharge' AND field_name='amount'"],15000).trim();
  assert.equal(audit,"11","Audits must roll back for duplicate/failed postings");
@@ -139,6 +167,18 @@ try{
    await chargeForm.getByRole("button",{name:"Crear",exact:true}).click();
    await page.getByTestId("create-dialog").waitFor({state:"hidden",timeout:15000});
    assert.equal((await getBalance(token+"-web")).body.available,"4.00");
+   await page.getByTestId("open-detail-"+token+"-web-charge").click();
+   await page.getByTestId("transition-reverseCharge").click();
+   const endReversal=Date.now()+16000;
+   let reversed=false;
+   while(Date.now()<endReversal){
+     const record=await readCharge(token+"-web-charge");
+     if(record.body?.status==="reversed"){reversed=true;break;}
+     await page.waitForTimeout(300);
+   }
+   assert.ok(reversed,"Generated transition button executes the atomic reversal");
+   assert.equal((await getBalance(token+"-web")).body.available,"5.25");
+   await page.screenshot({path:join(generated,"exact-reversal-mobile.png"),fullPage:true});
    assert.equal(errors.length,0,errors.join("; "));
   }finally{await browser.close();}
  }
@@ -146,11 +186,11 @@ try{
  const end=Date.now()+80000;
  let persisted=false;
  while(Date.now()<end){
-  try{if((await getBalance(huge)).body.available==="9007199254740993.98"){persisted=true;break;}}catch{}
+  try{if((await getBalance(huge)).body.available==="9007199254740993.99"){persisted=true;break;}}catch{}
   await new Promise(r=>setTimeout(r,1000));
  }
  assert.ok(persisted,"Exact debits must persist after restart");
- console.log("PROTOCOLIA_B2_EXACT_DEBIT_PASS "+JSON.stringify({concurrentSuccess:9,conflict:3,rollback:true,exact:true,audit:true,persistent:true,mobile:process.argv.includes("--browser")}));
+ console.log("PROTOCOLIA_B2_EXACT_REVERSAL_PASS "+JSON.stringify({concurrentDebit:9,conflictDebit:3,concurrentReversal:1,conflictReversal:9,rollback:true,overflowGuard:true,exact:true,audit:true,persistent:true,mobile:process.argv.includes("--browser")}));
 }finally{
  if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
  catch(e){console.error("Exact debit cleanup failed",e.message);process.exitCode=1}
