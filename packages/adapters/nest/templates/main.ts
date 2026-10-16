@@ -272,7 +272,7 @@ class RuntimeService{
     if(vals.every(value=>!value))return {mode:"jwt",enabled:false};
     if(vals.some(value=>!value))throw Error("Incomplete OAuth2 PKCE browser configuration");
     const [authorizationEndpoint,tokenEndpoint,clientId,redirectUri]=vals;
-    const permitted=["https:",...(process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true"?["http:"]:[")].slice(0,-1);
+    const permitted=["https:",...(process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true"?["http:"]:[])];
     const safe=(value:string,redirect=false)=>{
       let url:URL;try{url=new URL(value);}catch{throw Error("Invalid PKCE URL");}
       if(!permitted.includes(url.protocol)||!url.hostname||url.username||url.password||
