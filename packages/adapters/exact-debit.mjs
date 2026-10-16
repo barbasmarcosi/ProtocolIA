@@ -61,7 +61,8 @@ export function compileExactReversals(ir){
       Array.isArray(op.behavior.audit)&&op.behavior.audit.length===1&&
       op.behavior.audit[0]===state?.name;
     const bypass=ir.operations.some(x=>x.entity===op.entity&&x!==op&&
-      (x.behavior.kind==="delete"||x.behavior.kind==="reassignReference"||
+      (x.behavior.kind==="transition"&&x.behavior.field===state?.name||
+       x.behavior.kind==="delete"||x.behavior.kind==="reassignReference"||
        x.behavior.kind==="patchFields"&&
          [cfg.referenceField,cfg.quantityField,state?.name].includes(x.behavior.field)||
        x.behavior.kind==="transition"&&

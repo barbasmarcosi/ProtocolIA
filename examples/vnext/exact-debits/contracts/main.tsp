@@ -24,6 +24,8 @@ namespace ExactBalancePosting {
     @uiLabel("Importe")
     @encode(string) @exactDecimal(24,2,"0.01")
     amount: decimal;
+    @initial("posted") @minLength(1) @maxLength(20)
+    status: string;
   }
   model WalletRequest {
     @minLength(1) @maxLength(40) walletCode: string;
@@ -61,6 +63,13 @@ namespace ExactBalancePosting {
   @capability("charges.write")
   op createCharge(@body input: ChargeRequest):
     { @statusCode _: 201; @body charge: Charge; } | BadRequest | Conflict | Unauthorized | Forbidden;
+  @route("/api/charges/{chargeNumber}/reverse") @post
+  @behavior("transition","Charge","status")
+  @transition("posted","reversed")
+  @reverseExact("Wallet","available","walletCode","amount")
+  @audit("status") @capability("charges.write")
+  op reverseCharge(@path chargeNumber: string):
+    Charge | BadRequest | Conflict | NotFound | Unauthorized | Forbidden;
   @route("/api/charges/{chargeNumber}") @get @behavior("get","Charge") @capability("charges.read")
   op getCharge(@path chargeNumber: string): Charge | NotFound | Unauthorized | Forbidden;
   @route("/api/charges") @get @behavior("listPage","Charge") @capability("charges.read")
