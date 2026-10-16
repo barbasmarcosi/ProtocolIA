@@ -46,3 +46,11 @@ Targeted isolation: `examples/vnext/finite-choices/` cloned as an independent va
 - Source-frozen Gauge fixture additionally verifies invalid numeric/malformed/duplicate TypeSpec enum values and rejects a DTO silently relaxed from enum to `string`.
 - The generic volunteer-evaluation project and production Neon/Railway schema were **not mutated** for this acceptance. This proof does not imply an automatic production enum migration or complete B1/B2 support.
 - The official independent workflow includes a lightweight TypeSpec/IR B1 negative test to guard future compiler changes; full two-backend/Chromium acceptance evidence remains the independent targeted run above. Temporary staging CI is removed before promotion.
+
+
+## Promotion to independent application generator
+
+- Promoted **fast-forward**, preserving the untouched `main` and active PR #52, from the isolated feature branch into `independent/volunteer-evaluations` at source SHA `043aee42a7b01cd7a31133df411404892fba1294`.
+- [Official independent workflow #38829833248](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38829833248) **SUCCESS** on that exact SHA, including NestJS+Spring Boot generated volunteer contract, both independent source-frozen HTTP/PostgreSQL oracles, Chromium, and the new finite-enum TypeSpec IR/invalid-DTO regression.
+- [Official quality workflow #38829833478](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38829833478) **SUCCESS** on the same commit.
+- **No Railway deployment for B1.1**: the existing UX9 public demo is pinned to its previously validated generated-app commit and retains its Neon records. B1.1 was validated independently on a new enum-shaped domain, with no unreviewed changes to the published volunteer-evaluation database schema.
