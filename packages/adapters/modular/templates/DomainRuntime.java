@@ -77,9 +77,10 @@ public class DomainRuntime {
 
   // Platform-authenticated capability discovery; only server authorities are trusted.
   @GetMapping("/api/_protocolia/me")
-  public Map<String, Object> session(Authentication user) {
+  public Map<String, Object> session(Authentication user,HttpServletRequest request) {
     if (user == null || !user.isAuthenticated())
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+    SecurityConfig.verifyOidcIdentity(request,user);
     var declared=java.util.stream.Stream.of(Manifest.READ_CAPABILITIES,
         Manifest.WRITE_CAPABILITIES,Manifest.AUDIT_CAPABILITIES,
         Manifest.ASSIGN_CAPABILITIES,Manifest.FIELD_READ_CAPABILITIES)
