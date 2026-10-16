@@ -152,6 +152,7 @@ function equalSecrets(a:string,b:string):boolean{
 class RuntimeService{
   private readonly pool:Pool;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
+  private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
   private readonly entities=new Map<string,Entity>(spec.entities.map(e=>[e.name,e]));
   constructor(){
@@ -180,6 +181,7 @@ class RuntimeService{
       this.jwtConfig={issuer,audience,verify:createRemoteJWKSet(jwksUrl,{
         timeoutDuration:5000,cacheMaxAge:60000,cooldownDuration:1000})};
     }else this.jwtConfig=null;
+    this.browserAuth=this.browserAuthConfig(mode);
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true")
       for(const key of ["PROTOCOLIA_READER_USERNAME","PROTOCOLIA_READER_PASSWORD",
         "PROTOCOLIA_MANAGER_USERNAME","PROTOCOLIA_MANAGER_PASSWORD"])
@@ -262,6 +264,30 @@ class RuntimeService{
     }catch(e){await connection.query("ROLLBACK");throw e;}
     finally{connection.release();}
   }
+  private browserAuthConfig(mode:string):typeof this.browserAuth{
+    if(mode!=="jwt")return {mode:"demo",enabled:false};
+    const keys=["PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT","PROTOCOLIA_OIDC_TOKEN_ENDPOINT",
+      "PROTOCOLIA_OIDC_CLIENT_ID","PROTOCOLIA_OIDC_REDIRECT_URI"] as const;
+    const vals=keys.map(key=>(process.env[key]??"").trim());
+    if(vals.every(value=>!value))return {mode:"jwt",enabled:false};
+    if(vals.some(value=>!value))throw Error("Incomplete OAuth2 PKCE browser configuration");
+    const [authorizationEndpoint,tokenEndpoint,clientId,redirectUri]=vals;
+    const permitted=["https:",...(process.env.PROTOCOLIA_JWT_ALLOW_TEST_HTTP==="true"?["http:"]:[")].slice(0,-1);
+    const safe=(value:string,redirect=false)=>{
+      let url:URL;try{url=new URL(value);}catch{throw Error("Invalid PKCE URL");}
+      if(!permitted.includes(url.protocol)||!url.hostname||url.username||url.password||
+        url.hash||url.search||value.length>500||(redirect&&url.pathname!=="/"))
+        throw Error("Unsafe PKCE browser endpoint");
+      return url;
+    };
+    safe(authorizationEndpoint);safe(tokenEndpoint);safe(redirectUri,true);
+    const scope=(process.env.PROTOCOLIA_OIDC_SCOPE??"openid profile").trim();
+    if(!/^[A-Za-z0-9_.:-]+(?: [A-Za-z0-9_.:-]+){0,12}$/.test(scope)||
+      !/^[A-Za-z0-9_.:-]{3,128}$/.test(clientId))throw Error("Invalid PKCE client or scope");
+    return {mode:"jwt",enabled:true,issuer:this.jwtConfig!.issuer,
+      authorizationEndpoint,tokenEndpoint,clientId,redirectUri,scope};
+  }
+  authConfig():typeof this.browserAuth{return this.browserAuth;}
   async login(req:any):Promise<{username:string;capabilities:string[]}>{
     if(this.jwtConfig){
       const auth=req.headers.authorization;
@@ -766,6 +792,7 @@ class RuntimeService{
 class MetadataController{
   constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
   @Get("health")health(){return {status:"UP"};}
+  @Get("api/_protocolia/auth/config")authConfig(){return this.service.authConfig();}
   @Get("api/_protocolia/me")async me(@Req() req:any,@Res() res:any):Promise<void>{await this.service.me(req,res);}
 }
 function operationController(op:Operation):any{

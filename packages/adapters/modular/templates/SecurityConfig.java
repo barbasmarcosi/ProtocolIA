@@ -30,6 +30,27 @@ public class SecurityConfig {
     if (value == null || value.isBlank()) throw new IllegalStateException("Missing test-only environment: " + key);
     return value;
   }
+  static Map<String,Object> browserAuthConfig(){
+    if(!mode().equals("jwt"))return Map.of("mode","demo","enabled",false);
+    var names=List.of("PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT","PROTOCOLIA_OIDC_TOKEN_ENDPOINT",
+        "PROTOCOLIA_OIDC_CLIENT_ID","PROTOCOLIA_OIDC_REDIRECT_URI");
+    var vals=names.stream().map(name->System.getenv().getOrDefault(name,"").trim()).toList();
+    if(vals.stream().allMatch(String::isBlank))return Map.of("mode","jwt","enabled",false);
+    if(vals.stream().anyMatch(String::isBlank))throw new IllegalStateException("Incomplete OAuth2 PKCE browser configuration");
+    var authorization=url(vals.get(0),"authorization").toString();
+    var token=url(vals.get(1),"token").toString();
+    var redirect=url(vals.get(3),"redirect");
+    if(!redirect.getPath().equals("/")||redirect.getQuery()!=null)
+      throw new IllegalStateException("Unsafe PKCE callback URI");
+    var client=vals.get(2);
+    var scope=System.getenv().getOrDefault("PROTOCOLIA_OIDC_SCOPE","openid profile").trim();
+    if(!client.matches("[A-Za-z0-9_.:-]{3,128}")||
+      !scope.matches("[A-Za-z0-9_.:-]+( [A-Za-z0-9_.:-]+){0,12}"))
+      throw new IllegalStateException("Invalid PKCE client or scope");
+    return Map.of("mode","jwt","enabled",true,"issuer",required("PROTOCOLIA_JWT_ISSUER"),
+      "authorizationEndpoint",authorization,"tokenEndpoint",token,
+      "clientId",client,"redirectUri",redirect.toString(),"scope",scope);
+  }
   private static String mode(){
     String value=System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo");
     if(!value.equals("demo")&&!value.equals("jwt"))
@@ -130,12 +151,14 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain security(HttpSecurity http) throws Exception {
     String selected=mode();
+    if(selected.equals("jwt"))browserAuthConfig();
     if(selected.equals("jwt")&&"true".equals(System.getenv("PROTOCOLIA_ALLOW_DEMO_AUTH")))
       throw new IllegalStateException("Demo credentials forbidden in JWT mode");
     http.csrf(AbstractHttpConfigurer::disable)
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(a -> a.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-            .requestMatchers("/health", "/", "/index.html", "/protocolia-ui.json", "/assets/**").permitAll()
+            .requestMatchers("/health", "/", "/index.html", "/protocolia-ui.json", "/assets/**",
+                "/api/_protocolia/auth/config").permitAll()
             .requestMatchers("/api/**").authenticated()
             .anyRequest().denyAll())
         ;
