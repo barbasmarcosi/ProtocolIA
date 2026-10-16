@@ -46,6 +46,9 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
   const enabled=process.env.PROTOCOLIA_BFF_ENABLED??"false";
   if(!["true","false"].includes(enabled))throw Error("Invalid BFF policy");
   if(enabled==="false")return false;
+  const cleanupMs=Number(process.env.PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS??"300000");
+  if(!Number.isSafeInteger(cleanupMs)||cleanupMs<1000||cleanupMs>3600000)
+    throw Error("Invalid BFF cleanup interval (1000..3600000)");
   const config=runtime.oidcConfig();
   if(process.env.PROTOCOLIA_AUTH_MODE!=="jwt"||
      process.env.PROTOCOLIA_OIDC_DISCOVERY_REQUIRED!=="true"||
@@ -88,7 +91,30 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
   };
   await pool.query("CREATE TABLE IF NOT EXISTS protocolia_bff_sessions ("+
     "sid_hash CHAR(64) PRIMARY KEY,payload TEXT NOT NULL,expires_at TIMESTAMPTZ NOT NULL)");
+  await pool.query("CREATE INDEX IF NOT EXISTS protocolia_bff_expiration_idx "+
+    "ON protocolia_bff_sessions(expires_at)");
+  // Bounded SKIP LOCKED batches allow multiple replicas to clean safely.
+  const cleanup=async():Promise<void>=>{
+    try{
+      const result=await pool.query(`WITH expired AS (
+        SELECT sid_hash FROM protocolia_bff_sessions
+        WHERE expires_at<now() ORDER BY expires_at
+        LIMIT 200 FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM protocolia_bff_sessions AS s USING expired
+      WHERE s.sid_hash=expired.sid_hash`);
+      if(result.rowCount)console.info("PROTOCOLIA_BFF_CLEANUP deleted="+result.rowCount);
+    }catch(error){console.error("PROTOCOLIA_BFF_CLEANUP_FAILED",error);}
+  };
+  void cleanup();
+  setInterval(()=>{void cleanup();},cleanupMs).unref();
   const router=app.getHttpAdapter().getInstance();
+  router.use("/api",(req:any,res:any,next:any)=>{
+    res.set("X-Content-Type-Options","nosniff");
+    res.set("Referrer-Policy","no-referrer");
+    res.set("Content-Security-Policy","base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+    next();
+  });
   const load=async(req:any):Promise<{sid:string;data:Stored;user:Identity}|null>=>{
     const sid=cookies(req)[sidCookie];
     if(typeof sid!=="string"||!/^[A-Za-z0-9_-]{43}$/.test(sid))return null;
@@ -104,6 +130,7 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
   };
   const noStore=(res:any)=>res.set("Cache-Control","no-store");
   const fail=(res:any,status:number)=>res.status(status).json({statusCode:status,message:"Session rejected"});
+  const foreignFetch=(req:any)=>req.headers["sec-fetch-site"]==="cross-site";
   const failLogin=(res:any)=>{
     writeCookie(res,txnCookie,"",0);
     res.status(400).type("text/plain").send("OIDC authentication could not be completed");
@@ -183,7 +210,7 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
     if(!current)return fail(res,401);
     if(typeof req.headers["x-protocolia-csrf"]!=="string"||
        !equal(req.headers["x-protocolia-csrf"],current.data.csrf)||
-       (req.headers.origin!==undefined&&req.headers.origin!==origin))return fail(res,403);
+       (req.headers.origin!==undefined&&req.headers.origin!==origin)||foreignFetch(req))return fail(res,403);
     await pool.query("DELETE FROM protocolia_bff_sessions WHERE sid_hash=$1",[digest(current.sid)]);
     writeCookie(res,sidCookie,"",0);
     res.status(204).end();
@@ -198,7 +225,7 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
       if(!["GET","HEAD","OPTIONS"].includes(req.method)){
         if(typeof req.headers["x-protocolia-csrf"]!=="string"||
            !equal(req.headers["x-protocolia-csrf"],current.data.csrf)||
-           (req.headers.origin!==undefined&&req.headers.origin!==origin))return fail(res,403);
+           (req.headers.origin!==undefined&&req.headers.origin!==origin)||foreignFetch(req))return fail(res,403);
       }
       req.headers.authorization="Bearer "+current.data.access;
       req.protocoliaBffAuthenticated=true;
