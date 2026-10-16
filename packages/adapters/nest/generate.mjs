@@ -388,6 +388,7 @@ export function generate(ir,spec,out){
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   mkdirSync(join(out,"src/migrations"),{recursive:true});
   copy("src/main.ts",join(root,"templates/main.ts"));
+  copy("src/BffSession.ts",join(root,"templates/BffSession.ts"));
   write("package.json",JSON.stringify({name:"protocolia-nest-generated",
     private:true,version:"0.0.1",
     scripts:{build:"tsc -p tsconfig.json",start:"node dist/main.js"},
@@ -433,6 +434,9 @@ export function generate(ir,spec,out){
     "PROTOCOLIA_OIDC_DISCOVERY_REQUIRED=false",
     "# Verify signed OIDC ID token, nonce and subject on login (requires strict discovery).",
     "PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED=false",
+    "# NestJS-only opt-in BFF; credentials stay in encrypted PostgreSQL sessions.",
+    "PROTOCOLIA_BFF_ENABLED=false","PROTOCOLIA_BFF_ENCRYPTION_KEY=",
+    "PROTOCOLIA_OIDC_BFF_REDIRECT_URI=",
     "PROTOCOLIA_ALLOW_DEMO_AUTH=false",
     "PROTOCOLIA_READER_USERNAME=reader","PROTOCOLIA_READER_PASSWORD=",
     "PROTOCOLIA_MANAGER_USERNAME=manager","PROTOCOLIA_MANAGER_PASSWORD=", 
@@ -467,6 +471,9 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_OIDC_SCOPE: ${PROTOCOLIA_OIDC_SCOPE:-openid profile}',
     '      PROTOCOLIA_OIDC_DISCOVERY_REQUIRED: ${PROTOCOLIA_OIDC_DISCOVERY_REQUIRED:-false}',
     '      PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED: ${PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED:-false}',
+    '      PROTOCOLIA_BFF_ENABLED: ${PROTOCOLIA_BFF_ENABLED:-false}',
+    '      PROTOCOLIA_BFF_ENCRYPTION_KEY: ${PROTOCOLIA_BFF_ENCRYPTION_KEY:-}',
+    '      PROTOCOLIA_OIDC_BFF_REDIRECT_URI: ${PROTOCOLIA_OIDC_BFF_REDIRECT_URI:-}',
     '      PROTOCOLIA_ALLOW_DEMO_AUTH: ${PROTOCOLIA_ALLOW_DEMO_AUTH:-false}',
     '      PROTOCOLIA_READER_USERNAME: ${PROTOCOLIA_READER_USERNAME:-reader}',
     '      PROTOCOLIA_READER_PASSWORD: ${PROTOCOLIA_READER_PASSWORD:?set PROTOCOLIA_READER_PASSWORD}',
