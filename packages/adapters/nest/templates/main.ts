@@ -17,7 +17,8 @@ type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -369,6 +370,14 @@ class RuntimeService{
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
+  private async reconcileExact(op:Operation,key:string):Promise<Record<string,unknown>>{
+    if(typeof key!=="string")throw new Problem(400,"Invalid reconciliation identity");
+    const plan=op.exactReconciliation;
+    if(!plan)throw new Error("Missing generated reconciliation plan");
+    const result=await this.pool.query(plan.sqlNest,[key]);
+    if(!result.rowCount)throw new Problem(404,"Not found");
+    return result.rows[0];
+  }
   private async auditPage(e:Entity,key:string,op:Operation,query:Record<string,unknown>):Promise<unknown>{
     if(typeof key!=="string"||Object.keys(query).some(x=>!["limit","offset"].includes(x)))
       throw new Problem(400,"Invalid audit query");
@@ -411,6 +420,13 @@ class RuntimeService{
     const input={...validateInput(e,body,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
+    const reconciled=spec.operations.find(x=>x.kind==="reconcileExact"&&x.entity===e.name)?.exactReconciliation;
+    if(reconciled){
+      const open=e.fields.find(f=>f.name===reconciled.openingField)!;
+      const opening=decimalUnits(input[reconciled.openingField] as string,open.decimal!.scale);
+      const available=decimalUnits(input[reconciled.availableField] as string,open.decimal!.scale);
+      if(opening!==available)throw invalidField(e.fields.find(f=>f.name===reconciled.availableField)!,"invalid_comparison");
+    }
     const persisted=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
     const cols=persisted.map(f=>f.column);
     const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
@@ -615,6 +631,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient balance write capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
+      if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
+        throw new Problem(403,"Insufficient ledger read capability");
       if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))
         throw new Problem(403,"Insufficient related entity read capability");
       if(op.release&&!session.capabilities.includes(op.release.stockWriteCapability))
@@ -627,6 +645,7 @@ class RuntimeService{
         case "create": data=await this.create(entity,op,req.body,session.username);break;
         case "get":data=await this.row(entity,identity);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
+        case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{});break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;

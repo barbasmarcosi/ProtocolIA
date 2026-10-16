@@ -115,6 +115,12 @@ public class DomainRuntime {
     if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.kind().equals("reconcileExact")) {
+      var plan=Manifest.EXACT_RECONCILIATIONS.get(matched.name());
+      if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
+          a.getAuthority().equals(plan.childReadCapability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    }
     if (matched.kind().equals("sumRelated")) {
       var plan=Manifest.RELATED_SUMS.get(matched.name());
       if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
@@ -131,6 +137,7 @@ public class DomainRuntime {
       case "create" -> result = create(entity, matched, body);
       case "get" -> result = row(entity, publicKey);
       case "sumRelated" -> result = sumRelated(matched,publicKey);
+      case "reconcileExact" -> result = reconcileExact(matched,publicKey);
       case "listPage" -> result = page(entity, query, matched);
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
@@ -217,6 +224,15 @@ public class DomainRuntime {
       else if (f.type().equals("utcDateTime") && value instanceof OffsetDateTime odt) converted.put(f.name(), odt.toInstant().toString());
     }
     return converted;
+  }
+
+  private Map<String,Object> reconcileExact(Manifest.Op op,String id){
+    if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    var plan=Manifest.EXACT_RECONCILIATIONS.get(op.name());
+    if(plan==null)throw new IllegalStateException("Missing exact reconciliation plan");
+    var result=jdbc.queryForList(plan.sql(),Map.of("identity",id));
+    if(result.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return result.get(0);
   }
 
   private Map<String,Object> sumRelated(Manifest.Op op,String id){
@@ -352,6 +368,15 @@ public class DomainRuntime {
     body = new java.util.LinkedHashMap<>(body);
     for (var f : e.fields()) if (f.initial()!=null && !body.containsKey(f.name()))
       body.put(f.name(),f.initial());
+    var reconciliation=Manifest.EXACT_RECONCILIATIONS.values().stream().filter(x ->
+      e.fields().stream().anyMatch(f->f.name().equals(x.openingField()))&&
+      e.fields().stream().anyMatch(f->f.name().equals(x.availableField()))).findFirst().orElse(null);
+    if(reconciliation!=null){
+      BigDecimal opening=new BigDecimal((String)body.get(reconciliation.openingField()));
+      BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
+      if(opening.compareTo(available)!=0)
+        throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
+    }
     // dispatch() is @Transactional: failure inserting the child rolls back this debit.
     if (op.reserve()!=null) {
       var reserve=op.reserve();
