@@ -2,6 +2,7 @@ package dev.protocolia.modular;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.session.jdbc.config.annotation.web.http.EnableJdbcHttpSession;
 
 /**
@@ -16,4 +17,5 @@ import org.springframework.session.jdbc.config.annotation.web.http.EnableJdbcHtt
 @Configuration(proxyBeanMethods=false)
 @ConditionalOnProperty(name="PROTOCOLIA_BFF_ENABLED",havingValue="true")
 @EnableJdbcHttpSession(maxInactiveIntervalInSeconds=300)
+@EnableScheduling
 public class BffHttpSessionConfig {}
