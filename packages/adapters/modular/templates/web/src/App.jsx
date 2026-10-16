@@ -479,7 +479,9 @@ export default function App(){
   const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
-  const tableColumns=useMemo(()=>active?.entity?visibleColumns(active.entity):[],[active?.entity]);
+  const tableColumns=useMemo(()=>active?.entity?visibleColumns({...active.entity,
+    fields:active.entity.fields.filter(f=>!f.readCapability||capabilities.includes(f.readCapability))}):[],
+    [active?.entity,capabilities]);
   const ledgerReconciliation=operations.reconcileExact;
   const ledgerChild=ledgerReconciliation?.behavior?.reconcileExact?
     config?.resources?.find(r=>r.entity.name===ledgerReconciliation.behavior.reconcileExact.childEntity):null;
@@ -979,7 +981,7 @@ export default function App(){
           child={relatedSumChild}
           revision={summaryRevision}/>}
         <div className="details-section"><h3>Datos generales</h3>
-          <dl>{active.entity.fields.map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
+          <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         </div>
         <div className="actions record-actions">
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>

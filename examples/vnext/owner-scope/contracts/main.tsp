@@ -13,10 +13,13 @@ namespace PrivateNotes {
     owner: string;
     @uiLabel("Título") @minLength(1) @maxLength(90)
     title: string;
+    @uiLabel("Nota privada") @readCapability("notes.private.read") @maxLength(180)
+    privateMemo?: string;
   }
   model PrivateNoteInput {
     @minLength(1) @maxLength(40) noteCode: string;
     @minLength(1) @maxLength(90) title: string;
+    @maxLength(180) privateMemo?: string;
   }
   model NoteTitleUpdate {
     @minLength(1) @maxLength(90) title: string;
