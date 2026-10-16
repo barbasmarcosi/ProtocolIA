@@ -5,6 +5,7 @@
 export interface IrField {
   name: string;
   ownerManaged?: boolean;
+  readCapability?: string;
   type: "string" | "int32" | "utcDateTime" | "decimal";
   required: boolean;
   nullable: boolean;

@@ -58,6 +58,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     ...(metadata(p,"ownerIdentity",prop)?{ownerManaged:true}:{}),
+    ...(metadata(p,"readCapability",prop)?{readCapability:String(metadata(p,"readCapability",prop)?.capability)}:{}),
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
     ...(parsed.choices?{choices:parsed.choices}:{}),
     ...(spec?{decimal:{precision:Number(spec.precision),scale:Number(spec.scale),
@@ -384,6 +385,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
     }
     const owners=fields.filter(x=>x.ownerManaged);
+    const sensitive=fields.filter(x=>x.readCapability!==undefined);
+    if(sensitive.length>2||sensitive.some(f=>!owners.length||f.name===identity.name||f.ownerManaged||
+      f.type!=="string"||f.required||f.nullable||f.reference||f.unique||f.initial!==undefined||
+      f.choices||f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal||
+      f.requiredWhen||f.forbidWhen||f.afterField||f.greaterThanField||
+      !/^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/.test(f.readCapability??"")))
+      reject("invalid-field-read-capability",m.name+" must use optional non-null scalar strings for sensitive owner fields",m);
     if(owners.length>1||owners.some(f=>f.name===identity.name||f.type!=="string"||!f.required||
       f.nullable||f.unique||f.reference||f.initial!==undefined||f.choices||f.computedSum||
       f.requiredWhen||f.forbidWhen||f.greaterThanField||f.pattern||
@@ -1003,6 +1011,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
   for(const entity of entities.filter(e=>e.fields.some(f=>f.ownerManaged))){
     const owner=entity.fields.find(f=>f.ownerManaged)!;
     const entityOps=operations.filter(o=>o.entity===entity.name&&o.behavior.kind!=="health");
+    const scopedRead=entity.fields.filter(f=>f.readCapability);
+    if(scopedRead.some(f=>entityOps.some(o=>o.capability===f.readCapability)||
+      entityOps.some(o=>o.behavior.field===f.name)))
+      reject("invalid-field-read-capability",entity.name+" needs independent read capability not reusable as operation or PATCH capability",models.find(m=>m.name===entity.name)!);
     const patches=entityOps.filter(o=>o.behavior.kind==="patchFields");
     const invalidPatch=patches.some(o=>{
       const target=entity.fields.find(x=>x.name===o.behavior.field);

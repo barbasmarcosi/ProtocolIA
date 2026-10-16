@@ -9,6 +9,7 @@ export const $lib = createTypeSpecLibrary({
     publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
     unique: {description:"ProtocolIA unique contract metadata"},
     ownerIdentity: {description:"Non-client-writable owner field bound to authenticated subject"},
+    readCapability: {description:"Omit an optional sensitive response field without its independent read permission"},
     reference: {description:"ProtocolIA foreign-key reference to a public identity"},
     view: {description:"ProtocolIA view contract metadata"},
     uiLabel: {description:"User-visible human label on a field, independent of persistence name"},
@@ -115,6 +116,9 @@ function forbidWhen(context: DecoratorContext, target: ModelProperty, field: str
   context.program.stateMap($lib.stateKeys.forbidWhen).set(target,{field,equals});
 }
 
+function readCapability(context: DecoratorContext, target: ModelProperty, capability: string): void {
+  context.program.stateMap($lib.stateKeys.readCapability).set(target,{capability});
+}
 function ownerIdentity(context: DecoratorContext, target: ModelProperty): void {
   context.program.stateMap($lib.stateKeys.ownerIdentity).set(target,{enabled:true});
 }
@@ -189,6 +193,7 @@ export const $decorators = {
     entity,
     publicIdentity,
     ownerIdentity,
+    readCapability,
     unique,
     reference,
     view,

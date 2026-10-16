@@ -6,6 +6,8 @@ namespace ProtocolIA.Domain {
   extern dec publicIdentity(target: ModelProperty);
   // Server-derived authenticated owner of an isolated entity (S1a).
   extern dec ownerIdentity(target: ModelProperty);
+  // S1c: optional output field omitted unless actor has an independent read capability.
+  extern dec readCapability(target: ModelProperty, capability: valueof string);
   extern dec unique(target: ModelProperty);
   extern dec reference(target: ModelProperty, entity: valueof string, onDelete?: valueof string);
   extern dec view(target: Model, label: valueof string);
