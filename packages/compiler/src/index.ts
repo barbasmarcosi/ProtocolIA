@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -454,6 +454,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    const aggregate=metadata(p,"relatedSum",op);
+    if(kind==="sumRelated"){
+      const child=declared.get(String(aggregate?.childEntity));
+      const relation=child?.fields.find(x=>x.name===aggregate?.referenceField);
+      const amount=child?.fields.find(x=>x.name===aggregate?.quantityField);
+      const state=child?.fields.find(x=>x.name===aggregate?.stateField);
+      if(!child||child===entity||!relation?.reference||
+         relation.reference.target!==entity.name||!relation.required||relation.nullable||
+         !amount||amount.type!=="int32"||!amount.required||amount.nullable||(amount.min??0)<1||
+         !state||state.type!=="string"||!state.required||state.nullable||
+         state.initial!==aggregate?.activeState||
+         !/^[a-z][a-z0-9_-]{0,63}$/.test(String(aggregate?.activeState))||
+         f!==undefined||input!==undefined||auditMeta||release||
+         metadata(p,"transition",op)||metadata(p,"reserve",op)){
+        reject("invalid-related-sum",op.name+" requires a required positive int32 child quantity "+
+          "with a FK to the parent and a guarded active state",op);continue;
+      }
+    }else if(aggregate){
+      reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
+    }
     const reservation = metadata(p,"reserve",op);
     if (reservation) {
       if (kind !== "create" || f !== undefined || input !== undefined) {
@@ -635,6 +655,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("reassign-http",op.name+" requires PATCH by identity, a JSON body and 200/400/404/409 responses",op);
       continue;
     }
+    if(kind==="sumRelated"){
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
+      if(http.verb!=="get"||http.parameters.body!==undefined||
+        keys.length!==1||keys[0]!==entity.publicIdentity||
+        ![200,401,403,404].every(code=>statuses.includes(code))||
+        op.parameters.properties.size!==1||
+        !op.parameters.properties.has(entity.publicIdentity)){
+        reject("related-sum-http",op.name+" needs GET keyed by parent identity, 200/401/403/404 and no body",op);
+        continue;
+      }
+      // Reject contract response drift: exactly one required string named totalUnits.
+      const responses=op.returnType.kind==="Union"?
+        [...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
+      if(!responses.some(r=>r.kind==="Model"&&r.properties.size===1&&
+        (r.properties.get("totalUnits")?typeOfField(r.properties.get("totalUnits")!):undefined)?.type==="string"&&
+        r.properties.get("totalUnits")?.optional===false)){
+        reject("related-sum-response",op.name+" must return {totalUnits: string} as the success body",op);
+        continue;
+      }
+    }
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
@@ -788,6 +828,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
           referenceField:String(release.referenceField),
           quantityField:String(release.quantityField)
         }} : {}),
+        ...(aggregate ? {relatedSum:{
+          childEntity:String(aggregate.childEntity),
+          referenceField:String(aggregate.referenceField),
+          quantityField:String(aggregate.quantityField),
+          stateField:String(aggregate.stateField),
+          activeState:String(aggregate.activeState)
+        }} : {}),
         ...(reservation ? {reserve:{
           stockEntity:String(reservation.stockEntity),
           availableField:String(reservation.availableField),
@@ -799,6 +846,28 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  // A B2.4 summary is not a free-form join. Only summarize an authoritative
+  // reserve/cancel lifecycle with matching child read permissions and state.
+  for(const summary of operations.filter(o=>o.behavior.kind==="sumRelated")){
+    const cfg=summary.behavior.relatedSum!;
+    const reader=operations.find(o=>o.entity===cfg.childEntity&&o.behavior.kind==="get");
+    const reservations=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.reserve&&
+      o.behavior.reserve.stockEntity===summary.entity&&
+      o.behavior.reserve.referenceField===cfg.referenceField&&
+      o.behavior.reserve.quantityField===cfg.quantityField);
+    const cancellations=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.release&&
+      o.behavior.release.stockEntity===summary.entity&&
+      o.behavior.release.referenceField===cfg.referenceField&&
+      o.behavior.release.quantityField===cfg.quantityField&&
+      o.behavior.kind==="transition"&&o.behavior.field===cfg.stateField&&
+      o.behavior.from===cfg.activeState);
+    const parentReader=operations.find(o=>o.entity===summary.entity&&o.behavior.kind==="get");
+    if(!reader||reader.capability==="public"||!parentReader||
+       summary.capability!==parentReader.capability||reservations.length!==1||cancellations.length!==1)
+      reject("related-sum-lifecycle",summary.name+
+        " requires a matching reserve/release lifecycle and two non-public entity readers",
+        ops.find(x=>x.name===summary.name)!);
   }
   const inboxKinds=["inboxPage","ackNotification"];
   for(const entity of entities){

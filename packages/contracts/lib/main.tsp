@@ -37,6 +37,9 @@ namespace ProtocolIA.Domain {
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
   extern dec release(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
+  // Single-statement SUM over active child rows; requires both parent/child read authority.
+  extern dec relatedSum(target: Operation, childEntity: valueof string, referenceField: valueof string,
+    quantityField: valueof string, stateField: valueof string, activeState: valueof string);
   extern dec audit(target: Operation, fields: valueof string);
   extern dec behavior(target: Operation, kind: valueof string,
     entity: valueof string, field?: valueof string, input?: valueof string);
