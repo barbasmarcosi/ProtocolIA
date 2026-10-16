@@ -4,7 +4,7 @@ import {createRemoteJWKSet,decodeJwt,jwtVerify} from "jose";
 import type {NestExpressApplication} from "@nestjs/platform-express";
 import type {Pool} from "pg";
 type Identity={username:string;capabilities:string[]};
-type Runtime={authConfig():Record<string,any>;login(req:any):Promise<Identity>};
+type Runtime={oidcConfig():Record<string,any>;login(req:any):Promise<Identity>};
 type Stored={access:string;csrf:string;expires:number};
 const id=()=>randomBytes(32).toString("base64url");
 const digest=(s:string)=>createHash("sha256").update(s).digest("hex");
@@ -46,7 +46,7 @@ export async function installBff(app:NestExpressApplication,pool:Pool,runtime:Ru
   const enabled=process.env.PROTOCOLIA_BFF_ENABLED??"false";
   if(!["true","false"].includes(enabled))throw Error("Invalid BFF policy");
   if(enabled==="false")return false;
-  const config=runtime.authConfig();
+  const config=runtime.oidcConfig();
   if(process.env.PROTOCOLIA_AUTH_MODE!=="jwt"||
      process.env.PROTOCOLIA_OIDC_DISCOVERY_REQUIRED!=="true"||
      process.env.PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED!=="true"||
