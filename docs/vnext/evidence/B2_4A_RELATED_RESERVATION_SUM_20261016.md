@@ -56,4 +56,4 @@ El parámetro de identidad se vincula por driver, no se interpola. `SUM(int32)` 
 - Sin suma de varias facturas, IVA, multi-moneda, pagos, conciliación durable ni transacciones entre más de las tablas de reserva/stock.
 - `main`, PR #52, Railway UX9 y Neon durable quedan fuera del alcance.
 
-**Gate final pendiente:** integrar por fast-forward a `independent/volunteer-evaluations` y ejecutar en ese SHA la regresión independiente completa de Bomberos y quality.
+**Gate final — PASS:** fast-forward a `independent/volunteer-evaluations` sobre SHA de código `80367b9913f6bfb6e394fd5064c65e5cab2d5e4a`. [Regresión independiente Bomberos NestJS/Spring/PostgreSQL/Chromium #38852652850](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38852652850) y [quality integrada #38852652854](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38852652854): ambas `success`. Los commits posteriores solo registran esta evidencia documental.
