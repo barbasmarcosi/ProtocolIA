@@ -17,7 +17,8 @@ export function compileOwnerScopes(ir){
       field.computedSum||field.computedProduct||field.computedRoundedProduct||
       field.computedDiscountedTotal||field.requiredWhen||field.forbidWhen||
       (field.minLength??0)>1||(field.maxLength??255)<128||
-      operations.length!==3||["create","get","listPage"].some(k=>counts(k)!==1)||
+      !([3,4].includes(operations.length))||["create","get","listPage"].some(k=>counts(k)!==1)||
+      counts("patchFields")>1||
       operations.some(o=>o.capability==="public"||!o.capability||
         o.behavior.reserve||o.behavior.release||o.behavior.debitExact||o.behavior.reverseExact||
         o.behavior.reconcileExact||o.behavior.relatedSum||o.behavior.audit)||
@@ -31,6 +32,20 @@ export function compileOwnerScopes(ir){
       ![200,401,403,404].every(s=>get.statuses.includes(s))||
       ![200,400,401,403].every(s=>listing.statuses.includes(s)))
       throw Error("Invalid S1a owner capability/status "+entity.name);
+    const patch=operations.find(o=>o.behavior.kind==="patchFields");
+    if(patch){
+      const target=entity.fields.find(f=>f.name===patch.behavior.field);
+      if(patch.method!=="PATCH"||patch.capability==="public"||
+        patch.capability===create.capability||patch.capability===get.capability||
+        !target||target.name===field.name||target.name===entity.publicIdentity||
+        target.type!=="string"||!target.required||target.nullable||target.reference||
+        target.initial!==undefined||target.choices||target.pattern||
+        target.computedSum||target.computedProduct||target.computedRoundedProduct||
+        target.computedDiscountedTotal||target.requiredWhen||target.forbidWhen||
+        patch.behavior.input!==target.name||patch.behavior.audit||
+        ![200,400,401,403,404].every(code=>patch.statuses.includes(code)))
+        throw Error("Invalid S1b owner field patch "+entity.name);
+    }
     result.set(entity.name,{field:field.name,column:snake(field.name)});
   }
   return result;

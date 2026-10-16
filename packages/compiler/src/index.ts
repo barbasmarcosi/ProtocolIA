@@ -1003,9 +1003,24 @@ export function compileDomain(p: Program): IrDocument | undefined {
   for(const entity of entities.filter(e=>e.fields.some(f=>f.ownerManaged))){
     const owner=entity.fields.find(f=>f.ownerManaged)!;
     const entityOps=operations.filter(o=>o.entity===entity.name&&o.behavior.kind!=="health");
-    if(entityOps.some(o=>!["create","get","listPage"].includes(o.behavior.kind))||
-      ["create","get","listPage"].some(k=>entityOps.filter(o=>o.behavior.kind===k).length!==1))
-      reject("owner-unsupported-behavior",entity.name+" S1a ownership supports only one create/get/listPage each; other behaviors need proven scope enforcement",models.find(m=>m.name===entity.name)!);
+    const patches=entityOps.filter(o=>o.behavior.kind==="patchFields");
+    const invalidPatch=patches.some(o=>{
+      const target=entity.fields.find(x=>x.name===o.behavior.field);
+      return !target||target.name===owner.name||target.name===entity.publicIdentity||
+        target.type!=="string"||!target.required||target.nullable||target.reference||
+        target.initial!==undefined||target.choices||target.computedSum||
+        target.computedProduct||target.computedRoundedProduct||target.computedDiscountedTotal||
+        target.requiredWhen||target.forbidWhen||target.pattern||
+        o.behavior.input!==target.name||o.capability==="public"||
+        o.capability===entityOps.find(x=>x.behavior.kind==="get")?.capability||
+        o.capability===entityOps.find(x=>x.behavior.kind==="create")?.capability||
+        ![200,400,401,403,404].every(status=>o.statuses.includes(status))||
+        !!o.behavior.audit||!!o.behavior.reserve||!!o.behavior.release;
+    });
+    if(entityOps.some(o=>!["create","get","listPage","patchFields"].includes(o.behavior.kind))||
+      ["create","get","listPage"].some(k=>entityOps.filter(o=>o.behavior.kind===k).length!==1)||
+      patches.length>1||invalidPatch)
+      reject("owner-unsupported-behavior",entity.name+" requires create/get/listPage and at most one independently authorized owner-guarded string PATCH",models.find(m=>m.name===entity.name)!);
     for(const operation of ops.filter(o=>entityOps.some(x=>x.name===o.name)&&metadata(p,"behavior",o)?.kind==="create")){
       const payload=operation.parameters.properties.get("input")?.type;
       if(payload?.kind!=="Model"||payload.properties.has(owner.name))
