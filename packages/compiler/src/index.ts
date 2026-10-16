@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","reconcileExact","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -471,6 +471,34 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    const reconciliation=metadata(p,"reconcileExact",op);
+    if(kind==="reconcileExact"){
+      const opening=entity.fields.find(x=>x.name===reconciliation?.openingField);
+      const balance=entity.fields.find(x=>x.name===reconciliation?.availableField);
+      const child=declared.get(String(reconciliation?.childEntity));
+      const foreign=child?.fields.find(x=>x.name===reconciliation?.referenceField);
+      const amount=child?.fields.find(x=>x.name===reconciliation?.amountField);
+      const status=child?.fields.find(x=>x.name===reconciliation?.stateField);
+      if(!reconciliation||!opening||!balance||opening===balance||
+        opening.type!=="decimal"||balance.type!=="decimal"||!opening.decimal||!balance.decimal||
+        !opening.required||opening.nullable||!balance.required||balance.nullable||
+        opening.decimal.min!=="0"||balance.decimal.min!=="0"||
+        opening.decimal.precision!==balance.decimal.precision||
+        opening.decimal.scale!==balance.decimal.scale||
+        !child||child===entity||!foreign?.reference||foreign.reference.target!==entity.name||
+        !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
+        !status||status.initial!==reconciliation.postedState||
+        reconciliation.postedState===reconciliation.reversedState||
+        !Object.values(reconciliation).every(x=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
+        f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
+        metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
+        op.parameters.properties.has("input")){
+        reject("invalid-exact-reconciliation",op.name+" requires bounded exact opening/available fields and a matching decimal child ledger",op);
+        continue;
+      }
+    }else if(reconciliation){
+      reject("orphan-exact-reconciliation",op.name+" @reconcileExact must annotate reconcileExact behavior",op);continue;
+    }
     const aggregate=metadata(p,"relatedSum",op);
     if(kind==="sumRelated"){
       const child=declared.get(String(aggregate?.childEntity));
@@ -713,6 +741,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("reassign-http",op.name+" requires PATCH by identity, a JSON body and 200/400/404/409 responses",op);
       continue;
     }
+    if(kind==="reconcileExact"){
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced"];
+      const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
+      const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
+        names.every(n=>v.properties.has(n)&&!v.properties.get(n)!.optional&&
+          (n==="balanced"?v.properties.get(n)!.type.kind==="Scalar"&&v.properties.get(n)!.type.name==="boolean":
+          typeOfField(v.properties.get(n)!)?.type==="string")));
+      if(http.verb!=="get"||http.parameters.body||keys.length!==1||
+        keys[0]!==entity.publicIdentity||op.parameters.properties.size!==1||
+        ![200,401,403,404].every(s=>statuses.includes(s))||!shape){
+        reject("exact-reconciliation-http",op.name+" needs keyed GET with typed eight-field snapshot and 200/401/403/404",op);
+        continue;
+      }
+    }
     if(kind==="sumRelated"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       if(http.verb!=="get"||http.parameters.body!==undefined||
@@ -905,6 +948,16 @@ export function compileDomain(p: Program): IrDocument | undefined {
           quantityField:String(aggregate.quantityField),
           stateField:String(aggregate.stateField),
           activeState:String(aggregate.activeState)
+        }} : {}),
+        ...(reconciliation ? {reconcileExact:{
+          openingField:String(reconciliation.openingField),
+          availableField:String(reconciliation.availableField),
+          childEntity:String(reconciliation.childEntity),
+          referenceField:String(reconciliation.referenceField),
+          amountField:String(reconciliation.amountField),
+          stateField:String(reconciliation.stateField),
+          postedState:String(reconciliation.postedState),
+          reversedState:String(reconciliation.reversedState)
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),

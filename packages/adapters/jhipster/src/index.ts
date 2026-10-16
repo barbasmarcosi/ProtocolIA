@@ -59,7 +59,7 @@ export interface IrOperation {
   method: string;
   path: string;
   behavior: {
-    kind: "create" | "get" | "listPage" | "patchFields" | "atomicIncrement" | "transition" | "reassignReference" | "queryPage" | "auditPage" | "inboxPage" | "ackNotification" | "sumRelated" | "delete" | "health";
+    kind: "create" | "get" | "listPage" | "patchFields" | "atomicIncrement" | "transition" | "reassignReference" | "queryPage" | "auditPage" | "inboxPage" | "ackNotification" | "sumRelated" | "reconcileExact" | "delete" | "health";
     field?: string;
     input?: string;
     from?: string;
@@ -68,6 +68,7 @@ export interface IrOperation {
     debitExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     reverseExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     relatedSum?: {childEntity:string;referenceField:string;quantityField:string;stateField:string;activeState:string};
+    reconcileExact?: {openingField:string;availableField:string;childEntity:string;referenceField:string;amountField:string;stateField:string;postedState:string;reversedState:string};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     audit?: string[];
     filters?: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte"|"contains";type:IrField["type"]}[];
