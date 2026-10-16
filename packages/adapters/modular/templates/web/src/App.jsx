@@ -63,7 +63,7 @@ function isMonthField(field){
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
 function groupCreateFields(fields){
-  const visible=fields.filter(field=>!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&field.initial===undefined);
+  const visible=fields.filter(field=>!field.ownerManaged&&!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&field.initial===undefined);
   if(!visible.some(field=>field.uiSection))return [{title:null,fields:visible}];
   const grouped=new Map();
   for(const field of visible){
@@ -100,7 +100,7 @@ function decimalIssue(value,field){
 function validateCreate(fields,values,reconciliation){
   const errors={};
   for(const field of fields){
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
+    if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
     const value=values[field.name];
     const text=String(value??"").trim();
     if(isRequiredInForm(field,values)&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
@@ -186,7 +186,7 @@ function validateCreate(fields,values,reconciliation){
   return errors;
 }
 function createEmpty(fields){
-  return Object.fromEntries(fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(field=>[field.name,
+  return Object.fromEntries(fields.filter(f=>!f.ownerManaged&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(field=>[field.name,
     field.initial??(field.type==="int32"&&field.required?0:"")]));
 }
 function normalizePayload(fields,values){
@@ -494,7 +494,7 @@ export default function App(){
     capabilities.includes(relatedSumChild.operations?.get?.capability));
   // Generic draft baseline is built from the formal field manifest.
   const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
+    if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
     const initial=field.type==="int32"&&field.required?0:"";
     return String(form[field.name]??"")!==String(initial);
   }));
