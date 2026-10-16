@@ -53,4 +53,4 @@ Ambos adaptadores emiten `rounded_total NUMERIC(22,2) GENERATED ALWAYS AS (round
 
 B2.2 **no** es un sistema monetario completo. Quedan fuera descuentos, porcentajes, IVA, operaciones compuestas, sumas entre renglones, redondeo negativo, `half_even`, facturación, operaciones multientidad y migraciones de bases existentes. El uso de Basic Auth corresponde solo a ensayos. No hay despliegue productivo ni cambios en `main`, PR #52, Railway o Neon.
 
-**Gate de promoción aún pendiente:** integrar por fast-forward en `independent/volunteer-evaluations` y ejecutar allí la regresión independiente de Bomberos antes de declarar el incremento integrado.
+**Gate de promoción — PASS:** fast-forward a `independent/volunteer-evaluations`, SHA de código y evidencia `34af4ffb980bbc06d000824b1ca76c42472314f3`. [Regresión independiente de Bomberos (NestJS/Spring Boot/PostgreSQL/Chromium) #38848656059](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38848656059) y [quality integrada #38848656058](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38848656058), ambas `success`. Los commits posteriores para registrar estas pruebas son únicamente documentales.
