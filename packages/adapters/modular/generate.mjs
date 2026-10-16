@@ -63,6 +63,14 @@ export function generate(ir, openapi, outDir) {
         new Set(f.choices.map(c=>c.value)).size!==f.choices.length||
         f.choices.some(c=>typeof c.value!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(c.value))))
         throw Error("Unsupported enum choices "+e.name+"."+f.name);
+      if(f.requiredWhen){
+        const source=e.fields.find(x=>x.name===f.requiredWhen.field);
+        if(f.type!=="string"||f.required||f.nullable||f.unique||
+          f.initial!==undefined||f.reference||f.computedSum||f.choices||
+          !source||source===f||source.type!=="string"||source.nullable||
+          source.initial!==undefined||!source.choices?.some(x=>x.value===f.requiredWhen.equals))
+          throw Error("Invalid conditional requirement "+e.name+"."+f.name);
+      }
       if(f.pattern!==undefined&&(f.pattern!==YEAR_MONTH_PATTERN||f.type!=="string"||
          f.minLength!==7||f.maxLength!==7))throw Error("Unsupported domain pattern "+e.name+"."+f.name);
       if(!["string","int32","utcDateTime"].includes(f.type))
@@ -241,7 +249,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -265,7 +273,8 @@ export function generate(ir, openapi, outDir) {
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
         n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum),
-        "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")"
+        "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
+        f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null"
       ].join(",")+")").join(",\n");
       return "    new Entity("+[j(e.name),j(snake(e.name)),j(e.publicIdentity),j(snake(e.publicIdentity))].join(",")+
         ",List.of(\n"+parts+"\n    ))";
@@ -359,7 +368,13 @@ export function generate(ir, openapi, outDir) {
       const generated=f.computedSum?" GENERATED ALWAYS AS ("+f.computedSum.map(snake).join(" + ")+") STORED":"";
       return "  "+col+" "+type+generated+" "+checks.join(" ");
     });
-    sql.push("CREATE TABLE "+table+" (\n"+columns.join(",\n")+"\n);");
+    const conditional=e.fields.filter(f=>f.requiredWhen).map(f=>{
+      const col=snake(f.name),source=snake(f.requiredWhen.field);
+      return "  CONSTRAINT ck_cond_"+table+"_"+col+" CHECK ("+
+        source+" IS DISTINCT FROM '"+f.requiredWhen.equals+"' OR "+
+        "("+col+" IS NOT NULL AND char_length(btrim("+col+")) > 0))";
+    });
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional].join(",\n")+"\n);");
   }
   for(const e of entities)for(const f of e.fields){
     if(!f.reference)continue;
