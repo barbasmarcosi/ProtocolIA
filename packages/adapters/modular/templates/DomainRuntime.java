@@ -618,7 +618,17 @@ public class DomainRuntime {
     var params=new MapSqlParameterSource().addValue("key",id).addValue("value",body.get(op.input()));
     if(e.ownerField()!=null)params.addValue("owner",subject);
     String guard=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
-    int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:value WHERE "+e.identityColumn()+"=:key"+guard,params);
+    int changed;
+    try {
+      // PostgreSQL enforces composite uniqueness atomically against concurrent writers.
+      changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:value WHERE "+e.identityColumn()+"=:key"+guard,params);
+    } catch (DataIntegrityViolationException ex) {
+      if(constraintSqlState(ex,"23505"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Compound business key already exists",ex);
+      if(constraintSqlState(ex,"23514")||constraintSqlState(ex,"23502"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Constraint violation",ex);
+      throw ex;
+    }
     if(changed==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return row(e,id,subject);
   }
