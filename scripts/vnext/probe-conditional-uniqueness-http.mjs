@@ -16,7 +16,7 @@ const temp=mkdtempSync(join(tmpdir(),"pia-active-unique-"));
 const schema=readFileSync(
   existsSync(join(generated,"src/schema.sql"))?join(generated,"src/schema.sql"):
     join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
-assert.match(schema,/CREATE UNIQUE INDEX uq_work_order_active ON work_order \\(site_code,period\\) WHERE status = 'approved';/,
+assert.match(schema,/CREATE UNIQUE INDEX uq_work_order_active ON work_order \(site_code,period\) WHERE status = 'approved';/,
   "Generator must enforce active-only compound uniqueness in PostgreSQL");
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
