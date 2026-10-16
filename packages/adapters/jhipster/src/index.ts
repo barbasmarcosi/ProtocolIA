@@ -66,6 +66,7 @@ export interface IrOperation {
     to?: string;
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     debitExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
+    reverseExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     relatedSum?: {childEntity:string;referenceField:string;quantityField:string;stateField:string;activeState:string};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     audit?: string[];

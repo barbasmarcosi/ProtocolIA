@@ -554,6 +554,18 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       // No arbitrary SQL or business expressions: only validated identifiers and integer fields.
     }
+    const exactReverse=metadata(p,"reverseExact",op);
+    if(exactReverse){
+      const state=entity.fields.find(x=>x.name===f);
+      const origin=metadata(p,"transition",op);
+      if(kind!=="transition"||!state?.initial||origin?.from!==state.initial||
+        input!==undefined||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
+        !auditFields||auditFields.length!==1||auditFields[0]!==f||
+        !Object.values(exactReverse).every(x=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))){
+        reject("invalid-exact-reversal",op.name+" requires a guarded initial-state transition, typed balance binding and state audit",op);
+        continue;
+      }
+    }
     if (kind === "transition") {
       const state = f ? entity.fields.find((x)=>x.name===f) : undefined;
       const trans = metadata(p,"transition",op);
@@ -894,6 +906,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
           stateField:String(aggregate.stateField),
           activeState:String(aggregate.activeState)
         }} : {}),
+        ...(exactReverse ? {reverseExact:{
+          stockEntity:String(exactReverse.stockEntity),
+          availableField:String(exactReverse.availableField),
+          referenceField:String(exactReverse.referenceField),
+          quantityField:String(exactReverse.quantityField)
+        }} : {}),
         ...(exactDebit ? {debitExact:{
           stockEntity:String(exactDebit.stockEntity),
           availableField:String(exactDebit.availableField),
@@ -911,6 +929,20 @@ export function compileDomain(p: Program): IrDocument | undefined {
         http.parameters.body.type.kind === "Model" ?
         {request:http.parameters.body.type.name}:{}),
     });
+  }
+  // A B2.5 exact reversal must be paired with one original debit. It cannot
+  // be bypassed by a second transition, reassigning its FK or deleting the ledger.
+  for(const reverse of operations.filter(o=>o.behavior.reverseExact)){
+    const r=reverse.behavior.reverseExact!;
+    const originals=operations.filter(o=>o.entity===reverse.entity&&o.behavior.debitExact&&
+      Object.entries(r).every(([key,value])=>(o.behavior.debitExact as unknown as Record<string,string>)[key]===value));
+    const alternative=operations.some(o=>o.entity===reverse.entity&&
+      ((o.behavior.kind==="transition"&&o!==reverse&&
+        (o.behavior.field===reverse.behavior.field||o.behavior.from===reverse.behavior.to))||
+      o.behavior.kind==="delete"||o.behavior.kind==="reassignReference"));
+    if(originals.length!==1||alternative){
+      reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
+    }
   }
   // A B2.4 summary is not a free-form join. Only summarize an authoritative
   // reserve/cancel lifecycle with matching child read permissions and state.

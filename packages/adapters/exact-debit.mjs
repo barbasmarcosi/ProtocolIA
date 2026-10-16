@@ -36,7 +36,42 @@ export function compileExactDebits(ir){
     out.set(op.name,{
       balanceTable:snake(parent.name),balanceKey:snake(parent.publicIdentity),
       balanceColumn:snake(balance.name),referenceField:relation.name,
-      amountField:amount.name,parentWriteCapability:write[0].capability
+      amountField:amount.name,parentWriteCapability:write[0].capability,
+      maxBalance:b.max??("9".repeat(b.precision-b.scale)+(b.scale?"."+"9".repeat(b.scale):""))
+    });
+  }
+  return out;
+}
+
+/** Reverse only the original debit, never a generic arbitrary UPDATE. */
+export function compileExactReversals(ir){
+  const debits=compileExactDebits(ir),out=new Map();
+  const entities=new Map(ir.entities.map(e=>[e.name,e]));
+  for(const op of ir.operations){
+    const cfg=op.behavior?.reverseExact;
+    if(!cfg)continue;
+    const parent=entities.get(cfg.stockEntity),child=entities.get(op.entity);
+    const state=child?.fields.find(f=>f.name===op.behavior.field);
+    const originals=ir.operations.filter(x=>x.entity===op.entity&&x.behavior.kind==="create"&&
+      x.behavior.debitExact&&Object.keys(cfg).every(k=>x.behavior.debitExact[k]===cfg[k]));
+    const original=originals[0],plan=original&&debits.get(original.name);
+    const validTransition=op.behavior.kind==="transition"&&op.method==="POST"&&
+      [200,400,404,409].every(s=>op.statuses?.includes(s))&&
+      state?.initial===op.behavior.from&&op.behavior.to!==op.behavior.from&&
+      Array.isArray(op.behavior.audit)&&op.behavior.audit.length===1&&
+      op.behavior.audit[0]===state?.name;
+    const bypass=ir.operations.some(x=>x.entity===op.entity&&x!==op&&
+      (x.behavior.kind==="delete"||x.behavior.kind==="reassignReference"||
+       x.behavior.kind==="patchFields"&&
+         [cfg.referenceField,cfg.quantityField,state?.name].includes(x.behavior.field)||
+       x.behavior.kind==="transition"&&
+         (x.behavior.field===state?.name||x.behavior.from===op.behavior.to)));
+    if(!Object.values(cfg).every(ident)||!parent||!child||!state||!validTransition||
+      originals.length!==1||!plan||bypass||op.behavior.release||op.behavior.reserve||
+      op.behavior.debitExact||op.behavior.input||!parent.publicIdentity)
+      throw Error("Invalid exact reversal lifecycle "+op.name);
+    out.set(op.name,{
+      ...plan,referenceColumn:snake(cfg.referenceField),amountColumn:snake(cfg.quantityField)
     });
   }
   return out;

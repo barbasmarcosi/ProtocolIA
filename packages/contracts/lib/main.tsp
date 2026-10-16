@@ -36,6 +36,9 @@ namespace ProtocolIA.Domain {
     min?: valueof string, max?: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
   // Exact-decimal balance decrement and ledger row insert in one local transaction.
+  // Guarded, exactly-once cancellation of a debitExact posting with atomic credit.
+  extern dec reverseExact(target: Operation, balanceEntity: valueof string,
+    availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   extern dec debitExact(target: Operation, balanceEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,

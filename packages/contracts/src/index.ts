@@ -28,6 +28,7 @@ export const $lib = createTypeSpecLibrary({
     transition: {description:"Atomic business state transition with guarded source/target"},
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
     debitExact: {description:"Atomic exact decimal debit and durable child posting"},
+    reverseExact: {description:"Exactly-once guarded reversal and exact decimal credit"},
     release: {description:"Exactly-once guarded cancellation and transactional stock restoration"},
     relatedSum: {description:"Read-only MVCC snapshot of active quantities in a related entity"},
     audit: {description:"Auditable, explicitly allowlisted business fields; no request payload logging"},
@@ -116,6 +117,11 @@ function transition(context: DecoratorContext, target: Operation, from: string, 
   context.program.stateMap($lib.stateKeys.transition).set(target, {from, to});
 }
 
+function reverseExact(context: DecoratorContext, target: Operation, balanceEntity: string,
+  availableField: string, referenceField: string, amountField: string): void {
+  context.program.stateMap($lib.stateKeys.reverseExact).set(target,
+    {stockEntity:balanceEntity,availableField,referenceField,quantityField:amountField});
+}
 function debitExact(context: DecoratorContext, target: Operation, balanceEntity: string,
   availableField: string, referenceField: string, amountField: string): void {
   context.program.stateMap($lib.stateKeys.debitExact).set(target,
@@ -192,6 +198,7 @@ export const $decorators = {
     transition,
     reserve,
     debitExact,
+    reverseExact,
     release,
     relatedSum,
     audit,
