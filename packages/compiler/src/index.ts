@@ -175,17 +175,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-after-field",m.name+"."+end.name+
           " must be a UTC date-time after a required, nonnullable sibling UTC date-time",m);
     }
-    // Strict int32 comparison remains typed and fail-closed, never an expression string.
+    // Strict comparison remains typed and fail-closed, never an expression string.
     for(const greater of fields.filter(f=>f.greaterThanField!==undefined)){
       const source=fields.find(f=>f.name===greater.greaterThanField);
       if(!greater.greaterThanField||!/^[A-Za-z][A-Za-z0-9_]*$/.test(greater.greaterThanField)||
-        !source||source===greater||source.type!=="int32"||!source.required||source.nullable||
+        !source||source===greater||!source.required||source.nullable||
         source.greaterThanField||source.computedSum||source.reference||
-        greater.type!=="int32"||greater.nullable||greater.unique||greater.reference||
+        !((source.type==="int32"&&greater.type==="int32")||
+          (source.type==="decimal"&&greater.type==="decimal"&&source.decimal&&greater.decimal))||
+        greater.nullable||greater.unique||greater.reference||
         greater.initial!==undefined||greater.computedSum||greater.requiredWhen||
         metadata(p,"publicIdentity",m.properties.get(greater.name)!))
         reject("invalid-greater-than-field",m.name+"."+greater.name+
-          " must be signed int32 strictly greater than a required sibling int32",m);
+          " must be an int32 or exact decimal strictly greater than a required sibling of the same type",m);
     }
     // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
     for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
@@ -546,7 +548,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       if(mismatch)continue;
     }
-    // CREATE payloads must retain both operands' int32 types, ranges and optionality.
+    // CREATE payloads must preserve both operands' type, decimal wire encoding, bounds and optionality.
     if(kind==="create"){
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
@@ -556,10 +558,14 @@ export function compileDomain(p: Program): IrDocument | undefined {
         for(const expected of [compared,source].filter(Boolean) as IrField[]){
           const dto=props?.get(expected.name);
           const actual=dto?field(p,dto):undefined;
-          if(!dto||actual?.type!=="int32"||actual.nullable!==expected.nullable||
-            dto.optional===expected.required||actual.min!==expected.min||actual.max!==expected.max){
+          const encoding=dto?getEncode(p,dto):undefined;
+          if(!dto||actual?.type!==expected.type||actual.nullable!==expected.nullable||
+            dto.optional===expected.required||
+            (expected.type==="int32"&&(actual.min!==expected.min||actual.max!==expected.max))||
+            (expected.type==="decimal"&&(JSON.stringify(actual.decimal)!==JSON.stringify(expected.decimal)||
+              encoding?.type.name!=="string"||encoding.encoding!==undefined))){
             reject("greater-than-request-mismatch",op.name+
-              " must preserve compared int32 field "+expected.name,op);
+              " must preserve compared field "+expected.name,op);
             mismatch=true;break;
           }
         }

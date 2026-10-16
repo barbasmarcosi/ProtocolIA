@@ -293,10 +293,17 @@ public class DomainRuntime {
     if(create)for(var field : e.fields()){
       if(field.greaterThanField()==null||!body.containsKey(field.name()))continue;
       Object source=body.get(field.greaterThanField()),target=body.get(field.name());
-      if(!(source instanceof Integer start))
-        throw new InvalidInputField(field.greaterThanField(),"invalid_type");
-      if(!(target instanceof Integer end)||end<=start)
-        throw new InvalidInputField(field.name(),"invalid_comparison");
+      if(field.type().equals("decimal")){
+        if(!(source instanceof String left)||!(target instanceof String right))
+          throw new InvalidInputField(field.name(),"invalid_type");
+        if(new BigDecimal(right).compareTo(new BigDecimal(left))<=0)
+          throw new InvalidInputField(field.name(),"invalid_comparison");
+      }else{
+        if(!(source instanceof Integer start))
+          throw new InvalidInputField(field.greaterThanField(),"invalid_type");
+        if(!(target instanceof Integer end)||end<=start)
+          throw new InvalidInputField(field.name(),"invalid_comparison");
+      }
     }
   }
 

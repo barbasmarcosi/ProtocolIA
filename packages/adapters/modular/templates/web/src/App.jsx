@@ -137,9 +137,22 @@ function validateCreate(fields,values){
     const source=fields.find(f=>f.name===field.greaterThanField);
     if(!input||!source||errors[source.name])continue;
     const sourceRaw=String(values[source.name]??"").trim();
-    if(/^[-+]?\d+$/.test(input)&&/^[-+]?\d+$/.test(sourceRaw)&&
-       Number(input)<=Number(sourceRaw))
-      errors[field.name]="El valor debe ser mayor que "+fieldLabel(source)+".";
+    let invalidComparison=false;
+    if(field.type==="decimal"&&source.type==="decimal"){
+      if(!decimalIssue(input,field)&&!decimalIssue(sourceRaw,source)){
+        const units=(value,precision)=>{
+          const negative=value.startsWith("-"),[whole,part=""]=(negative?value.slice(1):value).split(".");
+          return BigInt((negative?"-":"")+whole+part.padEnd(precision,"0"));
+        };
+        const scale=Math.max(field.decimal.scale,source.decimal.scale);
+        invalidComparison=units(input,field.decimal.scale)*10n**BigInt(scale-field.decimal.scale)<=
+          units(sourceRaw,source.decimal.scale)*10n**BigInt(scale-source.decimal.scale);
+      }
+    }else if(field.type==="int32"&&source.type==="int32"&&
+      /^[-+]?\d+$/.test(input)&&/^[-+]?\d+$/.test(sourceRaw)){
+      invalidComparison=Number(input)<=Number(sourceRaw);
+    }
+    if(invalidComparison)errors[field.name]="El valor debe ser mayor que "+fieldLabel(source)+".";
   }
   return errors;
 }

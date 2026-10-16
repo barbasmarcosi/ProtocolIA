@@ -22,7 +22,7 @@ export interface IrField {
   requiredWhen?: {field:string;equals:string};
   /** Portable strict chronological order after a required sibling. */
   afterField?: string;
-  /** Strict signed int32 ordering against a required sibling int32. */
+  /** Strict ordering against a required sibling int32 or exact decimal; scales may differ. */
   greaterThanField?: string;
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;

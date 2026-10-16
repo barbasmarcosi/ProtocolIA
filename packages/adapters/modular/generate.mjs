@@ -79,11 +79,13 @@ export function generate(ir, openapi, outDir) {
       assertDecimalField(f,e.name+"."+f.name);
       if(f.greaterThanField!==undefined){
         const source=e.fields.find(x=>x.name===f.greaterThanField);
-        if(!source||source===f||source.type!=="int32"||!source.required||source.nullable||
+        if(!source||source===f||!source.required||source.nullable||
            source.greaterThanField||source.computedSum||source.reference||
-           f.type!=="int32"||f.nullable||f.unique||f.reference||f.computedSum||
+           !((source.type==="int32"&&f.type==="int32")||
+             (source.type==="decimal"&&f.type==="decimal"&&source.decimal&&f.decimal))||
+           f.nullable||f.unique||f.reference||f.computedSum||
            f.initial!==undefined||f.requiredWhen)
-          throw Error("Unsupported integer comparison "+e.name+"."+f.name);
+          throw Error("Unsupported typed numeric comparison "+e.name+"."+f.name);
       }
       if(f.afterField!==undefined){
         const source=e.fields.find(x=>x.name===f.afterField);

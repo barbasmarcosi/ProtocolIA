@@ -43,6 +43,18 @@ namespace GaugeRegistry {
     @exactDecimal(24, 4, "0", "99999999999999999999.9999")
     unitPrice: decimal;
 
+    @uiLabel("Límite de precio")
+    @encode(string)
+    @exactDecimal(24, 4, "0")
+    @greaterThanField("unitPrice")
+    priceCeiling?: decimal;
+
+    @uiLabel("Límite de cantidad")
+    @encode(string)
+    @exactDecimal(16, 4, "0")
+    @greaterThanField("quantity")
+    quantityLimit?: decimal;
+
     @uiLabel("Costo")
     @encode(string)
     @exactDecimal(24, 4, "0")
@@ -79,6 +91,16 @@ namespace GaugeRegistry {
     @encode(string)
     @exactDecimal(24, 4, "0", "99999999999999999999.9999")
     unitPrice: decimal;
+
+    @uiLabel("Límite de precio")
+    @encode(string)
+    @exactDecimal(24, 4, "0")
+    priceCeiling?: decimal;
+
+    @uiLabel("Límite de cantidad")
+    @encode(string)
+    @exactDecimal(16, 4, "0")
+    quantityLimit?: decimal;
 
     @uiLabel("Costo")
     @encode(string)

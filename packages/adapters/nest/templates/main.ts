@@ -120,9 +120,17 @@ function validateInput(e:Entity,body:unknown,writable:string[],create:boolean):R
   if(create)for(const f of e.fields){
     if(!f.greaterThanField||body[f.name]===undefined)continue;
     const source=body[f.greaterThanField];
-    if(typeof source!=="number"||!Number.isInteger(source))throw invalidField(
-      e.fields.find(x=>x.name===f.greaterThanField)!,"invalid_type");
-    if((body[f.name] as number)<=source)throw invalidField(f,"invalid_comparison");
+    const start=e.fields.find(x=>x.name===f.greaterThanField)!;
+    if(f.type==="decimal"){
+      const endValue=body[f.name] as string,startValue=source as string;
+      const scale=Math.max(f.decimal!.scale,start.decimal!.scale);
+      const end=decimalUnits(endValue,f.decimal!.scale)*10n**BigInt(scale-f.decimal!.scale);
+      const begin=decimalUnits(startValue,start.decimal!.scale)*10n**BigInt(scale-start.decimal!.scale);
+      if(end<=begin)throw invalidField(f,"invalid_comparison");
+    }else{
+      if(typeof source!=="number"||!Number.isInteger(source))throw invalidField(start,"invalid_type");
+      if((body[f.name] as number)<=source)throw invalidField(f,"invalid_comparison");
+    }
   }
   return body;
 }

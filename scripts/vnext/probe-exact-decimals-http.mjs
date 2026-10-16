@@ -24,6 +24,11 @@ assert.ok(schema.includes("unit_price NUMERIC(24,4)")&&
   schema.includes("unit_price>=0")&&
   schema.includes("unit_price::text NOT IN ('NaN','Infinity','-Infinity')"),
   "Both generators must persist source-declared decimals using NUMERIC(p,s) and checked bounds");
+assert.ok(schema.includes("price_ceiling NUMERIC(24,4)")&&
+  schema.includes("quantity_limit NUMERIC(16,4)")&&
+  schema.includes("CONSTRAINT ck_gt_gauge_price_ceiling CHECK (price_ceiling IS NULL OR price_ceiling > unit_price)")&&
+  schema.includes("CONSTRAINT ck_gt_gauge_quantity_limit CHECK (quantity_limit IS NULL OR quantity_limit > quantity)"),
+  "Both backends must preserve exact decimal comparison in independent PostgreSQL CHECK constraints");
 assert.ok(schema.includes("CONSTRAINT ck_cond_gauge_maintenance_reason CHECK (")&&
   schema.includes("quality IS DISTINCT FROM 'needs_service'")&&
   schema.includes("maintenance_reason IS NOT NULL AND char_length(btrim(maintenance_reason)) > 0"),
@@ -152,6 +157,45 @@ try{
  assert.equal((await req(path+"/"+explicitNull.serial)).body.percentage,"100.000");
  const tooHigh={...payload,serial:token+"-pct-invalid",percentage:"100.001"};
  assert.deepEqual((await req(path,{method:"POST",body:tooHigh})).body.issues,[{field:"percentage",code:"out_of_range"}]);
+ // Mixed-scale and greater-than-safe-integer comparisons must not round through JS Number.
+ for(const [key,from,to,code,i] of [
+   ["priceCeiling","9007199254740993.1234","9007199254740993.1234","invalid_comparison",1],
+   ["priceCeiling","9007199254740993.1234","9007199254740993.1233","invalid_comparison",2],
+   ["quantityLimit","0.000001","0.0000","invalid_comparison",3],
+   ["quantityLimit","0.100001","0.1000","invalid_comparison",4],
+   ["priceCeiling","9007199254740993.1234",null,"required",5],
+   ["priceCeiling","9007199254740993.1234",12,"invalid_type",6]
+ ]){
+   const field=key==="priceCeiling"?"unitPrice":"quantity";
+   const candidate={...payload,serial:token+"-compare-bad-"+i,[field]:from,[key]:to};
+   const response=await req(path,{method:"POST",body:candidate});
+   assert.equal(response.status,400,JSON.stringify({candidate,response}));
+   assert.deepEqual(response.body.issues,[{field:key,code}]);
+   assert.equal((await req(path+"/"+candidate.serial)).status,404);
+ }
+ const comparable={...payload,serial:token+"-compare-valid",
+   priceCeiling:"9007199254740993.1235",quantityLimit:"0.0001"};
+ assert.equal((await req(path,{method:"POST",body:comparable})).status,201);
+ const comparedRead=(await req(path+"/"+comparable.serial)).body;
+ assert.equal(comparedRead.priceCeiling,comparable.priceCeiling);
+ assert.equal(comparedRead.quantityLimit,comparable.quantityLimit);
+ const invalidSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,price_ceiling,quantity,quantity_limit) VALUES ('"+
+   token+"-sql-equal','SQL direct comparison',1,9007199254740993.1234,9007199254740993.1234,0.000001,0.0001)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(invalidSql.status,0,"Direct SQL must reject equal high-precision decimals");
+ assert.match((invalidSql.stderr??"")+(invalidSql.stdout??""),/ck_gt_gauge_price_ceiling/i);
+ assert.equal((await req(path+"/"+token+"-sql-equal")).status,404);
+ const invalidScaleSql=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
+   "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
+   "INSERT INTO gauge(serial,label,reading,unit_price,quantity,quantity_limit) VALUES ('"+
+   token+"-sql-scale','SQL direct scale',1,1.0000,0.100001,0.1000)"],{
+   cwd:generated,encoding:"utf8",timeout:15000
+ });
+ assert.notEqual(invalidScaleSql.status,0,"Mixed-scale comparison must reject direct SQL");
+ assert.match((invalidScaleSql.stderr??"")+(invalidScaleSql.stdout??""),/ck_gt_gauge_quantity_limit/i);
  const directBad=spawnSync("docker",[...args,"exec","-T","db","psql","-U","protocolia",
    "-d","protocolia","-v","ON_ERROR_STOP=1","-c",
    "INSERT INTO gauge(serial,label,reading,unit_price,quantity) VALUES ('"+token+"-bad-sql','Overflow',1,100000000000000000000.0000,1.000000)"],{
@@ -188,6 +232,15 @@ try{
    await form.getByTestId("create-reading").fill("3");
    await form.getByTestId("create-unitPrice").fill("9007199254740993.1234");
    await form.getByTestId("create-quantity").fill("0.000001");
+   await form.getByTestId("create-priceCeiling").fill("9007199254740993.1234");
+   await form.getByTestId("create-quantityLimit").fill("0.0000");
+   await form.getByRole("button",{name:"Crear",exact:true}).click();
+   assert.equal(await form.getByTestId("create-priceCeiling").getAttribute("aria-invalid"),"true",
+     "React must reject exact decimal equality beyond MAX_SAFE_INTEGER");
+   assert.equal(await form.getByTestId("create-quantityLimit").getAttribute("aria-invalid"),"true",
+     "React must reject mixed-scale inequality before any API request");
+   await form.getByTestId("create-priceCeiling").fill("9007199254740993.1235");
+   await form.getByTestId("create-quantityLimit").fill("0.0001");
    assert.equal(await form.getByTestId("create-unitPrice").getAttribute("inputmode"),"decimal");
    await form.getByTestId("create-quality").click();
    await page.getByRole("option",{name:"Needs Service"}).click();
@@ -205,6 +258,8 @@ try{
    const stored=await req(path+"/"+selected);
    assert.equal(stored.body.quality,"needs_service","UI persists source enum value, not caption");
    assert.equal(stored.body.unitPrice,"9007199254740993.1234","UI persists exact decimal string");
+   assert.equal(stored.body.priceCeiling,"9007199254740993.1235","UI keeps high-precision cross-field ordering");
+   assert.equal(stored.body.quantityLimit,"0.0001","UI keeps mixed-scale exact decimal ordering");
    assert.equal(stored.body.maintenanceReason,"Falla en la calibración de prueba");
    assert.equal(errors.length,0,"React errors: "+errors.join(";"));
    console.log("PROTOCOLIA_B1_EXACT_DECIMAL_BROWSER_PASS "+JSON.stringify({choice:"needs_service",conditionalRequired:true,mobile:true,jsErrors:0}));

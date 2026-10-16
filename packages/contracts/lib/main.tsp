@@ -17,7 +17,7 @@ namespace ProtocolIA.Domain {
   extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
   // Strict temporal order against another UTC date-time in the same entity.
   extern dec afterField(target: ModelProperty, field: valueof string);
-  // Strict integer comparison against a required sibling.
+  // Strict exact decimal or int32 comparison against a required sibling of the same scalar family.
   extern dec greaterThanField(target: ModelProperty, field: valueof string);
   // Exact decimal, encoded as JSON string; bounds are strings to avoid JS rounding.
   extern dec exactDecimal(target: ModelProperty, precision: valueof int32, scale: valueof int32,

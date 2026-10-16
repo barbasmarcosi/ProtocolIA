@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/b1-exact-decimals-20261015
+      - feature/b1-3c-exact-decimal-order-20261016
     paths:
       - 'packages/**'
       - 'examples/vnext/exact-decimals/**'

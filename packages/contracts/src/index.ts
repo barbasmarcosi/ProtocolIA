@@ -17,7 +17,7 @@ export const $lib = createTypeSpecLibrary({
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
     afterField: {description:"A UTC date-time must be strictly after a required sibling UTC date-time"},
-    greaterThanField: {description:"Strictly greater signed int32 value than a required sibling int32"},
+    greaterThanField: {description:"Strict comparison between typed int32 fields or exact decimal fields"},
     exactDecimal: {description:"Exact base10 precision, scale and string-encoded minimum/maximum bounds"},
     transition: {description:"Atomic business state transition with guarded source/target"},
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},

@@ -63,3 +63,37 @@ test("CREATE DTO cannot weaken a decimal to free text or change precision",()=>{
     return s.slice(0,where)+needle.replace("24, 4","24, 3")+s.slice(where+needle.length);
   },/protocolia-decimal-request-mismatch|protocolia-invalid-exact-decimal/i);
 });
+
+test("portable exact decimal comparisons support different scales, not JS Number",()=>{
+  assert.equal(decimal("priceCeiling").greaterThanField,"unitPrice");
+  assert.equal(decimal("priceCeiling").decimal.scale,4);
+  assert.equal(decimal("quantityLimit").greaterThanField,"quantity");
+  assert.equal(decimal("quantityLimit").decimal.scale,4);
+  assert.equal(decimal("quantity").decimal.scale,6);
+  for(const n of ["priceCeiling","quantityLimit"]){
+    assert.equal(decimal(n).required,false);
+    assert.equal(decimal(n).nullable,false);
+  }
+});
+test("comparison rejects absent, mixed-type, nullable, optional and self source",()=>{
+  rejectMutation("absent source",s=>s.replace('@greaterThanField("unitPrice")','@greaterThanField("missing")'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("mixed scalar",s=>s.replace('@greaterThanField("unitPrice")','@greaterThanField("reading")'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("nullable optional source",s=>s.replace('@greaterThanField("unitPrice")','@greaterThanField("cost")'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("optional source",s=>s.replace('unitPrice: decimal;','unitPrice?: decimal;'),
+    /protocolia-invalid-greater-than-field/);
+  rejectMutation("self source",s=>s.replace('@greaterThanField("unitPrice")','@greaterThanField("priceCeiling")'),
+    /protocolia-invalid-greater-than-field/);
+});
+test("decimal compared HTTP DTOs cannot omit or change precision and scale",()=>{
+  rejectMutation("missing DTO target",s=>{
+    const needle='    priceCeiling?: decimal;',i=s.lastIndexOf(needle);
+    return s.slice(0,i)+s.slice(i+needle.length);
+  },/protocolia-greater-than-request-mismatch|protocolia-decimal-request-mismatch/);
+  rejectMutation("changed DTO scale",s=>{
+    const needle='@exactDecimal(16, 4, "0")',i=s.lastIndexOf(needle);
+    return s.slice(0,i)+needle.replace('16, 4','16, 3')+s.slice(i+needle.length);
+  },/protocolia-greater-than-request-mismatch|protocolia-decimal-request-mismatch/);
+});
