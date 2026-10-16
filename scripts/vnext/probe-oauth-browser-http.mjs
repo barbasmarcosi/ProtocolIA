@@ -16,6 +16,15 @@ const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
 let issuer="";const audience="protocolia-generated-api";
 const key={...publicKey.export({format:"jwk"}),kid:"pkce-test-key",alg:"RS256",use:"sig"};
 const b64=x=>Buffer.from(JSON.stringify(x)).toString("base64url");
+function identityToken(nonce,access,overrides={}){
+ const now=Math.floor(Date.now()/1000);
+ const claims={iss:issuer,aud:"protocolia-browser",sub:"alice",nonce,
+   iat:now,exp:now+1200,
+   at_hash:createHash("sha256").update(access).digest().subarray(0,16).toString("base64url"),
+   ...overrides};
+ const unsigned=b64({alg:"RS256",typ:"JWT",kid:key.kid})+"."+b64(claims);
+ return unsigned+"."+sign("RSA-SHA256",Buffer.from(unsigned),privateKey).toString("base64url");
+}
 function token(subject="alice"){
  const now=Math.floor(Date.now()/1000),h={alg:"RS256",typ:"JWT",kid:key.kid};
  const claims={iss:issuer,aud:audience,sub:subject,iat:now,exp:now+1200,
@@ -65,11 +74,12 @@ try{
       p.get("client_id")!=="protocolia-browser"||
       p.get("redirect_uri")!==callback||p.get("code_challenge_method")!=="S256"||
       !/^[A-Za-z0-9_-]{43,}$/.test(p.get("code_challenge")??"")||
-      !/^[A-Za-z0-9_-]{43,}$/.test(p.get("state")??"")){
+      !/^[A-Za-z0-9_-]{43,}$/.test(p.get("state")??"")||
+     !/^[A-Za-z0-9_-]{43,}$/.test(p.get("nonce")??"")){
      res.writeHead(400);res.end("Invalid authorization request");return;
    }
    const code=randomBytes(24).toString("hex");
-   pending.set(code,p.get("code_challenge"));
+   pending.set(code,{challenge:p.get("code_challenge"),nonce:p.get("nonce")});
    res.writeHead(302,{Location:callback+"?code="+code+"&state="+encodeURIComponent(p.get("state"))+
      "&iss="+encodeURIComponent(issuer),"Cache-Control":"no-store"});
    res.end();return;
@@ -81,7 +91,8 @@ try{
    res.setHeader("Cache-Control","no-store");
    if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
    let raw="";for await(const chunk of req)raw+=chunk.toString();
-   const p=new URLSearchParams(raw),code=p.get("code"),challenge=pending.get(code);
+   const p=new URLSearchParams(raw),code=p.get("code"),transaction=pending.get(code);
+   const challenge=transaction?.challenge;
    pending.delete(code);
    const proof=createHash("sha256").update(p.get("code_verifier")??"").digest("base64url");
    if(!challenge||proof!==challenge||p.get("grant_type")!=="authorization_code"||
@@ -90,7 +101,9 @@ try{
    }
    validPkce=true;exchanges++;
    res.setHeader("Content-Type","application/json");
-   res.end(JSON.stringify({access_token:token(),token_type:"Bearer",expires_in:1200}));return;
+   const access=token();
+   res.end(JSON.stringify({access_token:access,token_type:"Bearer",
+     id_token:identityToken(transaction.nonce,access),expires_in:1200}));return;
   }
   res.writeHead(404);res.end();
  });
@@ -105,6 +118,7 @@ try{
    "PROTOCOLIA_JWT_JWKS_URI=http://host.docker.internal:"+idpPort+"/jwks",
    "PROTOCOLIA_JWT_ALLOW_TEST_HTTP=true",
    "PROTOCOLIA_OIDC_DISCOVERY_REQUIRED=true",
+   "PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED=true",
    "PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT=http://127.0.0.1:"+idpPort+"/authorize",
    "PROTOCOLIA_OIDC_TOKEN_ENDPOINT=http://127.0.0.1:"+idpPort+"/token",
    "PROTOCOLIA_OIDC_CLIENT_ID=protocolia-browser",
@@ -141,6 +155,34 @@ try{
  assert.equal(config.mode,"jwt");assert.equal(config.enabled,true);
  assert.equal(config.redirectUri,callback);
  assert.equal(config.requireIssuerResponse,true);
+ assert.equal(config.requireIdToken,true);
+ // Distinct real signed ID tokens never grant API privileges by themselves.
+ const nonce=randomBytes(32).toString("base64url");
+ const bearer=token();
+ const path=base+"/api/_protocolia/me";
+ const getSession=async(proof,challenge=nonce)=>await fetch(path,{headers:{
+   Authorization:"Bearer "+bearer,
+   "X-ProtocolIA-ID-Token":proof,
+   "X-ProtocolIA-OIDC-Nonce":challenge
+ }});
+ assert.equal((await getSession(identityToken(nonce,bearer))).status,200);
+ for(const options of [
+   [{nonce:"wrong-"+nonce}],
+   [{aud:"wrong-client"}],
+   [{sub:"mallory"}],
+   [{iss:"https://evil.example"}],
+   [{at_hash:"forged"}],
+   [{iat:Math.floor(Date.now()/1000)-4000}]
+ ]){
+   const invalid=identityToken(nonce,bearer,options[0]);
+   assert.equal((await getSession(invalid)).status,401,
+     "Incorrect signed ID token claims must be refused");
+ }
+ assert.equal((await getSession(identityToken(nonce,bearer),randomBytes(32).toString("base64url"))).status,401);
+ const goodIdentity=identityToken(nonce,bearer);
+ const broken=goodIdentity.slice(0,-1)+(goodIdentity.at(-1)==="A"?"B":"A");
+ assert.equal((await getSession(broken)).status,401,"Bad ID token signature must be rejected");
+ assert.equal((await getSession("")).status,401,"Missing ID token rejected");
  const {chromium}=await import("playwright");
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
@@ -205,7 +247,8 @@ try{
    signedAccessToken:true,callbackState:true,noTokenStorage:true,
    forgedCallbackRejected:true,generatedCreate:true,mobile:true,
    protectedRequest401EndsSession:true,reauthentication:true,stale401Isolated:true,
-   oidcDiscoveryBound:true,issuerMismatchFailsStartup:true,issuerResponseRequired:true
+   oidcDiscoveryBound:true,issuerMismatchFailsStartup:true,issuerResponseRequired:true,
+   signedIdToken:true,nonceBinding:true,subjectAndAudienceValidated:true,atHashValidated:true
  }));
 }finally{
  if(running)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
