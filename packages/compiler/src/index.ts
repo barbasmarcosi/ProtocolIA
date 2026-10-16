@@ -62,6 +62,7 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     ...(spec?{decimal:{precision:Number(spec.precision),scale:Number(spec.scale),
       ...(spec.min!==undefined?{min:String(spec.min)}:{}),
       ...(spec.max!==undefined?{max:String(spec.max)}:{})}}:{}),
+    ...(metadata(p,"afterField",prop)?{afterField:String(metadata(p,"afterField",prop)?.field)}:{}),
     ...(metadata(p,"requiredWhen",prop)?{requiredWhen:{
       field:String(metadata(p,"requiredWhen",prop)?.field),
       equals:String(metadata(p,"requiredWhen",prop)?.equals)
@@ -160,6 +161,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-initial",m.name+"."+prop.name+" requires a valid required string state field",prop);
       }
       fields.push(value);
+    }
+    // Declarative strict UTC chronology; disallow identity/reference/computed fields.
+    for(const end of fields.filter(f=>f.afterField!==undefined)){
+      const source=fields.find(f=>f.name===end.afterField);
+      if(!source||!end.afterField||!/^[A-Za-z][A-Za-z0-9_]*$/.test(end.afterField)||
+        source===end||source.type!=="utcDateTime"||!source.required||source.nullable||
+        source.afterField||end.type!=="utcDateTime"||end.nullable||
+        end.unique||end.reference||end.initial||end.computedSum||end.requiredWhen||
+        end.choices||end.decimal||metadata(p,"publicIdentity",
+          m.properties.get(end.name)!)||
+        fields.filter(f=>f.afterField!==undefined).length>3)
+        reject("invalid-after-field",m.name+"."+end.name+
+          " must be a UTC date-time after a required, nonnullable sibling UTC date-time",m);
     }
     // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
     for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
@@ -498,6 +512,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
+    }
+    // Create payloads must preserve time types and optionality for ordering rules.
+    if(kind==="create"){
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      let mismatch=false;
+      for(const order of entity.fields.filter(field=>field.afterField!==undefined)){
+        for(const expected of [order,entity.fields.find(field=>field.name===order.afterField)!]){
+          const actual=props?.get(expected.name);
+          const parsed=actual?typeOfField(actual):undefined;
+          if(!actual||parsed?.type!=="utcDateTime"||parsed.nullable!==expected.nullable||
+             actual.optional===expected.required){
+            reject("after-field-request-mismatch",op.name+" cannot weaken temporal field "+expected.name,op);
+            mismatch=true;break;
+          }
+        }
+        if(mismatch)break;
+      }
+      if(mismatch)continue;
     }
     // Exact decimal fields must retain encoding and constraints in CREATE input DTOs.
     if(kind==="create"){
