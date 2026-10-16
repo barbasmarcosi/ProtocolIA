@@ -32,6 +32,27 @@ function valueFor(field, identity=false){
   if(field.initial!==undefined)return field.initial;
   if(field.type==="utcDateTime")return "2026-10-13T00:00:00Z";
   if(field.type==="int32")return Math.max(field.min??0, identity?0:2);
+  if(field.type==="decimal"){
+    // This oracle writes only in disposable Compose environments. Never use JS Number
+    // for exact value generation: compare fixed-scale integer units instead.
+    const d=field.decimal;
+    if(!d||!Number.isInteger(d.scale)||!Number.isInteger(d.precision))
+      throw Error("Unresolved decimal precision and scale "+field.name);
+    const units=value=>{
+      const negative=value.startsWith("-");
+      const [whole,fraction=""]=(negative?value.slice(1):value).split(".");
+      return BigInt((negative?"-":"")+whole+fraction.padEnd(d.scale,"0"));
+    };
+    const maxInt=BigInt("9".repeat(d.precision-d.scale)||"0");
+    const defaultValue=(d.precision-d.scale>0?"2":"0")+
+      (d.scale>0?"."+"0".repeat(d.scale):"");
+    const maxValue=maxInt.toString()+(d.scale>0?"."+"9".repeat(d.scale):"");
+    let candidate=defaultValue;
+    if(d.min!==undefined&&units(candidate)<units(d.min))candidate=d.min;
+    if(d.max!==undefined&&units(candidate)>units(d.max))candidate=d.max;
+    if(units(candidate)>units(maxValue))throw Error("Unrepresentable decimal fixture "+field.name);
+    return candidate;
+  }
   if(field.type!=="string")throw Error("Unsupported fixture field "+field.name);
   if(field.pattern!==undefined){
     const supported="^[0-9]{4}-(0[1-9]|1[0-2])$";
