@@ -196,7 +196,11 @@ public class BffSession {
   @GetMapping("/api/_protocolia/bff/login")
   public void login(HttpServletResponse response)throws IOException{
     noStore(response);
-    response.sendRedirect("/oauth2/authorization/protocolia");
+    // Servlet sendRedirect() can expand a relative URL using the internal
+    // HTTP connection behind TLS termination. Use the operator-pinned
+    // external OIDC callback origin, not arbitrary Forwarded headers.
+    response.setStatus(HttpServletResponse.SC_FOUND);
+    response.setHeader("Location",origin+"/oauth2/authorization/protocolia");
   }
   @GetMapping("/api/_protocolia/bff/session")
   public Map<String,Object> session(HttpServletRequest req,HttpServletResponse res){
