@@ -424,6 +424,8 @@ export default function App(){
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
   const [auth,setAuth]=useState("");
+  const [authConfig,setAuthConfig]=useState(null);
+  const callbackOnce=useRef(false);
   const [capabilities,setCapabilities]=useState([]);
   const [loginError,setLoginError]=useState("");
   const [loginBusy,setLoginBusy]=useState(false);
@@ -460,6 +462,31 @@ export default function App(){
   const [error,setError]=useState("");
   const [fieldErrors,setFieldErrors]=useState({});
   const [notice,setNotice]=useState("");
+  useEffect(()=>{
+    fetch("/api/_protocolia/auth/config",{cache:"no-store"}).then(async response=>{
+      if(!response.ok)throw Error("No se pudo consultar la configuración de autenticación.");
+      const value=await response.json();
+      if(!["demo","jwt"].includes(value.mode)||typeof value.enabled!=="boolean")
+        throw Error("Configuración de autenticación inválida.");
+      setAuthConfig(value);
+    }).catch(error=>setStartupError(error.message));
+  },[]);
+  useEffect(()=>{
+    if(!authConfig?.enabled||!hasPkceResponse()||callbackOnce.current)return;
+    callbackOnce.current=true;
+    setLoginBusy(true);setLoginError("");
+    finishPkce(authConfig).then(async authorization=>{
+      if(!authorization)throw Error("No se recibió una autorización.");
+      const response=await fetch("/api/_protocolia/me",{
+        headers:{Authorization:authorization},cache:"no-store"});
+      if(!response.ok)throw Error("El servidor no aceptó la identidad del proveedor.");
+      const session=await response.json();
+      if(!Array.isArray(session.capabilities))throw Error("Permisos de sesión inválidos.");
+      setCapabilities(session.capabilities);setAuth(authorization);
+    }).catch(error=>{
+      setAuth("");setCapabilities([]);setLoginError(error.message);
+    }).finally(()=>setLoginBusy(false));
+  },[authConfig]);
   useEffect(()=>{fetch("/protocolia-ui.json").then(async r=>{
     if(!r.ok)throw Error("Missing generated UI manifest");
     return r.json();
@@ -468,7 +495,7 @@ export default function App(){
     navSession.current=Math.random().toString(36).slice(2)+Date.now().toString(36);
     navPosition.current=0;
     const url=workspaceUrl(resource,view);
-    window.history.replaceState({...window.history.state,
+    if(!hasPkceResponse())window.history.replaceState({...window.history.state,
       __protocoliaNavigation:{session:navSession.current,position:0}},"",url);
     navHref.current=url;resourceViews.current[resource.entity.name]=view;
     setResourceIndex(view.resourceIndex);setOffset(view.offset);
@@ -767,12 +794,17 @@ export default function App(){
       const session=await response.json();
       if(!Array.isArray(session.capabilities))throw Error("Invalid server capability response");
       setCapabilities(session.capabilities);
-      setAuth(candidate);
+      setAuth("Basic "+candidate);
       setPassword("");
     }catch{
       setAuth("");setCapabilities([]);
       setLoginError("Credenciales incorrectas o servicio no disponible");
     }finally{setLoginBusy(false);}
+  }
+  async function startExternalLogin(){
+    setLoginBusy(true);setLoginError("");
+    try{await beginPkce(authConfig);}
+    catch(error){setLoginError(error.message);setLoginBusy(false);}
   }
   function logOut(){
     listRequestEpoch.current++;
@@ -819,7 +851,7 @@ export default function App(){
     }finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
-  if(!config)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
+  if(!config||!authConfig)return <main className="startup-loading"><LoadingIndicator message="Preparando aplicación…"/></main>;
   return <main className="shell">
     <header className="app-header">
       <div className="app-heading"><div className="app-eyebrow"><span className="brand-mark" aria-hidden="true">P</span>
@@ -831,9 +863,14 @@ export default function App(){
     </header>
     {!auth?<section className="panel login"><h2>Ingresar</h2>
       {loginError&&<p className="message error" role="alert">{loginError}</p>}
-      <form onSubmit={logIn}><label className="field"><span>Usuario</span><input data-testid="username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
+      {authConfig.mode==="jwt"?<>
+        {authConfig.enabled?<button type="button" disabled={loginBusy}
+          data-testid="login-provider" onClick={startExternalLogin}>
+          {loginBusy?<LoadingIndicator message="Verificando identidad… " compact/>:"Ingresar con proveedor de identidad"}
+        </button>:<p role="alert" className="message error">El inicio de sesión externo todavía no está configurado para esta aplicación.</p>}
+      </>:<form onSubmit={logIn}><label className="field"><span>Usuario</span><input data-testid="username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required/></label>
       <label className="field"><span>Contraseña</span><input data-testid="password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>
-      <button type="submit" disabled={loginBusy}>{loginBusy?<LoadingIndicator message="Verificando… " compact/>:"Entrar"}</button></form></section>:
+      <button type="submit" disabled={loginBusy}>{loginBusy?<LoadingIndicator message="Verificando… " compact/>:"Entrar"}</button></form>}</section>:
       <>
       {(config.resources??[]).filter(r=>r.operations.inboxPage).map(r=><NotificationInbox
         key={auth+":"+r.entity.name} operations={r.operations} auth={auth} capabilities={capabilities}/>)}
