@@ -845,6 +845,36 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
     }
+    // A business key is not a UI-only hint: CREATE must preserve the required
+    // types and boundaries, while PATCH remains unsupported until its 409 path
+    // is uniformly translated in both runtimes.
+    if(kind==="patchFields"&&entity.uniqueTogether?.includes(f??"")){
+      reject("unique-together-patch-unsupported",op.name+
+        " cannot patch compound-key fields without a guarded conflict handler",op);
+      continue;
+    }
+    if(kind==="create"&&entity.uniqueTogether){
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      let mismatch=false;
+      for(const name of entity.uniqueTogether){
+        const expected=entity.fields.find(x=>x.name===name)!;
+        if(expected.ownerManaged)continue; // Server binds authenticated owner.
+        const actualProp=props?.get(name);
+        const actual=actualProp?field(p,actualProp):undefined;
+        if(!actual||actual.type!==expected.type||!actual.required||actual.nullable||
+          actual.minLength!==expected.minLength||actual.maxLength!==expected.maxLength||
+          actual.min!==expected.min||actual.max!==expected.max||
+          JSON.stringify(actual.decimal)!==JSON.stringify(expected.decimal)||
+          JSON.stringify(actual.choices)!==JSON.stringify(expected.choices)||
+          actual.pattern!==expected.pattern){
+          reject("unique-together-request-mismatch",op.name+
+            " must preserve compound unique key field "+name+" in CREATE DTO",op);
+          mismatch=true;break;
+        }
+      }
+      if(mismatch)continue;
+    }
     // Create payloads must preserve time types and optionality for ordering rules.
     if(kind==="create"){
       const request=op.parameters.properties.get("input")?.type;
