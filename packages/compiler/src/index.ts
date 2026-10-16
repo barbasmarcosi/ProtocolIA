@@ -1,5 +1,5 @@
 import {
-  emitFile, getMinLength, getMaxLength, getMinValue,
+  emitFile, getEncode, getMinLength, getMaxLength, getMinValue,
   getMaxValue, getPattern, navigateProgram, resolvePath,
   type EmitContext, type Model, type ModelProperty, type Operation, type Type,
   type Program,
@@ -37,18 +37,31 @@ function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: bo
   }
   if (t.kind !== "Scalar") return null;
   const names: Record<string, IrField["type"]> = {
-    string: "string", int32: "int32", utcDateTime: "utcDateTime",
+    string: "string", int32: "int32", utcDateTime: "utcDateTime", decimal: "decimal",
   };
   return names[t.name] ? { type: names[t.name], nullable } : null;
+}
+
+// No Number conversion is allowed for semantic decimal comparisons, including contract bounds.
+function decimalUnits(s:string,scale:number): bigint | undefined {
+  if(!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(s))return undefined;
+  const negative=s.startsWith("-");
+  const [whole,fraction=""]=(negative?s.slice(1):s).split(".");
+  if(fraction.length>scale)return undefined;
+  return BigInt((negative?"-":"")+whole+fraction.padEnd(scale,"0"));
 }
 
 function field(p: Program, prop: ModelProperty): IrField | null {
   const parsed = typeOfField(prop);
   if (!parsed) return null;
+  const spec=metadata(p,"exactDecimal",prop);
   return {
     name: prop.name, type: parsed.type, required: !prop.optional,
     nullable: parsed.nullable, unique: !!metadata(p,"unique",prop),
     ...(parsed.choices?{choices:parsed.choices}:{}),
+    ...(spec?{decimal:{precision:Number(spec.precision),scale:Number(spec.scale),
+      ...(spec.min!==undefined?{min:String(spec.min)}:{}),
+      ...(spec.max!==undefined?{max:String(spec.max)}:{})}}:{}),
     ...(metadata(p,"requiredWhen",prop)?{requiredWhen:{
       field:String(metadata(p,"requiredWhen",prop)?.field),
       equals:String(metadata(p,"requiredWhen",prop)?.equals)
@@ -65,8 +78,8 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     ...(getMinLength(p,prop) !== undefined ? {minLength:getMinLength(p,prop)} : {}),
     ...(getMaxLength(p,prop) !== undefined ? {maxLength:getMaxLength(p,prop)} : {}),
     ...(getPattern(p,prop) !== undefined ? {pattern:getPattern(p,prop)} : {}),
-    ...(getMinValue(p,prop) !== undefined ? {min:getMinValue(p,prop)} : {}),
-    ...(getMaxValue(p,prop) !== undefined ? {max:getMaxValue(p,prop)} : {}),
+    ...(parsed.type!=="decimal"&&getMinValue(p,prop) !== undefined ? {min:getMinValue(p,prop)} : {}),
+    ...(parsed.type!=="decimal"&&getMaxValue(p,prop) !== undefined ? {max:getMaxValue(p,prop)} : {}),
   };
 }
 
@@ -99,6 +112,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if(value.type==="decimal"){
+        const d=value.decimal,encoding=getEncode(p,prop);
+        const valid=!!d&&Number.isInteger(d.precision)&&d.precision>=1&&d.precision<=38&&
+          Number.isInteger(d.scale)&&d.scale>=0&&d.scale<=d.precision&&
+          (d.min===undefined||decimalUnits(d.min,d.scale)!==undefined)&&
+          (d.max===undefined||decimalUnits(d.max,d.scale)!==undefined)&&
+          (d.min===undefined||d.min.replace(/^-?(\d+)/,(_,n)=>n.replace(/^0+/,"")).length<=d.precision)&&
+          (d.max===undefined||d.max.replace(/^-?(\d+)/,(_,n)=>n.replace(/^0+/,"")).length<=d.precision)&&
+          (d.min===undefined||d.max===undefined||decimalUnits(d.min,d.scale)!<=decimalUnits(d.max,d.scale)!)&&
+          d.minLength===undefined;
+        if(!valid||encoding?.type.name!=="string"||encoding.encoding!==undefined||
+           d!.precision-d!.scale<0||getMinValue(p,prop)!==undefined||getMaxValue(p,prop)!==undefined||
+           value.unique||value.reference||value.initial||value.computedSum||value.choices||value.requiredWhen||
+           value.minLength!==undefined||value.maxLength!==undefined||value.pattern!==undefined||
+           metadata(p,"publicIdentity",prop))
+          reject("invalid-exact-decimal",m.name+"."+prop.name+
+            " requires decimal with @encode(string), @exactDecimal(precision,scale,min?,max?) and valid exact bounds",prop);
+      }else if(value.decimal||metadata(p,"exactDecimal",prop))
+        reject("invalid-exact-decimal",m.name+"."+prop.name+" @exactDecimal requires TypeSpec decimal",prop);
       if(value.uiLabel!==undefined&&(value.uiLabel.trim()!==value.uiLabel||
          !value.uiLabel.length||value.uiLabel.length>90||/[\r\n<>]/.test(value.uiLabel)))
         reject("invalid-ui-label",m.name+"."+prop.name+" uiLabel must be a single-line 1..90 character display caption",prop);
@@ -466,6 +498,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     if (kind === "create" && (!statuses.includes(201) || http.verb !== "post")) {
       reject("create-http",op.name+" must POST and return 201",op);continue;
+    }
+    // Exact decimal fields must retain encoding and constraints in CREATE input DTOs.
+    if(kind==="create"){
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      let mismatch=false;
+      for(const exact of entity.fields.filter(field=>field.type==="decimal")){
+        const dto=props?.get(exact.name);
+        const actual=dto?field(p,dto):undefined;
+        const expected=exact.decimal;
+        const encoding=dto?getEncode(p,dto):undefined;
+        if(!dto||!actual||actual.type!=="decimal"||
+           dto.optional!==!exact.required||actual.nullable!==exact.nullable||
+           JSON.stringify(actual.decimal)!==JSON.stringify(expected)||
+           encoding?.type.name!=="string"||encoding.encoding!==undefined){
+          reject("decimal-request-mismatch",op.name+" must preserve decimal encoding and exact bounds for "+exact.name,op);
+          mismatch=true;break;
+        }
+      }
+      if(mismatch)continue;
     }
     // Source-declared enum membership must not be weakened in an HTTP request DTO.
     if(kind==="create"||kind==="patchFields"){

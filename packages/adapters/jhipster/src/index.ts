@@ -4,12 +4,14 @@
  */
 export interface IrField {
   name: string;
-  type: "string" | "int32" | "utcDateTime";
+  type: "string" | "int32" | "utcDateTime" | "decimal";
   required: boolean;
   nullable: boolean;
   unique: boolean;
   min?: number;
   max?: number;
+  /** Exact decimal semantic constraints; values never pass through JS Number. */
+  decimal?: {precision:number;scale:number;min?:string;max?:string};
   minLength?: number;
   maxLength?: number;
   /** Portable authoritative year-month pattern from standard TypeSpec. */
@@ -82,7 +84,7 @@ function fieldToJdl(field: IrField): string {
     throw new Error("JDL cannot express a required-but-nullable field: " + field.name);
   }
   const kind: Record<IrField["type"], string> = {
-    string: "String", int32: "Integer", utcDateTime: "Instant",
+    string: "String", int32: "Integer", utcDateTime: "Instant", decimal: "BigDecimal",
   };
   const parts = [identifier(field.name), kind[field.type]];
   if (field.required) parts.push("required");

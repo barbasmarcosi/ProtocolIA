@@ -15,6 +15,9 @@ namespace ProtocolIA.Domain {
   extern dec computedSum(target: ModelProperty, fields: valueof string);
   // A string field is mandatory when an enum-valued sibling equals a declared value.
   extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
+  // Exact decimal, encoded as JSON string; bounds are strings to avoid JS rounding.
+  extern dec exactDecimal(target: ModelProperty, precision: valueof int32, scale: valueof int32,
+    min?: valueof string, max?: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
