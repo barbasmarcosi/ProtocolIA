@@ -389,6 +389,7 @@ export function generate(ir,spec,out){
   mkdirSync(join(out,"src/migrations"),{recursive:true});
   copy("src/main.ts",join(root,"templates/main.ts"));
   copy("src/BffSession.ts",join(root,"templates/BffSession.ts"));
+  copy("src/BffKeyring.ts",join(root,"templates/BffKeyring.ts"));
   write("package.json",JSON.stringify({name:"protocolia-nest-generated",
     private:true,version:"0.0.1",
     scripts:{build:"tsc -p tsconfig.json",start:"node dist/main.js"},
@@ -438,6 +439,8 @@ export function generate(ir,spec,out){
     "PROTOCOLIA_BFF_ENABLED=false",
     "# Concurrent-safe expired BFF session cleanup, default 5 minutes.",
     "PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS=300000","PROTOCOLIA_BFF_ENCRYPTION_KEY=",
+    "# Optional comma-separated retired keys for transitional decryption only (max 3).",
+    "PROTOCOLIA_BFF_DECRYPTION_KEYS=",
     "PROTOCOLIA_OIDC_BFF_REDIRECT_URI=",
     "PROTOCOLIA_ALLOW_DEMO_AUTH=false",
     "PROTOCOLIA_READER_USERNAME=reader","PROTOCOLIA_READER_PASSWORD=",
@@ -476,6 +479,7 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_BFF_ENABLED: ${PROTOCOLIA_BFF_ENABLED:-false}',
     '      PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS: ${PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS:-300000}',
     '      PROTOCOLIA_BFF_ENCRYPTION_KEY: ${PROTOCOLIA_BFF_ENCRYPTION_KEY:-}',
+    '      PROTOCOLIA_BFF_DECRYPTION_KEYS: ${PROTOCOLIA_BFF_DECRYPTION_KEYS:-}',
     '      PROTOCOLIA_OIDC_BFF_REDIRECT_URI: ${PROTOCOLIA_OIDC_BFF_REDIRECT_URI:-}',
     '      PROTOCOLIA_ALLOW_DEMO_AUTH: ${PROTOCOLIA_ALLOW_DEMO_AUTH:-false}',
     '      PROTOCOLIA_READER_USERNAME: ${PROTOCOLIA_READER_USERNAME:-reader}',
