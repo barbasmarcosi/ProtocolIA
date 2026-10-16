@@ -20,6 +20,9 @@ namespace ProtocolIA.Domain {
   // Output scale is @exactDecimal(...). PostgreSQL half-up is defined for nonnegative products.
   extern dec computedRoundedProduct(target: ModelProperty, left: valueof string,
     right: valueof string, mode: valueof string);
+  // Compound SQL expression over editable sources; not generated-column chaining.
+  extern dec computedDiscountedTotal(target: ModelProperty, price: valueof string,
+    quantity: valueof string, discount: valueof string, mode: valueof string);
   // A string field is mandatory when an enum-valued sibling equals a declared value.
   extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
   // Strict temporal order against another UTC date-time in the same entity.

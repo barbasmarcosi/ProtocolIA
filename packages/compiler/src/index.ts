@@ -84,6 +84,12 @@ function field(p: Program, prop: ModelProperty): IrField | null {
       right:String(metadata(p,"computedRoundedProduct",prop)?.right),
       mode:String(metadata(p,"computedRoundedProduct",prop)?.mode) as "half_up"
     }} : {}),
+    ...(metadata(p,"computedDiscountedTotal",prop) ? {computedDiscountedTotal:{
+      price:String(metadata(p,"computedDiscountedTotal",prop)?.price),
+      quantity:String(metadata(p,"computedDiscountedTotal",prop)?.quantity),
+      discount:String(metadata(p,"computedDiscountedTotal",prop)?.discount),
+      mode:String(metadata(p,"computedDiscountedTotal",prop)?.mode) as "half_up"
+    }} : {}),
     ...(metadata(p,"reference",prop) ? {reference:{
       target:String(metadata(p,"reference",prop)?.entity),
       onDelete:String(metadata(p,"reference",prop)?.onDelete) as "restrict"
@@ -125,6 +131,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       if (metadata(p,"publicIdentity",prop)) publicKeys.push(prop.name);
+      if(value.computedDiscountedTotal!==undefined&&value.type!=="decimal")
+        reject("invalid-computed-discounted-total",m.name+"."+prop.name+" total must be exact decimal",prop);
       if(value.computedRoundedProduct!==undefined&&value.type!=="decimal")
         reject("invalid-computed-rounded-product",m.name+"."+prop.name+" target must be exact decimal",prop);
       if(value.computedProduct!==undefined&&value.type!=="decimal")
@@ -235,10 +243,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         left.type!=="decimal"||right.type!=="decimal"||result.type!=="decimal"||
         !left.required||!right.required||left.nullable||right.nullable||
         !result.required||result.nullable||result.unique||result.reference||
-        result.initial!==undefined||result.computedSum||result.computedRoundedProduct||result.requiredWhen||
+        result.initial!==undefined||result.computedSum||result.computedRoundedProduct||result.computedDiscountedTotal||result.requiredWhen||
         result.afterField||result.greaterThanField||
         left.computedProduct||right.computedProduct||left.computedRoundedProduct||
-        right.computedRoundedProduct||left.computedSum||right.computedSum||
+        right.computedRoundedProduct||left.computedDiscountedTotal||right.computedDiscountedTotal||
+        left.computedSum||right.computedSum||
         left.reference||right.reference||left.greaterThanField||right.greaterThanField||
         !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
         a.precision+b.precision>38||c.precision!==a.precision+b.precision||
@@ -261,9 +270,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
         left.type!=="decimal"||right.type!=="decimal"||result.type!=="decimal"||
         !left.required||!right.required||left.nullable||right.nullable||
         !result.required||result.nullable||result.unique||result.reference||
-        result.initial!==undefined||result.computedSum||result.computedProduct||
+        result.initial!==undefined||result.computedSum||result.computedProduct||result.computedDiscountedTotal||
         result.requiredWhen||result.afterField||result.greaterThanField||
         left.computedRoundedProduct||right.computedRoundedProduct||
+        left.computedDiscountedTotal||right.computedDiscountedTotal||
         left.computedProduct||right.computedProduct||left.computedSum||right.computedSum||
         left.reference||right.reference||left.greaterThanField||right.greaterThanField||
         !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
@@ -273,6 +283,34 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-computed-rounded-product",m.name+"."+result.name+
           " requires distinct required nonnegative decimal fields, explicit half_up mode, "+
           "scale reduction and output precision with a carry digit (max 38)",m);
+    }
+    // B2.3: a single generated PostgreSQL column, never a generated-on-generated dependency.
+    for(const total of fields.filter(f=>f.computedDiscountedTotal!==undefined)){
+      const rule=total.computedDiscountedTotal!;
+      const names=[rule.price,rule.quantity,rule.discount];
+      const values=names.map(name=>fields.find(f=>f.name===name));
+      const [price,quantity,discount]=values;
+      const a=price?.decimal,b=quantity?.decimal,d=discount?.decimal,out=total.decimal;
+      const digits=a&&b?a.precision-a.scale+b.precision-b.scale+1:undefined;
+      const invalidInput=(f:IrField|undefined)=>!f||f.type!=="decimal"||
+        !f.required||f.nullable||f.reference||f.computedSum||f.computedProduct||
+        f.computedRoundedProduct||f.computedDiscountedTotal||f.afterField||
+        f.greaterThanField||f.requiredWhen;
+      if(!names.every(n=>/^[A-Za-z][A-Za-z0-9_]*$/.test(n))||
+        new Set(names).size!==3||rule.mode!=="half_up"||names.includes(total.name)||
+        values.some(invalidInput)||!a||!b||!d||!out||
+        a.min!=="0"||b.min!=="0"||d.min!=="0"||d.max!=="100"||
+        total.type!=="decimal"||!total.required||total.nullable||total.unique||
+        total.reference||total.initial!==undefined||total.computedSum||
+        total.computedProduct||total.computedRoundedProduct||
+        total.requiredWhen||total.afterField||total.greaterThanField||
+        out.min!=="0"||out.max!==undefined||
+        out.scale>=a.scale+b.scale+d.scale+2||
+        out.precision!==digits!+out.scale||out.precision>38||
+        metadata(p,"publicIdentity",m.properties.get(total.name)!))
+        reject("invalid-computed-discounted-total",m.name+"."+total.name+
+          " requires three distinct required decimal sources, 0..100 percent, "+
+          "explicit half_up and carry-safe target precision up to 38",m);
     }
     // Conditional requirements are narrowly scoped, typed constraints, not arbitrary expressions.
     for(const conditionField of fields.filter(x=>x.requiredWhen!==undefined)){
@@ -663,7 +701,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
-      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct&&!field.computedRoundedProduct)){
+      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal)){
         const dto=props?.get(exact.name);
         const actual=dto?field(p,dto):undefined;
         const expected=exact.decimal;
@@ -677,7 +715,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         }
       }
       if(mismatch)continue;
-      for(const computed of entity.fields.filter(field=>field.computedProduct||field.computedRoundedProduct))
+      for(const computed of entity.fields.filter(field=>field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal))
         if(props?.has(computed.name)){
           reject("computed-product-request",op.name+
             " must not accept read-only computed field "+computed.name,op);

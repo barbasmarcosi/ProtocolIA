@@ -10,7 +10,7 @@ function units(value,scale){
 }
 export function assertDecimalField(field,identity){
   if(field.type!=="decimal"){
-    if(field.decimal!==undefined||field.computedProduct!==undefined||field.computedRoundedProduct!==undefined)throw Error("Unbound exact decimal metadata "+identity);
+    if(field.decimal!==undefined||field.computedProduct!==undefined||field.computedRoundedProduct!==undefined||field.computedDiscountedTotal!==undefined)throw Error("Unbound exact decimal metadata "+identity);
     return;
   }
   const d=field.decimal;
@@ -42,10 +42,11 @@ export function assertComputedProduct(field,entity){
      left.type!=="decimal"||right.type!=="decimal"||field.type!=="decimal"||
      !left.required||!right.required||left.nullable||right.nullable||
      !field.required||field.nullable||field.unique||field.reference||
-     field.initial!==undefined||field.computedSum||field.computedRoundedProduct||field.requiredWhen||
+     field.initial!==undefined||field.computedSum||field.computedRoundedProduct||field.computedDiscountedTotal||field.requiredWhen||
      field.afterField||field.greaterThanField||
      left.computedProduct||right.computedProduct||left.computedRoundedProduct||
-     right.computedRoundedProduct||left.computedSum||right.computedSum||
+     right.computedRoundedProduct||left.computedDiscountedTotal||right.computedDiscountedTotal||
+     left.computedSum||right.computedSum||
      left.reference||right.reference||left.greaterThanField||right.greaterThanField||
      !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||
      a.precision+b.precision>38||c.precision!==a.precision+b.precision||
@@ -66,14 +67,40 @@ export function assertComputedRoundedProduct(field,entity){
      left.type!=="decimal"||right.type!=="decimal"||field.type!=="decimal"||
      !left.required||!right.required||left.nullable||right.nullable||
      !field.required||field.nullable||field.unique||field.reference||
-     field.initial!==undefined||field.computedSum||field.computedProduct||
+     field.initial!==undefined||field.computedSum||field.computedProduct||field.computedDiscountedTotal||
      field.requiredWhen||field.afterField||field.greaterThanField||
      left.computedProduct||right.computedProduct||left.computedRoundedProduct||
-     right.computedRoundedProduct||left.computedSum||right.computedSum||
+     right.computedRoundedProduct||left.computedDiscountedTotal||right.computedDiscountedTotal||
+     left.computedSum||right.computedSum||
      left.reference||right.reference||left.greaterThanField||right.greaterThanField||
      !a||!b||!c||a.min!=="0"||b.min!=="0"||c.min!=="0"||c.max!==undefined||
      c.scale>=a.scale+b.scale||c.precision!==integerDigits+c.scale||c.precision>38)
     throw Error("Invalid rounded decimal product "+entity.name+"."+field.name);
+}
+// Both generators must reject invalid handwritten IR without trusting the compiler.
+export function assertComputedDiscountedTotal(field,entity){
+  if(field.computedDiscountedTotal===undefined)return;
+  const rule=field.computedDiscountedTotal;
+  const names=[rule?.price,rule?.quantity,rule?.discount];
+  const values=names.map(n=>entity.fields.find(f=>f.name===n));
+  const [price,quantity,discount]=values;
+  const [a,b,d]=values.map(v=>v?.decimal),out=field.decimal;
+  const digits=a&&b?a.precision-a.scale+b.precision-b.scale+1:undefined;
+  const invalidInput=f=>!f||f.type!=="decimal"||!f.required||f.nullable||
+    f.reference||f.computedSum||f.computedProduct||f.computedRoundedProduct||
+    f.computedDiscountedTotal||f.afterField||f.greaterThanField||f.requiredWhen;
+  if(names.some(n=>typeof n!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(n))||
+     new Set(names).size!==3||rule?.mode!=="half_up"||names.includes(field.name)||
+     values.some(invalidInput)||!a||!b||!d||!out||
+     a.min!=="0"||b.min!=="0"||d.min!=="0"||d.max!=="100"||
+     field.type!=="decimal"||!field.required||field.nullable||field.unique||
+     field.reference||field.initial!==undefined||field.computedSum||
+     field.computedProduct||field.computedRoundedProduct||
+     field.requiredWhen||field.afterField||field.greaterThanField||
+     out.min!=="0"||out.max!==undefined||
+     out.scale>=a.scale+b.scale+d.scale+2||
+     out.precision!==digits+out.scale||out.precision>38)
+    throw Error("Invalid discounted total "+entity.name+"."+field.name);
 }
 export function decimalSql(field,column){
   const d=field.decimal;
@@ -92,7 +119,7 @@ export function assertDecimalWireSchema(spec,op,entity){
   const http=spec.paths?.[op.path]?.[op.method.toLowerCase()];
   const body=deref(http?.requestBody);
   const model=deref(body?.content?.["application/json"]?.schema);
-  for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct&&!f.computedRoundedProduct)){
+  for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal)){
     const property=deref(model?.properties?.[f.name]);
     // A required/optional decimal must be a JSON string (and never a JSON number).
     const leaf=property?.anyOf?.find(x=>deref(x)?.type==="string")??property?.oneOf?.find(x=>deref(x)?.type==="string")??property;
