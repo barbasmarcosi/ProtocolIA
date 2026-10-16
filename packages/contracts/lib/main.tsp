@@ -13,6 +13,8 @@ namespace ProtocolIA.Domain {
   extern dec uiControl(target: ModelProperty, control: valueof string);
   extern dec initial(target: ModelProperty, value: valueof string);
   extern dec computedSum(target: ModelProperty, fields: valueof string);
+  // A string field is mandatory when an enum-valued sibling equals a declared value.
+  extern dec requiredWhen(target: ModelProperty, field: valueof string, equals: valueof string);
   extern dec transition(target: Operation, from: valueof string, to: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
