@@ -182,8 +182,8 @@ try{
     await page.getByTestId("login-provider").click({noWaitAfter:true});
     const authorizationRequest=await intercepted;
     const pendingCookies=await page.context().cookies(base);
-    assert.ok(pendingCookies.some(c=>c.name==="JSESSIONID"&&c.httpOnly),
-      "Spring OAuth transaction must issue a server-owned JSESSIONID");
+    assert.ok(pendingCookies.some(c=>c.name==="SESSION"&&c.httpOnly),
+      "Spring Session JDBC must issue an HttpOnly SESSION cookie");
     const durableCount=Number(docker([...args,"exec","-T","db","psql",
       "-U","protocolia","-d","protocolia","-Atc",
       "SELECT COUNT(*) FROM SPRING_SESSION"],15000).trim());
