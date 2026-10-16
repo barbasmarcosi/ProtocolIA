@@ -15,6 +15,7 @@ export const $lib = createTypeSpecLibrary({
     uiControl: {description:"Display-only input control hint, no business semantic change"},
     initial: {description:"Initial immutable state for a finite-state field"},
     computedSum: {description:"Read-only bounded sum of required integer fields"},
+    requiredWhen: {description:"Require an optional field when a sibling enum matches its source-declared value"},
     transition: {description:"Atomic business state transition with guarded source/target"},
     reserve: {description:"Atomic checked stock debit and referenced reservation insert"},
     release: {description:"Exactly-once guarded cancellation and transactional stock restoration"},
@@ -64,6 +65,10 @@ function initial(context: DecoratorContext, target: ModelProperty, value: string
 
 function computedSum(context: DecoratorContext, target: ModelProperty, fields: string): void {
   context.program.stateMap($lib.stateKeys.computedSum).set(target,{fields});
+}
+
+function requiredWhen(context: DecoratorContext, target: ModelProperty, field: string, equals: string): void {
+  context.program.stateMap($lib.stateKeys.requiredWhen).set(target,{field,equals});
 }
 
 function transition(context: DecoratorContext, target: Operation, from: string, to: string): void {
@@ -123,6 +128,7 @@ export const $decorators = {
     uiControl,
     initial,
     computedSum,
+    requiredWhen,
     transition,
     reserve,
     release,
