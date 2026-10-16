@@ -77,6 +77,17 @@ namespace GaugeRegistry {
     @computedRoundedProduct("unitRate","batchUnits","half_up")
     roundedTotal: decimal;
 
+    @uiLabel("Descuento porcentual")
+    @encode(string)
+    @exactDecimal(5, 2, "0", "100")
+    discountPercent: decimal;
+
+    @uiLabel("Total neto con descuento")
+    @encode(string)
+    @exactDecimal(22, 2, "0")
+    @computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_up")
+    discountedTotal: decimal;
+
     @uiLabel("Costo")
     @encode(string)
     @exactDecimal(24, 4, "0")
@@ -133,6 +144,11 @@ namespace GaugeRegistry {
     @encode(string)
     @exactDecimal(14, 3, "0")
     batchUnits: decimal;
+
+    @uiLabel("Descuento porcentual")
+    @encode(string)
+    @exactDecimal(5, 2, "0", "100")
+    discountPercent: decimal;
 
     @uiLabel("Costo")
     @encode(string)

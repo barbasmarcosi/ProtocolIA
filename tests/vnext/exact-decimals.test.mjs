@@ -152,3 +152,46 @@ test("reject unsupported rounding, precision overflow and request edits",()=>{
       '    cost?: decimal | null;\n    @encode(string) @exactDecimal(22, 2, "0") roundedTotal?: decimal;');
   },/protocolia-computed-product-request/);
 });
+
+test("B2.3 discounted total uses explicit half_up and exact bounded percentage",()=>{
+  const total=decimal("discountedTotal");
+  assert.deepEqual(total.computedDiscountedTotal,
+    {price:"unitRate",quantity:"batchUnits",discount:"discountPercent",mode:"half_up"});
+  assert.deepEqual(decimal("discountPercent").decimal,
+    {precision:5,scale:2,min:"0",max:"100"});
+  assert.equal(total.decimal.precision,22);
+  assert.equal(total.decimal.scale,2);
+});
+test("B2.3 rejects unsafe discount contracts and client-controlled computed totals",()=>{
+  rejectMutation("unsupported mode",s=>s.replace(
+    '@computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_up")',
+    '@computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_even")'),
+    /protocolia-invalid-computed-discounted-total/);
+  rejectMutation("discount must cap at 100",s=>s.replace(
+    '@exactDecimal(5, 2, "0", "100")','@exactDecimal(5, 2, "0", "200")'),
+    /protocolia-invalid-computed-discounted-total|protocolia-decimal-request-mismatch/);
+  rejectMutation("missing source",s=>s.replace(
+    '@computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_up")',
+    '@computedDiscountedTotal("unitRate","missing","discountPercent","half_up")'),
+    /protocolia-invalid-computed-discounted-total/);
+  rejectMutation("repeated source",s=>s.replace(
+    '@computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_up")',
+    '@computedDiscountedTotal("unitRate","unitRate","discountPercent","half_up")'),
+    /protocolia-invalid-computed-discounted-total/);
+  rejectMutation("computed source forbidden",s=>s.replace(
+    '@computedDiscountedTotal("unitRate","batchUnits","discountPercent","half_up")',
+    '@computedDiscountedTotal("extendedValue","batchUnits","discountPercent","half_up")'),
+    /protocolia-invalid-computed-discounted-total/);
+  rejectMutation("no implicit unsigned output overflow",s=>s.replace(
+    '@exactDecimal(22, 2, "0")\n    @computedDiscountedTotal',
+    '@exactDecimal(21, 2, "0")\n    @computedDiscountedTotal'),
+    /protocolia-invalid-computed-discounted-total/);
+  rejectMutation("negative percent not supported",s=>s.replace(
+    '@exactDecimal(5, 2, "0", "100")','@exactDecimal(5, 2, "-1", "100")'),
+    /protocolia-invalid-computed-discounted-total|protocolia-decimal-request-mismatch/);
+  rejectMutation("client supplied total",s=>{
+    const i=s.lastIndexOf("  model GaugeRequest {");
+    return s.slice(0,i)+s.slice(i).replace('    cost?: decimal | null;',
+      '    cost?: decimal | null;\n    @encode(string) @exactDecimal(22, 2, "0") discountedTotal?: decimal;');
+  },/protocolia-computed-product-request/);
+});
