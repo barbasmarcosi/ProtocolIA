@@ -130,6 +130,9 @@ public class DomainRuntime {
     if (matched.moveBatch()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.moveBatch().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.reverseBatch()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.reverseBatch().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.reverseUnits()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reverseUnits().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -420,6 +423,13 @@ public class DomainRuntime {
     }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
+    if(op.moveBatch()!=null){
+      // No client may impersonate a reversed or posted ledger entry.
+      var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseBatch()!=null)
+          .map(Manifest.Op::field).findFirst().orElse(null);
+      if(state!=null&&body.containsKey(state))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Batch lifecycle state is server-managed");
+    }
     if(op.moveUnits()!=null){
       // Check the ORIGINAL client payload, before the server injects @initial fields.
       var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseUnits()!=null)
@@ -801,6 +811,56 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    if(op.reverseBatch()!=null){
+      var reverse=op.reverseBatch();
+      var columns=reverse.legs().stream()
+          .flatMap(leg->java.util.stream.Stream.of(
+            leg.sourceField(),leg.targetField(),leg.quantityField())).toList();
+      var lookup=jdbc.queryForList("SELECT "+String.join(",",columns)+" FROM "+e.table()+
+        " WHERE "+e.identityColumn()+"=:key",Map.of("key",id));
+      if(lookup.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      var saved=lookup.get(0);
+      var deltas=new java.util.TreeMap<String,Long>();
+      for(var leg:reverse.legs()){
+        Object a=saved.get(leg.sourceField()),b=saved.get(leg.targetField()),
+          q=saved.get(leg.quantityField());
+        if(!(a instanceof String source)||!(b instanceof String target)||
+           !(q instanceof Number quantity)||quantity.longValue()<1||source.equals(target))
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Corrupt persisted batch");
+        long units=quantity.longValue();
+        deltas.merge(source,units,Long::sum);
+        deltas.merge(target,-units,Long::sum);
+      }
+      var ids=new java.util.ArrayList<String>(deltas.keySet());
+      var locked=jdbc.queryForList("SELECT "+reverse.stockKeyColumn()+
+        " FROM "+reverse.stockTable()+" WHERE "+reverse.stockKeyColumn()+
+        " IN (:ids) ORDER BY "+reverse.stockKeyColumn()+" FOR UPDATE",
+        Map.of("ids",ids),String.class);
+      if(locked.size()!=ids.size())
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Missing batch stock account");
+      int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+        e.identityColumn()+"=:key AND "+col+"=:from",
+        Map.of("key",id,"from",op.fromState(),"to",op.toState()));
+      if(changed!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Batch already reversed");
+      for(var entry:deltas.entrySet()){
+        long delta=entry.getValue();
+        if(delta==0L)continue;
+        long minimum=delta<0?-delta:0L;
+        long maximum=delta>0?reverse.maxBalance()-delta:reverse.maxBalance();
+        if(minimum>reverse.maxBalance()||maximum<0)
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Batch reversal exceeds balance limits");
+        int moved=jdbc.update("UPDATE "+reverse.stockTable()+" SET "+
+          reverse.availableColumn()+"="+reverse.availableColumn()+"+:delta WHERE "+
+          reverse.stockKeyColumn()+"=:id AND "+reverse.availableColumn()+">=:min AND "+
+          reverse.availableColumn()+"<=:max",
+          new MapSqlParameterSource().addValue("id",entry.getKey())
+            .addValue("delta",delta).addValue("min",minimum).addValue("max",maximum));
+        if(moved!=1)
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot restore all batch balances");
+      }
+      // dispatch() adds the state audit before commit, in this same transaction.
+      return row(e,id);
+    }
     if(op.reverseUnits()!=null){
       var reverse=op.reverseUnits();
       // Read immutable movement metadata; lock parents first in deterministic order,
