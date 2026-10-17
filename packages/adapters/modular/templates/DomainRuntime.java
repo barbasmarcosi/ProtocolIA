@@ -127,6 +127,9 @@ public class DomainRuntime {
     if (matched.moveUnits()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.moveUnits().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.moveBatch()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.moveBatch().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.reverseUnits()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reverseUnits().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -435,6 +438,43 @@ public class DomainRuntime {
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
       if(opening.compareTo(available)!=0)
         throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
+    }
+    if(op.moveBatch()!=null){
+      var batch=op.moveBatch();
+      var deltas=new java.util.TreeMap<String,Long>();
+      for(var leg:batch.legs()){
+        Object src=body.get(leg.sourceField()),dst=body.get(leg.targetField()),
+            raw=body.get(leg.quantityField());
+        if(!(src instanceof String from)||!(dst instanceof String to)||
+           !(raw instanceof Integer amount)||amount<1||from.equals(to))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid multi-leg transfer");
+        deltas.merge(from,-(long)amount,Long::sum);
+        deltas.merge(to,(long)amount,Long::sum);
+      }
+      var ids=new java.util.ArrayList<String>(deltas.keySet());
+      // Always lock ALL involved rows in stable order before writing any of them.
+      var locked=jdbc.queryForList("SELECT "+batch.stockKeyColumn()+" FROM "+
+          batch.stockTable()+" WHERE "+batch.stockKeyColumn()+
+          " IN (:ids) ORDER BY "+batch.stockKeyColumn()+" FOR UPDATE",
+          Map.of("ids",ids),String.class);
+      if(locked.size()!=ids.size())
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"One or more transfer accounts do not exist");
+      for(var entry:deltas.entrySet()){
+        long delta=entry.getValue();
+        if(delta==0L)continue;
+        long minimum=delta<0?-delta:0L;
+        long maximum=delta>0?batch.maxBalance()-delta:batch.maxBalance();
+        if(minimum>batch.maxBalance()||maximum<0)
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Multi-leg balance limit exceeded");
+        int changed=jdbc.update("UPDATE "+batch.stockTable()+" SET "+
+          batch.availableColumn()+"="+batch.availableColumn()+"+:delta WHERE "+
+          batch.stockKeyColumn()+"=:id AND "+batch.availableColumn()+">=:minimum AND "+
+          batch.availableColumn()+"<=:maximum",
+          new MapSqlParameterSource().addValue("id",entry.getKey())
+            .addValue("delta",delta).addValue("minimum",minimum).addValue("maximum",maximum));
+        if(changed!=1)
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Multi-leg balance outside allowed range");
+      }
     }
     // B8: both parent rows lock in canonical public-key order to avoid reverse-direction
     // transfer deadlocks. The same dispatch() transaction also inserts the journal row.
