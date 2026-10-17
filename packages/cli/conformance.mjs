@@ -319,10 +319,13 @@ async function runMulti(){
       const field=e.fields.find(f=>f.name===op.behavior.field);
       assert.ok(field);
       const update=String(valueFor(field))+"V2";
-      const value=update.slice(0,field.maxLength??255);
+      const previous=body[op.behavior.input];
+      const value=field.type==="int32"?
+        Math.min(field.max??1000000000,(field.min??1)+3):
+        update.slice(0,field.maxLength??255);
       const patchBody={
         [op.behavior.input]:value,
-        ...(op.behavior.audit?.length?{expected:body[op.behavior.input]}:{})
+        ...(op.behavior.audit?.length?{expected:previous}:{})
       };
       const changed=await run(resource,"patchFields",writer,{key,body:patchBody});
       assert.equal(changed.status,200,e.name+" PATCH "+JSON.stringify(changed.data));
