@@ -200,9 +200,9 @@ export function generate(ir,spec,out){
       if(b.audit){
         const fields=b.audit;
         if(!Array.isArray(fields)||fields.length===0||fields.length>8||
-           new Set(fields).size!==fields.length||!["create","transition","reassignReference"].includes(kind)||
+           new Set(fields).size!==fields.length||!["create","transition","reassignReference","patchFields"].includes(kind)||
            fields.some(x=>!e.fields.some(f=>f.name===x))||
-           (["transition","reassignReference"].includes(kind)&&(fields.length!==1||fields[0]!==b.field))||
+           (["transition","reassignReference","patchFields"].includes(kind)&&(fields.length!==1||fields[0]!==b.field))||
            (kind==="create"&&fields.includes(e.publicIdentity)))
           throw Error("Invalid audited operation "+op.name);
       }
