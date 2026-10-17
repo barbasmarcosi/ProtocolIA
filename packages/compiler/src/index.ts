@@ -642,6 +642,69 @@ export function compileDomain(p: Program): IrDocument | undefined {
       batchLegs=entries.map(([sourceField,targetField,quantityField])=>
         ({sourceField,targetField,quantityField}));
     }
+    const reverseBatchMeta=metadata(p,"reverseBatch",op);
+    let reverseBatchLegs:{sourceField:string;targetField:string;quantityField:string}[]|undefined;
+    if(reverseBatchMeta){
+      const raw=String(reverseBatchMeta.legs??"");
+      const triples=raw.split(";").map(v=>v.split(","));
+      const stock=declared.get(String(reverseBatchMeta.stockEntity));
+      const available=stock?.fields.find(v=>v.name===reverseBatchMeta.availableField);
+      const state=entity.fields.find(v=>v.name===f);
+      const initial=entity.fields.filter(v=>v.initial!==undefined);
+      const trans=metadata(p,"transition",op);
+      const creators=relevant.filter(x=>{
+        const meta=metadata(p,"behavior",x);
+        const batch=metadata(p,"moveBatch",x);
+        return meta?.kind==="create"&&meta?.entity===entity.name&&
+          batch?.stockEntity===reverseBatchMeta.stockEntity&&
+          batch?.availableField===reverseBatchMeta.availableField&&
+          batch?.legs===reverseBatchMeta.legs;
+      });
+      const allReverse=relevant.filter(x=>!!metadata(p,"reverseBatch",x));
+      const createInput=creators[0]?.parameters.properties.get("input")?.type;
+      const prohibited=relevant.filter(x=>{
+        const behavior=metadata(p,"behavior",x);
+        return behavior?.entity===entity.name&&(
+          !["create","get","listPage","queryPage","auditPage","transition","health"]
+            .includes(String(behavior.kind))||
+          behavior.kind==="transition"&&x!==op||
+          behavior.kind==="create"&&x!==creators[0]);
+      });
+      const distinct=[entity.publicIdentity,...triples.flat()];
+      if(kind!=="transition"||!state||state.type!=="string"||
+        !state.required||state.nullable||state.initial!=="posted"||
+        initial.length!==1||initial[0]!==state||
+        trans?.from!=="posted"||trans?.to!=="reversed"||
+        !auditFields||auditFields.length!==1||auditFields[0]!==f||
+        creators.length!==1||allReverse.length!==1||prohibited.length>0||
+        createInput?.kind!=="Model"||createInput.properties.has(state.name)||
+        f===entity.publicIdentity||input!==undefined||release||reservation||
+        movement||multiMovement||metadata(p,"reverseUnits",op)||
+        metadata(p,"debitExact",op)||metadata(p,"reverseExact",op)||
+        !stock||stock===entity||stock.fields.some(v=>v.ownerManaged)||
+        entity.fields.some(v=>v.ownerManaged)||
+        !available||available.type!=="int32"||available.nullable||
+        !available.required||available.min!==0||
+        triples.length<2||triples.length>4||
+        triples.some(v=>v.length!==3)||new Set(distinct).size!==distinct.length||
+        distinct.some(v=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(v))||
+        triples.some(([source,target,units])=>{
+          const a=entity.fields.find(v=>v.name===source);
+          const b=entity.fields.find(v=>v.name===target);
+          const c=entity.fields.find(v=>v.name===units);
+          return [a,b].some(v=>!v||!v.required||v.nullable||
+            v.type!=="string"||v.reference?.target!==stock.name||
+            v.reference.onDelete!=="restrict")||
+            !c||c.type!=="int32"||!c.required||c.nullable||(c.min??0)<1;
+        })){
+        reject("invalid-reverse-batch",op.name+
+          " requires a unique matching immutable 2–4-leg journal, posted-to-reversed state transition and audit",op);
+        continue;
+      }
+      reverseBatchLegs=triples.map(([sourceField,targetField,quantityField])=>({
+        sourceField,targetField,quantityField
+      }));
+    }
     const reverseMovement = metadata(p,"reverseUnits",op);
     if(reverseMovement){
       const stock=declared.get(String(reverseMovement.stockEntity));
@@ -1000,6 +1063,16 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("move-units-http",op.name+" must declare POST 201/400/401/403/409 with one typed body",op);
       continue;
     }
+    if(reverseBatchMeta){
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(v=>v[1]);
+      if(http.verb!=="post"||http.parameters.body!==undefined||keys.length!==1||
+        keys[0]!==entity.publicIdentity||
+        ![200,400,401,403,404,409].every(x=>statuses.includes(x))){
+        reject("reverse-batch-http",op.name+
+          " must be keyed POST without body and declare 200/400/401/403/404/409",op);
+        continue;
+      }
+    }
     if(multiMovement&&(![201,400,401,403,409].every(x=>statuses.includes(x))||
         http.verb!=="post"||http.parameters.body?.bodyKind!=="single")){
       reject("move-batch-http",op.name+" must be POST with typed 201/400/401/403/409",op);
@@ -1300,6 +1373,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
           stockEntity:String(multiMovement.stockEntity),
           availableField:String(multiMovement.availableField),
           legs:batchLegs!
+        }} : {}),
+        ...(reverseBatchMeta ? {reverseBatch:{
+          stockEntity:String(reverseBatchMeta.stockEntity),
+          availableField:String(reverseBatchMeta.availableField),
+          legs:reverseBatchLegs!
         }} : {}),
         ...(reverseMovement ? {reverseUnits:{
           stockEntity:String(reverseMovement.stockEntity),
