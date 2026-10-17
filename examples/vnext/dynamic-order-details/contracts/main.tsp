@@ -54,7 +54,7 @@ namespace DynamicOrders {
   @get @behavior("listPage","PurchaseOrder") @capability("orders.read")
   op listPurchaseOrders(@query @minValue(1) @maxValue(50) limit?:int32=25,
     @query @minValue(0) @maxValue(1000000) offset?:int32=0):
-    OrderPage | Invalid | Unauthorized | Forbidden;
+    PurchaseOrderPage | Invalid | Unauthorized | Forbidden;
   @route("/api/order-lines")
   @post @behavior("create","OrderLine") @capability("lines.write")
   op createOrderLine(@body input:OrderLineRequest):
