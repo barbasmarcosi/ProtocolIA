@@ -9,7 +9,7 @@ export const $lib = createTypeSpecLibrary({
     publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
     unique: {description:"ProtocolIA unique contract metadata"},
     uniqueTogether: {description:"Required fields unique as a compound business key"},
-    patchTogether: {description:"Atomic two-field business-key update on a declared uniqueTogether entity"},
+    patchTogether: {description:"Atomic 2–4-field business-key update on a declared uniqueTogether entity"},
     uniqueWhen: {description:"Partial unique business key limited to one declared finite state"},
     ownerIdentity: {description:"Non-client-writable owner field bound to authenticated subject"},
     readCapability: {description:"Omit an optional sensitive response field without its independent read permission"},
