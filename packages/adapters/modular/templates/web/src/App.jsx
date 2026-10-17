@@ -272,7 +272,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 function DetailLinesPanel({child,operation,filter,identity,auth}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
-  const [state,setState]=useState({busy:true,items:[],total:0,error:""});
+  const [state,setState]=useState({busy:true,items:[],total:0,error:"",offset:0});
   const limit=7;
   const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
     f.name!==filter.field).slice(0,5);
@@ -295,12 +295,13 @@ function DetailLinesPanel({child,operation,filter,identity,auth}){
         throw Error("El servicio devolvió renglones fuera de la cabecera o de la página solicitada.");
       return result;
     }).then(result=>{if(!controller.signal.aborted)setState({
-      busy:false,items:result.items,total:result.total,error:""
+      busy:false,items:result.items,total:result.total,error:"",offset
     });}).catch(error=>{
-      if(!controller.signal.aborted)setState({busy:false,items:[],total:0,error:error.message});
+      if(!controller.signal.aborted)setState({busy:false,items:[],total:0,error:error.message,offset});
     });
     return ()=>controller.abort();
   },[child,operation,filter,identity,auth,offset,retry]);
+  const pending=state.busy||state.offset!==offset;
   const subtotal=quantity?state.items.reduce((sum,item)=>sum+item[quantity.name],0):null;
   return <section className="details-section" aria-label="Renglones relacionados"
     data-testid="detail-lines-panel">
@@ -308,10 +309,10 @@ function DetailLinesPanel({child,operation,filter,identity,auth}){
       <div><h3>Renglones relacionados</h3>
         <p className="field-help">Consulta paginada de la cabecera seleccionada.</p>
       </div>
-      <button type="button" className="ghost" disabled={state.busy}
+      <button type="button" className="ghost" disabled={pending}
         onClick={()=>setRetry(n=>n+1)} data-testid="detail-lines-refresh">Actualizar</button>
     </div>
-    {state.busy?<LoadingIndicator compact message="Cargando renglones…"/>:
+    {pending?<LoadingIndicator compact message="Cargando renglones…"/>:
       state.error?<p className="message error" role="alert" data-testid="detail-lines-error">{state.error}</p>:
       <>
         <p data-testid="detail-lines-count" role="status">{state.total} renglones en total</p>
