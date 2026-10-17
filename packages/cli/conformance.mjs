@@ -149,6 +149,24 @@ async function runMulti(){
     assert.equal(typeof key,"string");
     assert.equal((await run(resource,"get",null,{key})).status,401);
     assert.equal((await run(resource,"create",reader,{body})).status,403);
+    const details=resource.operations.create.behavior.createDetails;
+    let detailFixture;
+    if(details){
+      const child=resources.find(x=>x.entity.name===details.childEntity);
+      assert.ok(child,"Child entity from B12 contract must be emitted as an independent resource");
+      const fields=child.entity.fields.filter(field=>field.name!==details.parentField&&
+        !field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&
+        !field.computedDiscountedTotal);
+      const keyField=fields.find(field=>field.name===child.entity.publicIdentity);
+      assert.ok(keyField,"Missing child public key for dynamic detail collection");
+      const rows=[1,2].map(i=>Object.fromEntries(fields.map(field=>{
+        const value=valueFor(field,field.name===child.entity.publicIdentity);
+        return [field.name,field.name===child.entity.publicIdentity?
+          String(value).slice(0,(field.maxLength??255)-2)+"D"+i:value];
+      })));
+      body[details.rowsField]=rows;
+      detailFixture={child,rows};
+    }
     const reserve=resource.operations.create.behavior.reserve;
     const parent=reserve?resources.find(r=>r.entity.name===reserve.stockEntity):undefined;
     const move=resource.operations.create.behavior.moveUnits;
@@ -214,6 +232,12 @@ async function runMulti(){
     assert.equal(created.status,201,e.name+": "+JSON.stringify(created.data));
     assert.equal(created.data[identity],key);
     if(owned)assert.equal(created.data[e.fields.find(f=>f.ownerManaged).name],managerName);
+    if(detailFixture)for(const row of detailFixture.rows){
+      const result=await run(detailFixture.child,"get",reader,{
+        key:row[detailFixture.child.entity.publicIdentity]});
+      assert.equal(result.status,200,"B12 row must exist after header insertion");
+      assert.equal(result.data[details.parentField],key);
+    }
     assert.equal(Object.hasOwn(created.data,"id"),false);
     if(move){
       const first=await run(moveParent,"get",reader,{key:moveBefore.source});
