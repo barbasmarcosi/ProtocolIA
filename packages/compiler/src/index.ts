@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","reconcileExact","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -574,6 +574,23 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }else if(reconciliation){
       reject("orphan-exact-reconciliation",op.name+" @reconcileExact must annotate reconcileExact behavior",op);continue;
     }
+    const fullDetail=metadata(p,"detailSum",op);
+    if(kind==="sumDetails"){
+      const child=declared.get(String(fullDetail?.childEntity));
+      const relation=child?.fields.find(x=>x.name===fullDetail?.parentField);
+      const quantity=child?.fields.find(x=>x.name===fullDetail?.quantityField);
+      if(!child||child===entity||!relation?.reference||
+        relation.reference.target!==entity.name||!relation.required||relation.nullable||
+        quantity?.type!=="int32"||!quantity.required||quantity.nullable||
+        (quantity.min??0)<1||f!==undefined||input!==undefined||auditMeta||release||
+        metadata(p,"transition",op)||metadata(p,"reserve",op)){
+        reject("invalid-detail-sum",op.name+
+          " requires an immutable required parent FK and a required positive int32 child quantity",op);
+        continue;
+      }
+    }else if(fullDetail){
+      reject("orphan-detail-sum",op.name+" @detailSum requires sumDetails behavior",op);continue;
+    }
     const aggregate=metadata(p,"relatedSum",op);
     if(kind==="sumRelated"){
       const child=declared.get(String(aggregate?.childEntity));
@@ -1077,6 +1094,22 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    if(kind==="sumDetails"){
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const results=op.returnType.kind==="Union"?
+        [...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
+      if(http.verb!=="get"||http.parameters.body!==undefined||
+         keys.length!==1||keys[0]!==entity.publicIdentity||
+         op.parameters.properties.size!==1||
+         !op.parameters.properties.has(entity.publicIdentity)||
+         ![200,401,403,404].every(code=>statuses.includes(code))||
+         !results.some(m=>m.kind==="Model"&&m.properties.size===1&&
+           (m.properties.get("totalUnits")?typeOfField(m.properties.get("totalUnits")!):undefined)?.type==="string"&&
+           m.properties.get("totalUnits")?.optional===false)){
+        reject("detail-sum-http",op.name+" requires identity-keyed GET and {totalUnits:string}",op);
+        continue;
+      }
+    }
     if(kind==="sumRelated"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       if(http.verb!=="get"||http.parameters.body!==undefined||
@@ -1422,6 +1455,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
           quantityField:String(reservation.quantityField)
         }} : {}),
         ...(detailConfig ? {createDetails:detailConfig} : {}),
+        ...(fullDetail ? {detailSum:{
+          childEntity:String(fullDetail.childEntity),
+          parentField:String(fullDetail.parentField),
+          quantityField:String(fullDetail.quantityField)
+        }} : {}),
         ...(movement ? {moveUnits:{
           stockEntity:String(movement.stockEntity),
           availableField:String(movement.availableField),
@@ -1529,6 +1567,22 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if(originals.length!==1||alternative){
       reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
     }
+  }
+  // B14: the sum is linked to exactly one bounded dynamic detail creator, not an arbitrary join.
+  for(const summary of operations.filter(x=>x.behavior.kind==="sumDetails")){
+    const cfg=summary.behavior.detailSum!;
+    const creator=operations.filter(x=>x.entity===summary.entity&&
+      x.behavior.kind==="create"&&
+      x.behavior.createDetails?.childEntity===cfg.childEntity&&
+      x.behavior.createDetails?.parentField===cfg.parentField);
+    const headRead=operations.find(x=>x.entity===summary.entity&&x.behavior.kind==="get");
+    const childRead=operations.find(x=>x.entity===cfg.childEntity&&x.behavior.kind==="get");
+    if(creator.length!==1||!headRead||!childRead||
+      summary.capability!==headRead.capability||
+      childRead.capability==="public")
+      reject("detail-sum-lifecycle",summary.name+
+        " needs one matching @createDetails and both non-public reader capabilities",
+        ops.find(x=>x.name===summary.name)!);
   }
   // A B2.4 summary is not a free-form join. Only summarize an authoritative
   // reserve/cancel lifecycle with matching child read permissions and state.
