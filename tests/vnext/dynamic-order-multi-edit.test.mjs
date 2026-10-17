@@ -39,7 +39,7 @@ test("B16 compiler fails closed on duplicate fields, shared caps and missing aud
  negative("duplicate audited product",s=>s.replace(
   '@behavior("patchFields","OrderLine","units","units")',
   '@behavior("patchFields","OrderLine","product","product")'),
-  /protocolia-detail-edit-duplicate|protocolia-invalid-audited-patch/);
+  /protocolia-detail-edit-duplicate|protocolia-invalid-audited-patch|protocolia-invalid-audit/);
  negative("shared capability",s=>s.replace(
   '@audit("product") @capability("lines.product.write")',
   '@audit("product") @capability("lines.write")'),/protocolia-detail-edit-duplicate/);
