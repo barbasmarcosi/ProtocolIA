@@ -99,7 +99,7 @@ function decimalIssue(value,field){
   if(d.max!==undefined&&actual>units(d.max))return "El máximo permitido es "+d.max+".";
   return null;
 }
-function validateCreate(fields,values,reconciliation,moveUnits){
+function validateCreate(fields,values,reconciliation,moveUnits,moveBatch){
   const errors={};
   for(const field of fields){
     if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
@@ -183,6 +183,14 @@ function validateCreate(fields,values,reconciliation,moveUnits){
       if(scaled(String(values[opening.name]),opening.decimal.scale)!==
          scaled(String(values[available.name]),available.decimal.scale))
         errors[available.name]="El saldo disponible debe coincidir con el saldo inicial al crear la cuenta.";
+    }
+  }
+  if(moveBatch){
+    for(const leg of moveBatch.legs??[]){
+      const from=String(values[leg.sourceField]??"");
+      const to=String(values[leg.targetField]??"");
+      if(from&&to&&from===to)
+        errors[leg.targetField]="Cada partida debe tener un origen y destino distintos.";
     }
   }
   if(moveUnits){
@@ -1032,6 +1040,10 @@ export default function App(){
                 </div>
               </div>:<>
               {error&&<p className="message error" role="alert">{error}</p>}
+        {operations.create?.behavior?.moveBatch&&<p className="field-help" data-testid="move-batch-guidance">
+          Todas las partidas se liquidan juntas: se calcula el saldo neto por existencia y se
+          confirma un solo movimiento. Si alguna partida no es válida o falta saldo, no se guarda ninguna.
+        </p>}
         {operations.create?.behavior?.moveUnits&&<p className="field-help" data-testid="move-units-guidance">
           Las unidades se descontarán del origen y se acreditarán en el destino al confirmar.
           Si la transferencia no se completa, no se modificarán los saldos.
@@ -1040,7 +1052,8 @@ export default function App(){
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
           const errors=validateCreate(active.entity.fields,form,
             operations.reconcileExact?.behavior?.reconcileExact,
-            operations.create?.behavior?.moveUnits);
+            operations.create?.behavior?.moveUnits,
+            operations.create?.behavior?.moveBatch);
           setFieldErrors(errors);
           if(Object.keys(errors).length){
             setError("Revisá los campos marcados para continuar.");
