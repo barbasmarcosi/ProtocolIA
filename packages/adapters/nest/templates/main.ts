@@ -15,6 +15,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
  ownerRelation?:{field:string;parentTable:string;parentKey:string;parentOwnerColumn:string;parentReadCapability:string}};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
+type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -22,7 +23,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -613,6 +614,9 @@ class RuntimeService{
   private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[]):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!isRecord(body)||Object.hasOwn(body,owner.name)))throw new Problem(400,"Server-managed owner must not be supplied");
+    if(op.moveUnits&&spec.operations.some(x=>x.entity===e.name&&x.reverseUnits)&&
+      (!isRecord(body)||e.fields.some(f=>f.initial!==undefined&&Object.hasOwn(body,f.name))))
+      throw new Problem(400,"Initial transfer state is server-managed");
     const ownedBody=owner?{...(body as Record<string,unknown>),[owner.name]:actor}:body;
     const input={...validateInput(e,ownedBody,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
@@ -765,6 +769,43 @@ class RuntimeService{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(op.reverseUnits){
+      const plan=op.reverseUnits;
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const existing=await client.query("SELECT "+plan.sourceColumn+" AS source,"+
+          plan.targetColumn+" AS target,"+plan.amountColumn+" AS units FROM "+
+          e.table+" WHERE "+e.identityColumn+"=$1",[key]);
+        if(!existing.rowCount)throw new Problem(404,"Not found");
+        const {source,target,units}=existing.rows[0];
+        if(typeof source!=="string"||typeof target!=="string"||
+          source===target||!Number.isInteger(units)||units<1)
+          throw new Problem(409,"Invalid stored movement");
+        // Lock parent rows first, in the same order as transfers and competing reversals.
+        const locked=await client.query("SELECT "+plan.stockKeyColumn+" FROM "+
+          plan.stockTable+" WHERE "+plan.stockKeyColumn+" IN ($1,$2) ORDER BY "+
+          plan.stockKeyColumn+" FOR UPDATE",[source,target]);
+        if(locked.rowCount!==2)throw new Problem(409,"Transfer endpoint missing");
+        const moved=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+          e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
+          [op.to,key,op.from]);
+        if(moved.rowCount!==1)throw new Problem(409,"Already reversed");
+        const debited=await client.query("UPDATE "+plan.stockTable+" SET "+
+          plan.availableColumn+"="+plan.availableColumn+"-$1 WHERE "+
+          plan.stockKeyColumn+"=$2 AND "+plan.availableColumn+">=$1",[units,target]);
+        if(debited.rowCount!==1)throw new Problem(409,"Destination stock no longer available");
+        const credited=await client.query("UPDATE "+plan.stockTable+" SET "+
+          plan.availableColumn+"="+plan.availableColumn+"+$1 WHERE "+
+          plan.stockKeyColumn+"=$2 AND "+plan.availableColumn+"<=$3",
+          [units,source,plan.maxBalance-units]);
+        if(credited.rowCount!==1)throw new Problem(409,"Source capacity exceeded");
+        await this.recordAudit(client,e,op,key,actor,{[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     if(op.exactReverse){
       const plan=op.exactReverse;
       const client=await this.pool.connect();
@@ -890,6 +931,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient stock write capability");
       if(op.moveUnits&&!session.capabilities.includes(op.moveUnits.parentWriteCapability))
         throw new Problem(403,"Insufficient stock transfer authority");
+      if(op.reverseUnits&&!session.capabilities.includes(op.reverseUnits.parentWriteCapability))
+        throw new Problem(403,"Insufficient stock reversal authority");
       if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
         throw new Problem(403,"Insufficient ledger read capability");
       if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))
