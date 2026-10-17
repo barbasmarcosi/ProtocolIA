@@ -57,6 +57,10 @@ namespace ProtocolIA.Domain {
   extern dec debitExact(target: Operation, balanceEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   // Move checked positive int32 units between two distinct records and insert a journal row.
+  // Read an exact full-document positive int32 sum in one PostgreSQL MVCC snapshot.
+  // Requires a matching @createDetails, mandatory FK and both reader capabilities.
+  extern dec detailSum(target: Operation, childEntity: valueof string,
+    parentField: valueof string, quantityField: valueof string);
   // Dynamic 1..20 child rows in the CREATE request, committed with the parent.
   // Child's declared FK back to parent is assigned by the server.
   extern dec createDetails(target: Operation, childEntity: valueof string,
