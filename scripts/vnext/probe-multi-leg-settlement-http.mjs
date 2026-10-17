@@ -18,9 +18,9 @@ const schema=readFileSync(
     join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
 assert.match(schema,/CREATE TABLE bin \(/,"Generated PostgreSQL stock table is required");
 assert.match(schema,/CREATE TABLE batch \(/,"Generated PostgreSQL transfer journal is required");
-assert.match(schema,/fk_movement_source_sku|FOREIGN KEY \(source_sku\)/,
+assert.match(schema,/fk_batch_source_sku1|FOREIGN KEY \(source_sku\)/,
   "Generated movement must reference existing source");
-assert.match(schema,/fk_movement_target_sku|FOREIGN KEY \(target_sku\)/,
+assert.match(schema,/fk_batch_target_sku2|FOREIGN KEY \(target_sku\)/,
   "Generated movement must reference existing destination");
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
