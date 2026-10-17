@@ -251,8 +251,12 @@ export function generate(ir, openapi, outDir) {
       const f=bound.fields.find(x=>x.name===op.behavior.field);
       if(!f||op.behavior.input!==op.behavior.field&&op.behavior.kind==="patchFields") throw Error("Unsupported field/input mapping");
       if(op.behavior.kind==="atomicIncrement"&&f.type!=="int32") throw Error("Atomic addition requires int32 field");
-      if(op.behavior.kind==="patchFields"&&(f.type!=="string"||f.nullable||f.initial!==undefined))
-        throw Error("Current patchFields runtime supports only non-null string fields");
+      if(op.behavior.kind==="patchFields"&&(
+         f.nullable||f.initial!==undefined||
+         (f.type!=="string"&&!(
+           f.type==="int32"&&op.behavior.audit?.length===1&&
+           (f.min??0)>=1&&(f.max??2147483647)<=1000000000))))
+        throw Error("Current patchFields runtime requires non-null string or audited bounded positive int32 field");
     }
   }
   const byKind=(kind,entity)=>ops.filter(o=>o.behavior.kind===kind&&(!entity||o.entity===entity));
