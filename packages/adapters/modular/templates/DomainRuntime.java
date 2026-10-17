@@ -610,28 +610,34 @@ public class DomainRuntime {
     return Map.of("items",rows,"total",total.intValue(),"limit",limit,"offset",offset);
   }
 
-  // Two columns are changed by ONE statement. PostgreSQL's UNIQUE constraint
+  // All compound-key columns change in ONE statement. PostgreSQL's UNIQUE constraint
   // arbitrates races; a conflict rolls back the entire update transaction.
   private Map<String,Object> patchTogether(Manifest.Entity e, Manifest.Op op,
       String id, Map<String,Object> body, String subject) {
     String[] keys=op.input().split(",",-1);
-    if(keys.length!=2||keys[0].equals(keys[1])||body==null||body.size()!=2||
-       !body.containsKey(keys[0])||!body.containsKey(keys[1]))
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected exactly two key fields");
-    validate(e,body,false,Set.of(keys[0],keys[1]));
-    var left=e.fields().stream().filter(x->x.name().equals(keys[0])).findFirst().orElseThrow();
-    var right=e.fields().stream().filter(x->x.name().equals(keys[1])).findFirst().orElseThrow();
+    if(keys.length<2||keys.length>4||
+       java.util.Arrays.stream(keys).distinct().count()!=keys.length||
+       body==null||body.size()!=keys.length||
+       !body.keySet().containsAll(java.util.Arrays.asList(keys)))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected all compound key fields");
+    validate(e,body,false,Set.copyOf(java.util.Arrays.asList(keys)));
     if(e.ownerField()!=null && subject==null)
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-    var args=new MapSqlParameterSource().addValue("left",body.get(keys[0]))
-      .addValue("right",body.get(keys[1])).addValue("id",id);
+    var args=new MapSqlParameterSource().addValue("id",id);
+    var assignments=new ArrayList<String>();
+    for(int i=0;i<keys.length;i++){
+      String fieldName=keys[i];
+      var field=e.fields().stream().filter(x->x.name().equals(fieldName)).findFirst().orElseThrow();
+      String param="value"+i;
+      assignments.add(field.column()+"=:"+param);
+      args.addValue(param,body.get(fieldName));
+    }
     String ownerGuard=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
     if(e.ownerField()!=null)args.addValue("owner",subject);
     int changed;
     try{
       changed=jdbc.update("UPDATE "+e.table()+" SET "+
-        left.column()+"=:left,"+right.column()+"=:right WHERE "+
-        e.identityColumn()+"=:id"+ownerGuard,args);
+        String.join(",",assignments)+" WHERE "+e.identityColumn()+"=:id"+ownerGuard,args);
     }catch(DataIntegrityViolationException ex){
       if(constraintSqlState(ex,"23505"))
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Duplicate business combination",ex);
