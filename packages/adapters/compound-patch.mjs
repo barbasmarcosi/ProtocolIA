@@ -7,8 +7,8 @@ export function assertPatchTogether(entity,op){
   if(b.kind!=="patchTogether")throw Error("Expected patchTogether operation");
   const names=typeof b.input==="string"?b.input.split(","):[];
   const expected=entity?.uniqueTogether;
-  if(!Array.isArray(expected)||expected.length!==2||
-     names.length!==2||names.join(",")!==expected.join(",")||
+  if(!Array.isArray(expected)||(expected.length<2||expected.length>4)||
+     names.length!==expected.length||names.join(",")!==expected.join(",")||
      b.field!==undefined||b.audit!==undefined||b.reserve!==undefined||
      b.release!==undefined||b.from!==undefined||b.to!==undefined||
      entity.uniqueWhen||op.method!=="PATCH"||
