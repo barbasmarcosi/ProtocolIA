@@ -320,9 +320,16 @@ async function runMulti(){
       assert.ok(field);
       const update=String(valueFor(field))+"V2";
       const value=update.slice(0,field.maxLength??255);
-      const changed=await run(resource,"patchFields",writer,{key,body:{[op.behavior.input]:value}});
-      assert.equal(changed.status,200);
-      assert.equal((await run(resource,"patchFields",reader,{key,body:{[op.behavior.input]:value}})).status,403);
+      const patchBody={
+        [op.behavior.input]:value,
+        ...(op.behavior.audit?.length?{expected:body[op.behavior.input]}:{})
+      };
+      const changed=await run(resource,"patchFields",writer,{key,body:patchBody});
+      assert.equal(changed.status,200,e.name+" PATCH "+JSON.stringify(changed.data));
+      assert.equal((await run(resource,"patchFields",reader,{key,body:patchBody})).status,403);
+      if(op.behavior.audit?.length)
+        assert.equal((await run(resource,"patchFields",writer,{key,body:patchBody})).status,409,
+          "Stale audited patch must never overwrite a prior update");
     }
     if(resource.operations.atomicIncrement){
       const op=resource.operations.atomicIncrement;
