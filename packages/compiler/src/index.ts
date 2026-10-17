@@ -955,8 +955,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
       if(kind==="patchFields"&&auditFields){
         const old=payload.properties.get("expected");
         const parsed=old?field(p,old):undefined;
+        const incoming=field(p,value);
         const target=entity.fields.find(x=>x.name===f);
-        if(payload.properties.size!==2||!old||old.optional||
+        if(payload.properties.size!==2||!old||old.optional||value.optional||
+          incoming?.type!==target?.type||incoming?.nullable!==false||
+          incoming.minLength!==target?.minLength||incoming.maxLength!==target?.maxLength||
+          incoming.pattern!==target?.pattern||incoming.choices!==undefined||
           !target||target.type!=="string"||target.reference||
           target.initial!==undefined||target.nullable||!target.required||
           target.ownerManaged||!parsed||parsed.type!=="string"||parsed.nullable||
