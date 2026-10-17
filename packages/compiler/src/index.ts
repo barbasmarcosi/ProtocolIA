@@ -620,8 +620,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           JSON.stringify(a.decimal)===JSON.stringify(parsed.decimal)&&
           JSON.stringify(a.choices)===JSON.stringify(parsed.choices);};
       const valid=kind==="create"&&f===undefined&&input===undefined&&
-        http.verb==="post"&&http.parameters.body?.bodyKind==="single"&&
-        [201,400,401,403,409].every(x=>statuses.includes(x))&&
+
         /^[A-Za-z][A-Za-z0-9_]*$/.test(rowName)&&
         !!child&&child!==entity&&!!relation&&
         relation.type==="string"&&relation.required&&!relation.nullable&&
@@ -1018,6 +1017,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if(details&&(http.verb!=="post"||http.parameters.body?.bodyKind!=="single"||
+      ![201,400,401,403,409].every(x=>statuses.includes(x)))){
+      reject("create-details-http",op.name+" requires POST JSON with 201/400/401/403/409",op);
+      continue;
     }
     if(kind==="queryPage" && (http.verb!=="get"||http.parameters.body!==undefined||
          http.path.includes("{")||!statuses.includes(200)||!statuses.includes(400))){
