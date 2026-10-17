@@ -25,7 +25,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -476,6 +476,13 @@ class RuntimeService{
       (owner?" AND "+owner.column+"=$2":""),owner?[id,subject]:[id]);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
+  }
+  private async sumDetails(op:Operation,id:string):Promise<{totalUnits:string}>{
+    const plan=op.detailSum;
+    if(!plan)throw new Error("Missing generated full detail sum");
+    const result=await this.pool.query(plan.sqlNest,[id]);
+    if(!result.rows.length)throw new Problem(404,"Parent not found");
+    return {totalUnits:String(result.rows[0].totalUnits)};
   }
   private async sumRelated(op:Operation,id:string):Promise<{totalUnits:string}>{
     const plan=op.relatedSum;
@@ -1066,6 +1073,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient stock reversal authority");
       if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
         throw new Problem(403,"Insufficient ledger read capability");
+      if(op.detailSum&&!session.capabilities.includes(op.detailSum.childReadCapability))
+        throw new Problem(403,"Insufficient child read authority");
       if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))
         throw new Problem(403,"Insufficient related entity read capability");
       if(op.release&&!session.capabilities.includes(op.release.stockWriteCapability))
@@ -1078,6 +1087,7 @@ class RuntimeService{
         case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities);break;
         case "get":data=await this.row(entity,identity,session.username);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
+        case "sumDetails":data=await this.sumDetails(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
