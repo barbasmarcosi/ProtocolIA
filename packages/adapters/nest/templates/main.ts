@@ -826,7 +826,10 @@ class RuntimeService{
       !Object.hasOwn(body,op.input!)||(audited&&!Object.hasOwn(body,"expected")))
       throw new Problem(400,"Unexpected patch properties");
     const input=validateInput(e,{[op.input!]:body[op.input!]},[op.input!],false);
-    if(audited)validateInput(e,{[op.input!]:body.expected},[op.input!],false);
+    if(audited){
+      validateInput(e,{[op.input!]:body.expected},[op.input!],false);
+      if(body.expected===input[op.input!])throw new Problem(409,"New value matches previous value");
+    }
     const field=e.fields.find(f=>f.name===op.field)!;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!subject||field.ownerManaged))throw new Problem(403,"Owner-scoped patch denied");
