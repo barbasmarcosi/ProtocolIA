@@ -1112,7 +1112,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
     }
     if(kind==="sumDetails"){
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const results=op.returnType.kind==="Union"?
         [...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       if(http.verb!=="get"||http.parameters.body!==undefined||
