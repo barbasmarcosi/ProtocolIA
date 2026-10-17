@@ -99,7 +99,7 @@ function decimalIssue(value,field){
   if(d.max!==undefined&&actual>units(d.max))return "El máximo permitido es "+d.max+".";
   return null;
 }
-function validateCreate(fields,values,reconciliation){
+function validateCreate(fields,values,reconciliation,moveUnits){
   const errors={};
   for(const field of fields){
     if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
@@ -184,6 +184,12 @@ function validateCreate(fields,values,reconciliation){
          scaled(String(values[available.name]),available.decimal.scale))
         errors[available.name]="El saldo disponible debe coincidir con el saldo inicial al crear la cuenta.";
     }
+  }
+  if(moveUnits){
+    const from=String(values[moveUnits.sourceField]??"");
+    const to=String(values[moveUnits.targetField]??"");
+    if(from&&to&&from===to)
+      errors[moveUnits.targetField]="El destino debe ser distinto del origen.";
   }
   return errors;
 }
@@ -1026,9 +1032,15 @@ export default function App(){
                 </div>
               </div>:<>
               {error&&<p className="message error" role="alert">{error}</p>}
+        {operations.create?.behavior?.moveUnits&&<p className="field-help" data-testid="move-units-guidance">
+          Las unidades se descontarán del origen y se acreditarán en el destino al confirmar.
+          Si la transferencia no se completa, no se modificarán los saldos.
+        </p>}
         <form noValidate data-testid={"create-form-"+active.entity.name} onSubmit={async event=>{event.preventDefault();
           if(!referencesReady){setError("Esperá a que estén disponibles las opciones relacionadas.");return;}
-          const errors=validateCreate(active.entity.fields,form,operations.reconcileExact?.behavior?.reconcileExact);
+          const errors=validateCreate(active.entity.fields,form,
+            operations.reconcileExact?.behavior?.reconcileExact,
+            operations.create?.behavior?.moveUnits);
           setFieldErrors(errors);
           if(Object.keys(errors).length){
             setError("Revisá los campos marcados para continuar.");
@@ -1053,7 +1065,10 @@ export default function App(){
            })}
           pickerOpen={activePicker===field.name}
           onPickerOpenChange={open=>setActivePicker(open?field.name:"")}
-          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name||f.forbidWhen?.field===name||f.greaterThanField===name||f.afterField===name)delete updated[f.name];return updated;});}}/>)}</div>
+          onChange={(name,value)=>{setForm(prev=>({...prev,[name]:value}));setFieldErrors(prev=>{const updated={...prev};delete updated[name];for(const f of active.entity.fields)if(f.requiredWhen?.field===name||f.forbidWhen?.field===name||f.greaterThanField===name||f.afterField===name)delete updated[f.name];
+            if(operations.create?.behavior?.moveUnits?.sourceField===name)
+              delete updated[operations.create.behavior.moveUnits.targetField];
+            return updated;});}}/>)}</div>
           </section>)}</div>
           <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}
