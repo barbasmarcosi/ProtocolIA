@@ -145,6 +145,12 @@ public class DomainRuntime {
           a.getAuthority().equals(plan.childReadCapability())))
         throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     }
+    if (matched.kind().equals("sumDetails")) {
+      var plan=Manifest.DETAIL_SUMS.get(matched.name());
+      if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
+          a.getAuthority().equals(plan.childReadCapability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    }
     if (matched.kind().equals("sumRelated")) {
       var plan=Manifest.RELATED_SUMS.get(matched.name());
       if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
@@ -161,6 +167,7 @@ public class DomainRuntime {
       case "create" -> result = create(entity, matched, body, user);
       case "get" -> result = row(entity, publicKey, user.getName());
       case "sumRelated" -> result = sumRelated(matched,publicKey);
+      case "sumDetails" -> result = sumDetails(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
       case "listPage" -> result = page(entity, query, matched, user.getName());
       case "queryPage" -> result = queryPage(entity, query, matched);
@@ -280,6 +287,15 @@ public class DomainRuntime {
     var result=jdbc.queryForList(plan.sql(),Map.of("identity",id));
     if(result.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return result.get(0);
+  }
+
+  private Map<String,Object> sumDetails(Manifest.Op op,String id){
+    if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    var plan=Manifest.DETAIL_SUMS.get(op.name());
+    if(plan==null)throw new IllegalStateException("Missing full detail sum");
+    var rows=jdbc.queryForList(plan.sql(),Map.of("identity",id));
+    if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return Map.of("totalUnits",String.valueOf(rows.get(0).get("totalUnits")));
   }
 
   private Map<String,Object> sumRelated(Manifest.Op op,String id){
