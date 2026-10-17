@@ -962,9 +962,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           target.ownerManaged||!parsed||parsed.type!=="string"||parsed.nullable||
           parsed.minLength!==target.minLength||parsed.maxLength!==target.maxLength||
           parsed.pattern!==target.pattern||
-          ![200,400,401,403,404,409].every(x=>
-            op.returnType.kind==="Union"?
-              true:true)){
+          parsed.choices!==undefined){
           // HTTP status verification runs below when the operation is resolved.
           reject("invalid-audited-patch",op.name+
             " needs one required string field plus required typed expected value",op);
