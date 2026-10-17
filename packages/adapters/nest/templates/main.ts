@@ -691,6 +691,27 @@ class RuntimeService{
     }
     return this.row(e,String(input[e.publicIdentity]),actor);
   }
+  private async patchTogether(e:Entity,op:Operation,key:string,body:unknown,
+    subject?:string):Promise<Record<string,unknown>>{
+    const keys=op.input?.split(",")??[];
+    if(keys.length!==2||keys[0]===keys[1]||!isRecord(body)||
+       Object.keys(body).length!==2||!Object.hasOwn(body,keys[0])||
+       !Object.hasOwn(body,keys[1]))
+      throw new Problem(400,"Expected exactly two business-key fields");
+    const input=validateInput(e,body,keys,false);
+    const left=e.fields.find(f=>f.name===keys[0])!,right=e.fields.find(f=>f.name===keys[1])!;
+    const owner=e.fields.find(f=>f.ownerManaged);
+    if(owner&&!subject)throw new Problem(403,"Owner-scoped update denied");
+    const values=[input[keys[0]],input[keys[1]],key];
+    if(owner)values.push(subject);
+    const updated=await this.pool.query("UPDATE "+e.table+" SET "+
+      left.column+"=$1,"+right.column+"=$2 WHERE "+e.identityColumn+"=$3"+
+      (owner?" AND "+owner.column+"=$4":"")+
+      " RETURNING "+e.identityColumn,values);
+    if(updated.rowCount!==1)throw new Problem(404,"Not found");
+    return this.row(e,key,subject);
+  }
+
   private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
     const input=validateInput(e,body,[op.input!],false);
     if(Object.keys(input).length!==1||!Object.hasOwn(input,op.input!))
@@ -863,6 +884,7 @@ class RuntimeService{
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username);break;
+        case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
@@ -876,7 +898,7 @@ class RuntimeService{
           delete copy[f.name];
         return copy;
       };
-      if(["create","get","patchFields"].includes(op.kind))data=redacted(data);
+      if(["create","get","patchFields","patchTogether"].includes(op.kind))data=redacted(data);
       else if(op.kind==="listPage"&&isRecord(data)&&Array.isArray(data.items))
         data={...data,items:data.items.map(redacted)};
       res.status(op.kind==="create"?201:200).json(data);
