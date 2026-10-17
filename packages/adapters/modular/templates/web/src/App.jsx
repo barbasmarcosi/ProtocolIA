@@ -275,7 +275,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 }
 // B13: generated read-side of a typed header/detail aggregate, using the existing
 // child queryPage filter and explicit child read authority. Never fetch unscoped rows.
-function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved}){
+function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSaved}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
   const [editing,setEditing]=useState(null);
@@ -287,11 +287,13 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved})
   const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
     f.name!==filter.field).slice(0,5);
   const quantity=columns.find(f=>f.type==="int32"&&f.min!==undefined&&f.min>=0);
-  const editField=editOp?.behavior?.audit?.length===1?
-    child.entity.fields.find(f=>f.name===editOp.behavior.field&&
+  const writableEdits=editOps.filter(op=>op.behavior?.audit?.length===1&&
+    child.entity.fields.some(f=>f.name===op.behavior.field&&
       (f.type==="string"||
         (f.type==="int32"&&(f.min??0)>=1&&f.max!==undefined))&&
-      !f.reference&&!f.initial):null;
+      !f.reference&&!f.initial));
+  const editOp=editing?.op;
+  const editField=editOp?child.entity.fields.find(f=>f.name===editOp.behavior.field):null;
   async function saveLine(item){
     if(!editField||saving)return;
     const value=editField.type==="int32"?Number(draft):draft.trim();
@@ -363,10 +365,10 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved})
         <div className="scroll data-table-scroll">
           <table className="data-table"><thead><tr>{columns.map(field=>
             <th scope="col" key={field.name}>{fieldLabel(field)}</th>)}
-            {editField&&<th scope="col">Editar</th>}</tr></thead>
+            {writableEdits.length>0&&<th scope="col">Editar</th>}</tr></thead>
             <tbody>{state.items.map((item,index)=><tr key={String(item[child.entity.publicIdentity]??index)}>
               {columns.map(field=><td key={field.name}>{cellText(item[field.name])}</td>)}
-              {editField&&<td>{editing===item[child.entity.publicIdentity]?<>
+              {writableEdits.length>0&&<td>{editing?.key===item[child.entity.publicIdentity]?<>
                 <label className="field"><span>{fieldLabel(editField)}</span>
                   <input data-testid="detail-inline-edit" value={draft}
                     type={editField.type==="int32"?"number":"text"}
@@ -380,11 +382,15 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved})
                 <button type="button" disabled={saving} onClick={()=>saveLine(item)}>Guardar</button>
                 <button type="button" className="ghost" disabled={saving}
                   onClick={()=>{setEditing(null);setEditError("");}}>Cancelar</button>
-              </>:<button type="button" className="ghost"
-                data-testid={"edit-detail-"+item[child.entity.publicIdentity]}
-                onClick={()=>{setEditing(item[child.entity.publicIdentity]);
-                  setDraft(String(item[editField.name]??""));setEditError("");}}>
-                Editar {fieldLabel(editField)}</button>}</td>}</tr>)}</tbody>
+              </>:<div className="detail-edit-actions">{writableEdits.map(op=>{
+                const field=child.entity.fields.find(f=>f.name===op.behavior.field);
+                return <button type="button" className="ghost" key={op.name??op.path}
+                  data-testid={"edit-detail-"+item[child.entity.publicIdentity]+
+                    (writableEdits.length>1?"-"+field.name:"")}
+                  onClick={()=>{setEditing({key:item[child.entity.publicIdentity],op});
+                    setDraft(String(item[field.name]??""));setEditError("");}}>
+                  Editar {fieldLabel(field)}</button>;
+              })}</div>}</td>}</tr>)}</tbody>
           </table>
         </div>
         {state.total===0&&<p className="field-help">Esta cabecera todavía no tiene renglones.</p>}
@@ -732,10 +738,10 @@ export default function App(){
   const canReadDetailSum=Boolean(detailSum&&detailResource&&
     capabilities.includes(detailSum.capability)&&
     capabilities.includes(detailResource.operations.get?.capability));
-  const detailEdit=detailResource?.operations?.patchFields;
-  const canEditDetail=Boolean(detailEdit&&
-    detailEdit.behavior.audit?.length===1&&
-    capabilities.includes(detailEdit.capability));
+  const detailEdits=(detailResource?.patchFieldsOptions??
+    (detailResource?.operations?.patchFields?[detailResource.operations.patchFields]:[]))
+    .filter(op=>op.behavior?.audit?.length===1&&
+      capabilities.includes(op.capability));
   const relatedSum=operations.sumRelated;
   const relatedSumChild=relatedSum?.behavior?.relatedSum?
     config?.resources?.find(r=>r.entity.name===relatedSum.behavior.relatedSum.childEntity):null;
@@ -1344,7 +1350,7 @@ export default function App(){
           filter={detailFilter}
           identity={selected[active.entity.publicIdentity]}
           auth={auth}
-          editOp={canEditDetail?detailEdit:null}
+          editOps={detailEdits}
           onSaved={()=>setSummaryRevision(n=>n+1)}/>} 
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
