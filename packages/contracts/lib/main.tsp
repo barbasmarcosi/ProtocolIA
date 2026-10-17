@@ -61,6 +61,9 @@ namespace ProtocolIA.Domain {
   // All participating balances settle once, in a single database transaction.
   extern dec moveBatch(target: Operation, stockEntity: valueof string,
     availableField: valueof string, legs: valueof string);
+  // Exactly-once reversal of the entire immutable batch, with state audit.
+  extern dec reverseBatch(target: Operation, stockEntity: valueof string,
+    availableField: valueof string, legs: valueof string);
   extern dec moveUnits(target: Operation, stockEntity: valueof string, availableField: valueof string,
     sourceField: valueof string, targetField: valueof string, quantityField: valueof string);
   // Atomic reversal of a journalled movement, guarded by its state.
