@@ -35,3 +35,40 @@ export function assertMoveUnits(ir,entity,op){
     throw Error("Stock transfer requires independent parent write capability");
   return {stock,available,source,target,amount,parentWriteCapability:write[0].capability};
 }
+
+
+/** B9: validate the complete paired lifecycle before any adapter emits SQL. */
+export function assertReverseUnits(ir,entity,op){
+  const rule=op?.behavior?.reverseUnits;
+  if(!rule||op.behavior.kind!=="transition"||op.method!=="POST"||
+    ![200,400,401,403,404,409].every(code=>op.statuses?.includes(code))||
+    op.behavior.from!=="posted"||op.behavior.to!=="reversed"||
+    !op.behavior.field||!Array.isArray(op.behavior.audit)||
+    op.behavior.audit.length!==1||op.behavior.audit[0]!==op.behavior.field||
+    op.behavior.reserve||op.behavior.release||op.behavior.moveUnits||
+    op.behavior.exactDebit||op.behavior.exactReverse)
+    throw Error("Invalid reversible movement contract");
+  const state=entity?.fields.find(f=>f.name===op.behavior.field);
+  if(!state||state.type!=="string"||state.initial!=="posted"||
+    !state.required||state.nullable||
+    entity.fields.filter(f=>f.initial!==undefined).length!==1)
+    throw Error("A transfer reversal requires one server-initialized posted state");
+  const names=["stockEntity","availableField","sourceField","targetField","quantityField"];
+  const creates=ir.operations.filter(x=>x.entity===entity.name&&
+    x.behavior.kind==="create"&&x.behavior.moveUnits&&
+    names.every(key=>x.behavior.moveUnits[key]===rule[key]));
+  const reversals=ir.operations.filter(x=>x.entity===entity.name&&x.behavior.reverseUnits);
+  const forbidden=ir.operations.filter(x=>x.entity===entity.name&&
+    !["create","get","listPage","transition","auditPage"].includes(x.behavior.kind));
+  if(creates.length!==1||reversals.length!==1||forbidden.length||
+    ir.operations.some(x=>x.entity===entity.name&&x.behavior.kind==="transition"&&
+      x.name!==op.name)||
+    ir.operations.filter(x=>x.entity===entity.name&&x.behavior.kind==="create").length!==1)
+    throw Error("A movement must have exactly one creator and exactly one reversal");
+  const plan=assertMoveUnits(ir,entity,creates[0]);
+  const stock=ir.entities.find(e=>e.name===rule.stockEntity);
+  if(!stock||stock!==plan.stock||!["sourceField","targetField","quantityField"].every(
+    k=>entity.fields.some(f=>f.name===rule[k])))
+    throw Error("Reversal metadata does not match the transfer");
+  return {...plan,rule,field:state,createCapability:creates[0].capability};
+}
