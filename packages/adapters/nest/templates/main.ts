@@ -24,7 +24,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -618,6 +618,9 @@ class RuntimeService{
     if(op.moveUnits&&spec.operations.some(x=>x.entity===e.name&&x.reverseUnits)&&
       (!isRecord(body)||e.fields.some(f=>f.initial!==undefined&&Object.hasOwn(body,f.name))))
       throw new Problem(400,"Initial transfer state is server-managed");
+    if(op.moveBatch&&spec.operations.some(x=>x.entity===e.name&&x.reverseBatch)&&
+      (!isRecord(body)||e.fields.some(f=>f.initial!==undefined&&Object.hasOwn(body,f.name))))
+      throw new Problem(400,"Initial batch state is server-managed");
     const ownedBody=owner?{...(body as Record<string,unknown>),[owner.name]:actor}:body;
     const input={...validateInput(e,ownedBody,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
@@ -804,6 +807,58 @@ class RuntimeService{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(op.reverseBatch){
+      const plan=op.reverseBatch;
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const columns=plan.legs.flatMap(leg=>[
+          leg.sourceField,leg.targetField,leg.quantityField]);
+        const saved=await client.query("SELECT "+columns.join(",")+" FROM "+e.table+
+          " WHERE "+e.identityColumn+"=$1",[key]);
+        if(saved.rowCount!==1)throw new Problem(404,"Batch not found");
+        const values=saved.rows[0] as Record<string,unknown>;
+        const deltas=new Map<string,number>();
+        for(const leg of plan.legs){
+          const source=values[leg.sourceField],target=values[leg.targetField],
+            units=values[leg.quantityField];
+          if(typeof source!=="string"||typeof target!=="string"||
+            !Number.isInteger(units)||(units as number)<1||source===target)
+            throw new Problem(409,"Invalid persisted batch");
+          deltas.set(source,(deltas.get(source)??0)+(units as number));
+          deltas.set(target,(deltas.get(target)??0)-(units as number));
+        }
+        const ids=[...deltas.keys()].sort();
+        if(ids.some(id=>!id)||[...deltas.values()].some(x=>!Number.isSafeInteger(x)))
+          throw new Problem(409,"Invalid batch delta");
+        // Match CREATE lock order; no child row lock may precede parent row locks.
+        const locked=await client.query("SELECT "+plan.stockKeyColumn+" FROM "+
+          plan.stockTable+" WHERE "+plan.stockKeyColumn+"=ANY($1::text[]) ORDER BY "+
+          plan.stockKeyColumn+" FOR UPDATE",[ids]);
+        if(locked.rowCount!==ids.length)throw new Problem(409,"Missing batch stock account");
+        const state=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
+          e.identityColumn,[op.to,key,op.from]);
+        if(state.rowCount!==1)throw new Problem(409,"Batch already reversed");
+        for(const id of ids){
+          const delta=deltas.get(id)!;
+          if(delta===0)continue;
+          const minimum=delta<0?-delta:0;
+          const maximum=delta>0?plan.maxBalance-delta:plan.maxBalance;
+          if(minimum>plan.maxBalance||maximum<0)
+            throw new Problem(409,"Batch reversal exceeds stock limits");
+          const changed=await client.query("UPDATE "+plan.stockTable+" SET "+
+            plan.availableColumn+"="+plan.availableColumn+"+$1 WHERE "+
+            plan.stockKeyColumn+"=$2 AND "+plan.availableColumn+">=$3 AND "+
+            plan.availableColumn+"<=$4",[delta,id,minimum,maximum]);
+          if(changed.rowCount!==1)throw new Problem(409,"Cannot restore entire batch");
+        }
+        await this.recordAudit(client,e,op,key,actor,{[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     if(op.reverseUnits){
       const plan=op.reverseUnits;
       const client=await this.pool.connect();
@@ -968,6 +1023,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient stock transfer authority");
       if(op.moveBatch&&!session.capabilities.includes(op.moveBatch.parentWriteCapability))
         throw new Problem(403,"Insufficient batch settlement authority");
+      if(op.reverseBatch&&!session.capabilities.includes(op.reverseBatch.parentWriteCapability))
+        throw new Problem(403,"Insufficient batch reversal authority");
       if(op.reverseUnits&&!session.capabilities.includes(op.reverseUnits.parentWriteCapability))
         throw new Problem(403,"Insufficient stock reversal authority");
       if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
