@@ -9,6 +9,7 @@ export const $lib = createTypeSpecLibrary({
     publicIdentity: {description:"ProtocolIA publicIdentity contract metadata"},
     unique: {description:"ProtocolIA unique contract metadata"},
     uniqueTogether: {description:"Required fields unique as a compound business key"},
+    patchTogether: {description:"Atomic two-field business-key update on a declared uniqueTogether entity"},
     uniqueWhen: {description:"Partial unique business key limited to one declared finite state"},
     ownerIdentity: {description:"Non-client-writable owner field bound to authenticated subject"},
     readCapability: {description:"Omit an optional sensitive response field without its independent read permission"},
@@ -62,6 +63,10 @@ function uniqueWhen(context: DecoratorContext, target: Model,
   fields: string, stateField: string, activeState: string): void {
   context.program.stateMap($lib.stateKeys.uniqueWhen).set(target,{fields,stateField,activeState});
 }
+function patchTogether(context: DecoratorContext, target: Operation, fields: string): void {
+  context.program.stateMap($lib.stateKeys.patchTogether).set(target,{fields});
+}
+
 function uniqueTogether(context: DecoratorContext, target: Model, fields: string): void {
   context.program.stateMap($lib.stateKeys.uniqueTogether).set(target,{fields});
 }
