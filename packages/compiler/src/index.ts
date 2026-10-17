@@ -1604,7 +1604,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
   for(const creator of operations.filter(o=>o.behavior.createDetails)){
     const cfg=creator.behavior.createDetails!;
     const patches=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.kind==="patchFields");
-    if(patches.length>3||new Set(patches.map(o=>o.behavior.field)).size!==patches.length)
+    if(patches.length>3||
+       new Set(patches.map(o=>o.behavior.field)).size!==patches.length||
+       new Set(patches.map(o=>o.capability)).size!==patches.length)
       reject("detail-edit-duplicate",creator.name+
         " requires at most three distinct audited editable child fields",ops.find(o=>o.name===creator.name)!);
     for(const mut of operations.filter(o=>o.entity===cfg.childEntity&&
