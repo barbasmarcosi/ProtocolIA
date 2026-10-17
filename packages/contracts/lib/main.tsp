@@ -57,6 +57,10 @@ namespace ProtocolIA.Domain {
   extern dec debitExact(target: Operation, balanceEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   // Move checked positive int32 units between two distinct records and insert a journal row.
+  // Dynamic 1..20 child rows in the CREATE request, committed with the parent.
+  // Child's declared FK back to parent is assigned by the server.
+  extern dec createDetails(target: Operation, childEntity: valueof string,
+    parentField: valueof string, rowsField: valueof string);
   // Two to four flat movement legs: "fromA,toA,unitsA;fromB,toB,unitsB".
   // All participating balances settle once, in a single database transaction.
   extern dec moveBatch(target: Operation, stockEntity: valueof string,
