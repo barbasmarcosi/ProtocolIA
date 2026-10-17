@@ -11,7 +11,7 @@ import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
-import {assertMoveUnits} from "../stock-transfer.mjs";
+import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -188,6 +188,7 @@ export function generate(ir, openapi, outDir) {
         throw Error("Invalid audited mutation "+op.name);
     }
     if(op.behavior.moveUnits)assertMoveUnits(ir,bound,op);
+    if(op.behavior.reverseUnits)assertReverseUnits(ir,bound,op);
     if(op.behavior.reserve){
       const r=op.behavior.reserve,stock=entityMap.get(r.stockEntity);
       const available=stock?.fields.find(x=>x.name===r.availableField);
@@ -317,6 +318,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,OwnerRelation ownerRelation,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
+    "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
     "  public record ExactReverse(String balanceTable,String balanceKey,String balanceColumn,String referenceColumn,String amountColumn,String parentWriteCapability,String maxBalance) {}",
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
@@ -339,7 +341,7 @@ export function generate(ir, openapi, outDir) {
         ].join(",")+")").join(",")+")"].join(",")+
       "))").join(",\n"),
     "  );",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,ExactDebit exactDebit,ExactReverse exactReverse,MoveUnits moveUnits,List<String> audit) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,ExactDebit exactDebit,ExactReverse exactReverse,MoveUnits moveUnits,ReverseUnits reverseUnits,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
@@ -398,6 +400,16 @@ export function generate(ir, openapi, outDir) {
         n(plan.available.max??2147483647),j(plan.parentWriteCapability)
       ].join(",")+")";
     }
+    let reverseUnits="null";
+    if(b.reverseUnits){
+      const plan=assertReverseUnits(ir,entityMap.get(op.entity),op);
+      reverseUnits="new ReverseUnits("+[
+        j(snake(plan.stock.name)),j(snake(plan.stock.publicIdentity)),
+        j(snake(plan.available.name)),j(snake(plan.source.name)),
+        j(snake(plan.target.name)),j(snake(plan.amount.name)),
+        n(plan.available.max??2147483647),j(plan.parentWriteCapability)
+      ].join(",")+")";
+    }
     let release="null";
     if(b.release){
       const stock=entityMap.get(b.release.stockEntity);
@@ -421,7 +433,7 @@ export function generate(ir, openapi, outDir) {
     ].join(",")+")":"null";
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,exactDebit,exactReverse,moveUnits,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,exactDebit,exactReverse,moveUnits,reverseUnits,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
