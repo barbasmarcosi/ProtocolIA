@@ -314,8 +314,11 @@ async function runMulti(){
     }else assert.ok(page.data.total>=1);
     assert.equal((await run(resource,"create",writer,{body:{...body,unknown:true}})).status,400);
     keys.set(e.name,key);createBodies.set(e.name,body);
-    if(resource.operations.patchFields){
-      const op=resource.operations.patchFields;
+    const patchOptions=resource.patchFieldsOptions?.length?
+      resource.patchFieldsOptions:
+      resource.operations.patchFields?[resource.operations.patchFields]:[];
+    for(const op of patchOptions){
+      const patchResource={...resource,operations:{...resource.operations,patchFields:op}};
       const field=e.fields.find(f=>f.name===op.behavior.field);
       assert.ok(field);
       const update=String(valueFor(field))+"V2";
@@ -327,11 +330,11 @@ async function runMulti(){
         [op.behavior.input]:value,
         ...(op.behavior.audit?.length?{expected:previous}:{})
       };
-      const changed=await run(resource,"patchFields",writer,{key,body:patchBody});
+      const changed=await run(patchResource,"patchFields",writer,{key,body:patchBody});
       assert.equal(changed.status,200,e.name+" PATCH "+JSON.stringify(changed.data));
-      assert.equal((await run(resource,"patchFields",reader,{key,body:patchBody})).status,403);
+      assert.equal((await run(patchResource,"patchFields",reader,{key,body:patchBody})).status,403);
       if(op.behavior.audit?.length)
-        assert.equal((await run(resource,"patchFields",writer,{key,body:patchBody})).status,409,
+        assert.equal((await run(patchResource,"patchFields",writer,{key,body:patchBody})).status,409,
           "Stale audited patch must never overwrite a prior update");
     }
     if(resource.operations.atomicIncrement){
