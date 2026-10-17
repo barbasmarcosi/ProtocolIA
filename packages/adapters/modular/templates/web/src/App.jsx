@@ -470,6 +470,8 @@ export default function App(){
   const [auditBusy,setAuditBusy]=useState(false);
   const [auditError,setAuditError]=useState("");
   const [form,setForm]=useState({});
+  const [detailRows,setDetailRows]=useState([{}]);
+  const [detailErrors,setDetailErrors]=useState({});
   const [rename,setRename]=useState("");
   const [compoundEdit,setCompoundEdit]=useState({});
   const [reassigned,setReassigned]=useState("");
@@ -572,6 +574,12 @@ export default function App(){
   const transitions=active?.transitions??[];
   const can=(kind)=>Boolean(operations[kind]&&capabilities.includes(operations[kind].capability));
   const searchFilters=operations.queryPage?.behavior?.filters??[];
+  const detailPlan=operations.create?.behavior?.createDetails;
+  const detailResource=detailPlan?config?.resources?.find(r=>
+    r.entity.name===detailPlan.childEntity):null;
+  const detailFields=detailResource?.entity.fields.filter(f=>
+    f.name!==detailPlan?.parentField&&!f.computedSum&&!f.computedProduct&&
+    !f.computedRoundedProduct&&!f.computedDiscountedTotal)??[];
   const tableColumns=useMemo(()=>active?.entity?visibleColumns({...active.entity,
     fields:active.entity.fields.filter(f=>!f.readCapability||capabilities.includes(f.readCapability))}):[],
     [active?.entity,capabilities]);
@@ -588,11 +596,14 @@ export default function App(){
     capabilities.includes(relatedSum.capability)&&
     capabilities.includes(relatedSumChild.operations?.get?.capability));
   // Generic draft baseline is built from the formal field manifest.
-  const createDirty=Boolean(creating&&active?.entity?.fields.some(field=>{
+  const createDirty=Boolean(creating&&(detailPlan&&(detailRows.length!==1||
+    detailRows.some(row=>detailFields.some(field=>
+      String(row[field.name]??"")!==String(field.type==="int32"&&field.required?0:""))))||
+    active?.entity?.fields.some(field=>{
     if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
     const initial=field.type==="int32"&&field.required?0:"";
     return String(form[field.name]??"")!==String(initial);
-  }));
+  })));
   navigationSnapshot.current={resourceIndex,createDirty,saving:creating&&loading};
   function applyWorkspaceRoute(view){
     setResourceIndex(view.resourceIndex);setOffset(view.offset);
@@ -790,6 +801,7 @@ export default function App(){
     if(!active)return;
     listRequestEpoch.current++;
     setForm(createEmpty(active.entity.fields));setFieldErrors({});
+    setDetailRows([{}]);setDetailErrors({});
     setSelected(null);setDetailOpen(false);setCreating(false);setActivePicker("");setItems([]);setReferenceOptions({});setReferenceStatus({});
     setAuditItems([]);setAuditTotal(0);setAuditOffset(0);setAuditError("");
     // Page and filters are preserved per resource and restored from route state.
@@ -1061,8 +1073,33 @@ export default function App(){
             event.currentTarget.querySelector(`[data-testid="create-${invalid}"]`)?.focus();
             return;
           }
-          const data=await act("create",{body:normalizePayload(active.entity.fields,form)});
-          if(data){setForm(createEmpty(active.entity.fields));setFieldErrors({});commitCreateClose();}
+          let lines;
+          if(detailPlan){
+            if(!detailResource||detailRows.length<1||detailRows.length>detailPlan.maxRows){
+              setError("La cantidad de renglones debe estar entre 1 y 20.");return;
+            }
+            const problems={};
+            detailRows.forEach((row,i)=>{
+              const errs=validateCreate(detailFields,row);
+              for(const [name,message] of Object.entries(errs))problems[i+"."+name]=message;
+            });
+            setDetailErrors(problems);
+            if(Object.keys(problems).length){
+              setError("Revisá los renglones marcados para continuar.");
+              const first=Object.keys(problems)[0].split(".");
+              event.currentTarget.querySelector(
+                '[data-testid="detail-row-'+first[0]+'"] [data-testid="create-'+first[1]+'"]'
+              )?.focus();
+              return;
+            }
+            lines=detailRows.map(row=>normalizePayload(detailFields,row));
+          }
+          const data=await act("create",{body:{
+            ...normalizePayload(active.entity.fields,form),
+            ...(detailPlan?{[detailPlan.rowsField]:lines}:{})
+          }});
+          if(data){setForm(createEmpty(active.entity.fields));setDetailRows([{}]);
+            setDetailErrors({});setFieldErrors({});commitCreateClose();}
         }}><div className="form-groups">{groupCreateFields(active.entity.fields).map((group,index)=>
           <section className="form-section" key={group.title??"ungrouped"} data-testid={"create-section-"+index}
             aria-label={group.title??"Datos del registro"}>
