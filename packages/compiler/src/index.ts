@@ -957,19 +957,23 @@ export function compileDomain(p: Program): IrDocument | undefined {
         const parsed=old?field(p,old):undefined;
         const incoming=field(p,value);
         const target=entity.fields.find(x=>x.name===f);
+        const scalarMatch=(v:IrField|undefined)=>!!v&&!!target&&
+          v.type===target.type&&!v.nullable&&
+          (target.type==="string"?
+            v.minLength===target.minLength&&v.maxLength===target.maxLength&&
+            v.pattern===target.pattern:
+            v.min===target.min&&v.max===target.max);
         if(payload.properties.size!==2||!old||old.optional||value.optional||
-          !incoming||incoming.type!==target?.type||incoming.nullable!==false||
-          incoming.minLength!==target?.minLength||incoming.maxLength!==target?.maxLength||
-          incoming.pattern!==target?.pattern||incoming.choices!==undefined||
-          !target||target.type!=="string"||target.reference||
-          target.initial!==undefined||target.nullable||!target.required||
-          target.ownerManaged||!parsed||parsed.type!=="string"||parsed.nullable||
-          parsed.minLength!==target.minLength||parsed.maxLength!==target.maxLength||
-          parsed.pattern!==target.pattern||
-          parsed.choices!==undefined){
-          // HTTP status verification runs below when the operation is resolved.
+          !target||!["string","int32"].includes(target.type)||
+          target.reference||target.initial!==undefined||target.nullable||!target.required||
+          target.ownerManaged||target.choices||target.computedSum||
+          target.computedProduct||target.computedRoundedProduct||target.computedDiscountedTotal||
+          (target.type==="int32"&&((target.min??0)<1||
+            (target.max??2147483647)>1000000000))||
+          !scalarMatch(incoming)||!scalarMatch(parsed)||
+          incoming?.choices!==undefined||parsed?.choices!==undefined){
           reject("invalid-audited-patch",op.name+
-            " needs one required string field plus required typed expected value",op);
+            " needs required string or positive bounded int32 plus matching typed expected value",op);
           continue;
         }
       }
