@@ -41,5 +41,15 @@ jobs:
         run: node --test tests/vnext/compound-update.test.mjs
       - name: Generated runtime smoke and PostgreSQL
         run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
-      - name: Concurrent HTTP POST unique business key and persisted DB oracle
+      - name: Install Chromium and Playwright
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Generated atomic two-field PATCH with PostgreSQL, 12 races and Chromium
         run: node scripts/vnext/probe-compound-update-http.mjs "${RUNNER_TEMP}/composite-generated"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: b6-compound-update-${{ matrix.target }}
+          path: ${{ runner.temp }}/composite-generated/b6-compound-update-mobile.png
+          if-no-files-found: error
