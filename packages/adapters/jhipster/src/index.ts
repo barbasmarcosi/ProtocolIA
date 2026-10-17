@@ -72,6 +72,7 @@ export interface IrOperation {
     to?: string;
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     moveUnits?: {stockEntity:string;availableField:string;sourceField:string;targetField:string;quantityField:string};
+    moveBatch?: {stockEntity:string;availableField:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
     reverseUnits?: {stockEntity:string;availableField:string;sourceField:string;targetField:string;quantityField:string};
     debitExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     reverseExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
