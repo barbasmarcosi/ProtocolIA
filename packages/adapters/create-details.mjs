@@ -1,0 +1,36 @@
+/**
+ * B12 bounded contract-derived parent + typed child collection.
+ * Reject anything that might bypass a parent authorization boundary, mutate generated
+ * child fields or create an unbounded batch.
+ */
+export function assertCreateDetails(ir,parent,op){
+  const meta=op?.behavior?.createDetails;
+  const child=ir.entities.find(e=>e.name===meta?.childEntity);
+  const relation=child?.fields.find(f=>f.name===meta?.parentField);
+  const childCreate=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="create");
+  const parentCreate=ir.operations.filter(x=>x.entity===parent?.name&&x.behavior.kind==="create");
+  const bounded=Number.isInteger(meta?.maxRows)&&meta.maxRows===20;
+  const rows=meta?.rowsField;
+  const allowed=child?.fields.filter(f=>f.name!==meta?.parentField)??[];
+  if(!parent||!meta||op.behavior.kind!=="create"||op.method!=="POST"||
+    ![201,400,401,403,409].every(s=>op.statuses?.includes(s))||
+    !bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
+    parent.fields.some(f=>f.name===rows)||!child||child===parent||
+    child.fields.some(f=>f.ownerManaged||f.initial!==undefined||f.readCapability)||
+    parent.fields.some(f=>f.ownerManaged)||
+    !relation||relation.type!=="string"||!relation.required||relation.nullable||
+    relation.reference?.target!==parent.name||relation.reference?.onDelete!=="restrict"||
+    child.fields.some(f=>f.reference&&f.name!==meta.parentField)||
+    !allowed.length||allowed.some(f=>f.type!=="string"&&f.type!=="int32"&&f.type!=="decimal"&&f.type!=="utcDateTime")||
+    childCreate.length!==1||parentCreate.length!==1||parentCreate[0].name!==op.name||
+    !childCreate[0].capability||childCreate[0].capability==="public"||
+    !op.capability||op.capability==="public"||
+    ir.operations.some(x=>x.entity===parent.name&&x.behavior.kind==="create"&&x.behavior.moveBatch)||
+    op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
+    op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
+    ir.operations.some(x=>x.entity===child.name&&
+      !["create","get","listPage","queryPage","auditPage","health"].includes(x.behavior.kind)))
+    throw Error("Unsafe bounded relational header/detail contract");
+  return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,
+    childWriteCapability:childCreate[0].capability};
+}
