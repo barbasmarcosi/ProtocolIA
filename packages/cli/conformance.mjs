@@ -141,7 +141,8 @@ async function runMulti(){
       "Manager missing write permission on "+e.name);
     const owned=e.fields.some(f=>f.ownerManaged);
     const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.ownerManaged&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
-      !(resource.operations.create.behavior.moveUnits&&f.initial!==undefined))
+      !((resource.operations.create.behavior.moveUnits||resource.operations.create.behavior.moveBatch)&&
+        f.initial!==undefined))
       .map(f=>[f.name,f.reference?keys.get(f.reference.target):valueFor(f,f.name===identity)]));
     assert.ok(e.fields.filter(f=>f.reference).every(f=>typeof body[f.name]==="string"));
     const key=body[identity];
