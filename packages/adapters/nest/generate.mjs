@@ -8,6 +8,7 @@ import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
+import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
@@ -130,9 +131,9 @@ export function generate(ir,spec,out){
   const ownerScopes=compileOwnerScopes(ir);
   const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
-  const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",
+  const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
-  const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,
+  const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,
     atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,reconcileExact:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
@@ -140,7 +141,7 @@ export function generate(ir,spec,out){
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchFields","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchFields","patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
     const read=of("get",e.name)[0].capability,write=of("create",e.name)[0].capability;
     if(!read||!write||read===write||read==="public"||write==="public")
@@ -163,6 +164,7 @@ export function generate(ir,spec,out){
       const b=op.behavior,kind=b?.kind;
       if(!methods[kind]||op.method!==methods[kind]||!op.statuses?.includes(ok[kind]))
         throw Error("Verb/status mismatch "+op.name);
+      if(kind==="patchTogether")assertPatchTogether(e,op);
       if(kind==="patchFields"&&e.uniqueTogether?.includes(b.field)){
         const f=e.fields.find(x=>x.name===b.field);
         if(!f||f.type!=="string"||!f.required||f.nullable||f.reference||
@@ -171,7 +173,7 @@ export function generate(ir,spec,out){
           throw Error("Unsafe compound-key PATCH "+op.name);
       }
       const cap=kind==="health"?"public":
-        ["create","patchFields","atomicIncrement","transition","delete"].includes(kind)?write:read;
+        ["create","patchFields","patchTogether","atomicIncrement","transition","delete"].includes(kind)?write:read;
       const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
@@ -183,7 +185,7 @@ export function generate(ir,spec,out){
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(kind);
+      const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
