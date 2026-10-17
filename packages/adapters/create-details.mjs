@@ -32,7 +32,17 @@ export function assertCreateDetails(ir,parent,op){
     op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
     op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
     ir.operations.some(x=>x.entity===child.name&&
-      !["create","get","listPage","queryPage","auditPage","health"].includes(x.behavior.kind)))
+      !["create","get","listPage","queryPage","auditPage","patchFields","health"].includes(x.behavior.kind)))||
+    ir.operations.some(x=>x.entity===child.name&&x.behavior.kind==="patchFields"&&(()=>{
+      const field=child.fields.find(f=>f.name===x.behavior.field);
+      return !field||field.name===child.publicIdentity||field.name===meta.parentField||
+        field.type!=="string"||!field.required||field.nullable||field.reference||
+        field.initial!==undefined||field.ownerManaged||field.computedSum||
+        field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||
+        x.behavior.input!==field.name||x.behavior.audit?.length!==1||
+        x.behavior.audit[0]!==field.name||
+        x.capability!==childCreate[0].capability;
+    })()))
     throw Error("Unsafe bounded relational header/detail contract");
   return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,
     childWriteCapability:childCreate[0].capability};
