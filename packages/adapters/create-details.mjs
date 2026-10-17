@@ -12,6 +12,17 @@ export function assertCreateDetails(ir,parent,op){
   const bounded=Number.isInteger(meta?.maxRows)&&meta.maxRows===20;
   const rows=meta?.rowsField;
   const allowed=child?.fields.filter(f=>f.name!==meta?.parentField)??[];
+  const invalidPatch=ir.operations.some(x=>{
+    if(x.entity!==child?.name||x.behavior.kind!=="patchFields")return false;
+    const field=child.fields.find(f=>f.name===x.behavior.field);
+    return !field||field.name===child.publicIdentity||field.name===meta.parentField||
+      field.type!=="string"||!field.required||field.nullable||field.reference||
+      field.initial!==undefined||field.ownerManaged||field.computedSum||
+      field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||
+      x.behavior.input!==field.name||x.behavior.audit?.length!==1||
+      x.behavior.audit[0]!==field.name||
+      x.capability!==childCreate[0]?.capability;
+  });
   if(!parent||!meta||op.behavior.kind!=="create"||op.method!=="POST"||
     ![201,400,401,403,409].every(s=>op.statuses?.includes(s))||
     !bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
@@ -32,17 +43,8 @@ export function assertCreateDetails(ir,parent,op){
     op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
     op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
     ir.operations.some(x=>x.entity===child.name&&
-      !["create","get","listPage","queryPage","auditPage","patchFields","health"].includes(x.behavior.kind)))||
-    ir.operations.some(x=>x.entity===child.name&&x.behavior.kind==="patchFields"&&(()=>{
-      const field=child.fields.find(f=>f.name===x.behavior.field);
-      return !field||field.name===child.publicIdentity||field.name===meta.parentField||
-        field.type!=="string"||!field.required||field.nullable||field.reference||
-        field.initial!==undefined||field.ownerManaged||field.computedSum||
-        field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||
-        x.behavior.input!==field.name||x.behavior.audit?.length!==1||
-        x.behavior.audit[0]!==field.name||
-        x.capability!==childCreate[0].capability;
-    })()))
+      !["create","get","listPage","queryPage","auditPage","patchFields","health"].includes(x.behavior.kind))||
+    invalidPatch)
     throw Error("Unsafe bounded relational header/detail contract");
   return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,
     childWriteCapability:childCreate[0].capability};
