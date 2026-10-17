@@ -16,6 +16,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
+type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -24,7 +25,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -613,6 +614,28 @@ class RuntimeService{
     }
   }
   private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[]):Promise<Record<string,unknown>>{
+    const plan=op.createDetails;
+    let detailRows:Record<string,unknown>[]|undefined;
+    let child:Entity|undefined;
+    if(plan){
+      if(!isRecord(body)||!Array.isArray(body[plan.rowsField])||
+        (body[plan.rowsField] as unknown[]).length<1||
+        (body[plan.rowsField] as unknown[]).length>plan.maxRows)
+        throw new Problem(400,"Expected 1..20 typed detail rows");
+      child=spec.entities.find(x=>x.name===plan.childEntity);
+      if(!child)throw new Problem(400,"Unresolved child entity");
+      detailRows=(body[plan.rowsField] as unknown[]).map(raw=>{
+        if(!isRecord(raw)||Object.hasOwn(raw,plan.parentField))
+          throw new Problem(400,"Invalid nested detail row");
+        const joined={...raw,[plan.parentField]:body[e.publicIdentity]};
+        return validateInput(child!,joined,child!.fields.filter(f=>!f.computedSum&&
+          !f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal)
+          .map(f=>f.name),true);
+      });
+    }
+    const plain=plan?{...(body as Record<string,unknown>)}:body;
+    if(plan)delete (plain as Record<string,unknown>)[plan.rowsField];
+    body=plain;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!isRecord(body)||Object.hasOwn(body,owner.name)))throw new Problem(400,"Server-managed owner must not be supplied");
     if(op.moveUnits&&spec.operations.some(x=>x.entity===e.name&&x.reverseUnits)&&
@@ -647,7 +670,7 @@ class RuntimeService{
         relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
         "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
     const insertParams=relation?[...params,input[relation.field],actor]:params;
-    if(op.reserve||op.moveUnits||op.moveBatch||op.exactDebit||op.audit?.length){
+    if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length){
       const batch=op.moveBatch;
       const movement=op.moveUnits;
       const reservation=op.reserve;
@@ -744,6 +767,18 @@ class RuntimeService{
         }
         const created=await client.query(insert,insertParams);
         if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
+        if(detailRows&&child){
+          const writable=child.fields.filter(f=>!f.computedSum&&!f.computedProduct&&
+            !f.computedRoundedProduct&&!f.computedDiscountedTotal);
+          const columnNames=writable.map(f=>f.column).join(",");
+          const placeholders=writable.map((_,i)=>"$"+(i+1)).join(",");
+          for(const detail of detailRows){
+            const params=writable.map(f=>f.type==="utcDateTime"&&detail[f.name]!=null?
+              parseTimestamp(detail[f.name]):detail[f.name]??null);
+            await client.query("INSERT INTO "+child.table+" ("+columnNames+") VALUES ("+
+              placeholders+")",params);
+          }
+        }
         if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
         await client.query("COMMIT");
       }catch(error){
@@ -1023,6 +1058,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient stock transfer authority");
       if(op.moveBatch&&!session.capabilities.includes(op.moveBatch.parentWriteCapability))
         throw new Problem(403,"Insufficient batch settlement authority");
+      if(op.createDetails&&!session.capabilities.includes(op.createDetails.childWriteCapability))
+        throw new Problem(403,"Insufficient detail-write authority");
       if(op.reverseBatch&&!session.capabilities.includes(op.reverseBatch.parentWriteCapability))
         throw new Problem(403,"Insufficient batch reversal authority");
       if(op.reverseUnits&&!session.capabilities.includes(op.reverseUnits.parentWriteCapability))
