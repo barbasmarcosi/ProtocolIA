@@ -236,7 +236,8 @@ try{
     await page.getByRole("button",{name:"Cerrar detalle"}).click();
     await page.getByTestId("open-detail-SUCCESS").click();
     await panel.getByTestId("detail-lines-count").getByText("3 renglones en total").waitFor();
-    await page.getByTestId("related-sum-panel").getByTestId("related-sum-value").getByText("9").waitFor();
+    await page.getByTestId("related-sum-panel").getByTestId("related-sum-value")
+      .getByText(String(winning+7),{exact:true}).waitFor();
     assert.equal(await panel.locator("tbody tr").count(),3);
     assert.ok((await panel.locator("tbody").innerText()).includes("SUCCESS-1"));
     assert.ok(!(await panel.locator("tbody").innerText()).includes("TWENTY-"));
