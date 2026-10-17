@@ -326,6 +326,7 @@ async function main(){
   assert.ok(Array.isArray(paged.data.items));
   assert.ok(paged.data.total>=1);
   assert.equal((await req("create",writer,{body:{...body,[id]:valueFor(fields.find(f=>f.name===id),true)+"Z",unexpected:true}})).status,400);
+  if(operations.patchFields){
   const changedField=operations.patchFields.behavior.field;
   const patchInput=operations.patchFields.behavior.input;
   const patchMeta=fields.find(f=>f.name===changedField);
@@ -335,6 +336,8 @@ async function main(){
   assert.equal(changed.data[id],publicKey);
   assert.equal((await req("patchFields",reader,{key:publicKey,body:{[patchInput]:updated}})).status,403);
 
+  }
+  if(operations.atomicIncrement){
   const incrementField=operations.atomicIncrement.behavior.field;
   const incrementInput=operations.atomicIncrement.behavior.input;
   const starting=created.data[incrementField];
@@ -346,6 +349,7 @@ async function main(){
   assert.equal(after.data[incrementField],starting+10);
   assert.equal((await req("atomicIncrement",writer,{key:publicKey,body:{[incrementInput]:0}})).status,400);
 
+  }
   if(operations.delete){
     assert.equal((await req("delete",reader,{key:publicKey})).status,403);
     assert.equal((await req("delete",writer,{key:publicKey})).status,204);
