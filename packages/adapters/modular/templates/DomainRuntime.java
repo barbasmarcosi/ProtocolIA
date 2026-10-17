@@ -417,6 +417,13 @@ public class DomainRuntime {
     }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
+    if(op.moveUnits()!=null){
+      // Check the ORIGINAL client payload, before the server injects @initial fields.
+      var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseUnits()!=null)
+          .map(Manifest.Op::field).findFirst().orElse(null);
+      if(state!=null&&body.containsKey(state))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Initial transfer state is server-managed");
+    }
     body = new java.util.LinkedHashMap<>(body);
     for (var f : e.fields()) if (f.initial()!=null && !body.containsKey(f.name()))
       body.put(f.name(),f.initial());
@@ -432,11 +439,6 @@ public class DomainRuntime {
     // B8: both parent rows lock in canonical public-key order to avoid reverse-direction
     // transfer deadlocks. The same dispatch() transaction also inserts the journal row.
     if(op.moveUnits()!=null){
-      // A reversible movement's initial state is owned by the generated service, never the client.
-      var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseUnits()!=null)
-          .map(Manifest.Op::field).findFirst().orElse(null);
-      if(state!=null&&body.containsKey(state))
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Initial transfer state is server-managed");
       var movement=op.moveUnits();
       Object fromRaw=body.get(movement.sourceField());
       Object toRaw=body.get(movement.targetField());
