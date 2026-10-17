@@ -29,6 +29,7 @@ export function assertCreateDetails(ir,parent,op){
   const patches=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="patchFields");
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
+    new Set(patches.map(x=>x.capability)).size!==patches.length||
     patches.some(x=>x.behavior.audit?.length!==1);
   if(!parent||!meta||op.behavior.kind!=="create"||op.method!=="POST"||
     ![201,400,401,403,409].every(s=>op.statuses?.includes(s))||
