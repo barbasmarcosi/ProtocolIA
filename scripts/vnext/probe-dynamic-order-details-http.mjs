@@ -17,8 +17,8 @@ const schema=readFileSync(
   existsSync(join(generated,"src/schema.sql"))?join(generated,"src/schema.sql"):
     join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
 assert.match(schema,/CREATE TABLE \\b(?!UNUSED)order_line \\(/,"Relational detail table required");
-assert.match(schema,/CREATE TABLE \\b(?!UNUSED)order \\(/,"Relational order header required");
-assert.match(schema,/FOREIGN KEY \\(order_code\\) REFERENCES order \\(code\\)/,
+assert.match(schema,/CREATE TABLE purchase_order \\(/,"Relational order header required");
+assert.match(schema,/FOREIGN KEY \\(order_code\\) REFERENCES purchase_order \\(code\\)/,
   "Generated detail rows require real FK to order header");
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
@@ -148,7 +148,7 @@ try{
     assert.equal(await page.getByTestId("detail-row-1").getByTestId("create-lineCode").inputValue(),
       "UI-LINE-2","Removed middle row must not remove the last item");
     let posts=0;page.on("request",req=>{if(req.method()==="POST"&&req.url().endsWith(orders))posts++;});
-    const submit=page.getByTestId("create-form-Order").getByRole("button",{name:"Crear",exact:true});
+    const submit=page.getByTestId("create-form-PurchaseOrder").getByRole("button",{name:"Crear",exact:true});
     const result=page.waitForResponse(r=>r.request().method()==="POST"&&r.url().endsWith(orders));
     await submit.click();
     assert.equal((await result).status(),201);
