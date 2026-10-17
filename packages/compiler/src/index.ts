@@ -1608,13 +1608,16 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const field=child?.fields.find(x=>x.name===mut.behavior.field);
       if(mut.behavior.kind!=="patchFields"||!field||
         field.name===child?.publicIdentity||field.name===cfg.parentField||
-        field.type!=="string"||field.reference||!field.required||field.nullable||
+        !["string","int32"].includes(field.type)||
+        (field.type==="int32"&&((field.min??0)<1||
+          (field.max??2147483647)>1000000000))||
+        field.reference||!field.required||field.nullable||
         field.initial!==undefined||mut.behavior.audit?.length!==1||
         mut.behavior.audit[0]!==field.name||
         mut.capability!==operations.find(o=>o.entity===cfg.childEntity&&
           o.behavior.kind==="create")?.capability)
         reject("detail-edit-lifecycle",mut.name+
-          " cannot mutate a child except an optimistic audited non-FK text field",
+          " cannot mutate a child except an optimistic audited bounded scalar field",
           ops.find(o=>o.name===mut.name)!);
     }
   }
