@@ -20,6 +20,7 @@ assert.match(schema,/CONSTRAINT uq_batch_business UNIQUE \(branch,period\)/,
   "Generator must enforce composite business uniqueness in PostgreSQL");
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
+const readerPassword=randomBytes(16).toString("hex");
 function docker(args,timeout=180000){
   const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
   if(r.error||r.status!==0)throw Error("Docker "+args.join(" ")+": "+
@@ -39,7 +40,7 @@ try{
     "PROTOCOLIA_MANAGER_USERNAME=manager",
     "PROTOCOLIA_MANAGER_PASSWORD="+password,
     "PROTOCOLIA_READER_USERNAME=reader",
-    "PROTOCOLIA_READER_PASSWORD="+randomBytes(20).toString("hex"),
+    "PROTOCOLIA_READER_PASSWORD="+readerPassword,
     "PROTOCOLIA_HOST_PORT="+hostPort
   ].join("\n")+"\n",{mode:0o600});
   args=["compose","--project-name",project,"--env-file",env];
@@ -105,6 +106,44 @@ try{
   const result=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
     "-Atc","SELECT COUNT(*) FROM batch WHERE branch='winner' AND period='2026-10'"]);
   assert.equal(Number(result),1,"PostgreSQL must contain exactly one concurrent winner");
+  const forbidden=await request("PATCH","/api/batches/B-001/key",
+    {branch:"forbidden",period:"2026-07"},
+    {Authorization:basic("reader",readerPassword)});
+  assert.equal(forbidden.status,403,"Read-only role cannot mutate composite key");
+  const {chromium}=await import("playwright");
+  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+  try{
+    const page=await browser.newPage({viewport:{width:390,height:844},locale:"es-AR"});
+    const browserErrors=[];page.on("pageerror",error=>browserErrors.push(error.message));
+    await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+    await page.getByTestId("username").fill("manager");
+    await page.getByTestId("password").fill(password);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    await page.getByTestId("open-detail-B-001").waitFor({timeout:20000});
+    await page.getByTestId("open-detail-B-001").click();
+    await page.getByTestId("compound-update-form").waitFor({timeout:20000});
+    await page.getByTestId("compound-branch").fill("south");
+    await page.getByTestId("compound-period").fill("2026-11");
+    const rejected=page.waitForResponse(response=>response.url().endsWith("/api/batches/B-001/key")&&
+      response.request().method()==="PATCH");
+    await page.getByTestId("save-compound").click();
+    assert.equal((await rejected).status(),409);
+    await page.getByRole("alert").getByText(/Ya existe otro registro con esa combinación/).waitFor();
+    const beforeSuccess=await expect("GET","/api/batches/B-001",undefined,200);
+    assert.deepEqual([beforeSuccess.branch,beforeSuccess.period],["central","2026-12"]);
+    await page.getByTestId("compound-branch").fill("west");
+    await page.getByTestId("compound-period").fill("2026-10");
+    const accepted=page.waitForResponse(response=>response.url().endsWith("/api/batches/B-001/key")&&
+      response.request().method()==="PATCH");
+    await page.getByTestId("save-compound").click();
+    assert.equal((await accepted).status(),200);
+    await page.getByText("Ambos campos se actualizaron correctamente.").waitFor();
+    const afterUi=await expect("GET","/api/batches/B-001",undefined,200);
+    assert.deepEqual([afterUi.branch,afterUi.period,afterUi.description],["west","2026-10","Original"]);
+    assert.deepEqual(browserErrors,[],"Generated React editor must not produce JavaScript exceptions");
+    await page.screenshot({path:join(generated,"b6-compound-update-mobile.png"),fullPage:true});
+    console.log("PROTOCOLIA_B6_COMPOUND_UI_CHROMIUM_PASS");
+  }finally{await browser.close();}
   console.log("PROTOCOLIA_B6_ATOMIC_COMPOUND_PATCH_PASS "+JSON.stringify({
     fullTypeSpecGeneration:true,atomicMultiColumnUpdate:true,conflict409:true,
     concurrentWinners:1,rejectedConcurrentUpdates:11,unchangedLosers:11,
