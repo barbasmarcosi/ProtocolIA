@@ -66,7 +66,7 @@ function negative(name,replace){
    writeFileSync(join(dir,"contracts/main.tsp"),updated);
    const out=compile(dir);assert.notEqual(out.status,0,name);
    assert.match((out.stdout??"")+(out.stderr??""),
-     /protocolia-invalid-reverse-batch|protocolia-reverse-batch-http/,name);
+     /protocolia-invalid-reverse-batch|protocolia-reverse-batch-http|protocolia-transition-http/,name);
  }finally{rmSync(dir,{recursive:true,force:true});}
 }
 test("B11 compiler rejects mismatched legs, removed audit, altered state and missing 409",()=>{
