@@ -517,10 +517,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (auditMeta) {
       const list = typeof auditMeta.fields==="string" ? auditMeta.fields.split(",") : [];
       const allowed = new Set(entity.fields.map(x=>x.name));
-      if (!["create","transition","reassignReference"].includes(kind) || !list.length || list.length>8 ||
+      if (!["create","transition","reassignReference","patchFields"].includes(kind) || !list.length || list.length>8 ||
           list.some(x=>x.length===0 || x.trim()!==x || !allowed.has(x)) ||
           new Set(list).size!==list.length ||
-          (["transition","reassignReference"].includes(kind) && (list.length!==1 || list[0]!==f)) ||
+          (["transition","reassignReference","patchFields"].includes(kind) && (list.length!==1 || list[0]!==f)) ||
           (kind==="create" && list.includes(entity.publicIdentity))) {
         reject("invalid-audit",op.name+" must explicitly allowlist 1–8 supported entity fields (transition: state field only)",op);
         continue;
@@ -952,6 +952,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       const value = payload.properties.get(input!)!;
+      if(kind==="patchFields"&&auditFields){
+        const old=payload.properties.get("expected");
+        const parsed=old?field(p,old):undefined;
+        const target=entity.fields.find(x=>x.name===f);
+        if(payload.properties.size!==2||!old||old.optional||
+          !target||target.type!=="string"||target.reference||
+          target.initial!==undefined||target.nullable||!target.required||
+          target.ownerManaged||!parsed||parsed.type!=="string"||parsed.nullable||
+          parsed.minLength!==target.minLength||parsed.maxLength!==target.maxLength||
+          parsed.pattern!==target.pattern||
+          ![200,400,401,403,404,409].every(x=>
+            op.returnType.kind==="Union"?
+              true:true)){
+          // HTTP status verification runs below when the operation is resolved.
+          reject("invalid-audited-patch",op.name+
+            " needs one required string field plus required typed expected value",op);
+          continue;
+        }
+      }
       if (kind === "atomicIncrement" &&
         (typeOfField(value)?.type !== "int32" || (getMinValue(p,value) ?? -1) < 1)) {
         reject("increment-input",op.name+" amount must be positive int32",op);continue;
@@ -1129,6 +1148,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("related-sum-response",op.name+" must return {totalUnits: string} as the success body",op);
         continue;
       }
+    }
+    if(kind==="patchFields"&&auditFields&&
+       (http.verb!=="patch"||![200,400,401,403,404,409].every(s=>statuses.includes(s)))){
+      reject("audited-patch-http",op.name+" must declare 200/400/401/403/404/409",op);
+      continue;
     }
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
