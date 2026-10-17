@@ -50,6 +50,6 @@ test("B12 fails closed for unbounded, missing FK, wrong row DTO, or weakened amo
    '  model OrderLineInput {\n',
    '  model OrderLineInput {\n    @minLength(1) @maxLength(40) orderCode:string;\n'));
  negative("wrong child quantity",s=>s.replace(
-   '    @minValue(1) @maxValue(100) units:int32;\n  }\n  model OrderRequest',
+   '    @minValue(1) @maxValue(100) units:int32;\n  }\n  model PurchaseOrderRequest',
    '    @minValue(0) @maxValue(100) units:int32;\n  }\n  model OrderRequest'));
 });
