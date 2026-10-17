@@ -130,6 +130,9 @@ public class DomainRuntime {
     if (matched.moveBatch()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.moveBatch().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.createDetails()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.createDetails().childWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.reverseBatch()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reverseBatch().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -414,6 +417,35 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, Authentication user) {
+    // Nested DTO is validated against the declared child entity, not flattened into parent SQL.
+    java.util.List<Map<String,Object>> details=null;
+    Manifest.Entity detailEntity=null;
+    Manifest.Op detailCreate=null;
+    if(op.createDetails()!=null){
+      var plan=op.createDetails();
+      if(body==null||!(body.get(plan.rowsField()) instanceof java.util.List<?> inputRows)||
+          inputRows.isEmpty()||inputRows.size()>plan.maxRows())
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected 1..20 detail rows");
+      detailEntity=Manifest.ENTITIES.stream().filter(x->x.name().equals(plan.childEntity()))
+          .findFirst().orElseThrow();
+      detailCreate=Manifest.OPS.stream().filter(x->x.entity().equals(plan.childEntity())&&
+          x.kind().equals("create")).findFirst().orElseThrow();
+      details=new java.util.ArrayList<>();
+      for(var raw:inputRows){
+        if(!(raw instanceof Map<?,?> row)||row.keySet().stream().anyMatch(k->!(k instanceof String)))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid detail row object");
+        var entry=new java.util.LinkedHashMap<String,Object>();
+        for(var pair:row.entrySet())entry.put((String)pair.getKey(),pair.getValue());
+        if(entry.containsKey(plan.parentField()))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Child parent FK is server-managed");
+        entry.put(plan.parentField(),body.get(e.identity()));
+        validate(detailEntity,entry,true,detailEntity.fields().stream()
+          .filter(x->!x.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet()));
+        details.add(entry);
+      }
+      body=new java.util.LinkedHashMap<>(body);
+      body.remove(plan.rowsField());
+    }
     String subject=user.getName();
     if(e.ownerField()!=null){
       if(body==null||body.containsKey(e.ownerField()))
@@ -582,6 +614,7 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Database constraint violation");
       throw ex;
     }
+    if(details!=null)for(var detail:details)create(detailEntity,detailCreate,detail,user);
     return row(e, (String) body.get(e.identity()),subject);
   }
 
