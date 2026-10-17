@@ -595,6 +595,44 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
     }
     const reservation = metadata(p,"reserve",op);
+    const movement = metadata(p,"moveUnits",op);
+    // B8: contract-only transfer between two distinct parent records, plus one immutable journal row.
+    if(movement){
+      const stock=declared.get(String(movement.stockEntity));
+      const available=stock?.fields.find(x=>x.name===movement.availableField);
+      const source=entity.fields.find(x=>x.name===movement.sourceField);
+      const target=entity.fields.find(x=>x.name===movement.targetField);
+      const amount=entity.fields.find(x=>x.name===movement.quantityField);
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      const all=[entity.publicIdentity,String(movement.sourceField),String(movement.targetField),
+        String(movement.quantityField)];
+      const dtoMatches=!!props&&all.every(n=>{
+        const prop=props.get(n),original=entity.fields.find(x=>x.name===n);
+        const parsed=prop?field(p,prop):undefined;
+        return !!original&&!!parsed&&!prop?.optional&&
+          parsed.type===original.type&&!parsed.nullable&&
+          parsed.min===original.min&&parsed.max===original.max&&
+          parsed.minLength===original.minLength&&parsed.maxLength===original.maxLength&&
+          parsed.pattern===original.pattern;
+      });
+      if(kind!=="create"||f!==undefined||input!==undefined||reservation||release||
+          metadata(p,"debitExact",op)||metadata(p,"reverseExact",op)||
+          metadata(p,"transition",op)||!stock||stock===entity||
+          stock.fields.some(x=>x.ownerManaged)||entity.fields.some(x=>x.ownerManaged)||
+          !available||available.type!=="int32"||!available.required||available.nullable||
+          available.min!==0||available.max!==undefined&&available.max>2147483647||
+          available.reference||available.computedSum||available.computedProduct||
+          available.computedRoundedProduct||available.computedDiscountedTotal||
+          !source||!target||source===target||!amount||
+          [source,target].some(x=>x.type!=="string"||!x.required||x.nullable||
+            x.reference?.target!==stock.name||x.reference.onDelete!=="restrict")||
+          amount.type!=="int32"||!amount.required||amount.nullable||
+          (amount.min??-1)<1||!dtoMatches||new Set(all).size!==4){
+        reject("invalid-move-units",op.name+" requires two distinct required parent FKs, positive int32 units, matching request DTO and nonnegative unowned stock",op);
+        continue;
+      }
+    }
     const exactDebit = metadata(p,"debitExact",op);
     if(exactDebit){
       const wallet=declared.get(String(exactDebit.stockEntity));
@@ -863,6 +901,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (exactDebit && (!statuses.includes(400)||!statuses.includes(409)||
         http.parameters.body?.bodyKind!=="single")){
       reject("exact-debit-http",op.name+" requires POST create with 201/400/409 and typed body",op);continue;
+    }
+    if(movement && (![201,400,401,403,409].every(x=>statuses.includes(x))||
+        http.verb!=="post"||http.parameters.body?.bodyKind!=="single")){
+      reject("move-units-http",op.name+" must declare POST 201/400/401/403/409 with one typed body",op);
+      continue;
     }
     if (reservation && (!statuses.includes(400) || !statuses.includes(409) ||
          http.parameters.body?.bodyKind!=="single")) {
@@ -1147,6 +1190,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
           availableField:String(reservation.availableField),
           referenceField:String(reservation.referenceField),
           quantityField:String(reservation.quantityField)
+        }} : {}),
+        ...(movement ? {moveUnits:{
+          stockEntity:String(movement.stockEntity),
+          availableField:String(movement.availableField),
+          sourceField:String(movement.sourceField),
+          targetField:String(movement.targetField),
+          quantityField:String(movement.quantityField)
         }} : {})},
       capability:String(cap.name), statuses,
       ...(http.parameters.body?.bodyKind === "single" &&
