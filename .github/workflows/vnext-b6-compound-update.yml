@@ -1,0 +1,45 @@
+name: vnext-b6-compound-update
+on:
+  push:
+    branches:
+      - feature/b6-atomic-compound-key-update-20261017
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/compound-update/**'
+      - 'tests/vnext/compound-update.test.mjs'
+      - 'scripts/vnext/probe-compound-update-http.mjs'
+      - '.github/workflows/vnext-b6-compound-update.yml'
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b6-compound-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate full application from TypeSpec
+        run: npm run app:build -- examples/vnext/compound-update --target ${{ matrix.target }} --out "${RUNNER_TEMP}/composite-generated"
+      - name: Contract and negative compiler tests
+        run: node --test tests/vnext/compound-update.test.mjs
+      - name: Generated runtime smoke and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
+      - name: Concurrent HTTP POST unique business key and persisted DB oracle
+        run: node scripts/vnext/probe-compound-update-http.mjs "${RUNNER_TEMP}/composite-generated"
