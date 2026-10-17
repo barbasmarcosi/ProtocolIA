@@ -152,6 +152,7 @@ public class DomainRuntime {
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName());
+      case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
@@ -192,7 +193,7 @@ public class DomainRuntime {
           return record;
         }).toList());
         result=page;
-      }else if(Set.of("create","get","patchFields").contains(matched.kind())){
+      }else if(Set.of("create","get","patchFields","patchTogether").contains(matched.kind())){
         var record=new LinkedHashMap<String,Object>();
         raw.forEach((key,val)->record.put(String.valueOf(key),val));
         sensitive.forEach(record::remove);
@@ -607,6 +608,39 @@ public class DomainRuntime {
     var rows=jdbc.queryForList(projection+where+" ORDER BY id DESC LIMIT :limit OFFSET :offset",args);
     Number total=jdbc.queryForObject("SELECT COUNT(*) FROM protocolia_audit_event"+where,args,Number.class);
     return Map.of("items",rows,"total",total.intValue(),"limit",limit,"offset",offset);
+  }
+
+  // Two columns are changed by ONE statement. PostgreSQL's UNIQUE constraint
+  // arbitrates races; a conflict rolls back the entire update transaction.
+  private Map<String,Object> patchTogether(Manifest.Entity e, Manifest.Op op,
+      String id, Map<String,Object> body, String subject) {
+    String[] keys=op.input().split(",",-1);
+    if(keys.length!=2||keys[0].equals(keys[1])||body==null||body.size()!=2||
+       !body.containsKey(keys[0])||!body.containsKey(keys[1]))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected exactly two key fields");
+    validate(e,body,false,Set.of(keys[0],keys[1]));
+    var left=e.fields().stream().filter(x->x.name().equals(keys[0])).findFirst().orElseThrow();
+    var right=e.fields().stream().filter(x->x.name().equals(keys[1])).findFirst().orElseThrow();
+    if(e.ownerField()!=null && subject==null)
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    var args=new MapSqlParameterSource().addValue("left",body.get(keys[0]))
+      .addValue("right",body.get(keys[1])).addValue("id",id);
+    String ownerGuard=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+    if(e.ownerField()!=null)args.addValue("owner",subject);
+    int changed;
+    try{
+      changed=jdbc.update("UPDATE "+e.table()+" SET "+
+        left.column()+"=:left,"+right.column()+"=:right WHERE "+
+        e.identityColumn()+"=:id"+ownerGuard,args);
+    }catch(DataIntegrityViolationException ex){
+      if(constraintSqlState(ex,"23505"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Duplicate business combination",ex);
+      if(constraintSqlState(ex,"23514")||constraintSqlState(ex,"23502"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Constraint violation",ex);
+      throw ex;
+    }
+    if(changed==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    return row(e,id,subject);
   }
 
   private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body, String subject) {
