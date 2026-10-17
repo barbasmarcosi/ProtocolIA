@@ -86,7 +86,7 @@ try{
   const get=sku=>expect("GET",bins+"/"+sku,undefined,200);
   const balances=async (...ids)=>Promise.all(ids.map(async id=>(await get(id)).available));
   const status=async number=>(await expect("GET",batches+"/"+number,undefined,200)).status;
-  const accounts=[["A",20],["B",0],["C",0],["D",100],["E",97],["F",10],
+  const accounts=[["A",20],["B",0],["C",0],["D",100],["E",97],["F",10],["X",20],
     ["G",7],["H",0],["I",0],["J",20],["K",20],["L",20],
     ["Q",20],["R",20],["S",20]];
   for(const [sku,value] of accounts)await createBin(sku,value);
@@ -111,16 +111,16 @@ try{
   assert.equal((await reverse("BASIC")).status,409);
 
   // A later credit to an original source can make reversal exceed the max 100.
-  assert.equal((await post("CAP","E","F",5,"F","G",5)).status,201);
-  assert.deepEqual(await balances("E","F","G"),[92,10,25]);
-  assert.equal((await post("FILL","G","E",8,"F","B",1)).status,201);
-  assert.deepEqual(await balances("E","F","G","B"),[100,9,17,1]);
+  assert.equal((await post("CAP","E","F",5,"F","X",5)).status,201);
+  assert.deepEqual(await balances("E","F","X"),[92,10,25]);
+  assert.equal((await post("FILL","X","E",8,"F","B",1)).status,201);
+  assert.deepEqual(await balances("E","F","X","B"),[100,9,17,1]);
   assert.equal((await reverse("CAP")).status,409,"Source would exceed bound after reversal");
   assert.equal(await status("CAP"),"posted");
-  assert.deepEqual(await balances("E","F","G","B"),[100,9,17,1]);
+  assert.deepEqual(await balances("E","F","X","B"),[100,9,17,1]);
   assert.equal((await reverse("FILL")).status,200);
   assert.equal((await reverse("CAP")).status,200);
-  assert.deepEqual(await balances("E","F","G","B"),[97,10,20,0]);
+  assert.deepEqual(await balances("E","F","X","B"),[97,10,20,0]);
 
   // Original receiver spent transferred units; state and all deltas must roll back.
   assert.equal((await post("NET","A","B",10,"B","C",10)).status,201);
