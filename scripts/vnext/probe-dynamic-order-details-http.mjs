@@ -16,9 +16,9 @@ const temp=mkdtempSync(join(tmpdir(),"pia-details-"));
 const schema=readFileSync(
   existsSync(join(generated,"src/schema.sql"))?join(generated,"src/schema.sql"):
     join(generated,"src/main/resources/db/migration/V1__contract_baseline.sql"),"utf8");
-assert.match(schema,/CREATE TABLE \\b(?!UNUSED)order_line \\(/,"Relational detail table required");
-assert.match(schema,/CREATE TABLE purchase_order \\(/,"Relational order header required");
-assert.match(schema,/FOREIGN KEY \\(order_code\\) REFERENCES purchase_order \\(code\\)/,
+assert.match(schema,/CREATE TABLE order_line \(/,"Relational detail table required");
+assert.match(schema,/CREATE TABLE purchase_order \(/,"Relational order header required");
+assert.match(schema,/FOREIGN KEY \(order_code\) REFERENCES purchase_order \(code\)/,
   "Generated detail rows require real FK to order header");
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
