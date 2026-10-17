@@ -1120,6 +1120,35 @@ export default function App(){
               delete updated[operations.create.behavior.moveUnits.targetField];
             return updated;});}}/>)}</div>
           </section>)}</div>
+          {detailPlan&&<section className="form-section" aria-label="Renglones de la orden"
+            data-testid="dynamic-detail-editor">
+            <h3 className="form-section-title">Renglones</h3>
+            <p className="field-help">Agregá los renglones necesarios. Se guardan todos con la cabecera, o no se guarda ninguno.</p>
+            {detailRows.map((row,index)=><div className="form-section" key={index}
+              data-testid={"detail-row-"+index} aria-label={"Renglón "+(index+1)}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                <strong>Renglón {index+1}</strong>
+                <button type="button" className="ghost" disabled={loading||detailRows.length===1}
+                  aria-label={"Quitar renglón "+(index+1)} onClick={()=>{
+                    setDetailRows(previous=>previous.filter((_,i)=>i!==index));
+                    setDetailErrors({});
+                  }}>Quitar</button>
+              </div>
+              <div className="fields">{detailFields.map(field=><FormField key={field.name}
+                field={field} value={row[field.name]??(field.type==="int32"&&field.required?0:"")}
+                validationError={detailErrors[index+"."+field.name]}
+                required={field.required} auth={auth}
+                onChange={(name,value)=>{
+                  setDetailRows(previous=>previous.map((r,i)=>i===index?{...r,[name]:value}:r));
+                  setDetailErrors(prev=>{const next={...prev};delete next[index+"."+name];return next;});
+                }}
+              />)}</div>
+            </div>)}
+            <button type="button" className="ghost" data-testid="add-detail-row"
+              disabled={loading||detailRows.length>=detailPlan.maxRows}
+              onClick={()=>setDetailRows(prev=>[...prev,{}])}>Agregar renglón</button>
+            <p className="field-help" role="status">{detailRows.length} de {detailPlan.maxRows} renglones</p>
+          </section>}
           <div className="modal-actions"><button type="button" className="ghost" onClick={closeCreate} disabled={loading}>Cancelar</button>
           <button type="submit" disabled={loading||!referencesReady}>{loading?"Guardando…":"Crear"}</button></div></form></>}
             </div>
