@@ -49,5 +49,5 @@ test("B16 compiler fails closed on duplicate fields, shared caps and missing aud
  negative("FK editor",s=>s.replace(
   '@behavior("patchFields","OrderLine","product","product")',
   '@behavior("patchFields","OrderLine","orderCode","orderCode")'),
-  /protocolia-invalid-audited-patch|protocolia-detail-edit-lifecycle/);
+  /protocolia-invalid-audited-patch|protocolia-detail-edit-lifecycle|protocolia-invalid-audit/);
 });
