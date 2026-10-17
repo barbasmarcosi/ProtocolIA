@@ -190,7 +190,8 @@ public class DomainRuntime {
       for(String field:matched.audit()){
         Object after=updated.get(field);
         String before=matched.kind().equals("transition")?matched.fromState():
-            matched.kind().equals("reassignReference")?String.valueOf(body.get("expected")):null;
+            Set.of("reassignReference","patchFields").contains(matched.kind())?
+              String.valueOf(body.get("expected")):null;
         jdbc.update("INSERT INTO protocolia_audit_event "+
           "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
           "VALUES (:actor,:entity,:id,:op,:field,:before,:after)",
@@ -793,17 +794,28 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body, String subject) {
-    validate(e, body, false, Set.of(op.field()));
-    if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    if(op.audit().isEmpty()){
+      validate(e, body, false, Set.of(op.field()));
+      if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    }else{
+      if(body==null||body.size()!=2||!body.containsKey(op.input())||!body.containsKey("expected"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected field plus previous value");
+      validate(e,Map.of(op.input(),body.get(op.input())),false,Set.of(op.field()));
+      validate(e,Map.of(op.input(),body.get("expected")),false,Set.of(op.field()));
+    }
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
     if(e.ownerField()!=null&&(subject==null||e.ownerField().equals(op.field())))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     var params=new MapSqlParameterSource().addValue("key",id).addValue("value",body.get(op.input()));
     if(e.ownerField()!=null)params.addValue("owner",subject);
     String guard=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+    if(!op.audit().isEmpty()){
+      params.addValue("expected",body.get("expected"));
+      guard+=" AND "+col+"=:expected";
+    }
     int changed;
     try {
-      // PostgreSQL enforces composite uniqueness atomically against concurrent writers.
+      // CAS arbitrates stale writers without read-before-write races.
       changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:value WHERE "+e.identityColumn()+"=:key"+guard,params);
     } catch (DataIntegrityViolationException ex) {
       if(constraintSqlState(ex,"23505"))
@@ -812,7 +824,10 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Constraint violation",ex);
       throw ex;
     }
-    if(changed==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    if(changed==0){
+      row(e,id,subject);
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale expected value");
+    }
     return row(e,id,subject);
   }
 
