@@ -25,6 +25,9 @@ export function assertCreateDetails(ir,parent,op){
     childCreate.length!==1||parentCreate.length!==1||parentCreate[0].name!==op.name||
     !childCreate[0].capability||childCreate[0].capability==="public"||
     !op.capability||op.capability==="public"||
+    childCreate[0].behavior.audit||childCreate[0].behavior.reserve||
+    childCreate[0].behavior.moveUnits||childCreate[0].behavior.moveBatch||
+    childCreate[0].behavior.createDetails||childCreate[0].behavior.debitExact||
     ir.operations.some(x=>x.entity===parent.name&&x.behavior.kind==="create"&&x.behavior.moveBatch)||
     op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
     op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
