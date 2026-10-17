@@ -25,7 +25,8 @@ export function assertMoveBatch(ir,entity,op){
   const write=ir.operations.filter(x=>x.entity===stock.name&&x.behavior.kind==="create");
   const related=ir.operations.filter(x=>x.entity===entity.name&&x.behavior.kind!=="health");
   if(write.length!==1||!write[0].capability||write[0].capability==="public"||
-    related.some(x=>!["create","get","listPage","queryPage","auditPage"].includes(x.behavior.kind))||
+    related.some(x=>!["create","get","listPage","queryPage","auditPage"].includes(x.behavior.kind)&&
+      !(x.behavior.kind==="transition"&&x.behavior.reverseBatch))||
     related.filter(x=>x.behavior.kind==="create").length!==1)
     throw Error("Multi-leg journal requires one immutable create and independent parent write permission");
   const seen=new Set([entity.publicIdentity]);
@@ -47,4 +48,34 @@ export function assertMoveBatch(ir,entity,op){
       throw Error("Unsafe movement leg "+leg.sourceField);
   }
   return {stock,available,legs,parentWriteCapability:write[0].capability};
+}
+
+
+/** Validate reversible multi-leg journal lifecycle, without silently permitting mutable entries. */
+export function assertReverseBatch(ir,entity,op){
+  const b=op?.behavior,rule=b?.reverseBatch;
+  if(!rule||b.kind!=="transition"||op.method!=="POST"||
+    ![200,400,401,403,404,409].every(x=>op.statuses?.includes(x))||
+    b.from!=="posted"||b.to!=="reversed"||
+    !b.field||!Array.isArray(b.audit)||b.audit.length!==1||b.audit[0]!==b.field||
+    b.moveUnits||b.moveBatch||b.reverseUnits||b.reserve||b.release||
+    b.debitExact||b.reverseExact)
+    throw Error("Invalid multi-leg reversal transition contract");
+  const state=entity?.fields.find(f=>f.name===b.field);
+  if(!state||state.type!=="string"||!state.required||state.nullable||
+    state.initial!=="posted"||entity.fields.filter(f=>f.initial!==undefined).length!==1)
+    throw Error("Exactly one immutable server-initialized posted state is required");
+  const creators=ir.operations.filter(x=>x.entity===entity.name&&x.behavior.kind==="create");
+  const reversers=ir.operations.filter(x=>x.entity===entity.name&&x.behavior.reverseBatch);
+  if(creators.length!==1||reversers.length!==1||reversers[0].name!==op.name||
+    ir.operations.some(x=>x.entity===entity.name&&x.behavior.kind==="transition"&&
+      x.name!==op.name))
+    throw Error("Batch must have exactly one creator and one reversal");
+  const source=creators[0].behavior.moveBatch;
+  if(!source||source.stockEntity!==rule.stockEntity||
+      source.availableField!==rule.availableField||
+      JSON.stringify(source.legs)!==JSON.stringify(rule.legs))
+    throw Error("Reversal must match every declared immutable batch leg");
+  const plan=assertMoveBatch(ir,entity,creators[0]);
+  return {...plan,field:state,rule};
 }
