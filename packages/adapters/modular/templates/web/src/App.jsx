@@ -891,7 +891,7 @@ export default function App(){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
       }
-      const messages={create:"Registro creado correctamente.",delete:"Registro eliminado correctamente.",patchFields:"Cambios guardados correctamente.",patchTogether:"Ambos campos se actualizaron correctamente.",reassignReference:"Asignación actualizada correctamente.",atomicIncrement:"Cantidad actualizada correctamente."};
+      const messages={create:"Registro creado correctamente.",delete:"Registro eliminado correctamente.",patchFields:"Cambios guardados correctamente.",patchTogether:operations.patchTogether?.behavior.input.split(",").length===2?"Ambos campos se actualizaron correctamente.":"La clave de negocio se actualizó correctamente.",reassignReference:"Asignación actualizada correctamente.",atomicIncrement:"Cantidad actualizada correctamente."};
       setNotice(messages[kind]??"Operación realizada correctamente.");
       const args=listing();
       const pageResult=await request(args.kind,{query:args.query});
@@ -1104,7 +1104,7 @@ export default function App(){
             }}>
             <div className="detail-action-block">
               <h3>Actualizar clave de negocio</h3>
-              <p className="field-help">Ambos cambios se guardan juntos. Si ya existe esa combinación, no se modifica ningún dato.</p>
+              <p className="field-help">Todos los campos de la clave se guardan juntos. Si ya existe esa combinación, no se modifica ningún dato.</p>
               {operations.patchTogether.behavior.input.split(",").map(name=>{
                 const field=active.entity.fields.find(f=>f.name===name)??{name};
                 return <label className="field" key={name}>
@@ -1115,7 +1115,7 @@ export default function App(){
                     onChange={event=>setCompoundEdit(prev=>({...prev,[name]:event.target.value}))}/>
                 </label>;
               })}
-              <button type="submit" data-testid="save-compound" disabled={loading}>Guardar ambos campos</button>
+              <button type="submit" data-testid="save-compound" disabled={loading}>Guardar clave de negocio</button>
             </div>
           </form>}
           {can("reassignReference")&&<form data-testid="reassign-reference" onSubmit={e=>{
