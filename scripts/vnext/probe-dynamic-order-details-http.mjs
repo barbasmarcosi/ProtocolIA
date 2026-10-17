@@ -113,9 +113,9 @@ try{
   assert.equal(simultaneous.filter(x=>x.status===201).length,1,JSON.stringify(simultaneous));
   assert.equal(simultaneous.filter(x=>x.status===409).length,9,JSON.stringify(simultaneous));
   const sql=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
-    "-Atc","SELECT (SELECT count(*) FROM \"order\")::text || ':' || "+
+    "-Atc","SELECT (SELECT count(*) FROM purchase_order)::text || ':' || "+
       "(SELECT count(*) FROM order_line)::text || ':' || "+
-      "(SELECT count(*) FROM order_line WHERE order_code NOT IN (SELECT code FROM \"order\"))::text"]);
+      "(SELECT count(*) FROM order_line WHERE order_code NOT IN (SELECT code FROM purchase_order))::text"]);
   assert.equal(sql,"3:25:0","Three headers and 25 persisted FK children; zero orphans");
   // Generated responsive React must edit 1..20 rows without app-specific components.
   const {chromium}=await import("playwright");
@@ -161,7 +161,7 @@ try{
     console.log("PROTOCOLIA_B12_DYNAMIC_DETAILS_CHROMIUM_PASS");
   }finally{await browser.close();}
   const after=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
-    "-Atc","SELECT (SELECT count(*) FROM \"order\")::text || ':' || "+
+    "-Atc","SELECT (SELECT count(*) FROM purchase_order)::text || ':' || "+
       "(SELECT count(*) FROM order_line)::text"]);
   assert.equal(after,"4:27");
   console.log("PROTOCOLIA_B12_RELATIONAL_DETAILS_PASS "+JSON.stringify({
