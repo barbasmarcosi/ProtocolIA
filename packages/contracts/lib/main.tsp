@@ -59,6 +59,9 @@ namespace ProtocolIA.Domain {
   // Move checked positive int32 units between two distinct records and insert a journal row.
   extern dec moveUnits(target: Operation, stockEntity: valueof string, availableField: valueof string,
     sourceField: valueof string, targetField: valueof string, quantityField: valueof string);
+  // Atomic reversal of a journalled movement, guarded by its state.
+  extern dec reverseUnits(target: Operation, stockEntity: valueof string, availableField: valueof string,
+    sourceField: valueof string, targetField: valueof string, quantityField: valueof string);
   extern dec reserve(target: Operation, stockEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, quantityField: valueof string);
   extern dec release(target: Operation, stockEntity: valueof string,
