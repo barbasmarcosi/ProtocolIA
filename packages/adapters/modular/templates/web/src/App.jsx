@@ -457,6 +457,7 @@ export default function App(){
   const [auditError,setAuditError]=useState("");
   const [form,setForm]=useState({});
   const [rename,setRename]=useState("");
+  const [compoundEdit,setCompoundEdit]=useState({});
   const [reassigned,setReassigned]=useState("");
   const [increment,setIncrement]=useState(1);
   const [loading,setLoading]=useState(false);
@@ -889,7 +890,7 @@ export default function App(){
         setSelected(data);
         if(kind==="reassignReference")setReassigned(data[operations.reassignReference.behavior.field]);
       }
-      const messages={create:"Registro creado correctamente.",delete:"Registro eliminado correctamente.",patchFields:"Cambios guardados correctamente.",reassignReference:"Asignación actualizada correctamente.",atomicIncrement:"Cantidad actualizada correctamente."};
+      const messages={create:"Registro creado correctamente.",delete:"Registro eliminado correctamente.",patchFields:"Cambios guardados correctamente.",patchTogether:"Ambos campos se actualizaron correctamente.",reassignReference:"Asignación actualizada correctamente.",atomicIncrement:"Cantidad actualizada correctamente."};
       setNotice(messages[kind]??"Operación realizada correctamente.");
       const args=listing();
       const pageResult=await request(args.kind,{query:args.query});
@@ -916,7 +917,7 @@ export default function App(){
           field?.focus();
         });
       }
-      setError(e.message);return null;
+      setError(kind==="patchTogether"&&e.status===409?"Ya existe otro registro con esa combinación de campos. Revisá los valores y volvé a intentar.":e.message);return null;
     }finally{setLoading(false);}
   }
   if(startupError)return <main><h1>Error de contrato</h1><p role="alert">{startupError}</p></main>;
@@ -984,7 +985,7 @@ export default function App(){
         <div className="scroll data-table-scroll"><table className="data-table"><thead><tr>{tableColumns.map(f=><th key={f.name} scope="col">{fieldLabel(f)}</th>)}<th scope="col" className="table-action">Acción</th></tr></thead>
         <tbody>{items.map(item=><tr key={item[active.entity.publicIdentity]}>
           {tableColumns.map(f=><td key={f.name}>{displayCell(f,item[f.name],referenceOptions)}</td>)}
-          <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
+          <td className="table-action"><button className="ghost" data-testid={"open-detail-"+item[active.entity.publicIdentity]} onClick={event=>{detailOpener.current=event.currentTarget;setError("");setNotice("");setAuditOffset(0);setSelected(item);setDetailOpen(true);setRename(String(operations.patchFields?item[operations.patchFields.behavior.field]??"": ""));setCompoundEdit(Object.fromEntries((operations.patchTogether?.behavior.input??"").split(",").filter(Boolean).map(name=>[name,String(item[name]??"")])));setReassigned(String(operations.reassignReference?item[operations.reassignReference.behavior.field]??"":""));}}>Detalle</button></td>
         </tr>)}</tbody></table></div>
         {items.length===0&&!loading&&<div className="empty-state" role="status">
           <span className="empty-state-illustration" aria-hidden="true">⌕</span>
@@ -1094,6 +1095,28 @@ export default function App(){
           {can("patchFields")&&<form onSubmit={e=>{e.preventDefault();act("patchFields",{code:selected[active.entity.publicIdentity],body:{[operations.patchFields.behavior.input]:rename}});}}>
             <label className="field"><span>Modificar {operations.patchFields.behavior.field}</span><input data-testid="rename" value={rename} onChange={e=>setRename(e.target.value)}/></label>
             <button type="submit" disabled={loading}>Guardar cambios</button></form>}
+          {can("patchTogether")&&<form data-testid="compound-update-form" onSubmit={e=>{
+              e.preventDefault();
+              act("patchTogether",{code:selected[active.entity.publicIdentity],
+                body:Object.fromEntries(operations.patchTogether.behavior.input.split(",")
+                  .map(name=>[name,compoundEdit[name]??""]))});
+            }}>
+            <div className="detail-action-block">
+              <h3>Actualizar clave de negocio</h3>
+              <p className="field-help">Ambos cambios se guardan juntos. Si ya existe esa combinación, no se modifica ningún dato.</p>
+              {operations.patchTogether.behavior.input.split(",").map(name=>{
+                const field=active.entity.fields.find(f=>f.name===name)??{name};
+                return <label className="field" key={name}>
+                  <span>{fieldLabel(field)}</span>
+                  <input data-testid={"compound-"+name} required
+                    minLength={field.minLength} maxLength={field.maxLength}
+                    value={compoundEdit[name]??""}
+                    onChange={event=>setCompoundEdit(prev=>({...prev,[name]:event.target.value}))}/>
+                </label>;
+              })}
+              <button type="submit" data-testid="save-compound" disabled={loading}>Guardar ambos campos</button>
+            </div>
+          </form>}
           {can("reassignReference")&&<form data-testid="reassign-reference" onSubmit={e=>{
               e.preventDefault();
               const field=operations.reassignReference.behavior.field;
