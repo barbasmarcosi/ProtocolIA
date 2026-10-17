@@ -146,8 +146,14 @@ export function generate(ir,spec,out){
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchFields","patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
+    const edits=of("patchFields",e.name);
+    const associated=ir.operations.some(op=>op.behavior.createDetails?.childEntity===e.name);
+    if(edits.length>1&&(!associated||edits.length>3||
+      new Set(edits.map(op=>op.behavior.field)).size!==edits.length||
+      edits.some(op=>op.behavior.audit?.length!==1)))
+      throw Error("Only distinct audited child fields support multiple PATCH operations");
     const read=of("get",e.name)[0].capability,write=of("create",e.name)[0].capability;
     if(!read||!write||read===write||read==="public"||write==="public")
       throw Error("Invalid read/write capabilities");
@@ -185,7 +191,11 @@ export function generate(ir,spec,out){
           throw Error("Owner field patch must use independent field write capability "+op.name);
         if(!writes.includes(op.capability))writes.push(op.capability);
       }
-      if(!ownerPatch&&kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
+      if(!ownerPatch&&kind==="patchFields"&&associated&&b.audit?.length===1){
+        if(!op.capability||op.capability==="public"||op.capability===read||
+          op.capability===auditRead?.capability)throw Error("Unsafe detail editor capability "+op.name);
+        if(!writes.includes(op.capability))writes.push(op.capability);
+      }else if(!ownerPatch&&kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
@@ -497,6 +507,8 @@ export function generate(ir,spec,out){
     'export default defineConfig({base:"/",build:{outDir:"../dist/static",emptyOutDir:false}});\n');
   const resources=ir.entities.map(entity=>({entity,view:entity.view??entity.name,
     transitions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition")
+      .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
+    patchFieldsOptions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ir.operations.filter(op=>
       op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
