@@ -57,6 +57,10 @@ namespace ProtocolIA.Domain {
   extern dec debitExact(target: Operation, balanceEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   // Move checked positive int32 units between two distinct records and insert a journal row.
+  // Two to four flat movement legs: "fromA,toA,unitsA;fromB,toB,unitsB".
+  // All participating balances settle once, in a single database transaction.
+  extern dec moveBatch(target: Operation, stockEntity: valueof string,
+    availableField: valueof string, legs: valueof string);
   extern dec moveUnits(target: Operation, stockEntity: valueof string, availableField: valueof string,
     sourceField: valueof string, targetField: valueof string, quantityField: valueof string);
   // Atomic reversal of a journalled movement, guarded by its state.
