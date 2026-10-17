@@ -35,6 +35,7 @@ export const $lib = createTypeSpecLibrary({
     moveUnits: {description:"Atomic two-record inventory transfer and durable movement creation"},
     moveBatch: {description:"Atomic 2–4-leg movement net settlement over shared parent balances and durable journal row"},
     createDetails: {description:"Atomic parent and dynamic typed child collection insert (1–20 rows)"},
+    detailSum: {description:"Authorized, snapshot-consistent full relational detail quantity sum"},
     reverseBatch: {description:"Exactly-once reversal of all bounded batch legs in one auditable transaction"},
     reverseUnits: {description:"Exactly-once guarded reversal of a journalled transfer"},
     debitExact: {description:"Atomic exact decimal debit and durable child posting"},
@@ -166,6 +167,11 @@ function reverseBatch(context: DecoratorContext, target: Operation, stockEntity:
     availableField: string, legs: string): void {
   context.program.stateMap($lib.stateKeys.reverseBatch).set(target,{stockEntity,availableField,legs});
 }
+function detailSum(context: DecoratorContext, target: Operation, childEntity: string,
+    parentField: string, quantityField: string): void {
+  context.program.stateMap($lib.stateKeys.detailSum).set(target,
+    {childEntity,parentField,quantityField});
+}
 function createDetails(context: DecoratorContext, target: Operation, childEntity: string,
     parentField: string, rowsField: string): void {
   context.program.stateMap($lib.stateKeys.createDetails).set(target,
@@ -264,6 +270,7 @@ export const $decorators = {
     moveUnits,
     moveBatch,
     createDetails,
+    detailSum,
     reverseBatch,
     reverseUnits,
     debitExact,
