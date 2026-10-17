@@ -23,6 +23,7 @@ assert.match(schema,/FOREIGN KEY \(order_code\) REFERENCES purchase_order \(code
 const basic=(name,pw)=>"Basic "+Buffer.from(name+":"+pw).toString("base64");
 const password=randomBytes(16).toString("hex");
 const readerPassword=randomBytes(16).toString("hex");
+const scopedPassword=randomBytes(16).toString("hex");
 function docker(args,timeout=180000){
   const r=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
   if(r.error||r.status!==0)throw Error("Docker "+args.join(" ")+": "+
@@ -43,6 +44,9 @@ try{
     "PROTOCOLIA_MANAGER_PASSWORD="+password,
     "PROTOCOLIA_READER_USERNAME=reader",
     "PROTOCOLIA_READER_PASSWORD="+readerPassword,
+    "PROTOCOLIA_SCOPED_USERNAME=product_editor",
+    "PROTOCOLIA_SCOPED_PASSWORD="+scopedPassword,
+    "PROTOCOLIA_SCOPED_CAPABILITIES=orders.read,lines.read,lines.product.write",
     "PROTOCOLIA_HOST_PORT="+hostPort
   ].join("\n")+"\n",{mode:0o600});
   args=["compose","--project-name",project,"--env-file",env];
@@ -168,6 +172,14 @@ try{
     "-Atc","SELECT before_value || ':' || after_value FROM protocolia_audit_event WHERE "+
       "entity_name='OrderLine' AND resource_id='SUCCESS-1' AND field_name='units'"]);
   assert.equal(audit,"2:"+winning,"Only one committed audited integer transition");
+  const scoped=basic("product_editor",scopedPassword);
+  // Field-level authority proves a text editor cannot rewrite quantities.
+  assert.equal((await request("PATCH","/api/order-lines/SUCCESS-2/units",
+    {units:25,expected:3},{Authorization:scoped})).status,403);
+  assert.equal((await request("PATCH","/api/order-lines/SUCCESS-2/product",
+    {product:"Té aprobado",expected:"Te"},{Authorization:scoped})).status,200);
+  assert.equal((await readLine("SUCCESS-2")).product,"Té aprobado");
+  assert.equal((await total("SUCCESS")).body.totalUnits,String(winning+7));
   const productPath="/api/order-lines/SUCCESS-1/product";
   const productEdit=(product,expected,who)=>request("PATCH",productPath,{product,expected},
     who?{Authorization:who}:{});
@@ -296,7 +308,7 @@ try{
     atomic:true,maxRowsAccepted:20,duplicateChildRollback:true,
     concurrentCreateWinners:1,concurrentConflict:9,
     uiCreatedRows:2,noOrphans:true,allPagesScoped:true,paginatedTwenty:true,wholeDocumentSum210:true,
-    auditedCompareAndSet:true,oneWinnerConcurrentPatch:true,globalTotalRecalculated:true,integerBoundsEnforced:true,twoDistinctFieldAudits:true,isolatedCapabilities:true
+    auditedCompareAndSet:true,oneWinnerConcurrentPatch:true,globalTotalRecalculated:true,integerBoundsEnforced:true,twoDistinctFieldAudits:true,isolatedCapabilities:true,scopedWriterCannotUpdateQuantity:true
   }));
 }finally{
   if(started){try{docker([...args,"down","--volumes","--remove-orphans"],30000);}catch{}}
