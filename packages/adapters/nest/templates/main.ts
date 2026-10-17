@@ -694,19 +694,20 @@ class RuntimeService{
   private async patchTogether(e:Entity,op:Operation,key:string,body:unknown,
     subject?:string):Promise<Record<string,unknown>>{
     const keys=op.input?.split(",")??[];
-    if(keys.length!==2||keys[0]===keys[1]||!isRecord(body)||
-       Object.keys(body).length!==2||!Object.hasOwn(body,keys[0])||
-       !Object.hasOwn(body,keys[1]))
-      throw new Problem(400,"Expected exactly two business-key fields");
+    if(keys.length<2||keys.length>4||new Set(keys).size!==keys.length||
+       !isRecord(body)||Object.keys(body).length!==keys.length||
+       keys.some(name=>!Object.hasOwn(body,name)))
+      throw new Problem(400,"Expected all compound business-key fields");
     const input=validateInput(e,body,keys,false);
-    const left=e.fields.find(f=>f.name===keys[0])!,right=e.fields.find(f=>f.name===keys[1])!;
+    const columns=keys.map(name=>e.fields.find(f=>f.name===name)!.column);
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&!subject)throw new Problem(403,"Owner-scoped update denied");
-    const values=[input[keys[0]],input[keys[1]],key];
+    const values=[...keys.map(name=>input[name]),key];
     if(owner)values.push(subject);
+    const assignments=columns.map((column,index)=>column+"=$"+(index+1)).join(",");
     const updated=await this.pool.query("UPDATE "+e.table+" SET "+
-      left.column+"=$1,"+right.column+"=$2 WHERE "+e.identityColumn+"=$3"+
-      (owner?" AND "+owner.column+"=$4":"")+
+      assignments+" WHERE "+e.identityColumn+"=$"+(keys.length+1)+
+      (owner?" AND "+owner.column+"=$"+(keys.length+2):"")+
       " RETURNING "+e.identityColumn,values);
     if(updated.rowCount!==1)throw new Problem(404,"Not found");
     return this.row(e,key,subject);
