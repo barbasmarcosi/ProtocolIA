@@ -1054,7 +1054,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
-    // B6: a single SQL UPDATE of the two members of a compound business key.
+    // B7: a single SQL UPDATE for all 2–4 members of a compound business key.
     // The database constraint arbitrates concurrent writers; no read-before-write.
     const patchSpec=metadata(p,"patchTogether",op);
     let patchNames:string[]|undefined;
@@ -1065,13 +1065,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const dto=op.parameters.properties.get("input")?.type;
       const props=dto?.kind==="Model"?dto.properties:undefined;
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
-      let valid=!!expected&&expected.length===2&&names.length===2&&
+      let valid=!!expected&&expected.length>=2&&expected.length<=4&&names.length===expected.length&&
         names.join(",")===expected.join(",")&&
         f===undefined&&input===undefined&&
         http.verb==="patch"&&http.parameters.body?.bodyKind==="single"&&
         keys.length===1&&keys[0]===entity.publicIdentity&&
         [200,400,401,403,404,409].every(code=>statuses.includes(code))&&
-        !!props&&props.size===2&&names.every(n=>props.has(n))&&
+        !!props&&props.size===names.length&&names.every(n=>props.has(n))&&
         !entity.uniqueWhen;
       for(const n of names){
         const source=entity.fields.find(x=>x.name===n);
@@ -1090,7 +1090,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       if(!valid){
         reject("invalid-patch-together",op.name+
-          " must PATCH exactly the two required editable string compound-key fields "+
+          " must PATCH exactly the 2–4 required editable string compound-key fields "+
           "with matching DTO constraints and 200/400/401/403/404/409",op);
         continue;
       }
