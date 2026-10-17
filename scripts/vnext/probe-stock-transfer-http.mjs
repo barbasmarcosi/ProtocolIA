@@ -135,9 +135,33 @@ try{
     await page.getByTestId("create-sourceSku").waitFor({timeout:20000});
     await page.getByTestId("create-targetSku").waitFor({timeout:20000});
     await page.getByTestId("create-units").waitFor({timeout:20000});
+    await page.getByTestId("move-units-guidance").waitFor({timeout:20000});
+    await page.getByTestId("create-number").fill("UI-1");
+    await page.getByTestId("create-units").fill("1");
+    await page.getByTestId("create-note").fill("Transferencia desde React");
+    const choose=async(field,bin)=>{
+      await page.getByTestId("create-"+field).click();
+      await page.getByRole("option",{name:new RegExp("Bin "+bin)}).first().click();
+    };
+    const postRequests=[];
+    page.on("request",req=>{
+      if(req.method()==="POST"&&req.url().endsWith("/api/movements"))postRequests.push(req);
+    });
+    await choose("sourceSku","A");
+    await choose("targetSku","A");
+    await page.getByTestId("create-form-Movement").getByRole("button",{name:"Crear",exact:true}).click();
+    await page.getByRole("alert").getByText("El destino debe ser distinto del origen.").waitFor();
+    assert.equal(postRequests.length,0,"Invalid self-transfer must not reach the API");
+    await choose("targetSku","B");
+    const response=page.waitForResponse(res=>res.url().endsWith("/api/movements")&&
+      res.request().method()==="POST");
+    await page.getByTestId("create-form-Movement").getByRole("button",{name:"Crear",exact:true}).click();
+    assert.equal((await response).status(),201,"Real generated React form must transfer once");
+    assert.deepEqual([await balance("A"),await balance("B")],[16,24]);
+    assert.equal((await expect("GET",movements+"/UI-1",undefined,200)).units,1);
     await page.screenshot({path:join(generated,"b8-transfer-mobile.png"),fullPage:true});
     assert.deepEqual(errors,[],"Generated inventory-transfer screen must not throw");
-    console.log("PROTOCOLIA_B8_TRANSFER_MOBILE_FORM_CHROMIUM_PASS");
+    console.log("PROTOCOLIA_B8_TRANSFER_MOBILE_CREATE_CHROMIUM_PASS");
   }finally{await browser.close();}
   console.log("PROTOCOLIA_B8_TRANSFER_PG_HTTP_PASS "+JSON.stringify({
     conservedStock:true,acceptedOneDirection:7,rejectedInsufficient:5,
