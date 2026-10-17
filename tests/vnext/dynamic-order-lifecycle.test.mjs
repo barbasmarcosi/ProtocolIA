@@ -45,6 +45,10 @@ test("B14 fails closed on forged aggregate, weakened CAS and unaudited mutable c
  negative("forged relation",s=>s.replace(
   '@detailSum("OrderLine","orderCode","units")',
   '@detailSum("OrderLine","product","units")'),/protocolia-invalid-detail-sum/);
+ negative("widened product DTO",s=>s.replace(
+  'model ProductChange { @minLength(1) @maxLength(120) product:string;',
+  'model ProductChange { @minLength(1) @maxLength(200) product:string;'),
+  /protocolia-invalid-audited-patch/);
  negative("missing expected",s=>s.replace(
   '    @minLength(1) @maxLength(120) expected:string;',''),
   /protocolia-invalid-audited-patch/);
