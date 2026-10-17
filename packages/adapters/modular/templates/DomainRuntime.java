@@ -798,8 +798,12 @@ public class DomainRuntime {
       validate(e, body, false, Set.of(op.field()));
       if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     }else{
-      if(body==null||body.size()!=2||!body.containsKey(op.input())||!body.containsKey("expected"))
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected field plus previous value");
+      if(body==null||body.size()!=2||!body.containsKey(op.input())||
+          !body.containsKey("expected")||body.get(op.input())==null||
+          body.get("expected")==null)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected non-null field and previous value");
+      if(body.get(op.input()).equals(body.get("expected")))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"New value matches the previous value");
       validate(e,Map.of(op.input(),body.get(op.input())),false,Set.of(op.field()));
       validate(e,Map.of(op.input(),body.get("expected")),false,Set.of(op.field()));
     }
