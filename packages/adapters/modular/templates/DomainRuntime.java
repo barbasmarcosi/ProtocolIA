@@ -127,6 +127,9 @@ public class DomainRuntime {
     if (matched.moveUnits()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.moveUnits().parentWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.reverseUnits()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.reverseUnits().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.kind().equals("reconcileExact")) {
       var plan=Manifest.EXACT_RECONCILIATIONS.get(matched.name());
       if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
@@ -429,6 +432,11 @@ public class DomainRuntime {
     // B8: both parent rows lock in canonical public-key order to avoid reverse-direction
     // transfer deadlocks. The same dispatch() transaction also inserts the journal row.
     if(op.moveUnits()!=null){
+      // A reversible movement's initial state is owned by the generated service, never the client.
+      var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseUnits()!=null)
+          .map(Manifest.Op::field).findFirst().orElse(null);
+      if(state!=null&&body.containsKey(state))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Initial transfer state is server-managed");
       var movement=op.moveUnits();
       Object fromRaw=body.get(movement.sourceField());
       Object toRaw=body.get(movement.targetField());
@@ -751,6 +759,43 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    if(op.reverseUnits()!=null){
+      var reverse=op.reverseUnits();
+      // Read immutable movement metadata; lock parents first in deterministic order,
+      // matching CREATE's lock order. Then perform guarded state CAS and two effects.
+      var lookup=jdbc.queryForList("SELECT "+reverse.sourceColumn()+","+
+          reverse.targetColumn()+","+reverse.amountColumn()+" FROM "+e.table()+
+          " WHERE "+e.identityColumn()+"=:key",Map.of("key",id));
+      if(lookup.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      String from=(String)lookup.get(0).get(reverse.sourceColumn());
+      String to=(String)lookup.get(0).get(reverse.targetColumn());
+      int units=((Number)lookup.get(0).get(reverse.amountColumn())).intValue();
+      if(from.equals(to)||units<1)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Invalid stored movement");
+      var names=Map.of("source",from,"target",to);
+      var rows=jdbc.queryForList("SELECT "+reverse.stockKeyColumn()+" FROM "+
+          reverse.stockTable()+" WHERE "+reverse.stockKeyColumn()+
+          " IN (:source,:target) ORDER BY "+reverse.stockKeyColumn()+
+          " FOR UPDATE",names,String.class);
+      if(rows.size()!=2)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Transfer endpoint missing");
+      int stateUpdated=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+          e.identityColumn()+"=:key AND "+col+"=:from",
+          Map.of("key",id,"from",op.fromState(),"to",op.toState()));
+      if(stateUpdated!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Already reversed");
+      var params=new MapSqlParameterSource().addValue("source",from).addValue("target",to)
+          .addValue("units",units).addValue("maxAfter",reverse.maxBalance()-units);
+      int debited=jdbc.update("UPDATE "+reverse.stockTable()+" SET "+
+          reverse.availableColumn()+"="+reverse.availableColumn()+"-:units WHERE "+
+          reverse.stockKeyColumn()+"=:target AND "+reverse.availableColumn()+">=:units",params);
+      if(debited!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Destination stock no longer available");
+      int credited=jdbc.update("UPDATE "+reverse.stockTable()+" SET "+
+          reverse.availableColumn()+"="+reverse.availableColumn()+"+:units WHERE "+
+          reverse.stockKeyColumn()+"=:source AND "+reverse.availableColumn()+"<=:maxAfter",params);
+      if(credited!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Source capacity exceeded");
+      // @Transactional dispatch writes state audit in the SAME transaction.
+      return row(e,id);
+    }
     if(op.exactReverse()!=null){
       var reverse=op.exactReverse();
       var rows=jdbc.queryForList("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
