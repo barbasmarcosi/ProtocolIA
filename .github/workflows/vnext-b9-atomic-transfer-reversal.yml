@@ -1,0 +1,57 @@
+name: vnext-b9-atomic-transfer-reversal
+on:
+  push:
+    branches: [feature/b9-atomic-transfer-reversal-20261017]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/stock-reversal/**'
+      - 'tests/vnext/stock-reversal.test.mjs'
+      - 'scripts/vnext/probe-stock-reversal-http.mjs'
+      - '.github/workflows/vnext-b9-atomic-transfer-reversal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b9-reversal-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-reversal:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: TypeSpec compiler and B8+B9 negative regression
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/stock-transfer.test.mjs tests/vnext/stock-reversal.test.mjs
+      - name: Generate complete app from B9 TypeSpec
+        run: npm run app:build -- examples/vnext/stock-reversal --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b9-generated"
+      - name: Backend and generated UI compilation with isolated PostgreSQL smoke
+        run: npm run app:test -- "${RUNNER_TEMP}/b9-generated"
+      - name: Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Two-sided reversal transactions PostgreSQL and Chromium
+        run: node scripts/vnext/probe-stock-reversal-http.mjs "${RUNNER_TEMP}/b9-generated"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: b9-reversal-${{ matrix.target }}
+          path: ${{ runner.temp }}/b9-generated/b9-reverse-mobile.png
+          if-no-files-found: error
