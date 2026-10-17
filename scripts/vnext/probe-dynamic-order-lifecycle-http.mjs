@@ -146,6 +146,9 @@ try{
   assert.equal((await edit("bad","Café",basic("nobody","bad"))).status,401);
   assert.equal((await edit("Error sin coincidencia","Inexistente")).status,409);
   assert.equal((await edit("","Café")).status,400);
+  assert.equal((await edit(null,"Café")).status,400);
+  assert.equal((await edit("Cambio",null)).status,400);
+  assert.equal((await edit("Café","Café")).status,409,"No-op edit must not create audit noise");
   const competing=await Promise.all([
     edit("Café tostado","Café"),edit("Café molido","Café")
   ]);
