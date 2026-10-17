@@ -1,0 +1,58 @@
+name: vnext-b8-stock-transfer
+on:
+  push:
+    branches:
+      - feature/b8-contract-stock-transfer-20261017
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/stock-transfer/**'
+      - 'tests/vnext/stock-transfer.test.mjs'
+      - 'scripts/vnext/probe-stock-transfer-http.mjs'
+      - '.github/workflows/vnext-b8-stock-transfer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b8-transfer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  transfer-contract-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile TypeSpec and run negative B8 + B7 regression tests
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/stock-transfer.test.mjs tests/vnext/compound-update-multicolumn.test.mjs
+      - name: Generate full application from independent TypeSpec
+        run: npm run app:build -- examples/vnext/stock-transfer --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b8-generated"
+      - name: Compile generated backend, UI and test PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/b8-generated"
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: E2E transfers across two parents and journal in generated application
+        run: node scripts/vnext/probe-stock-transfer-http.mjs "${RUNNER_TEMP}/b8-generated"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: b8-transfer-${{ matrix.target }}
+          path: ${{ runner.temp }}/b8-generated/b8-transfer-mobile.png
+          if-no-files-found: error
