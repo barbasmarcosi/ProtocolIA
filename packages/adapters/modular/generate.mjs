@@ -265,8 +265,14 @@ export function generate(ir, openapi, outDir) {
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchFields","patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
+    const edits=byKind("patchFields",e.name);
+    const associated=ops.some(op=>op.behavior.createDetails?.childEntity===e.name);
+    if(edits.length>1&&(!associated||edits.length>3||
+      new Set(edits.map(op=>op.behavior.field)).size!==edits.length||
+      edits.some(op=>op.behavior.audit?.length!==1)))
+      throw Error("Only unique audited child fields support multiple PATCH operations");
     const read=byKind("get",e.name)[0].capability;
     const write=byKind("create",e.name)[0].capability;
     if(!read||!write||read===write||read==="public"||write==="public")
@@ -292,6 +298,11 @@ export function generate(ir, openapi, outDir) {
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
           throw Error("Owner field patch requires independent capability "+op.name);
+        if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
+      }else if(op.behavior.kind==="patchFields"&&associated&&op.behavior.audit?.length===1){
+        if(!op.capability||op.capability==="public"||op.capability===read||
+          op.capability===auditRead?.capability)
+          throw Error("Invalid independently authorized detail editor "+op.name);
         if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
       }else if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
@@ -493,6 +504,8 @@ export function generate(ir, openapi, outDir) {
   const resources=entities.map(entity=>({
     entity,view:entity.view??entity.name,
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
+    patchFieldsOptions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
+      .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
