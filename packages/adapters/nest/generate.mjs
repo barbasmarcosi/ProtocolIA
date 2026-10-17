@@ -9,7 +9,7 @@ import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
-import {assertMoveBatch} from "../multi-leg-transfer.mjs";
+import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
@@ -205,6 +205,7 @@ export function generate(ir,spec,out){
       }
       if(b.moveUnits)assertMoveUnits(ir,e,op);
       if(b.moveBatch)assertMoveBatch(ir,e,op);
+      if(b.reverseBatch)assertReverseBatch(ir,e,op);
       if(b.reverseUnits)assertReverseUnits(ir,e,op);
       if(b.reserve){
         const stock=entities.get(b.reserve.stockEntity);
@@ -275,6 +276,21 @@ export function generate(ir,spec,out){
           amountColumn:snake(plan.amount.name),
           maxBalance:plan.available.max??2147483647,
           parentWriteCapability:plan.parentWriteCapability
+        };
+      }
+      if(b.reverseBatch){
+        const plan=assertReverseBatch(ir,e,op);
+        item.reverseBatch={
+          stockTable:snake(plan.stock.name),
+          stockKeyColumn:snake(plan.stock.publicIdentity),
+          availableColumn:snake(plan.available.name),
+          maxBalance:plan.available.max??2147483647,
+          parentWriteCapability:plan.parentWriteCapability,
+          legs:plan.legs.map(leg=>({
+            sourceField:snake(leg.sourceField),
+            targetField:snake(leg.targetField),
+            quantityField:snake(leg.quantityField)
+          }))
         };
       }
       if(b.moveBatch){
