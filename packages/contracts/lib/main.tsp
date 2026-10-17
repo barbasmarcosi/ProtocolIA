@@ -11,6 +11,8 @@ namespace ProtocolIA.Domain {
   extern dec unique(target: ModelProperty);
   // Portable compound uniqueness (2..4 distinct required columns), one rule per entity.
   extern dec uniqueTogether(target: Model, fields: valueof string);
+  // One atomic UPDATE of the two editable string members of a compound key.
+  extern dec patchTogether(target: Operation, fields: valueof string);
   // At most one record in a declared active state per non-null compound key.
   extern dec uniqueWhen(target: Model, fields: valueof string,
     stateField: valueof string, activeState: valueof string);
