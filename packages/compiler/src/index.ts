@@ -1054,6 +1054,51 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    // B6: a single SQL UPDATE of the two members of a compound business key.
+    // The database constraint arbitrates concurrent writers; no read-before-write.
+    const patchSpec=metadata(p,"patchTogether",op);
+    let patchNames:string[]|undefined;
+    if(kind==="patchTogether"){
+      const raw=patchSpec?.fields;
+      const names=typeof raw==="string"?raw.split(",").map(x=>x.trim()):[];
+      const expected=entity.uniqueTogether;
+      const dto=op.parameters.properties.get("input")?.type;
+      const props=dto?.kind==="Model"?dto.properties:undefined;
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      let valid=!!expected&&expected.length===2&&names.length===2&&
+        names.join(",")===expected.join(",")&&
+        f===undefined&&input===undefined&&
+        http.verb==="patch"&&http.parameters.body?.bodyKind==="single"&&
+        keys.length===1&&keys[0]===entity.publicIdentity&&
+        [200,400,401,403,404,409].every(code=>statuses.includes(code))&&
+        !!props&&props.size===2&&names.every(n=>props.has(n))&&
+        !entity.uniqueWhen;
+      for(const n of names){
+        const source=entity.fields.find(x=>x.name===n);
+        const target=props?.get(n);
+        const actual=target?field(p,target):undefined;
+        if(!source||!actual||source.type!=="string"||!source.required||source.nullable||
+          source.unique||source.reference||source.ownerManaged||source.readCapability||
+          source.initial!==undefined||source.requiredWhen||source.forbidWhen||
+          source.computedSum||source.computedProduct||source.computedRoundedProduct||
+          source.computedDiscountedTotal||source.afterField||source.greaterThanField||
+          target?.optional||actual.type!==source.type||actual.nullable||
+          actual.minLength!==source.minLength||actual.maxLength!==source.maxLength||
+          actual.pattern!==source.pattern||
+          JSON.stringify(actual.choices)!==JSON.stringify(source.choices))
+          valid=false;
+      }
+      if(!valid){
+        reject("invalid-patch-together",op.name+
+          " must PATCH exactly the two required editable string compound-key fields "+
+          "with matching DTO constraints and 200/400/401/403/404/409",op);
+        continue;
+      }
+      patchNames=names;
+    }else if(patchSpec){
+      reject("orphan-patch-together",op.name+" @patchTogether requires patchTogether behavior",op);
+      continue;
+    }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
       behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(patchNames?{input:patchNames.join(",")}:input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
