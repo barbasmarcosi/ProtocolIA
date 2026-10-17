@@ -596,6 +596,52 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     const reservation = metadata(p,"reserve",op);
     const movement = metadata(p,"moveUnits",op);
+    const multiMovement = metadata(p,"moveBatch",op);
+    let batchLegs:{sourceField:string;targetField:string;quantityField:string}[]|undefined;
+    if(multiMovement){
+      const raw=String(multiMovement.legs??"");
+      const parts=raw.split(";");
+      const entries=parts.map(triple=>triple.split(","));
+      const stock=declared.get(String(multiMovement.stockEntity));
+      const available=stock?.fields.find(x=>x.name===multiMovement.availableField);
+      const dto=op.parameters.properties.get("input")?.type;
+      const props=dto?.kind==="Model"?dto.properties:undefined;
+      const names=[entity.publicIdentity,...entries.flat()];
+      const matched=!!props&&names.every(n=>{
+        const original=entity.fields.find(x=>x.name===n);
+        const prop=props.get(n);
+        const actual=prop?field(p,prop):undefined;
+        return !!original&&!!actual&&!prop?.optional&&!actual.nullable&&
+          original.type===actual.type&&original.min===actual.min&&
+          original.max===actual.max&&original.minLength===actual.minLength&&
+          original.maxLength===actual.maxLength&&original.pattern===actual.pattern;
+      });
+      if(kind!=="create"||f!==undefined||input!==undefined||reservation||movement||
+        metadata(p,"reserve",op)||release||metadata(p,"reverseUnits",op)||
+        metadata(p,"debitExact",op)||metadata(p,"reverseExact",op)||
+        metadata(p,"transition",op)||parts.length<2||parts.length>4||
+        entries.some(x=>x.length!==3)||new Set(names).size!==names.length||
+        names.some(x=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
+        !stock||stock===entity||stock.fields.some(x=>x.ownerManaged)||
+        entity.fields.some(x=>x.ownerManaged)||
+        !available||available.type!=="int32"||!available.required||available.nullable||
+        available.min!==0||available.max!==undefined&&available.max>2147483647||
+        available.reference||available.computedSum||available.computedProduct||
+        available.computedRoundedProduct||available.computedDiscountedTotal||
+        !matched||entries.some(([from,to,quantity])=>{
+          const s=entity.fields.find(x=>x.name===from),t=entity.fields.find(x=>x.name===to);
+          const q=entity.fields.find(x=>x.name===quantity);
+          return [s,t].some(x=>!x||x.type!=="string"||!x.required||x.nullable||
+            x.reference?.target!==stock.name||x.reference.onDelete!=="restrict")||
+            !q||q.type!=="int32"||!q.required||q.nullable||(q.min??0)<1;
+        })){
+        reject("invalid-move-batch",op.name+
+          " needs 2–4 unique triples of typed positive quantities and required parent FKs with matching DTO",op);
+        continue;
+      }
+      batchLegs=entries.map(([sourceField,targetField,quantityField])=>
+        ({sourceField,targetField,quantityField}));
+    }
     const reverseMovement = metadata(p,"reverseUnits",op);
     if(reverseMovement){
       const stock=declared.get(String(reverseMovement.stockEntity));
@@ -954,6 +1000,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("move-units-http",op.name+" must declare POST 201/400/401/403/409 with one typed body",op);
       continue;
     }
+    if(multiMovement&&(![201,400,401,403,409].every(x=>statuses.includes(x))||
+        http.verb!=="post"||http.parameters.body?.bodyKind!=="single")){
+      reject("move-batch-http",op.name+" must be POST with typed 201/400/401/403/409",op);
+      continue;
+    }
     if (reservation && (!statuses.includes(400) || !statuses.includes(409) ||
          http.parameters.body?.bodyKind!=="single")) {
       reject("reserve-http",op.name+" requires POST body with declared 201, 400 and 409 responses",op);
@@ -1244,6 +1295,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
           sourceField:String(movement.sourceField),
           targetField:String(movement.targetField),
           quantityField:String(movement.quantityField)
+        }} : {}),
+        ...(multiMovement ? {moveBatch:{
+          stockEntity:String(multiMovement.stockEntity),
+          availableField:String(multiMovement.availableField),
+          legs:batchLegs!
         }} : {}),
         ...(reverseMovement ? {reverseUnits:{
           stockEntity:String(reverseMovement.stockEntity),
