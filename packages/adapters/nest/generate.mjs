@@ -8,7 +8,7 @@ import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
-import {assertMoveUnits} from "../stock-transfer.mjs";
+import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
@@ -203,6 +203,7 @@ export function generate(ir,spec,out){
           throw Error("Invalid audited operation "+op.name);
       }
       if(b.moveUnits)assertMoveUnits(ir,e,op);
+      if(b.reverseUnits)assertReverseUnits(ir,e,op);
       if(b.reserve){
         const stock=entities.get(b.reserve.stockEntity);
         const available=stock?.fields.find(f=>f.name===b.reserve.availableField);
@@ -261,6 +262,19 @@ export function generate(ir,spec,out){
       const item={name:op.name,method:op.method,path:op.path,entity:e.name,
         kind,capability:op.capability,...(b.audit?{audit:b.audit}:{}),...(b.field?{field:b.field}:{}),
         ...(b.input?{input:b.input}:{}),...(kind==="transition"?{from:b.from,to:b.to}:{})};
+      if(b.reverseUnits){
+        const plan=assertReverseUnits(ir,e,op);
+        item.reverseUnits={
+          stockTable:snake(plan.stock.name),
+          stockKeyColumn:snake(plan.stock.publicIdentity),
+          availableColumn:snake(plan.available.name),
+          sourceColumn:snake(plan.source.name),
+          targetColumn:snake(plan.target.name),
+          amountColumn:snake(plan.amount.name),
+          maxBalance:plan.available.max??2147483647,
+          parentWriteCapability:plan.parentWriteCapability
+        };
+      }
       if(b.moveUnits){
         const plan=assertMoveUnits(ir,e,op);
         item.moveUnits={
