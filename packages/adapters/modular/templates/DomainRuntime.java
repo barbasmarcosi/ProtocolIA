@@ -124,6 +124,9 @@ public class DomainRuntime {
     if (matched.reserve()!=null && (user==null || user.getAuthorities().stream()
         .noneMatch(a -> a.getAuthority().equals(authorized.reserve().stockWriteCapability()))))
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+    if (matched.moveUnits()!=null && (user==null || user.getAuthorities().stream()
+        .noneMatch(a -> a.getAuthority().equals(authorized.moveUnits().parentWriteCapability()))))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     if (matched.kind().equals("reconcileExact")) {
       var plan=Manifest.EXACT_RECONCILIATIONS.get(matched.name());
       if(plan==null || user==null || user.getAuthorities().stream().noneMatch(a ->
@@ -422,6 +425,37 @@ public class DomainRuntime {
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
       if(opening.compareTo(available)!=0)
         throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
+    }
+    // B8: both parent rows lock in canonical public-key order to avoid reverse-direction
+    // transfer deadlocks. The same dispatch() transaction also inserts the journal row.
+    if(op.moveUnits()!=null){
+      var movement=op.moveUnits();
+      Object fromRaw=body.get(movement.sourceField());
+      Object toRaw=body.get(movement.targetField());
+      Object quantityRaw=body.get(movement.amountField());
+      if(!(fromRaw instanceof String from)||!(toRaw instanceof String to)||
+          !(quantityRaw instanceof Integer units)||units<1||from.equals(to))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid stock transfer");
+      var lockParams=Map.of("source",from,"target",to);
+      var locked=jdbc.queryForList("SELECT "+movement.stockKeyColumn()+
+          " FROM "+movement.stockTable()+" WHERE "+movement.stockKeyColumn()+
+          " IN (:source,:target) ORDER BY "+movement.stockKeyColumn()+" FOR UPDATE",
+          lockParams,String.class);
+      if(locked.size()!=2)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Transfer stock item missing");
+      var mutation=new MapSqlParameterSource().addValue("from",from)
+          .addValue("target",to).addValue("units",units)
+          .addValue("maxAfter",movement.maxBalance()-units);
+      int debited=jdbc.update("UPDATE "+movement.stockTable()+" SET "+
+          movement.availableColumn()+"="+movement.availableColumn()+"-:units WHERE "+
+          movement.stockKeyColumn()+"=:from AND "+movement.availableColumn()+">=:units",mutation);
+      if(debited!=1)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Insufficient transferable units");
+      int credited=jdbc.update("UPDATE "+movement.stockTable()+" SET "+
+          movement.availableColumn()+"="+movement.availableColumn()+"+:units WHERE "+
+          movement.stockKeyColumn()+"=:target AND "+movement.availableColumn()+"<=:maxAfter",mutation);
+      if(credited!=1)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Destination capacity exceeded");
     }
     // dispatch() is @Transactional: failure inserting the child rolls back this debit.
     if (op.reserve()!=null) {
