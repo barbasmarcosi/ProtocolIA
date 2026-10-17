@@ -211,6 +211,7 @@ export const $decorators = {
     readCapability,
     unique,
     uniqueTogether,
+    patchTogether,
     uniqueWhen,
     reference,
     view,
