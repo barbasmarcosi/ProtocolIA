@@ -15,6 +15,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
  ownerRelation?:{field:string;parentTable:string;parentKey:string;parentOwnerColumn:string;parentReadCapability:string}};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
+type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -23,7 +24,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -643,7 +644,8 @@ class RuntimeService{
         relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
         "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
     const insertParams=relation?[...params,input[relation.field],actor]:params;
-    if(op.reserve||op.moveUnits||op.exactDebit||op.audit?.length){
+    if(op.reserve||op.moveUnits||op.moveBatch||op.exactDebit||op.audit?.length){
+      const batch=op.moveBatch;
       const movement=op.moveUnits;
       const reservation=op.reserve;
       const exactDebit=op.exactDebit;
@@ -659,6 +661,39 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        if(batch){
+          const deltas=new Map<string,number>();
+          for(const leg of batch.legs){
+            const from=input[leg.sourceField],to=input[leg.targetField];
+            const units=input[leg.quantityField];
+            if(typeof from!=="string"||typeof to!=="string"||from===to||
+              !Number.isInteger(units)||(units as number)<1)
+              throw new Problem(400,"Invalid multi-leg movement");
+            deltas.set(from,(deltas.get(from)??0)-(units as number));
+            deltas.set(to,(deltas.get(to)??0)+(units as number));
+          }
+          const ids=[...deltas.keys()].sort();
+          if(ids.some(id=>!id)||[...deltas.values()].some(x=>!Number.isSafeInteger(x)))
+            throw new Problem(400,"Unsafe movement values");
+          // Lock the union of participating accounts before any write; no per-leg lock inversion.
+          const locked=await client.query("SELECT "+batch.stockKeyColumn+" FROM "+
+            batch.stockTable+" WHERE "+batch.stockKeyColumn+"=ANY($1::text[]) ORDER BY "+
+            batch.stockKeyColumn+" FOR UPDATE",[ids]);
+          if(locked.rowCount!==ids.length)throw new Problem(400,"Movement stock account missing");
+          for(const id of ids){
+            const delta=deltas.get(id)!;
+            if(delta===0)continue;
+            const minimum=delta<0?-delta:0;
+            const maximum=delta>0?batch.maxBalance-delta:batch.maxBalance;
+            if(minimum>batch.maxBalance||maximum<0)
+              throw new Problem(409,"Multi-leg capacity exceeded");
+            const changed=await client.query("UPDATE "+batch.stockTable+" SET "+
+              batch.availableColumn+"="+batch.availableColumn+"+$1 WHERE "+
+              batch.stockKeyColumn+"=$2 AND "+batch.availableColumn+">=$3 AND "+
+              batch.availableColumn+"<=$4",[delta,id,minimum,maximum]);
+            if(changed.rowCount!==1)throw new Problem(409,"Multi-leg balance conflict");
+          }
+        }
         if(movement){
           const from=input[movement.sourceField],to=input[movement.targetField];
           const units=input[movement.quantityField];
@@ -931,6 +966,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient stock write capability");
       if(op.moveUnits&&!session.capabilities.includes(op.moveUnits.parentWriteCapability))
         throw new Problem(403,"Insufficient stock transfer authority");
+      if(op.moveBatch&&!session.capabilities.includes(op.moveBatch.parentWriteCapability))
+        throw new Problem(403,"Insufficient batch settlement authority");
       if(op.reverseUnits&&!session.capabilities.includes(op.reverseUnits.parentWriteCapability))
         throw new Problem(403,"Insufficient stock reversal authority");
       if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
