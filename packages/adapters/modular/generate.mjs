@@ -12,7 +12,7 @@ import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
-import {assertMoveBatch} from "../multi-leg-transfer.mjs";
+import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -190,6 +190,7 @@ export function generate(ir, openapi, outDir) {
     }
     if(op.behavior.moveUnits)assertMoveUnits(ir,bound,op);
     if(op.behavior.moveBatch)assertMoveBatch(ir,bound,op);
+    if(op.behavior.reverseBatch)assertReverseBatch(ir,bound,op);
     if(op.behavior.reverseUnits)assertReverseUnits(ir,bound,op);
     if(op.behavior.reserve){
       const r=op.behavior.reserve,stock=entityMap.get(r.stockEntity);
@@ -345,7 +346,7 @@ export function generate(ir, openapi, outDir) {
         ].join(",")+")").join(",")+")"].join(",")+
       "))").join(",\n"),
     "  );",
-    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,ExactDebit exactDebit,ExactReverse exactReverse,MoveUnits moveUnits,ReverseUnits reverseUnits,MoveBatch moveBatch,List<String> audit) {}",
+    "  public record Op(String name,String method,String path,String entity,String kind,String capability,String field,String input,int inputMin,int inputMax,int limitDefault,int limitMin,int limitMax,int offsetDefault,int offsetMax,String fromState,String toState,Reserve reserve,Reserve release,ExactDebit exactDebit,ExactReverse exactReverse,MoveUnits moveUnits,ReverseUnits reverseUnits,MoveBatch moveBatch,MoveBatch reverseBatch,List<String> audit) {}",
     "  public static final List<String> READ_CAPABILITIES=List.of("+readCaps.map(j).join(",")+");",
     "  public static final List<String> WRITE_CAPABILITIES=List.of("+writeCaps.map(j).join(",")+");",
     "  public static final List<String> AUDIT_CAPABILITIES=List.of("+auditCaps.map(j).join(",")+");",
@@ -426,6 +427,18 @@ export function generate(ir, openapi, outDir) {
           ].join(",")+")").join(",")+")"
       ].join(",")+")";
     }
+    let reverseBatch="null";
+    if(b.reverseBatch){
+      const plan=assertReverseBatch(ir,entityMap.get(op.entity),op);
+      reverseBatch="new MoveBatch("+[
+        j(snake(plan.stock.name)),j(snake(plan.stock.publicIdentity)),
+        j(snake(plan.available.name)),n(plan.available.max??2147483647),
+        j(plan.parentWriteCapability),"List.of("+
+          plan.legs.map(leg=>"new MoveLeg("+[
+            j(snake(leg.sourceField)),j(snake(leg.targetField)),j(snake(leg.quantityField))
+          ].join(",")+")").join(",")+")"
+      ].join(",")+")";
+    }
     let release="null";
     if(b.release){
       const stock=entityMap.get(b.release.stockEntity);
@@ -449,7 +462,7 @@ export function generate(ir, openapi, outDir) {
     ].join(",")+")":"null";
     return "    new Op("+[j(op.name),j(op.method),j(op.path),j(op.entity),j(b.kind),
       j(op.capability),j(b.field??""),j(b.input??""),
-      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,exactDebit,exactReverse,moveUnits,reverseUnits,moveBatch,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
+      mn,mx,ld,lmin,lmax,od,om,j(b.from??""),j(b.to??""),reserve,release,exactDebit,exactReverse,moveUnits,reverseUnits,moveBatch,reverseBatch,"List.of("+(b.audit??[]).map(j).join(",")+")"].join(",")+")";
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
