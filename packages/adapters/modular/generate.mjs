@@ -10,6 +10,7 @@ import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
+import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -125,9 +126,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,reconcileExact:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,reconcileExact:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
@@ -146,6 +147,7 @@ export function generate(ir, openapi, outDir) {
     if(op.method !== methods[op.behavior.kind] ||
        !Array.isArray(op.statuses) || !op.statuses.includes(success[op.behavior.kind]))
       throw Error("Contract HTTP verb/status mismatch in " + op.name);
+    if(op.behavior.kind==="patchTogether")assertPatchTogether(bound,op);
     if(op.behavior.kind==="patchFields"&&bound.uniqueTogether?.includes(op.behavior.field)){
       const f=bound.fields.find(x=>x.name===op.behavior.field);
       if(!f||f.type!=="string"||!f.required||f.nullable||f.reference||
@@ -155,7 +157,7 @@ export function generate(ir, openapi, outDir) {
     }
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
@@ -249,7 +251,7 @@ export function generate(ir, openapi, outDir) {
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchFields","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchFields","patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const read=byKind("get",e.name)[0].capability;
     const write=byKind("create",e.name)[0].capability;
@@ -271,7 +273,7 @@ export function generate(ir, openapi, outDir) {
     }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
-      const expected=["create","patchFields","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
+      const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
