@@ -746,6 +746,7 @@ export default function App(){
         409:"Conflicto: no es posible completar la operación."
       };
       const failure=Error(descriptions[response.status]??"Error HTTP "+response.status+" — "+kind);
+      failure.status=response.status;
       if(response.status===400&&Array.isArray(data.issues)){
         // Fail closed: never render arbitrary server-provided properties as field names or messages.
         const fields=new Set(active.entity.fields.map(field=>field.name));
