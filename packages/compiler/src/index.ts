@@ -1598,10 +1598,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
     }
   }
-  // B14: a declared dynamic detail may be edited only through a single
+  // B16: a declared dynamic detail may expose up to three independent
+  // audited, optimistic, distinct scalar-field editors; never owner-scoped.
   // optimistic, audited text patch. Never allow direct FK/identity rewrites.
   for(const creator of operations.filter(o=>o.behavior.createDetails)){
     const cfg=creator.behavior.createDetails!;
+    const patches=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.kind==="patchFields");
+    if(patches.length>3||new Set(patches.map(o=>o.behavior.field)).size!==patches.length)
+      reject("detail-edit-duplicate",creator.name+
+        " requires at most three distinct audited editable child fields",ops.find(o=>o.name===creator.name)!);
     for(const mut of operations.filter(o=>o.entity===cfg.childEntity&&
       !["create","get","listPage","queryPage","auditPage","health"].includes(o.behavior.kind))){
       const child=entities.find(x=>x.name===cfg.childEntity);
@@ -1614,8 +1619,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
         field.reference||!field.required||field.nullable||
         field.initial!==undefined||mut.behavior.audit?.length!==1||
         mut.behavior.audit[0]!==field.name||
-        mut.capability!==operations.find(o=>o.entity===cfg.childEntity&&
-          o.behavior.kind==="create")?.capability)
+        !mut.capability||mut.capability==="public"||
+        mut.capability===operations.find(o=>o.entity===cfg.childEntity&&
+          o.behavior.kind==="get")?.capability)
         reject("detail-edit-lifecycle",mut.name+
           " cannot mutate a child except an optimistic audited bounded scalar field",
           ops.find(o=>o.name===mut.name)!);
