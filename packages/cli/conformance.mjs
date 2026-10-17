@@ -337,6 +337,7 @@ async function main(){
   assert.equal((await req("patchFields",reader,{key:publicKey,body:{[patchInput]:updated}})).status,403);
 
   }
+  let incrementResult=null;
   if(operations.atomicIncrement){
   const incrementField=operations.atomicIncrement.behavior.field;
   const incrementInput=operations.atomicIncrement.behavior.input;
@@ -348,6 +349,7 @@ async function main(){
   const after=await req("get",reader,{key:publicKey});
   assert.equal(after.data[incrementField],starting+10);
   assert.equal((await req("atomicIncrement",writer,{key:publicKey,body:{[incrementInput]:0}})).status,400);
+  incrementResult={concurrent:10,finalValue:starting+10};
 
   }
   if(operations.delete){
@@ -357,7 +359,7 @@ async function main(){
   }
   console.log("PROTOCOLIA_CONFORMANCE_PASS "+JSON.stringify({
     entity:entity.name,identity:id,base,ops:Object.keys(operations),
-    concurrent:10,finalValue:starting+10,deleted:Boolean(operations.delete)
+    concurrent:incrementResult?.concurrent??0,finalValue:incrementResult?.finalValue??null,deleted:Boolean(operations.delete)
   }));
 }
 main().catch(e=>{console.error("PROTOCOLIA_CONFORMANCE_FAIL "+e.stack);process.exitCode=1;});
