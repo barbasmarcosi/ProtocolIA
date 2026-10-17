@@ -10,6 +10,7 @@ import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
+import {assertCreateDetails} from "../create-details.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
@@ -205,6 +206,7 @@ export function generate(ir,spec,out){
       }
       if(b.moveUnits)assertMoveUnits(ir,e,op);
       if(b.moveBatch)assertMoveBatch(ir,e,op);
+      if(b.createDetails)assertCreateDetails(ir,e,op);
       if(b.reverseBatch)assertReverseBatch(ir,e,op);
       if(b.reverseUnits)assertReverseUnits(ir,e,op);
       if(b.reserve){
@@ -291,6 +293,16 @@ export function generate(ir,spec,out){
             targetField:snake(leg.targetField),
             quantityField:snake(leg.quantityField)
           }))
+        };
+      }
+      if(b.createDetails){
+        const plan=assertCreateDetails(ir,e,op);
+        item.createDetails={
+          childEntity:plan.child.name,
+          parentField:plan.relation.name,
+          rowsField:plan.rowsField,
+          maxRows:plan.maxRows,
+          childWriteCapability:plan.childWriteCapability
         };
       }
       if(b.moveBatch){
