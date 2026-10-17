@@ -267,6 +267,75 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
         data-testid="related-sum-value">{state.value}</div>}
   </section>;
 }
+// B13: generated read-side of a typed header/detail aggregate, using the existing
+// child queryPage filter and explicit child read authority. Never fetch unscoped rows.
+function DetailLinesPanel({child,operation,filter,identity,auth}){
+  const [offset,setOffset]=useState(0);
+  const [retry,setRetry]=useState(0);
+  const [state,setState]=useState({busy:true,items:[],total:0,error:""});
+  const limit=7;
+  const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
+    f.name!==filter.field).slice(0,5);
+  const quantity=columns.find(f=>f.type==="int32"&&f.min!==undefined&&f.min>=0);
+  useEffect(()=>{
+    const controller=new AbortController();
+    setState(old=>({...old,busy:true,error:""}));
+    const query=new URLSearchParams({limit:String(limit),offset:String(offset),
+      [filter.parameter]:String(identity)});
+    authenticatedFetch(operation.path+"?"+query.toString(),{
+      headers:{Authorization:auth},signal:controller.signal
+    }).then(async response=>{
+      if(!response.ok)throw Error(response.status===403?
+        "No tenés permiso para ver los renglones.":"No se pudieron consultar los renglones.");
+      const result=await response.json();
+      if(!result||!Array.isArray(result.items)||
+        !Number.isSafeInteger(result.total)||result.total<0||
+        result.items.length>limit||
+        result.items.some(item=>!item||item[filter.field]!==identity))
+        throw Error("El servicio devolvió renglones fuera de la cabecera o de la página solicitada.");
+      return result;
+    }).then(result=>{if(!controller.signal.aborted)setState({
+      busy:false,items:result.items,total:result.total,error:""
+    });}).catch(error=>{
+      if(!controller.signal.aborted)setState({busy:false,items:[],total:0,error:error.message});
+    });
+    return ()=>controller.abort();
+  },[child,operation,filter,identity,auth,offset,retry]);
+  const subtotal=quantity?state.items.reduce((sum,item)=>sum+item[quantity.name],0):null;
+  return <section className="details-section" aria-label="Renglones relacionados"
+    data-testid="detail-lines-panel">
+    <div className="related-summary-head">
+      <div><h3>Renglones relacionados</h3>
+        <p className="field-help">Consulta paginada de la cabecera seleccionada.</p>
+      </div>
+      <button type="button" className="ghost" disabled={state.busy}
+        onClick={()=>setRetry(n=>n+1)} data-testid="detail-lines-refresh">Actualizar</button>
+    </div>
+    {state.busy?<LoadingIndicator compact message="Cargando renglones…"/>:
+      state.error?<p className="message error" role="alert" data-testid="detail-lines-error">{state.error}</p>:
+      <>
+        <p data-testid="detail-lines-count" role="status">{state.total} renglones en total</p>
+        {subtotal!==null&&<p data-testid="detail-lines-subtotal" className="field-help">
+          Suma de {fieldLabel(quantity).toLowerCase()} en esta página: {subtotal.toLocaleString("es-AR")}
+        </p>}
+        <div className="scroll data-table-scroll">
+          <table className="data-table"><thead><tr>{columns.map(field=>
+            <th scope="col" key={field.name}>{fieldLabel(field)}</th>)}</tr></thead>
+            <tbody>{state.items.map((item,index)=><tr key={String(item[child.entity.publicIdentity]??index)}>
+              {columns.map(field=><td key={field.name}>{cellText(item[field.name])}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+        {state.total===0&&<p className="field-help">Esta cabecera todavía no tiene renglones.</p>}
+        <div className="modal-actions">
+          <button type="button" className="ghost" data-testid="detail-lines-prev"
+            disabled={offset===0} onClick={()=>setOffset(n=>Math.max(0,n-limit))}>Anterior</button>
+          <span role="status">{state.total?offset+1:0}–{Math.min(offset+state.items.length,state.total)} de {state.total}</span>
+          <button type="button" className="ghost" data-testid="detail-lines-next"
+            disabled={offset+limit>=state.total} onClick={()=>setOffset(n=>n+limit)}>Siguiente</button>
+        </div>
+      </>}
+  </section>;
+}
 function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
   const [local,setLocal]=useState(0);
   const [state,setState]=useState({loading:true,data:null,error:""});
@@ -580,6 +649,14 @@ export default function App(){
   const detailFields=detailResource?.entity.fields.filter(f=>
     f.name!==detailPlan?.parentField&&!f.computedSum&&!f.computedProduct&&
     !f.computedRoundedProduct&&!f.computedDiscountedTotal)??[];
+  const detailQuery=detailResource?.operations?.queryPage;
+  // Only use an explicit local FK equality filter, never unfiltered listPage.
+  const detailFilter=detailQuery?.behavior?.filters?.find(f=>
+    f.field===detailPlan?.parentField&&f.operator==="eq"&&
+    !f.via&&f.type==="string");
+  const canReadDetails=Boolean(detailPlan&&detailResource&&detailQuery&&detailFilter&&
+    capabilities.includes(detailQuery.capability)&&
+    capabilities.includes(detailResource.operations.get?.capability));
   const tableColumns=useMemo(()=>active?.entity?visibleColumns({...active.entity,
     fields:active.entity.fields.filter(f=>!f.readCapability||capabilities.includes(f.readCapability))}):[],
     [active?.entity,capabilities]);
@@ -1183,6 +1260,13 @@ export default function App(){
           auth={auth}
           child={relatedSumChild}
           revision={summaryRevision}/>}
+        {canReadDetails&&<DetailLinesPanel
+          key={active.entity.name+":"+selected[active.entity.publicIdentity]}
+          child={detailResource}
+          operation={detailQuery}
+          filter={detailFilter}
+          identity={selected[active.entity.publicIdentity]}
+          auth={auth}/>}
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         </div>
