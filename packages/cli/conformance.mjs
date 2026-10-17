@@ -149,6 +149,33 @@ async function runMulti(){
     assert.equal((await run(resource,"create",reader,{body})).status,403);
     const reserve=resource.operations.create.behavior.reserve;
     const parent=reserve?resources.find(r=>r.entity.name===reserve.stockEntity):undefined;
+    const move=resource.operations.create.behavior.moveUnits;
+    const moveParent=move?resources.find(r=>r.entity.name===move.stockEntity):undefined;
+    let moveBefore;
+    if(move){
+      assert.ok(moveParent,"Transfer parent not found");
+      const parentBody=createBodies.get(move.stockEntity);
+      assert.ok(parentBody,"Parent fixture must precede transfer");
+      const keyField=moveParent.entity.fields.find(f=>f.name===moveParent.entity.publicIdentity);
+      assert.ok(keyField);
+      const source=body[move.sourceField];
+      assert.equal(typeof source,"string");
+      // Use a separate parent, never allow the oracle to simulate a self-transfer.
+      const alternate=(source.slice(0,Math.max(0,(keyField.maxLength??255)-1))+"X");
+      assert.notEqual(alternate,source,"Unable to make distinct related fixture");
+      const target={...parentBody,[moveParent.entity.publicIdentity]:alternate,
+        [move.availableField]:0};
+      assert.equal((await run(moveParent,"create",writer,{body:target})).status,201,
+        "Secondary transfer parent must be a real persisted record");
+      body[move.targetField]=alternate;
+      const first=await run(moveParent,"get",reader,{key:source});
+      const second=await run(moveParent,"get",reader,{key:alternate});
+      assert.equal(first.status,200);assert.equal(second.status,200);
+      moveBefore={first:first.data[move.availableField],
+        second:second.data[move.availableField],source,target:alternate};
+      assert.ok(moveBefore.first>=body[move.quantityField],
+        "Stock fixture must be sufficient for the generated transfer amount");
+    }
     const beforeStock=reserve?await run(parent,"get",reader,{key:body[reserve.referenceField]}):undefined;
     if(reserve)assert.equal(beforeStock.status,200,"Stock parent is required by reservation");
     const created=await run(resource,"create",writer,{body});
@@ -156,6 +183,15 @@ async function runMulti(){
     assert.equal(created.data[identity],key);
     if(owned)assert.equal(created.data[e.fields.find(f=>f.ownerManaged).name],managerName);
     assert.equal(Object.hasOwn(created.data,"id"),false);
+    if(move){
+      const first=await run(moveParent,"get",reader,{key:moveBefore.source});
+      const second=await run(moveParent,"get",reader,{key:moveBefore.target});
+      assert.equal(first.status,200);assert.equal(second.status,200);
+      assert.equal(first.data[move.availableField],
+        moveBefore.first-body[move.quantityField],"Transfer source debited once");
+      assert.equal(second.data[move.availableField],
+        moveBefore.second+body[move.quantityField],"Transfer destination credited once");
+    }
     if(reserve){
       const afterStock=await run(parent,"get",reader,{key:body[reserve.referenceField]});
       assert.equal(afterStock.status,200);
@@ -164,6 +200,14 @@ async function runMulti(){
         "Atomic reservation must debit exactly the amount specified by the contract");
     }
     assert.equal((await run(resource,"create",writer,{body})).status,409);
+    if(move){
+      const first=await run(moveParent,"get",reader,{key:moveBefore.source});
+      const second=await run(moveParent,"get",reader,{key:moveBefore.target});
+      assert.equal(first.data[move.availableField],
+        moveBefore.first-body[move.quantityField],"Duplicate journal must roll back source debit");
+      assert.equal(second.data[move.availableField],
+        moveBefore.second+body[move.quantityField],"Duplicate journal must roll back destination credit");
+    }
     if(reserve){
       const afterDuplicate=await run(parent,"get",reader,{key:body[reserve.referenceField]});
       assert.equal(afterDuplicate.data[reserve.availableField],
