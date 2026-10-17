@@ -1,0 +1,53 @@
+name: vnext-b14-detail-lifecycle
+on:
+  push:
+    branches: [feature/b14-detail-totals-and-guarded-edit-20261017]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/dynamic-order-lifecycle/**'
+      - 'tests/vnext/dynamic-order-lifecycle.test.mjs'
+      - 'scripts/vnext/probe-dynamic-order-lifecycle-http.mjs'
+      - '.github/workflows/vnext-b14-detail-lifecycle.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b14-details-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dynamic-details:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: TypeSpec compiler and fail-closed tests
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/dynamic-order-details.test.mjs tests/vnext/dynamic-order-read.test.mjs tests/vnext/dynamic-order-lifecycle.test.mjs
+      - name: Generate Spring/Nest React application solely from contract
+        run: npm run app:build -- examples/vnext/dynamic-order-lifecycle --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b14-app"
+      - name: Build generated app with ephemeral PostgreSQL smoke
+        run: npm run app:test -- "${RUNNER_TEMP}/b14-app"
+      - name: Install Chromium
+        if: hashFiles('scripts/vnext/probe-dynamic-order-lifecycle-http.mjs') != ''
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real transactional order rows and generated React
+        if: hashFiles('scripts/vnext/probe-dynamic-order-lifecycle-http.mjs') != ''
+        run: node scripts/vnext/probe-dynamic-order-lifecycle-http.mjs "${RUNNER_TEMP}/b14-app"
