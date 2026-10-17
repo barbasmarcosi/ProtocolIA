@@ -16,7 +16,9 @@ export function assertCreateDetails(ir,parent,op){
     if(x.entity!==child?.name||x.behavior.kind!=="patchFields")return false;
     const field=child.fields.find(f=>f.name===x.behavior.field);
     return !field||field.name===child.publicIdentity||field.name===meta.parentField||
-      field.type!=="string"||!field.required||field.nullable||field.reference||
+      !["string","int32"].includes(field.type)||
+      (field.type==="int32"&&((field.min??0)<1||(field.max??2147483647)>1000000000))||
+      !field.required||field.nullable||field.reference||
       field.initial!==undefined||field.ownerManaged||field.computedSum||
       field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||
       x.behavior.input!==field.name||x.behavior.audit?.length!==1||
