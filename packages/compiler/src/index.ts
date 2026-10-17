@@ -1590,6 +1590,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
     }
   }
+  // B14: a declared dynamic detail may be edited only through a single
+  // optimistic, audited text patch. Never allow direct FK/identity rewrites.
+  for(const creator of operations.filter(o=>o.behavior.createDetails)){
+    const cfg=creator.behavior.createDetails!;
+    for(const mut of operations.filter(o=>o.entity===cfg.childEntity&&
+      !["create","get","listPage","queryPage","auditPage","health"].includes(o.behavior.kind))){
+      const child=entities.find(x=>x.name===cfg.childEntity);
+      const field=child?.fields.find(x=>x.name===mut.behavior.field);
+      if(mut.behavior.kind!=="patchFields"||!field||
+        field.name===child?.publicIdentity||field.name===cfg.parentField||
+        field.type!=="string"||field.reference||!field.required||field.nullable||
+        field.initial!==undefined||mut.behavior.audit?.length!==1||
+        mut.behavior.audit[0]!==field.name||
+        mut.capability!==operations.find(o=>o.entity===cfg.childEntity&&
+          o.behavior.kind==="create")?.capability)
+        reject("detail-edit-lifecycle",mut.name+
+          " cannot mutate a child except an optimistic audited non-FK text field",
+          ops.find(o=>o.name===mut.name)!);
+    }
+  }
   // B14: the sum is linked to exactly one bounded dynamic detail creator, not an arbitrary join.
   for(const summary of operations.filter(x=>x.behavior.kind==="sumDetails")){
     const cfg=summary.behavior.detailSum!;
