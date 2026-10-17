@@ -1064,7 +1064,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const expected=entity.uniqueTogether;
       const dto=op.parameters.properties.get("input")?.type;
       const props=dto?.kind==="Model"?dto.properties:undefined;
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       let valid=!!expected&&expected.length===2&&names.length===2&&
         names.join(",")===expected.join(",")&&
         f===undefined&&input===undefined&&
@@ -1089,16 +1089,6 @@ export function compileDomain(p: Program): IrDocument | undefined {
           valid=false;
       }
       if(!valid){
-        console.error("B6_COMPILE_DIAGNOSTIC",JSON.stringify({
-          uniqueTogether:entity.uniqueTogether,names,f,input,
-          method:http.verb,bodyKind:http.parameters.body?.bodyKind,
-          statuses,keys,props:props?[...props.keys()]:null,
-          fieldShapes:names.map(n=>{
-            const source=entity.fields.find(x=>x.name===n),
-              target=props?.get(n),actual=target?field(p,target):undefined;
-            return {n,source,target:actual,targetOptional:target?.optional};
-          })
-        }));
         reject("invalid-patch-together",op.name+
           " must PATCH exactly the two required editable string compound-key fields "+
           "with matching DTO constraints and 200/400/401/403/404/409",op);
