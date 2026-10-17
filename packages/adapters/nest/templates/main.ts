@@ -14,6 +14,7 @@ type Field={name:string;column:string;ownerManaged?:boolean;readCapability?:stri
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[];
  ownerRelation?:{field:string;parentTable:string;parentKey:string;parentOwnerColumn:string;parentReadCapability:string}};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
+type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
 type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceColumn:string;amountColumn:string;stockWriteCapability:string};
@@ -21,7 +22,7 @@ type QueryFilter={name:string;expression:string;comparator:string;type:string;mi
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
-type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
+type Operation={query?:QuerySpec;relatedSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
@@ -638,7 +639,8 @@ class RuntimeService{
         relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
         "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
     const insertParams=relation?[...params,input[relation.field],actor]:params;
-    if(op.reserve||op.exactDebit||op.audit?.length){
+    if(op.reserve||op.moveUnits||op.exactDebit||op.audit?.length){
+      const movement=op.moveUnits;
       const reservation=op.reserve;
       const exactDebit=op.exactDebit;
       const balanceId=exactDebit?input[exactDebit.referenceField]:undefined;
@@ -653,6 +655,27 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        if(movement){
+          const from=input[movement.sourceField],to=input[movement.targetField];
+          const units=input[movement.quantityField];
+          if(typeof from!=="string"||typeof to!=="string"||
+              !Number.isInteger(units)||(units as number)<1||from===to)
+            throw new Problem(400,"Invalid stock transfer");
+          // Lock both parents in stable key order, even when concurrent moves run in reverse.
+          const locked=await client.query("SELECT "+movement.stockKeyColumn+
+            " FROM "+movement.stockTable+" WHERE "+movement.stockKeyColumn+
+            " IN ($1,$2) ORDER BY "+movement.stockKeyColumn+" FOR UPDATE",[from,to]);
+          if(locked.rowCount!==2)throw new Problem(400,"Transfer stock item missing");
+          const debited=await client.query("UPDATE "+movement.stockTable+" SET "+
+            movement.availableColumn+"="+movement.availableColumn+"-$1 WHERE "+
+            movement.stockKeyColumn+"=$2 AND "+movement.availableColumn+">=$1",[units,from]);
+          if(debited.rowCount!==1)throw new Problem(409,"Insufficient transferable units");
+          const credited=await client.query("UPDATE "+movement.stockTable+" SET "+
+            movement.availableColumn+"="+movement.availableColumn+"+$1 WHERE "+
+            movement.stockKeyColumn+"=$2 AND "+movement.availableColumn+"<=$3",
+            [units,to,movement.maxBalance-(units as number)]);
+          if(credited.rowCount!==1)throw new Problem(409,"Destination capacity exceeded");
+        }
         if(reservation){
         const debit=await client.query("UPDATE "+reservation.stockTable+" SET "+
           reservation.availableColumn+"="+reservation.availableColumn+"-$1 WHERE "+
@@ -865,6 +888,8 @@ class RuntimeService{
         throw new Problem(403,"Insufficient balance write capability");
       if(op.reserve&&!session.capabilities.includes(op.reserve.stockWriteCapability))
         throw new Problem(403,"Insufficient stock write capability");
+      if(op.moveUnits&&!session.capabilities.includes(op.moveUnits.parentWriteCapability))
+        throw new Problem(403,"Insufficient stock transfer authority");
       if(op.exactReconciliation&&!session.capabilities.includes(op.exactReconciliation.childReadCapability))
         throw new Problem(403,"Insufficient ledger read capability");
       if(op.relatedSum&&!session.capabilities.includes(op.relatedSum.childReadCapability))
