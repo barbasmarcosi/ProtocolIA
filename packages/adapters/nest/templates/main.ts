@@ -821,12 +821,35 @@ class RuntimeService{
   }
 
   private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
-    const input=validateInput(e,body,[op.input!],false);
-    if(Object.keys(input).length!==1||!Object.hasOwn(input,op.input!))
-      throw new Problem(400,"Expected one patch property");
+    const audited=Boolean(op.audit?.length);
+    if(!isRecord(body)||Object.keys(body).length!==(audited?2:1)||
+      !Object.hasOwn(body,op.input!)||(audited&&!Object.hasOwn(body,"expected")))
+      throw new Problem(400,"Unexpected patch properties");
+    const input=validateInput(e,{[op.input!]:body[op.input!]},[op.input!],false);
+    if(audited)validateInput(e,{[op.input!]:body.expected},[op.input!],false);
     const field=e.fields.find(f=>f.name===op.field)!;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!subject||field.ownerManaged))throw new Problem(403,"Owner-scoped patch denied");
+    if(audited){
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
+          e.identityColumn,[input[op.input!],key,body.expected]);
+        if(!changed.rowCount){
+          const found=await client.query("SELECT 1 FROM "+e.table+" WHERE "+
+            e.identityColumn+"=$1",[key]);
+          throw new Problem(found.rowCount?409:404,found.rowCount?
+            "Stale expected value":"Not found");
+        }
+        await this.recordAudit(client,e,op,key,subject??"",
+          {[op.input!]:body.expected},input);
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key,subject);
+    }
     const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+
       "=$1 WHERE "+e.identityColumn+"=$2"+(owner?" AND "+owner.column+"=$3":"")+
       " RETURNING "+e.identityColumn,owner?[input[op.input!],key,subject]:[input[op.input!],key]);
