@@ -1064,7 +1064,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       continue;
     }
     if(reverseBatchMeta){
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(v=>v[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(v=>v[1]);
       if(http.verb!=="post"||http.parameters.body!==undefined||keys.length!==1||
         keys[0]!==entity.publicIdentity||
         ![200,400,401,403,404,409].every(x=>statuses.includes(x))){
