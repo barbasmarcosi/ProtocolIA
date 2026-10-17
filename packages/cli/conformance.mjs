@@ -151,7 +151,37 @@ async function runMulti(){
     const reserve=resource.operations.create.behavior.reserve;
     const parent=reserve?resources.find(r=>r.entity.name===reserve.stockEntity):undefined;
     const move=resource.operations.create.behavior.moveUnits;
+    const batch=resource.operations.create.behavior.moveBatch;
     const moveParent=move?resources.find(r=>r.entity.name===move.stockEntity):undefined;
+    let batchAccounts;
+    if(batch){
+      const parent=resources.find(r=>r.entity.name===batch.stockEntity);
+      const base=createBodies.get(batch.stockEntity);
+      assert.ok(parent&&base,"Multi-leg settlement needs its parent fixture first");
+      const parentKey=parent.entity.publicIdentity;
+      const keyField=parent.entity.fields.find(f=>f.name===parentKey);
+      const original=base[parentKey];
+      const suffixKey=suffix=>String(original).slice(0,(keyField.maxLength??255)-1)+suffix;
+      const left=suffixKey("X"),right=suffixKey("Y");
+      for(const key of [left,right]){
+        const child={...base,[parentKey]:key,[batch.availableField]:0};
+        assert.equal((await run(parent,"create",writer,{body:child})).status,201,
+          "Multi-leg fixture requires all parents to exist");
+      }
+      for(let i=0;i<batch.legs.length;i++){
+        const leg=batch.legs[i];
+        const source=i===0?original:i%2===1?left:right;
+        const target=i===0?left:i%2===1?right:original;
+        body[leg.sourceField]=source;
+        body[leg.targetField]=target;
+      }
+      batchAccounts={parent,ids:[original,left,right],before:[]};
+      for(const key of batchAccounts.ids){
+        const result=await run(parent,"get",reader,{key});
+        assert.equal(result.status,200);
+        batchAccounts.before.push(result.data[batch.availableField]);
+      }
+    }
     let moveBefore;
     if(move){
       assert.ok(moveParent,"Transfer parent not found");
@@ -193,6 +223,21 @@ async function runMulti(){
       assert.equal(second.data[move.availableField],
         moveBefore.second+body[move.quantityField],"Transfer destination credited once");
     }
+    if(batch){
+      const deltas=new Map(batchAccounts.ids.map(id=>[id,0]));
+      for(const leg of batch.legs){
+        const units=body[leg.quantityField];
+        deltas.set(body[leg.sourceField],deltas.get(body[leg.sourceField])-units);
+        deltas.set(body[leg.targetField],deltas.get(body[leg.targetField])+units);
+      }
+      for(let i=0;i<batchAccounts.ids.length;i++){
+        const key=batchAccounts.ids[i];
+        const after=await run(batchAccounts.parent,"get",reader,{key});
+        assert.equal(after.status,200);
+        assert.equal(after.data[batch.availableField],
+          batchAccounts.before[i]+deltas.get(key),"Atomic net movement per parent");
+      }
+    }
     if(reserve){
       const afterStock=await run(parent,"get",reader,{key:body[reserve.referenceField]});
       assert.equal(afterStock.status,200);
@@ -208,6 +253,22 @@ async function runMulti(){
         moveBefore.first-body[move.quantityField],"Duplicate journal must roll back source debit");
       assert.equal(second.data[move.availableField],
         moveBefore.second+body[move.quantityField],"Duplicate journal must roll back destination credit");
+    }
+    if(batch){
+      // Duplicating the journal key must not settle any participating parent twice.
+      const after=await Promise.all(batchAccounts.ids.map(async key=>{
+        const result=await run(batchAccounts.parent,"get",reader,{key});
+        return result.data[batch.availableField];
+      }));
+      const originalSum=batchAccounts.before.reduce((a,b)=>a+b,0);
+      assert.equal(after.reduce((a,b)=>a+b,0),originalSum,
+        "Duplicate batch must conserve all participating parents");
+      const expected=new Map(batchAccounts.ids.map((id,i)=>[id,batchAccounts.before[i]]));
+      for(const leg of batch.legs){
+        expected.set(body[leg.sourceField],expected.get(body[leg.sourceField])-body[leg.quantityField]);
+        expected.set(body[leg.targetField],expected.get(body[leg.targetField])+body[leg.quantityField]);
+      }
+      assert.deepEqual(after,batchAccounts.ids.map(id=>expected.get(id)));
     }
     if(reserve){
       const afterDuplicate=await run(parent,"get",reader,{key:body[reserve.referenceField]});
