@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","reconcileExact","patchFields","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","reconcileExact","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -1056,7 +1056,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     operations.push({
       name:op.name,entity:entity.name,method:http.verb.toUpperCase(),path:http.path,
-      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
+      behavior:{kind:kind as Kind,...(f?{field:f}:{}),...(patchNames?{input:patchNames.join(",")}:input?{input}:{}),...(auditFields?{audit:auditFields}:{}),
         ...(queryFilters?{filters:queryFilters,sort:querySort}:{}),
         ...(kind==="transition" ? {
           from:String(metadata(p,"transition",op)?.from),
