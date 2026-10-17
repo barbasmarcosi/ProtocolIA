@@ -6,6 +6,7 @@ import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
 import {compileOverduePolicies,overdueSchemaSql} from "../overdue-policy.mjs";
 import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,assertComputedDiscountedTotal,decimalSql,assertDecimalWireSchema} from "../exact-decimal.mjs";
 import {compileRelatedSums} from "../related-sum.mjs";
+import {compileDetailSums} from "../detail-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
 import {compileExactReconciliations} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
@@ -129,12 +130,13 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,reconcileExact:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
+  const detailSums=compileDetailSums(ir);
   const exactDebits=compileExactDebits(ir);
   const exactReversals=compileExactReversals(ir);
   const exactReconciliations=compileExactReconciliations(ir);
@@ -160,7 +162,7 @@ export function generate(ir, openapi, outDir) {
     }
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","reconcileExact","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
@@ -339,6 +341,9 @@ export function generate(ir, openapi, outDir) {
     "  );",
     "  public static final java.util.Map<String,RelatedSum> RELATED_SUMS=java.util.Map.ofEntries(",
     [...relatedSums.entries()].map(([name,plan])=>"    java.util.Map.entry("+j(name)+",new RelatedSum("+j(plan.sqlSpring)+","+j(plan.childReadCapability)+"))").join(",\\n"),
+    "  );",
+    "  public static final java.util.Map<String,RelatedSum> DETAIL_SUMS=java.util.Map.ofEntries(",
+    [...detailSums.entries()].map(([name,plan])=>"    java.util.Map.entry("+j(name)+",new RelatedSum("+j(plan.sqlSpring)+","+j(plan.childReadCapability)+"))").join(",\\n"),
     "  );",
     "  public static final java.util.Map<String,QuerySpec> QUERIES=java.util.Map.ofEntries(",
     queryPlans.map(({op,plan})=>"    java.util.Map.entry("+j(op.name)+",new QuerySpec("+
