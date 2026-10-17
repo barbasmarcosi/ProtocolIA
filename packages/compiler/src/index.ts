@@ -957,7 +957,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         const parsed=old?field(p,old):undefined;
         const incoming=field(p,value);
         const target=entity.fields.find(x=>x.name===f);
-        const scalarMatch=(v:IrField|undefined)=>!!v&&!!target&&
+        const scalarMatch=(v:IrField|undefined|null)=>!!v&&!!target&&
           v.type===target.type&&!v.nullable&&
           (target.type==="string"?
             v.minLength===target.minLength&&v.maxLength===target.maxLength&&
