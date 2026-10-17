@@ -262,7 +262,10 @@ export function generate(ir,spec,out){
       if(["patchFields","atomicIncrement"].includes(kind)){
         const field=e.fields.find(f=>f.name===b.field);
         if(!field||!b.input||
-           (kind==="patchFields"&&(field.type!=="string"||field.nullable||field.initial!==undefined||field.computedSum||b.input!==b.field))||
+           (kind==="patchFields"&&(field.nullable||field.initial!==undefined||
+             field.computedSum||b.input!==b.field||
+             (field.type!=="string"&&!(field.type==="int32"&&b.audit?.length===1&&
+               (field.min??0)>=1&&(field.max??2147483647)<=1000000000))))||
            (kind==="atomicIncrement"&&field.type!=="int32"))
           throw Error("Unsupported mutation "+op.name);
       }
