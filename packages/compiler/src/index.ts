@@ -596,6 +596,44 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     const reservation = metadata(p,"reserve",op);
     const movement = metadata(p,"moveUnits",op);
+    const reverseMovement = metadata(p,"reverseUnits",op);
+    if(reverseMovement){
+      const stock=declared.get(String(reverseMovement.stockEntity));
+      const available=stock?.fields.find(x=>x.name===reverseMovement.availableField);
+      const source=entity.fields.find(x=>x.name===reverseMovement.sourceField);
+      const target=entity.fields.find(x=>x.name===reverseMovement.targetField);
+      const quantity=entity.fields.find(x=>x.name===reverseMovement.quantityField);
+      const state=entity.fields.find(x=>x.name===f);
+      const trans=metadata(p,"transition",op);
+      const sameRule=(x:any)=>["stockEntity","availableField","sourceField","targetField","quantityField"]
+        .every(name=>x?.[name]===reverseMovement[name]);
+      const creators=relevant.filter(x=>metadata(p,"behavior",x)?.kind==="create"&&
+        metadata(p,"behavior",x)?.entity===entity.name&&sameRule(metadata(p,"moveUnits",x)));
+      const creator=creators[0];
+      const createDto=creator?.parameters.properties.get("input")?.type;
+      const initFields=entity.fields.filter(x=>x.initial!==undefined);
+      const invalidOps=relevant.filter(x=>metadata(p,"behavior",x)?.entity===entity.name &&
+        !["create","get","listPage","transition","health"].includes(String(metadata(p,"behavior",x)?.kind)));
+      const reverseOps=relevant.filter(x=>metadata(p,"reverseUnits",x));
+      if(kind!=="transition"||!state||initFields.length!==1||initFields[0]!==state||
+        state.type!=="string"||!state.required||state.nullable||state.initial!=="posted"||
+        trans?.from!=="posted"||trans?.to!=="reversed"||
+        !auditFields||auditFields.length!==1||auditFields[0]!==f||
+        !stock||stock===entity||stock.fields.some(x=>x.ownerManaged)||
+        entity.fields.some(x=>x.ownerManaged)||!available||
+        available.type!=="int32"||!available.required||available.nullable||
+        available.min!==0||!source||!target||source===target||
+        [source,target].some(x=>x.type!=="string"||!x.required||x.nullable||
+          x.reference?.target!==stock.name)||!quantity||quantity.type!=="int32"||
+        !quantity.required||quantity.nullable||(quantity.min??0)<1||
+        creators.length!==1||reverseOps.length!==1||invalidOps.length>0||
+        createDto?.kind!=="Model"||createDto.properties.has(state.name)||
+        release||reservation||movement||metadata(p,"debitExact",op)||metadata(p,"reverseExact",op)){
+        reject("invalid-reverse-units",op.name+
+          " requires a unique reversible move, immutable posted state, audited posted-to-reversed transition and no bypass mutations",op);
+        continue;
+      }
+    }
     // B8: contract-only transfer between two distinct parent records, plus one immutable journal row.
     if(movement){
       const stock=declared.get(String(movement.stockEntity));
@@ -893,6 +931,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
+    }
+    if(reverseMovement){
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
+      if(![200,400,401,403,404,409].every(x=>statuses.includes(x))||
+        http.verb!=="post"||http.parameters.body!==undefined||
+        keys.length!==1||keys[0]!==entity.publicIdentity){
+        reject("reverse-units-http",op.name+" must be keyed POST with no body and 200/400/401/403/404/409",op);
+        continue;
+      }
     }
     if (kind === "transition" && (!statuses.includes(200) || !statuses.includes(409) || http.verb !== "post" ||
          http.parameters.body !== undefined)) {
@@ -1197,6 +1244,13 @@ export function compileDomain(p: Program): IrDocument | undefined {
           sourceField:String(movement.sourceField),
           targetField:String(movement.targetField),
           quantityField:String(movement.quantityField)
+        }} : {}),
+        ...(reverseMovement ? {reverseUnits:{
+          stockEntity:String(reverseMovement.stockEntity),
+          availableField:String(reverseMovement.availableField),
+          sourceField:String(reverseMovement.sourceField),
+          targetField:String(reverseMovement.targetField),
+          quantityField:String(reverseMovement.quantityField)
         }} : {})},
       capability:String(cap.name), statuses,
       ...(http.parameters.body?.bodyKind === "single" &&
