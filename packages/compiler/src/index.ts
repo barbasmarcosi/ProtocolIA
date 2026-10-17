@@ -1,5 +1,5 @@
 import {
-  emitFile, getEncode, getMinLength, getMaxLength, getMinValue,
+  emitFile, getEncode, getMinLength, getMaxLength, getMinItems, getMaxItems, getMinValue,
   getMaxValue, getPattern, navigateProgram, resolvePath,
   type EmitContext, type Model, type ModelProperty, type Operation, type Type,
   type Program,
@@ -595,6 +595,61 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
     }
     const reservation = metadata(p,"reserve",op);
+    const details=metadata(p,"createDetails",op);
+    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number}|undefined;
+    if(details){
+      const child=declared.get(String(details.childEntity));
+      const relation=child?.fields.find(x=>x.name===details.parentField);
+      const rowName=String(details.rowsField??"");
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      const rowProp=props?.get(rowName);
+      const array=rowProp?.type;
+      const item=array?.kind==="Model"&&array.indexer?.value.kind==="Model"?
+        array.indexer.value:undefined;
+      const itemProps=item?.properties;
+      const reqFields=entity.fields.filter(x=>!x.computedSum&&!x.computedProduct&&
+        !x.computedRoundedProduct&&!x.computedDiscountedTotal&&x.initial===undefined);
+      const childFields=child?.fields.filter(x=>x.name!==details.parentField&&
+        !x.computedSum&&!x.computedProduct&&!x.computedRoundedProduct&&!x.computedDiscountedTotal);
+      const sameField=(a:IrField,b?:ModelProperty)=>{const parsed=b?field(p,b):undefined;
+        return !!parsed&&a.type===parsed.type&&a.required===parsed.required&&
+          a.nullable===parsed.nullable&&a.min===parsed.min&&a.max===parsed.max&&
+          a.minLength===parsed.minLength&&a.maxLength===parsed.maxLength&&
+          a.pattern===parsed.pattern&&
+          JSON.stringify(a.decimal)===JSON.stringify(parsed.decimal)&&
+          JSON.stringify(a.choices)===JSON.stringify(parsed.choices);};
+      const valid=kind==="create"&&f===undefined&&input===undefined&&
+        http.verb==="post"&&http.parameters.body?.bodyKind==="single"&&
+        [201,400,401,403,409].every(x=>statuses.includes(x))&&
+        /^[A-Za-z][A-Za-z0-9_]*$/.test(rowName)&&
+        !!child&&child!==entity&&!!relation&&
+        relation.type==="string"&&relation.required&&!relation.nullable&&
+        relation.reference?.target===entity.name&&relation.reference?.onDelete==="restrict"&&
+        !entity.fields.some(x=>x.name===rowName||x.ownerManaged)&&
+        !child.fields.some(x=>x.ownerManaged||x.initial!==undefined||
+          x.reference&&x.name!==details.parentField)&&
+        !!props&&props.size===reqFields.length+1&&
+        reqFields.every(x=>sameField(x,props.get(x.name)))&&
+        !!rowProp&&!rowProp.optional&&!!itemProps&&
+        (getMinItems(p,rowProp)??-1)===1&&(getMaxItems(p,rowProp)??-1)===20&&
+        !!childFields&&childFields.length>0&&
+        itemProps.size===childFields.length&&
+        childFields.every(x=>sameField(x,itemProps.get(x.name)))&&
+        !metadata(p,"moveUnits",op)&&!metadata(p,"moveBatch",op)&&
+        !metadata(p,"reserve",op)&&!metadata(p,"debitExact",op)&&
+        !metadata(p,"reverseExact",op)&&!metadata(p,"reverseBatch",op)&&
+        relevant.filter(x=>metadata(p,"behavior",x)?.kind==="create"&&
+          metadata(p,"behavior",x)?.entity===entity.name).length===1;
+      if(!valid){
+        reject("invalid-create-details",op.name+
+          " requires @minItems(1) @maxItems(20) typed nested child rows, "+
+          " matching DTOs, and required restrict FK from child to parent",op);
+        continue;
+      }
+      detailConfig={childEntity:child!.name,
+        parentField:String(details.parentField),rowsField:rowName,maxRows:20};
+    }
     const movement = metadata(p,"moveUnits",op);
     const multiMovement = metadata(p,"moveBatch",op);
     let batchLegs:{sourceField:string;targetField:string;quantityField:string}[]|undefined;
@@ -1362,6 +1417,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           referenceField:String(reservation.referenceField),
           quantityField:String(reservation.quantityField)
         }} : {}),
+        ...(detailConfig ? {createDetails:detailConfig} : {}),
         ...(movement ? {moveUnits:{
           stockEntity:String(movement.stockEntity),
           availableField:String(movement.availableField),
