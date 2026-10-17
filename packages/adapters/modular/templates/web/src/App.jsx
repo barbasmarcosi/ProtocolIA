@@ -289,12 +289,20 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved})
   const quantity=columns.find(f=>f.type==="int32"&&f.min!==undefined&&f.min>=0);
   const editField=editOp?.behavior?.audit?.length===1?
     child.entity.fields.find(f=>f.name===editOp.behavior.field&&
-      f.type==="string"&&!f.reference&&!f.initial):null;
+      (f.type==="string"||
+        (f.type==="int32"&&(f.min??0)>=1&&f.max!==undefined))&&
+      !f.reference&&!f.initial):null;
   async function saveLine(item){
     if(!editField||saving)return;
-    const value=draft.trim();
-    if(value.length<(editField.minLength??1)||value.length>(editField.maxLength??255)){
-      setEditError("La descripción no cumple los límites del contrato.");return;
+    const value=editField.type==="int32"?Number(draft):draft.trim();
+    const valid=editField.type==="int32"?
+      draft.trim()!==""&&/^(?:0|[1-9][0-9]*)$/.test(draft.trim())&&
+      Number.isSafeInteger(value)&&value>=(editField.min??1)&&
+      value<=(editField.max??1000000000):
+      value.length>=(editField.minLength??1)&&
+      value.length<=(editField.maxLength??255);
+    if(!valid){
+      setEditError("El valor no cumple los límites del contrato.");return;
     }
     setSaving(true);setEditError("");
     try{
@@ -361,7 +369,12 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved})
               {editField&&<td>{editing===item[child.entity.publicIdentity]?<>
                 <label className="field"><span>{fieldLabel(editField)}</span>
                   <input data-testid="detail-inline-edit" value={draft}
-                    maxLength={editField.maxLength??255} disabled={saving}
+                    type={editField.type==="int32"?"number":"text"}
+                    min={editField.type==="int32"?editField.min:undefined}
+                    max={editField.type==="int32"?editField.max:undefined}
+                    step={editField.type==="int32"?1:undefined}
+                    maxLength={editField.type==="string"?(editField.maxLength??255):undefined}
+                    disabled={saving}
                     onChange={event=>setDraft(event.target.value)}/></label>
                 {editError&&<p role="alert" className="message error">{editError}</p>}
                 <button type="button" disabled={saving} onClick={()=>saveLine(item)}>Guardar</button>
