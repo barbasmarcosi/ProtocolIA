@@ -11,18 +11,18 @@ function compile(where){return spawnSync(join(process.cwd(),"node_modules/.bin/t
 test("B12 TypeSpec compiles typed relational collection into canonical IR",()=>{
  const c=compile(root);assert.equal(c.status,0,(c.stdout??"")+(c.stderr??""));
  const ir=JSON.parse(readFileSync(join(root,"tsp-output","@protocolia","compiler","ir.json"),"utf8"));
- const op=ir.operations.find(x=>x.name==="createOrder");
+ const op=ir.operations.find(x=>x.name==="createPurchaseOrder");
  assert.deepEqual(op.behavior.createDetails,{
    childEntity:"OrderLine",parentField:"orderCode",rowsField:"lines",maxRows:20
  });
- const plan=assertCreateDetails(ir,ir.entities.find(x=>x.name==="Order"),op);
+ const plan=assertCreateDetails(ir,ir.entities.find(x=>x.name==="PurchaseOrder"),op);
  assert.equal(plan.fields.length,3);
  assert.equal(plan.childWriteCapability,"lines.write");
- const throws=ir.operations.find(x=>x.name==="createOrder");
+ const throws=ir.operations.find(x=>x.name==="createPurchaseOrder");
  assert.throws(()=>assertCreateDetails({...ir,operations:[
    ...ir.operations,{...throws,name:"another",path:"/api/extra"}
- ]},ir.entities.find(x=>x.name==="Order"),throws));
- assert.throws(()=>assertCreateDetails(ir,ir.entities.find(x=>x.name==="Order"),{
+ ]},ir.entities.find(x=>x.name==="PurchaseOrder"),throws));
+ assert.throws(()=>assertCreateDetails(ir,ir.entities.find(x=>x.name==="PurchaseOrder"),{
    ...throws,behavior:{...throws.behavior,createDetails:{...throws.behavior.createDetails,parentField:"lineCode"}}
  }));
 });
@@ -44,7 +44,7 @@ test("B12 fails closed for unbounded, missing FK, wrong row DTO, or weakened amo
    '@minItems(1) lines:'));
  negative("no minimum",s=>s.replace('@minItems(1) @maxItems(20) lines:',
    '@maxItems(20) lines:'));
- negative("no FK",s=>s.replace('@reference("Order","restrict") @minLength(1) @maxLength(40) orderCode:string;',
+ negative("no FK",s=>s.replace('@reference("PurchaseOrder","restrict") @minLength(1) @maxLength(40) orderCode:string;',
    '@minLength(1) @maxLength(40) orderCode:string;'));
  negative("parent leaked",s=>s.replace(
    '  model OrderLineInput {\n',
