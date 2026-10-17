@@ -231,8 +231,10 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
   const [revisionLocal,setRevisionLocal]=useState(0);
   const [state,setState]=useState({loading:true,value:null,error:""});
   const childName=child.view||label({name:child.entity.name});
-  const quantity=child.entity.fields.find(f=>f.name===operation.behavior.relatedSum.quantityField);
-  const title="Total activo · "+childName;
+  const aggregate=operation.behavior.detailSum??operation.behavior.relatedSum;
+  const quantity=child.entity.fields.find(f=>f.name===aggregate.quantityField);
+  const full=Boolean(operation.behavior.detailSum);
+  const title=(full?"Total de todos los renglones · ":"Total activo · ")+childName;
   useEffect(()=>{
     const controller=new AbortController();
     setState({loading:true,value:null,error:""});
@@ -256,7 +258,11 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
     aria-label={title}>
     <div className="related-summary-head">
       <div><h3>{title}</h3>
-        <p className="related-summary-hint">Suma de {quantity?fieldLabel(quantity).toLowerCase():"cantidades"} con estado {cellText(operation.behavior.relatedSum.activeState).toLowerCase()}.</p>
+        <p className="related-summary-hint">{full?
+          "Suma de todas las "+(quantity?fieldLabel(quantity).toLowerCase():"cantidades")+
+          " de esta cabecera, calculada en el servidor.":
+          "Suma de "+(quantity?fieldLabel(quantity).toLowerCase():"cantidades")+
+          " con estado "+cellText(aggregate.activeState).toLowerCase()+"."}</p>
       </div>
       <button type="button" className="ghost" data-testid="related-sum-refresh"
         disabled={state.loading} onClick={()=>setRevisionLocal(x=>x+1)}>Actualizar total</button>
@@ -269,14 +275,41 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 }
 // B13: generated read-side of a typed header/detail aggregate, using the existing
 // child queryPage filter and explicit child read authority. Never fetch unscoped rows.
-function DetailLinesPanel({child,operation,filter,identity,auth}){
+function DetailLinesPanel({child,operation,filter,identity,auth,editOp,onSaved}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
+  const [editing,setEditing]=useState(null);
+  const [draft,setDraft]=useState("");
+  const [editError,setEditError]=useState("");
+  const [saving,setSaving]=useState(false);
   const [state,setState]=useState({busy:true,items:[],total:0,error:"",offset:0});
   const limit=7;
   const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
     f.name!==filter.field).slice(0,5);
   const quantity=columns.find(f=>f.type==="int32"&&f.min!==undefined&&f.min>=0);
+  const editField=editOp?.behavior?.audit?.length===1?
+    child.entity.fields.find(f=>f.name===editOp.behavior.field&&
+      f.type==="string"&&!f.reference&&!f.initial):null;
+  async function saveLine(item){
+    if(!editField||saving)return;
+    const value=draft.trim();
+    if(value.length<(editField.minLength??1)||value.length>(editField.maxLength??255)){
+      setEditError("La descripción no cumple los límites del contrato.");return;
+    }
+    setSaving(true);setEditError("");
+    try{
+      const response=await authenticatedFetch(route(editOp,item[child.entity.publicIdentity]),{
+        method:"PATCH",headers:{Authorization:auth,"Content-Type":"application/json"},
+        body:JSON.stringify({[editField.name]:value,expected:item[editField.name]})
+      });
+      if(!response.ok)throw Error(response.status===409?
+        "Otro usuario modificó el renglón. Actualizá antes de volver a editar.":
+        response.status===403?"No tenés permiso para modificar este renglón.":
+        "No se pudo actualizar el renglón.");
+      setEditing(null);setDraft("");setRetry(n=>n+1);onSaved?.();
+    }catch(error){setEditError(error.message);}
+    finally{setSaving(false);}
+  }
   useEffect(()=>{
     const controller=new AbortController();
     setState(old=>({...old,busy:true,error:""}));
@@ -309,7 +342,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth}){
       <div><h3>Renglones relacionados</h3>
         <p className="field-help">Consulta paginada de la cabecera seleccionada.</p>
       </div>
-      <button type="button" className="ghost" disabled={pending}
+      <button type="button" className="ghost" disabled={pending||saving}
         onClick={()=>setRetry(n=>n+1)} data-testid="detail-lines-refresh">Actualizar</button>
     </div>
     {pending?<LoadingIndicator compact message="Cargando renglones…"/>:
@@ -321,18 +354,33 @@ function DetailLinesPanel({child,operation,filter,identity,auth}){
         </p>}
         <div className="scroll data-table-scroll">
           <table className="data-table"><thead><tr>{columns.map(field=>
-            <th scope="col" key={field.name}>{fieldLabel(field)}</th>)}</tr></thead>
+            <th scope="col" key={field.name}>{fieldLabel(field)}</th>)}
+            {editField&&<th scope="col">Editar</th>}</tr></thead>
             <tbody>{state.items.map((item,index)=><tr key={String(item[child.entity.publicIdentity]??index)}>
-              {columns.map(field=><td key={field.name}>{cellText(item[field.name])}</td>)}</tr>)}</tbody>
+              {columns.map(field=><td key={field.name}>{cellText(item[field.name])}</td>)}
+              {editField&&<td>{editing===item[child.entity.publicIdentity]?<>
+                <label className="field"><span>{fieldLabel(editField)}</span>
+                  <input data-testid="detail-inline-edit" value={draft}
+                    maxLength={editField.maxLength??255} disabled={saving}
+                    onChange={event=>setDraft(event.target.value)}/></label>
+                {editError&&<p role="alert" className="message error">{editError}</p>}
+                <button type="button" disabled={saving} onClick={()=>saveLine(item)}>Guardar</button>
+                <button type="button" className="ghost" disabled={saving}
+                  onClick={()=>{setEditing(null);setEditError("");}}>Cancelar</button>
+              </>:<button type="button" className="ghost"
+                data-testid={"edit-detail-"+item[child.entity.publicIdentity]}
+                onClick={()=>{setEditing(item[child.entity.publicIdentity]);
+                  setDraft(String(item[editField.name]??""));setEditError("");}}>
+                Editar {fieldLabel(editField)}</button>}</td>}</tr>)}</tbody>
           </table>
         </div>
         {state.total===0&&<p className="field-help">Esta cabecera todavía no tiene renglones.</p>}
         <div className="modal-actions">
           <button type="button" className="ghost" data-testid="detail-lines-prev"
-            disabled={offset===0} onClick={()=>setOffset(n=>Math.max(0,n-limit))}>Anterior</button>
+            disabled={saving||offset===0} onClick={()=>{setEditing(null);setOffset(n=>Math.max(0,n-limit));}}>Anterior</button>
           <span role="status">{state.total?offset+1:0}–{Math.min(offset+state.items.length,state.total)} de {state.total}</span>
           <button type="button" className="ghost" data-testid="detail-lines-next"
-            disabled={offset+limit>=state.total} onClick={()=>setOffset(n=>n+limit)}>Siguiente</button>
+            disabled={saving||offset+limit>=state.total} onClick={()=>{setEditing(null);setOffset(n=>n+limit);}}>Siguiente</button>
         </div>
       </>}
   </section>;
@@ -667,6 +715,14 @@ export default function App(){
   const canReconcile=Boolean(ledgerReconciliation&&ledgerChild&&
     capabilities.includes(ledgerReconciliation.capability)&&
     capabilities.includes(ledgerChild.operations?.get?.capability));
+  const detailSum=operations.sumDetails;
+  const canReadDetailSum=Boolean(detailSum&&detailResource&&
+    capabilities.includes(detailSum.capability)&&
+    capabilities.includes(detailResource.operations.get?.capability));
+  const detailEdit=detailResource?.operations?.patchFields;
+  const canEditDetail=Boolean(detailEdit&&
+    detailEdit.behavior.audit?.length===1&&
+    capabilities.includes(detailEdit.capability));
   const relatedSum=operations.sumRelated;
   const relatedSumChild=relatedSum?.behavior?.relatedSum?
     config?.resources?.find(r=>r.entity.name===relatedSum.behavior.relatedSum.childEntity):null;
@@ -1254,6 +1310,13 @@ export default function App(){
           operation={ledgerReconciliation}
           identity={selected[active.entity.publicIdentity]}
           auth={auth} child={ledgerChild} revision={summaryRevision}/>}
+        {canReadDetailSum&&<RelatedSumPanel
+          key={"sumDetails:"+active.entity.name+":"+selected[active.entity.publicIdentity]}
+          operation={detailSum}
+          identity={selected[active.entity.publicIdentity]}
+          auth={auth}
+          child={detailResource}
+          revision={summaryRevision}/>}
         {canReadRelatedSum&&<RelatedSumPanel
           key={active.entity.name+":"+selected[active.entity.publicIdentity]}
           operation={relatedSum}
@@ -1267,7 +1330,9 @@ export default function App(){
           operation={detailQuery}
           filter={detailFilter}
           identity={selected[active.entity.publicIdentity]}
-          auth={auth}/>}
+          auth={auth}
+          editOp={canEditDetail?detailEdit:null}
+          onSaved={()=>setSummaryRevision(n=>n+1)}/>} 
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
         </div>
