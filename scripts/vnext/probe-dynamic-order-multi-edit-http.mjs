@@ -304,6 +304,36 @@ try{
     "-Atc","SELECT (SELECT count(*) FROM purchase_order)::text || ':' || "+
       "(SELECT count(*) FROM order_line)::text"]);
   assert.equal(after,"4:27");
+  // B17 first slice: legacy direct child POST must obey the SAME 20-row
+  // document bound as nested creation, including when appends race.
+  const append=(parent,id,units=1)=>request("POST","/api/order-lines",{
+    lineCode:id,orderCode:parent,product:"Renglón agregado",units
+  });
+  assert.equal((await append("TWENTY","ROW-21")).status,409,
+    "Direct child POST must not create row 21 on a full header");
+  assert.equal((await request("GET","/api/order-lines/ROW-21")).status,404);
+  assert.equal((await append("NO-PARENT","ORPHAN-B17")).status,400);
+  assert.equal((await append("SUCCESS","ADDED-B17",5)).status,201,
+    "A non-full document still supports a valid direct append");
+  assert.equal((await total("SUCCESS")).body.totalUnits,"42");
+  const nineteen=Array.from({length:19},(_,i)=>item("BOUNDED-"+i,"Producto",1));
+  assert.equal((await create("BOUNDED-RACE",nineteen)).status,201);
+  const competingAppends=await Promise.all([
+    append("BOUNDED-RACE","APPEND-A"),append("BOUNDED-RACE","APPEND-B")
+  ]);
+  assert.deepEqual(competingAppends.map(x=>x.status).sort(),[201,409],
+    "Parent row lock must permit only one concurrent final-slot append");
+  assert.equal((await total("BOUNDED-RACE")).body.totalUnits,"20");
+  const fullCount=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT (SELECT count(*) FROM order_line WHERE order_code='TWENTY')::text || ':' || "+
+      "(SELECT count(*) FROM order_line WHERE order_code='BOUNDED-RACE')::text || ':' || "+
+      "(SELECT count(*) FROM order_line WHERE order_code NOT IN (SELECT code FROM purchase_order))::text"]);
+  assert.equal(fullCount,"20:20:0","Hard bound and zero orphans must hold after races");
+  console.log("PROTOCOLIA_B17_BOUNDED_APPEND_PASS "+JSON.stringify({
+    directAppendAllowedBelowLimit:true,twentyFirstRejected:true,
+    finalSlotRaceOneWinner:true,fullDocumentSumFromSql:true,noOrphans:true,
+    documentVersioning:false,appendAuditing:false
+  }));
   console.log("PROTOCOLIA_B16_TWO_FIELD_CAS_PASS "+JSON.stringify({
     atomic:true,maxRowsAccepted:20,duplicateChildRollback:true,
     concurrentCreateWinners:1,concurrentConflict:9,
