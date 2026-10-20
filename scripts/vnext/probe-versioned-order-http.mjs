@@ -308,12 +308,35 @@ try{
     await scopedPanel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
     assert.equal(await scopedPanel.getByTestId("detail-append-open").count(),0);
     assert.equal(await scopedPanel.getByTestId("delete-detail-UI-BASE-1").count(),0);
+    await page.getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByRole("button",{name:"Cerrar sesión"}).click();
+    await page.getByTestId("username").fill("manager");
+    await page.getByTestId("password").fill(secret);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    await page.getByRole("button",{name:"Órdenes",exact:true}).waitFor();
+    await page.getByRole("button",{name:"Órdenes",exact:true}).click();
+    await page.getByTestId("open-detail-UI-VERSION").click();
+    const closingPanel=page.getByTestId("detail-lines-panel");
+    await closingPanel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
+    const browserClose=page.waitForResponse(r=>r.request().method()==="POST"&&
+      r.url().endsWith("/api/orders/UI-VERSION/close"));
+    await page.getByTestId("transition-closePurchaseOrder").click();
+    const closedResponse=await browserClose;
+    assert.equal(closedResponse.status(),200);
+    assert.equal(closedResponse.request().headers()["if-match"],'"5"');
+    await closingPanel.getByTestId("detail-document-closed").waitFor();
+    await closingPanel.getByTestId("detail-document-version").getByText("6",{exact:true}).waitFor();
+    assert.equal(await closingPanel.getByTestId("detail-append-open").isDisabled(),true);
+    assert.equal(await closingPanel.getByTestId("delete-detail-UI-BASE-1").isDisabled(),true);
+    assert.equal(await closingPanel.getByTestId("edit-detail-UI-BASE-1-product").isDisabled(),true);
+    assert.equal((await req("GET","/api/orders/UI-VERSION")).body.status,"closed");
     assert.deepEqual(pageErrors,[],"React must have no JavaScript runtime error");
     console.log("PROTOCOLIA_B17_VERSIONED_REACT_PASS "+JSON.stringify({
       mobileViewport390:true,stalePatch409:true,
       conflictRecoveryRefresh:true,generatedPatch:true,generatedAppend:true,
       generatedDelete:true,strongIfMatchForwarded:true,
       totalsUpdated:true,lastRowDeleteDisabled:true,capabilityActionsHidden:true,
+      terminalCloseUi:true,closedDocumentUiReadOnly:true,
       consoleErrorsNone:true
     }));
   }finally{await browser.close();}
