@@ -438,6 +438,96 @@ try{
   assert.equal(retried.status,200);
   assert.equal(retried.body.documentVersion,2);
   assert.equal(retried.body.status,"closed");
+  // B17.5b: entire bounded collection replacement, never a partial diff.
+  const replacement=(code,etag,rows,headers={})=>req("PUT","/api/orders/"+code+"/lines",
+    {lines:rows},{...(etag?{"If-Match":etag}:{}),...headers});
+  assert.equal((await makeOrder("REPLACE-1",[
+    line("REP-OLD-A",2),line("REP-OLD-B",3)
+  ])).status,201);
+  assert.equal((await replacement("REPLACE-1",undefined,[line("REP-NEW-A",4)])).status,400);
+  assert.equal((await replacement("REPLACE-1",'"1"',[])).status,400);
+  assert.equal((await replacement("REPLACE-1",'"1"',Array.from({length:21},(_,i)=>
+    line("REP-OVER-"+i)))).status,400);
+  assert.equal((await replacement("REPLACE-1",'"1"',[
+    line("REP-DUP"),line("REP-DUP")
+  ])).status,409);
+  assert.equal((await replacement("REPLACE-1",'"1"',[
+    line("REP-SCOPED")
+  ],{Authorization:basic("child_writer",scopedPass)})).status,403);
+  const put=await replacement("REPLACE-1",'"1"',[
+    line("REP-NEW-A",4),line("REP-NEW-B",6)
+  ]);
+  assert.equal(put.status,200,JSON.stringify(put));
+  assert.equal(put.body.documentVersion,2);
+  assert.equal((await req("GET","/api/order-lines/REP-OLD-A")).status,404);
+  assert.equal((await req("GET","/api/order-lines/REP-OLD-B")).status,404);
+  assert.equal((await req("GET","/api/order-lines/REP-NEW-A")).status,200);
+  assert.equal((await req("GET","/api/orders/REPLACE-1/total")).body.totalUnits,"10");
+  const replaceAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT operation_name || ':' || count(*)::text FROM protocolia_audit_event "+
+      "WHERE entity_name='OrderLine' AND resource_id IN "+
+      "('REP-OLD-A','REP-OLD-B','REP-NEW-A','REP-NEW-B') "+
+      "GROUP BY operation_name ORDER BY operation_name"]);
+  assert.equal(replaceAudit,"createOrderLine:6\ndeleteOrderLine:6",
+    "Replacing two rows must create six before-only DELETE and six after-only CREATE audit events");
+  assert.equal((await replacement("REPLACE-1",'"1"',[line("REP-STALE")])).status,409);
+  assert.equal((await req("GET","/api/order-lines/REP-STALE")).status,404);
+  // Competing operations must share the same document lock.
+  const replacementRace=await Promise.all([
+    replacement("REPLACE-1",'"2"',[line("REP-RACE")]),
+    req("POST","/api/order-lines",{...line("REP-APPEND"),orderCode:"REPLACE-1"},
+      {"If-Match":'"2"'})
+  ]);
+  assert.ok(
+    (replacementRace[0].status===200&&replacementRace[1].status===409)||
+    (replacementRace[0].status===409&&replacementRace[1].status===201),
+    "Replacing versus appending must have one winner: "+
+      JSON.stringify(replacementRace.map(x=>x.status)));
+  const raceVersion=(await req("GET","/api/orders/REPLACE-1")).body.documentVersion;
+  assert.equal(raceVersion,3);
+  const snapshotBefore=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT string_agg(line_code || ':' || units::text,',' ORDER BY line_code) "+
+      "FROM order_line WHERE order_code='REPLACE-1'"]);
+  const failedReplacementTrigger=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_replace_failure()",
+    "RETURNS trigger LANGUAGE plpgsql AS $p$",
+    "BEGIN IF NEW.resource_id='REPLACE-FAIL' AND NEW.operation_name='createOrderLine'",
+    "THEN RAISE EXCEPTION 'B17 forced replacement audit failure'; END IF;",
+    "RETURN NEW; END; $p$;",
+    "CREATE TRIGGER protocolia_test_replace_failure",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_replace_failure();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",failedReplacementTrigger]);
+  assert.equal((await replacement("REPLACE-1",'"3"',[
+    line("REPLACE-FAIL",9)
+  ])).status,500);
+  assert.equal((await req("GET","/api/orders/REPLACE-1")).body.documentVersion,3);
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT string_agg(line_code || ':' || units::text,',' ORDER BY line_code) "+
+      "FROM order_line WHERE order_code='REPLACE-1'"]),snapshotBefore,
+    "Audit failure must restore the exact previous collection");
+  assert.equal((await req("GET","/api/order-lines/REPLACE-FAIL")).status,404);
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event "+
+      "WHERE resource_id='REPLACE-FAIL'"]),"0");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_replace_failure ON protocolia_audit_event; "+
+    "DROP FUNCTION protocolia_test_replace_failure()"]);
+  assert.equal((await replacement("REPLACE-1",'"3"',[line("REPLACE-FAIL",9)])).status,200);
+  assert.equal((await req("GET","/api/orders/REPLACE-1")).body.documentVersion,4);
+  assert.equal((await req("GET","/api/orders/REPLACE-1/total")).body.totalUnits,"9");
+  assert.equal((await replacement("TO-CLOSE",'"2"',[line("CLOSED-REPLACED")])).status,409);
+  assert.equal((await req("GET","/api/order-lines/CLOSED-REPLACED")).status,404);
+  console.log("PROTOCOLIA_B17_BOUNDED_REPLACE_PASS "+JSON.stringify({
+    typedBoundedRows:true,fullReplacement:true,childCreateAndDeleteAudited:true,
+    parentAndChildWritePermissions:true,oneWinnerAgainstAppend:true,
+    staleVersionRejected:true,rollbackRestoresEntireCollection:true,
+    rollbackRestoresVersion:true,closedOrderImmutable:true,
+    derivedTotalConsistent:true
+  }));
   console.log("PROTOCOLIA_B17_TERMINAL_DOCUMENT_PASS "+JSON.stringify({
     strongIfMatchRequired:true,parentWriteRequired:true,
     auditableClose:true,closePreventsAppend:true,closePreventsPatch:true,
