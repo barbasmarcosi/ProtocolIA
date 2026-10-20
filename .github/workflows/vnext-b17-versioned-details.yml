@@ -46,5 +46,9 @@ jobs:
       # The generic app:test runner exercises legacy non-versioned HTTP POST/PATCH.
       # This fixture requires a strict If-Match header; use the comprehensive
       # versioned live HTTP/PostgreSQL oracle below instead.
-      - name: Prove shared CAS on live PostgreSQL for appends and audited patches
+      - name: Install pinned Chromium for generated React conformance
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Prove CAS and generated React UI on PostgreSQL + mobile Chromium
         run: node scripts/vnext/probe-versioned-order-http.mjs "${RUNNER_TEMP}/b17-versioned"
