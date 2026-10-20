@@ -52,3 +52,11 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Prove CAS and generated React UI on PostgreSQL + mobile Chromium
         run: node scripts/vnext/probe-versioned-order-http.mjs "${RUNNER_TEMP}/b17-versioned"
+      - name: Retain generated mobile UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b17-versioned-react-${{ matrix.target }}
+          path: ${{ runner.temp }}/b17-versioned/b17-versioned-mobile.png
+          if-no-files-found: ignore
+          retention-days: 7
