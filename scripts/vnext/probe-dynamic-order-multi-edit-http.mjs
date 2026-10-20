@@ -408,7 +408,7 @@ try{
   console.log("PROTOCOLIA_B17_BOUNDED_APPEND_PASS "+JSON.stringify({
     directAppendAllowedBelowLimit:true,twentyFirstRejected:true,
     finalSlotRaceOneWinner:true,fullDocumentSumFromSql:true,noOrphans:true,
-    documentVersioning:false,appendAuditing:false
+    documentVersioning:false,appendAuditing:true
   }));
   console.log("PROTOCOLIA_B16_TWO_FIELD_CAS_PASS "+JSON.stringify({
     atomic:true,maxRowsAccepted:20,duplicateChildRollback:true,
