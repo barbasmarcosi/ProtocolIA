@@ -132,7 +132,7 @@ export function generate(ir, openapi, outDir) {
   }
   const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
   const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
