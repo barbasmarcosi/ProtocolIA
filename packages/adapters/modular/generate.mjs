@@ -185,10 +185,13 @@ export function generate(ir, openapi, outDir) {
     if(op.behavior.audit){
       const a=op.behavior.audit;
       if(!Array.isArray(a)||a.length<1||a.length>8||new Set(a).size!==a.length||
-         !["create","transition","reassignReference","patchFields"].includes(op.behavior.kind)||
+         !["create","transition","reassignReference","patchFields"].includes(op.behavior.kind)&&
+           !(op.behavior.kind==="delete"&&ops.some(x=>x.behavior.createDetails?.versioned&&
+             x.behavior.createDetails.childEntity===bound.name&&
+             a.includes(x.behavior.createDetails.parentField)))||
          a.some(field=>!bound.fields.some(f=>f.name===field))||
          (["transition","reassignReference","patchFields"].includes(op.behavior.kind)&&(a.length!==1||a[0]!==op.behavior.field))||
-         (op.behavior.kind==="create"&&a.includes(bound.publicIdentity)))
+         (["create","delete"].includes(op.behavior.kind)&&a.includes(bound.publicIdentity)))
         throw Error("Invalid audited mutation "+op.name);
     }
     if(op.behavior.moveUnits)assertMoveUnits(ir,bound,op);
