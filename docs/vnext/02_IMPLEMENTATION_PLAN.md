@@ -1,6 +1,6 @@
 # ProtocolIA vNext — Plan maestro de implementación
 
-**Estado:** PLAN ADOPTADO / ETAPAS A0–A5 PENDIENTES. **Fecha:** 2026-10-13.  
+**Estado:** PLAN HISTÓRICO A0–A5 (adoptado en 2026-10-13; la mención original a etapas pendientes quedó superada por evidencia A0–A13). Estado ejecutado: [EXECUTION_STATE](../EXECUTION_STATE.md) y [A13](evidence/A13.md). **Fecha:** 2026-10-13.  
 **Precedencia:** sustituye la secuencia prospectiva A1–A5 del antiguo [North Star](../CONTRACT_TO_WORKING_APP_NORTH_STAR.md) y los próximos trabajos de `FULLSTACK_IMPLEMENTATION_PLAN.md`; no borra los resultados históricos G0–G5.  
 **Referencias obligatorias:** [requisitos](00_PRODUCT_REQUIREMENTS.md), [ADR-004](01_ARCHITECTURE_ADR.md), [acceptance](03_ACCEPTANCE_MATRIX.md), [runbook](04_EXECUTION_RUNBOOK.md).
 

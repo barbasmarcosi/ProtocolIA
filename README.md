@@ -4,32 +4,61 @@
 
 ProtocolIA is a provider-independent research and engineering project for compiling typed software contracts into deterministic artifacts, and into narrowly constrained, auditable local action plans (v0.4). A separate experimental read-only Docker tool is supported only via a trusted host; arbitrary privileged/external agent tools remain unsupported. It is **not** a general-purpose programming language, a replacement for LLMs, or an autonomous coding agent.
 
-## Current product direction — ProtocolIA vNext (2026-10-13)
+## ProtocolIA v1.0.0 — TypeSpec-to-application generator (2026-10-20)
 
-**Goal:** from reviewed business requirements and **TypeSpec contracts**,
-generate a **working complete system**: persisted backend, operations with
-real domain semantics, security, navigable React UI, tests and deployable
-container, with no per-resource handwritten application implementation.
+**First bounded, reproducible vNext release.** ProtocolIA compiles validated
+TypeSpec contracts into semantic IR/OpenAPI and can generate functioning
+PostgreSQL-backed applications with **modular Spring Boot/Java 21** or
+**NestJS**, plus a shared, contract-derived React UI, Docker Compose and
+conformance tests. Domain behavior is generated **for supported declarative
+patterns**, not for arbitrary code or unconstrained business requirements.
 
-**Architecture (planned, not implemented):** `@protocolia/domain` TypeSpec
-library → technology-neutral semantic IR → replaceable generation adapters.
-**A0 candidate:** JHipster 9.4 + React + Spring Boot + PostgreSQL, with a
-JHipster NestJS target second; no JDL-first contract, no TypeSpec grammar
-claimed implemented. If JHipster distorts contract identity, HTTP semantics
-or regeneration, a modular adapter based on OpenAPI Generator/frameworks
-is the documented fallback.
+For the verified document/collection profile, the generated application
+supports creation, filtered read, constrained append, audited compare-and-swap
+edit, audited removal, **atomic whole-collection replacement**, optimistic
+document versions with `ETag`/`If-Match`, and irreversible terminal closure.
+The React UI supports version-aware individual edits, adding/removing lines,
+conflict recovery and closure; **a bulk-replacement editor is not yet generated**.
 
-**Source of truth for vNext:**
-- [Product requirements](docs/vnext/00_PRODUCT_REQUIREMENTS.md)
-- [Architecture / ADR-004](docs/vnext/01_ARCHITECTURE_ADR.md)
-- [A0–A5 implementation plan](docs/vnext/02_IMPLEMENTATION_PLAN.md)
-- [Real behavior acceptance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md)
-- [Execution runbook / next task](docs/vnext/04_EXECUTION_RUNBOOK.md)
+**Not production-certified.** This is a scoped developer-facing v1 baseline.
+Notably still missing: automatic in-place migrations for existing databases,
+instance/owner-level permission enforcement for all profiles, general
+`If-Match` conformance through the ordinary CLI, a generated batch editor,
+comprehensive accessibility review and operational hardening/backups. Do not
+deploy sensitive production data without independent security and operational
+review. Read [v1 release scope](docs/releases/v1.0.0.md) and
+[the verified B17.5b matrix](docs/vnext/evidence/B17_ATOMIC_COLLECTION_REPLACE_20261020.md).
 
-**Status:** A0–A5 **NOT STARTED**. Current v0.1–v0.4 generators
-and G5 pilot remain usable/historical. They do not already generate
-complete general applications. The workshop experiment remains a
-functioning **hand-integrated** full-stack demo, not A1/A2 evidence.
+### Generate a supported example
+
+Requires Node.js 24, npm, Docker for running the generated stack and
+Java 21/Maven for `modular-spring`. From a clean checkout:
+
+```sh
+npm ci
+npm run app:build -- examples/vnext/dynamic-order-audited-append \
+  --target nestjs --out /tmp/protocolia-v1-nest
+npm run app:test -- /tmp/protocolia-v1-nest
+```
+
+This example deliberately uses the non-versioned contract because the
+generic `app:test` cannot yet supply `If-Match`. For the versioned contract
+`examples/vnext/dynamic-order-versioned`, use the dedicated
+PostgreSQL/Chromium acceptance workflow `vnext-b17-versioned-details`.
+For Spring Boot use `--target modular-spring` with an empty output directory.
+
+**Architecture:** `@protocolia/domain` TypeSpec decorators → canonical
+semantic IR and OpenAPI → separate Spring/Nest adapters → React UI and
+PostgreSQL-backed generated business operations. JHipster is an evaluated
+historical adapter/spike, **not** the complete v1 runtime.
+
+**Specifications and history:**
+- [Requirements](docs/vnext/00_PRODUCT_REQUIREMENTS.md)
+- [Architecture decisions](docs/vnext/01_ARCHITECTURE_ADR.md)
+- [Original execution plan](docs/vnext/02_IMPLEMENTATION_PLAN.md)
+- [Business acceptance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md)
+- [Release scope, evidence and deferred risks](docs/releases/v1.0.0.md)
+
 
 ## Start a Java/Spring project from a contract
 
@@ -109,13 +138,13 @@ See [v0.2 semantics](docs/P1-V02-CONTRACT.md), [standards/interop ADR](docs/ADR-
 - Protected regeneration: refuses to overwrite manually modified/unmanaged output files; rejects symlinked output directories and filenames.
 - Python standard library only. No model, API key, network service, database, cloud platform, or dynamic execution required.
 
-**Not yet implemented:** runtime business invariants, server implementations, database migrations, tests for generated services, agent scheduler/executor, model integration, caching, latency/token claims, semantic behavioral equivalence. An OpenAPI schema is **not** proof that an implementation is secure or correct.
+**Historical v0.1 scope:** this paragraph refers to the original Python-only compiler, not the supported vNext application profiles above. The original compiler did not implement runtime business invariants, server generation or database migrations. An OpenAPI schema alone is **not** proof that an implementation is secure or correct.
 
 ## P0 installation and independent verification
 
 A published console entry point is provided by `pip install .` (Python 3.11+). GitHub CI validates the generated OpenAPI 3.1 with `openapi-spec-validator==0.7.2` and checks emitted wire types with TypeScript 5.8.3. These are **test-only dependencies**: ProtocolIA itself still has no runtime external packages or model API dependency.
 
-The independent [ProtocolIA-Test](https://github.com/barbasmarcosi/ProtocolIA-Test/pull/1) repository pins the upstream compiler to a verified commit and runs separate inventory fixtures. See [execution state](docs/EXECUTION_STATE.md) and [benchmark registration](benchmarks/README.md). **No server, domain invariant or runtime authorization is generated or verified yet.**
+The independent [ProtocolIA-Test](https://github.com/barbasmarcosi/ProtocolIA-Test/pull/1) repository pins the upstream compiler to a verified commit and runs separate inventory fixtures. See [execution state](docs/EXECUTION_STATE.md) and [benchmark registration](benchmarks/README.md). **This statement applies to the historical v0.1 Python compiler;** vNext's bounded profiles are described above.
 
 ## Try it
 
@@ -133,7 +162,7 @@ Inspect `generated/openapi.json`, `generated/types.ts`, `generated/ir.json`, and
 ## Design principles
 
 1. **Semantics before syntax.** Contracts express supported structure and effects, not free-form instructions that are silently treated as executable truth.
-2. **Never fabricate enforcement.** Capabilities and effects are declared metadata for now, not enforced permissions. No business invariant is claimed without executable support.
+2. **Never fabricate enforcement.** Historical contract-only metadata must not be confused with generated runtime checks. Supported vNext capabilities are enforced by the generated runtime; broader per-instance authorization still needs dedicated proof.
 3. **Fail closed.** Reject unknown grammar, references, routes, effects, or modified artifacts.
 4. **Provider-free core.** AI proposes contracts; ProtocolIA validates/compiles them deterministically.
 5. **Reproducible first.** Stable output order, explicit spec version, pinned transformations, recorded content hashes.

@@ -1,0 +1,57 @@
+name: vnext-b10-multileg-settlement
+on:
+  push:
+    branches: [feature/b10-multileg-atomic-settlement-20261017]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/multi-leg-settlement/**'
+      - 'tests/vnext/multi-leg-settlement.test.mjs'
+      - 'scripts/vnext/probe-multi-leg-settlement-http.mjs'
+      - '.github/workflows/vnext-b10-multileg-settlement.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b10-multileg-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  atomic-net-settlement:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Build TypeSpec compiler and verify B8 B9 B10 positive negative semantics
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/stock-transfer.test.mjs tests/vnext/stock-reversal.test.mjs tests/vnext/multi-leg-settlement.test.mjs
+      - name: Generate independent application solely from TypeSpec
+        run: npm run app:build -- examples/vnext/multi-leg-settlement --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b10-app"
+      - name: Build generated app and test HTTP with ephemeral Compose Postgres
+        run: npm run app:test -- "${RUNNER_TEMP}/b10-app"
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real PostgreSQL and generated React end-to-end netting oracle
+        run: node scripts/vnext/probe-multi-leg-settlement-http.mjs "${RUNNER_TEMP}/b10-app"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: b10-multileg-${{ matrix.target }}
+          path: ${{ runner.temp }}/b10-app/b10-multi-leg-mobile.png
+          if-no-files-found: error

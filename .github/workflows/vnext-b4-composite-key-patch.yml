@@ -1,0 +1,45 @@
+name: vnext-b4-composite-key-patch
+on:
+  push:
+    branches:
+      - feature/b4-composite-key-safe-patch-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/composite-key-patch/**'
+      - 'tests/vnext/composite-key-patch.test.mjs'
+      - 'scripts/vnext/probe-composite-key-patch-http.mjs'
+      - '.github/workflows/vnext-b4-composite-key-patch.yml'
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b4-composite-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate full application from TypeSpec
+        run: npm run app:build -- examples/vnext/composite-key-patch --target ${{ matrix.target }} --out "${RUNNER_TEMP}/composite-generated"
+      - name: Contract and negative compiler tests
+        run: node --test tests/vnext/composite-key-patch.test.mjs
+      - name: Generated runtime smoke and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
+      - name: Concurrent HTTP PATCH conflicts and unchanged PostgreSQL rows
+        run: node scripts/vnext/probe-composite-key-patch-http.mjs "${RUNNER_TEMP}/composite-generated"

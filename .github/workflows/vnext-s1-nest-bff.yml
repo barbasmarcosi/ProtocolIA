@@ -1,0 +1,53 @@
+name: vnext-s1-nest-bff
+on:
+  push:
+    branches:
+      - feature/s1d2g-nest-bff-session-20261016
+    paths:
+      - 'packages/**'
+      - 'tests/vnext/oauth-pkce.test.mjs'
+      - 'tests/vnext/auth-session.test.mjs'
+      - 'tests/vnext/bff-client.test.mjs'
+      - 'scripts/vnext/probe-bff-browser-http.mjs'
+      - 'scripts/vnext/probe-oauth-browser-http.mjs'
+      - '.github/workflows/vnext-s1-nest-bff.yml'
+permissions:
+  contents: read
+concurrency:
+  group: s1-nest-bff-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  nest-bff-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Test PKCE plus generated session lifecycle invariants
+        run: node --test tests/vnext/oauth-pkce.test.mjs tests/vnext/auth-session.test.mjs tests/vnext/bff-client.test.mjs
+      - name: Generate TypeSpec backend and React SPA
+        run: npm run app:build -- examples/vnext/owner-scope --target nestjs --out "${RUNNER_TEMP}/pkce-system"
+      - name: Regression - demo Basic Compose
+        run: npm run app:test -- "${RUNNER_TEMP}/pkce-system"
+      - name: Regression - RSA JWT resource server
+        run: node scripts/vnext/probe-jwt-resource-server-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - name: Install Chromium for true browser OIDC flow in both backends
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Existing public PKCE and identity regression
+        run: node scripts/vnext/probe-oauth-browser-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - name: BFF server OIDC, cookie, CSRF, real Chromium
+        run: node scripts/vnext/probe-bff-browser-http.mjs "${RUNNER_TEMP}/pkce-system"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: s1-nest-bff-evidence
+          path: |
+            ${{ runner.temp }}/pkce-system/s1-oauth-pkce-mobile.png
+            ${{ runner.temp }}/pkce-system/s1-bff-nest-mobile.png
+          if-no-files-found: error

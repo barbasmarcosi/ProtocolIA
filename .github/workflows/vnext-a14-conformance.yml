@@ -1,0 +1,61 @@
+name: vnext-a14-fullstack
+
+# ProtocolIA is public: standard GitHub-hosted Actions runners are free even
+# when a private-repository minutes balance is exhausted.
+# Trigger only on trusted pushes to this one feature branch, never on forks.
+on:
+  push:
+    branches:
+      - feature/vnext-a0-typespec-jhipster-spike
+    paths:
+      - '.github/workflows/vnext-a14-conformance.yml'
+      - 'Dockerfile.codespaces-a14'
+      - 'scripts/vnext/**'
+      - 'tests/vnext/**'
+      - 'packages/**'
+      - 'examples/vnext/**'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vnext-a14-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-stack:
+    name: TypeSpec > Spring/Nest > PostgreSQL > Chromium > evolution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact feature revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show disk space, Docker and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          df -h /
+          docker version
+      - name: Compile, generate and run A14 real full-stack conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --file Dockerfile.codespaces-a14 --tag "protocolia-a14:${GITHUB_SHA::12}" .
+      - name: Summarize scope and exact revision
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## ProtocolIA A14 full-stack acceptance'
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Runner: GitHub-hosted ubuntu-24.04 (standard public repository runner)"
+            echo "- Includes: TypeSpec, Spring, NestJS, React, PostgreSQL, Chromium and in-place evolutions"
+            echo "- See prior step for PASS/FAIL; a generated project is not automatically accepted."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import {chromium} from "playwright";
+const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+try{
+ const page=await browser.newPage({viewport:{width:390,height:844}});
+ const faults=[];page.on("pageerror",e=>faults.push(e.message));
+ await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded"});
+ await page.locator('[data-testid="username"]').fill("manager");
+ await page.locator('[data-testid="password"]').fill("test-manager-only-2026");
+ await page.getByRole("button",{name:"Entrar"}).click();
+ const item=page.getByRole("row",{name:/W-001/});
+ await item.waitFor({timeout:20000});
+ await item.getByRole("button",{name:"Detalle"}).click();
+ const audit=page.locator('[data-testid="audit-history"]');
+ await audit.waitFor({timeout:20000});
+ const table=audit.getByRole("table",{name:"Historial de cambios"});
+ await table.getByRole("row",{name:/closeWorkOrder/}).waitFor({timeout:20000});
+ assert.equal(await table.locator("tbody tr").count(),4,"Four auditable WorkOrder fields");
+ assert.match(await audit.innerText(),/manager/);
+ assert.match(await audit.innerText(),/draft/);
+ assert.match(await audit.innerText(),/approved/);
+ assert.match(await audit.innerText(),/closed/);
+ await page.getByRole("button",{name:"Salir"}).click();
+ await page.locator('[data-testid="username"]').fill("reader");
+ await page.locator('[data-testid="password"]').fill("test-reader-only-2026");
+ await page.getByRole("button",{name:"Entrar"}).click();
+ const readerItem=page.getByRole("row",{name:/W-001/});
+ await readerItem.waitFor({timeout:20000});
+ await readerItem.getByRole("button",{name:"Detalle"}).click();
+ assert.equal(await page.locator('[data-testid="audit-history"]').count(),0,"Reader cannot see history");
+ assert.equal(await page.getByRole("heading",{name:/Historial de cambios/}).count(),0);
+ assert.deepEqual(faults,[],"No React page errors");
+ console.log("A11_CHROMIUM_MOBILE_MANAGER_AUDIT_HISTORY_VISIBLE_READER_HIDDEN_PASS");
+}finally{await browser.close();}

@@ -1,0 +1,63 @@
+name: vnext-b1-exact-decimals
+on:
+  push:
+    branches:
+      - feature/b1-exact-decimals-20261015
+      - feature/b1-3c-exact-decimal-order-20261016
+      - feature/b2-exact-computed-product-20261016
+      - feature/b2-2-rounded-product-half-up-20261016
+      - feature/b2-3-discounted-total-half-up-20261016
+      - feature/b2-3-discounted-total-half-up-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/exact-decimals/**'
+      - 'tests/vnext/exact-decimals.test.mjs'
+      - 'scripts/vnext/probe-exact-decimals-http.mjs'
+      - '.github/workflows/vnext-b1-exact-decimals.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: exact-decimals-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile independent contract and generated app
+        run: npm run app:build -- examples/vnext/exact-decimals --target ${{ matrix.target }} --out "${RUNNER_TEMP}/exact-decimals-generated"
+      - name: Contract/IR and negative source cases
+        run: node --test tests/vnext/exact-decimals.test.mjs
+      - name: Generated app build and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/exact-decimals-generated"
+      - name: Install Chromium for generated React mobile acceptance
+        if: matrix.target == 'nestjs'
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Exact decimal black-box tests
+        run: node scripts/vnext/probe-exact-decimals-http.mjs "${RUNNER_TEMP}/exact-decimals-generated" ${{ matrix.target == 'nestjs' && '--browser' || '' }}
+      - name: Preserve mobile screenshot
+        if: matrix.target == 'nestjs' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-decimal-mobile-generated
+          path: ${{ runner.temp }}/exact-decimals-generated/protocolia-b1-enum-mobile.png
+          if-no-files-found: error

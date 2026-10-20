@@ -1,0 +1,45 @@
+name: vnext-b5-conditional-uniqueness
+on:
+  push:
+    branches:
+      - feature/b5-conditional-business-uniqueness-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/active-work-orders/**'
+      - 'tests/vnext/conditional-uniqueness.test.mjs'
+      - 'scripts/vnext/probe-conditional-uniqueness-http.mjs'
+      - '.github/workflows/vnext-b5-conditional-uniqueness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b5-conditional-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate full application from TypeSpec
+        run: npm run app:build -- examples/vnext/active-work-orders --target ${{ matrix.target }} --out "${RUNNER_TEMP}/composite-generated"
+      - name: Contract and negative compiler tests
+        run: node --test tests/vnext/conditional-uniqueness.test.mjs
+      - name: Generated runtime smoke and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/composite-generated"
+      - name: Concurrent HTTP state transitions, partial uniqueness and historical release
+        run: node scripts/vnext/probe-conditional-uniqueness-http.mjs "${RUNNER_TEMP}/composite-generated"

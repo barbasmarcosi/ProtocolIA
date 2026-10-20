@@ -1,0 +1,27 @@
+# A14.3 first real acceptance slice (outbox; external delivery NOT implemented).
+FROM node:24-bookworm AS node24
+FROM postgres:16-bookworm
+COPY --from=node24 /usr/local /usr/local
+WORKDIR /work
+COPY . .
+RUN npm ci --ignore-scripts --no-audit --no-fund
+RUN npm run build:vnext
+RUN node --test tests/vnext/a143-overdue.test.mjs
+RUN node_modules/.bin/tsp compile examples/vnext/facility-maintenance-a143
+RUN node --input-type=module -e '\
+  import {readFileSync} from "node:fs";\
+  import {generate as spring} from "./packages/adapters/modular/generate.mjs";\
+  import {generate as nest} from "./packages/adapters/nest/generate.mjs";\
+  const root="examples/vnext/facility-maintenance-a143/tsp-output/";\
+  const ir=JSON.parse(readFileSync(root+"@protocolia/compiler/ir.json"));\
+  const api=JSON.parse(readFileSync(root+"@typespec/openapi3/openapi.json"));\
+  if(ir.entities.find(e=>e.name==="Ticket")?.overdueAlert?.channel!=="inbox")\
+    throw Error("TypeSpec overdue metadata missing");\
+  spring(ir,api,"/work/dist/a143-spring");\
+  nest(ir,api,"/work/dist/a143-nest");\
+  const a=JSON.parse(readFileSync("/work/dist/a143-spring/protocolia-overdue-rules.json"));\
+  const b=JSON.parse(readFileSync("/work/dist/a143-nest/protocolia-overdue-rules.json"));\
+  if(JSON.stringify(a)!==JSON.stringify(b)||a.length!==1)throw Error("A143 rule divergence");\
+  console.log("A143_OFFICIAL_TYPESPEC_IR_AND_BOTH_GENERATORS_PASS");'
+RUN bash -n scripts/vnext/probe-a143-inbox-postgres.sh && bash scripts/vnext/probe-a143-inbox-postgres.sh
+RUN echo A143_GENERATED_POSTGRES_INBOX_FOUNDATION_PASS

@@ -1,0 +1,30 @@
+name: vnext-a143-inbox-foundation
+on:
+  push:
+    branches:
+      - feature/vnext-a0-typespec-jhipster-spike
+    paths:
+      - '.github/workflows/vnext-a143-inbox.yml'
+      - 'Dockerfile.a143-inbox'
+      - 'scripts/vnext/probe-a143-*'
+      - 'tests/vnext/a143-*'
+      - 'packages/**'
+      - 'examples/vnext/facility-maintenance-a143/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vnext-a143-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  inbox-foundation:
+    name: TypeSpec > Spring/Nest DDL > PostgreSQL idempotence and restart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Generate and probe real database
+        run: docker build --progress=plain -f Dockerfile.a143-inbox -t protocolia-a143:${{ github.sha }} .

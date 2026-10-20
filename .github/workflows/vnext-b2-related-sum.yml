@@ -1,0 +1,62 @@
+name: vnext-b2-related-sum
+on:
+  push:
+    branches:
+      - feature/b2-4a-related-reservation-sum-20261016
+      - feature/b2-4b-generated-aggregate-panel-20261016
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/inventory-reservations/**'
+      - 'tests/vnext/related-sum.test.mjs'
+      - 'scripts/vnext/probe-related-sum-http.mjs'
+      - 'packages/adapters/modular/templates/web/src/App.jsx'
+      - 'packages/adapters/modular/templates/web/src/style.css'
+      - '.github/workflows/vnext-b2-related-sum.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: related-sum-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  related-aggregate:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Contract and adapter rejection matrix
+        run: node --test tests/vnext/related-sum.test.mjs
+      - name: Generate native TypeSpec into complete runtime
+        run: npm run app:build -- examples/vnext/inventory-reservations --target ${{ matrix.target }} --out "${RUNNER_TEMP}/related-sum-generated"
+      - name: Generated application conformance and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/related-sum-generated"
+      - name: Install pinned browser harness
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: MVCC aggregate, concurrent reserve/release and generated Chromium UI
+        run: node scripts/vnext/probe-related-sum-http.mjs "${RUNNER_TEMP}/related-sum-generated" --browser
+      - name: Save desktop and mobile generated summary for visual review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b2-4b-related-summary-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/related-sum-generated/protocolia-related-summary-desktop.png
+            ${{ runner.temp }}/related-sum-generated/protocolia-related-summary-mobile.png
+          if-no-files-found: error

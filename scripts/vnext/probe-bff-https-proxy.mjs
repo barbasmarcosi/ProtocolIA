@@ -1,0 +1,490 @@
+#!/usr/bin/env node
+// Disposable OAuth2 provider: real PKCE verification, signed RS256 JWT and Chromium login.
+import assert from "node:assert/strict";
+import {createHash,generateKeyPairSync,randomBytes,sign} from "node:crypto";
+import {spawnSync} from "node:child_process";
+import {createServer as httpServer,request as httpRequest} from "node:http";
+import {createServer as httpsServer} from "node:https";
+import {createServer as netServer} from "node:net";
+import {mkdtempSync,rmSync,writeFileSync,readFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join,resolve} from "node:path";
+const generated=resolve(process.argv[2]??"");
+assert.ok(process.argv[2],"Generated app directory is required");
+const restartDuringOAuth=process.argv.includes("--restart-during-oauth");
+const rotateKeys=process.argv.includes("--rotate-keyring");
+const project="s1tls_"+randomBytes(4).toString("hex");
+const temp=mkdtempSync(join(tmpdir(),"protocolia-bff-browser-"));
+const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
+let issuer="";const audience="protocolia-generated-api";
+const key={...publicKey.export({format:"jwk"}),kid:"pkce-test-key",alg:"RS256",use:"sig"};
+const b64=x=>Buffer.from(JSON.stringify(x)).toString("base64url");
+function identityToken(nonce,access,overrides={}){
+ const now=Math.floor(Date.now()/1000);
+ const claims={iss:issuer,aud:"protocolia-browser",sub:"alice",nonce,
+   iat:now,exp:now+1200,
+   at_hash:createHash("sha256").update(access).digest().subarray(0,16).toString("base64url"),
+   ...overrides};
+ const unsigned=b64({alg:"RS256",typ:"JWT",kid:key.kid})+"."+b64(claims);
+ return unsigned+"."+sign("RSA-SHA256",Buffer.from(unsigned),privateKey).toString("base64url");
+}
+function token(subject="alice"){
+ const now=Math.floor(Date.now()/1000),h={alg:"RS256",typ:"JWT",kid:key.kid};
+ const claims={iss:issuer,aud:audience,sub:subject,iat:now,exp:now+1200,
+   protocolia_capabilities:["notes.read","notes.write","notes.title.write","notes.private.read"]};
+ const unsigned=b64(h)+"."+b64(claims);
+ return unsigned+"."+sign("RSA-SHA256",Buffer.from(unsigned),privateKey).toString("base64url");
+}
+async function freePort(){return await new Promise((ok,fail)=>{
+ const server=netServer();server.once("error",fail);
+ server.listen(0,"127.0.0.1",()=>{const port=server.address().port;server.close(()=>ok(port));});
+});}
+function docker(args,timeout=600000){
+ const result=spawnSync("docker",args,{cwd:generated,encoding:"utf8",timeout});
+ if(result.status!==0||result.error)throw Error("Docker error: "+
+   (result.stderr??result.error?.message??"").slice(-2400));
+ return result.stdout;
+}
+const pending=new Map();let exchanges=0,validPkce=false;
+let discoveryMode="wrongIssuer";
+let provider,tlsProxy,running=false,args=[];
+try{
+ const [appPort,idpPort,tlsPort]=await Promise.all([freePort(),freePort(),freePort()]);
+ const upstream="http://127.0.0.1:"+appPort;
+ const base="https://127.0.0.1:"+tlsPort,callback=base+"/api/_protocolia/bff/callback";
+ // Test-only self-signed certificate, never a deployment credential.
+ const cert=join(temp,"tls.crt"),keyFile=join(temp,"tls.key");
+ const certificate=spawnSync("openssl",["req","-x509","-newkey","rsa:2048",
+   "-nodes","-keyout",keyFile,"-out",cert,"-days","1",
+   "-subj","/CN=127.0.0.1","-addext","subjectAltName=IP:127.0.0.1"],
+   {encoding:"utf8",timeout:20000});
+ assert.equal(certificate.status,0,"Test reverse-proxy TLS certificate creation failed");
+ tlsProxy=httpsServer({key:readFileSync(keyFile),cert:readFileSync(cert)},(req,res)=>{
+   // Only the trusted proxy defines forwarding headers; browser-supplied
+   // values must never reach the backend.
+   const headers={...req.headers,
+     "x-forwarded-proto":"https","x-forwarded-host":req.headers.host};
+   delete headers["forwarded"];
+   const internal=httpRequest({host:"127.0.0.1",port:appPort,
+     method:req.method,path:req.url,headers},response=>{
+     res.writeHead(response.statusCode??502,response.headers);response.pipe(res);
+   });
+   internal.on("error",()=>{if(!res.headersSent)res.writeHead(502);res.end();});
+   req.pipe(internal);
+ });
+ await new Promise((ok,fail)=>tlsProxy.once("error",fail).listen(tlsPort,"127.0.0.1",ok));
+ issuer="http://host.docker.internal:"+idpPort;
+ provider=httpServer(async(req,res)=>{
+  const url=new URL(req.url??"/","http://127.0.0.1:"+idpPort);
+  if(url.pathname==="/.well-known/openid-configuration"){
+   res.setHeader("Content-Type","application/json");
+   res.setHeader("Cache-Control","no-store");
+   res.end(JSON.stringify({
+     issuer:discoveryMode==="wrongIssuer"?"https://untrusted-idp.example":issuer,
+     authorization_endpoint:"http://127.0.0.1:"+idpPort+"/authorize",
+     token_endpoint:"http://host.docker.internal:"+idpPort+"/token",
+     jwks_uri:"http://host.docker.internal:"+idpPort+"/jwks",
+     response_types_supported:["code"],
+     code_challenge_methods_supported:["S256"],
+     authorization_response_iss_parameter_supported:true
+   }));return;
+  }
+  if(url.pathname==="/jwks"){
+   res.setHeader("Content-Type","application/json");
+   res.end(JSON.stringify({keys:[key]}));return;
+  }
+  if(url.pathname==="/authorize"){
+   const p=url.searchParams;
+   if(req.method!=="GET"||p.get("response_type")!=="code"||
+      p.get("client_id")!=="protocolia-browser"||
+      p.get("redirect_uri")!==callback||p.get("code_challenge_method")!=="S256"||
+      !/^[A-Za-z0-9_-]{43,}$/.test(p.get("code_challenge")??"")||
+      !/^[A-Za-z0-9_-]{32,128}={0,2}$/.test(p.get("state")??"")||
+     !/^[A-Za-z0-9_-]{43,}$/.test(p.get("nonce")??"")){
+     res.writeHead(400);res.end("Invalid authorization request");return;
+   }
+   const code=randomBytes(24).toString("hex");
+   pending.set(code,{challenge:p.get("code_challenge"),nonce:p.get("nonce")});
+   res.writeHead(302,{Location:callback+"?code="+code+"&state="+encodeURIComponent(p.get("state"))+
+     "&iss="+encodeURIComponent(issuer),"Cache-Control":"no-store"});
+   res.end();return;
+  }
+  if(url.pathname==="/token"){
+   res.setHeader("Access-Control-Allow-Origin",base);
+   res.setHeader("Access-Control-Allow-Methods","POST, OPTIONS");
+   res.setHeader("Access-Control-Allow-Headers","Content-Type");
+   res.setHeader("Cache-Control","no-store");
+   if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
+   let raw="";for await(const chunk of req)raw+=chunk.toString();
+   const p=new URLSearchParams(raw),code=p.get("code"),transaction=pending.get(code);
+   const challenge=transaction?.challenge;
+   pending.delete(code);
+   const proof=createHash("sha256").update(p.get("code_verifier")??"").digest("base64url");
+   if(!challenge||proof!==challenge||p.get("grant_type")!=="authorization_code"||
+      p.get("redirect_uri")!==callback||p.get("client_id")!=="protocolia-browser"){
+     res.writeHead(400);res.end("Invalid or replayed PKCE code");return;
+   }
+   validPkce=true;exchanges++;
+   res.setHeader("Content-Type","application/json");
+   const access=token();
+   res.end(JSON.stringify({access_token:access,token_type:"Bearer",
+     id_token:identityToken(transaction.nonce,access),expires_in:1200}));return;
+  }
+  res.writeHead(404);res.end();
+ });
+ await new Promise((ok,fail)=>provider.once("error",fail).listen(idpPort,"0.0.0.0",ok));
+ const envFile=join(temp,".env"),composeOverride=join(temp,"compose-override.yaml");
+ const initialKey=randomBytes(32).toString("hex"),nextKey=randomBytes(32).toString("hex");
+ writeFileSync(envFile,[
+   "PROTOCOLIA_DB_PASSWORD="+randomBytes(20).toString("hex"),
+   "PROTOCOLIA_AUTH_MODE=jwt",
+   "PROTOCOLIA_ALLOW_DEMO_AUTH=false",
+   "PROTOCOLIA_JWT_ISSUER="+issuer,
+   "PROTOCOLIA_JWT_AUDIENCE="+audience,
+   "PROTOCOLIA_JWT_JWKS_URI=http://host.docker.internal:"+idpPort+"/jwks",
+   "PROTOCOLIA_JWT_ALLOW_TEST_HTTP=true",
+   "PROTOCOLIA_OIDC_DISCOVERY_REQUIRED=true",
+   "PROTOCOLIA_OIDC_ID_TOKEN_REQUIRED=true",
+   "PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT=http://127.0.0.1:"+idpPort+"/authorize",
+   "PROTOCOLIA_OIDC_TOKEN_ENDPOINT=http://host.docker.internal:"+idpPort+"/token",
+   "PROTOCOLIA_OIDC_CLIENT_ID=protocolia-browser",
+   "PROTOCOLIA_OIDC_REDIRECT_URI="+base+"/",
+   "PROTOCOLIA_OIDC_BFF_REDIRECT_URI="+callback,
+   "PROTOCOLIA_BFF_ENABLED=true",
+   "PROTOCOLIA_BFF_CLEANUP_INTERVAL_MS=2000",
+   "PROTOCOLIA_BFF_ENCRYPTION_KEY="+initialKey,
+   "PROTOCOLIA_BFF_DECRYPTION_KEYS=",
+   "PROTOCOLIA_READER_USERNAME=unused-reader",
+   "PROTOCOLIA_READER_PASSWORD="+randomBytes(20).toString("hex"),
+   "PROTOCOLIA_MANAGER_USERNAME=unused-manager",
+   "PROTOCOLIA_MANAGER_PASSWORD="+randomBytes(20).toString("hex"),
+   "PROTOCOLIA_HOST_PORT="+appPort
+ ].join("\n")+"\n",{mode:0o600});
+ writeFileSync(composeOverride,'services:\n  app:\n    extra_hosts:\n      - "host.docker.internal:host-gateway"\n');
+ args=["compose","-f",join(generated,"compose.yaml"),"-f",composeOverride,
+   "--project-name",project,"--env-file",envFile];
+ docker([...args,"config","--quiet"],15000);running=true;
+ docker([...args,"up","--detach","--build"]);
+ let rejected=false;
+ const negativeUntil=Date.now()+70000;
+ while(Date.now()<negativeUntil){
+   const logs=docker([...args,"logs","--no-color","app"],15000);
+   if(logs.includes("OIDC discovery metadata mismatch: issuer")){rejected=true;break;}
+   await new Promise(ok=>setTimeout(ok,900));
+ }
+ assert.ok(rejected,"Generated backend must reject mismatched OIDC issuer before serving traffic");
+ discoveryMode="valid";
+ docker([...args,"up","--detach","--force-recreate","app"],180000);
+ let healthy=false;
+ const until=Date.now()+130000;
+ while(Date.now()<until){
+  try{if((await fetch(upstream+"/health",{signal:AbortSignal.timeout(2000)})).status===200){healthy=true;break;}}catch{}
+  await new Promise(ok=>setTimeout(ok,1000));
+ }
+ assert.ok(healthy,"JWT generated app did not become healthy");
+ const config=await (await fetch(upstream+"/api/_protocolia/auth/config")).json();
+ assert.equal(config.mode,"bff");assert.equal(config.enabled,true);
+ assert.equal(config.access_token,undefined,"No access token exposed by config");
+ assert.equal(config.tokenEndpoint,undefined,"No token endpoint exposed by config");
+ assert.equal((await fetch(upstream+"/api/_protocolia/me",{headers:{Authorization:"Bearer "+token()}})).status,401,
+   "Client bearer authentication must be rejected in BFF mode");
+ assert.deepEqual(await (await fetch(upstream+"/api/_protocolia/bff/session")).json(),{authenticated:false});
+ const {chromium}=await import("playwright");
+ const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+ try{
+  const page=await browser.newPage({viewport:{width:390,height:844},locale:"es-AR",ignoreHTTPSErrors:true});
+  const errors=[],bearerLeaks=[],navigation=[];
+  const cleanUrl=(url)=>{try{const parsed=new URL(url);return parsed.protocol+"//"+parsed.host+parsed.pathname;}catch{return "invalid";}};
+  page.on("request",req=>{
+    if(req.isNavigationRequest())navigation.push({request:cleanUrl(req.url())});
+  });
+  page.on("response",res=>{
+    if(res.request().isNavigationRequest())navigation.push({
+      response:cleanUrl(res.url()),status:res.status(),
+      redirect:res.headers().location?cleanUrl(new URL(res.headers().location,res.url()).toString()):undefined
+    });
+  });
+  page.on("requestfailed",req=>{
+    navigation.push({failed:cleanUrl(req.url()),reason:req.failure()?.errorText});
+  });
+  page.on("pageerror",error=>errors.push(error.message));
+  page.on("request",r=>{
+    if(new URL(r.url()).pathname.startsWith("/api/")&&r.headers().authorization)
+      bearerLeaks.push(r.url());
+  });
+  const documentResponse=await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+  assert.equal(documentResponse.status(),200);
+  const policy=documentResponse.headers()["content-security-policy"];
+  assert.match(policy,/default-src 'self'/);
+  assert.match(policy,/script-src 'self'/);
+  assert.match(policy,/script-src-attr 'none'/);
+  assert.match(policy,/connect-src 'self'/);
+  assert.match(policy,/frame-ancestors 'none'/);
+  assert.match(policy,/upgrade-insecure-requests/);
+  assert.doesNotMatch(policy,/script-src[^;]*unsafe-inline/);
+  assert.equal(documentResponse.headers()["strict-transport-security"],"max-age=31536000");
+  assert.equal(documentResponse.headers()["x-frame-options"],"DENY");
+  assert.equal(documentResponse.headers()["x-content-type-options"],"nosniff");
+  assert.equal(documentResponse.headers()["referrer-policy"],"no-referrer");
+  await page.getByTestId("login-provider").waitFor({timeout:15000});
+  if(restartDuringOAuth){
+    // Freeze only the browser's IdP hop. The BFF has already issued its
+    // PKCE authorization state and must commit JSESSIONID to PostgreSQL.
+    await page.route("**/authorize?*",async route=>{await route.abort("blockedbyclient");});
+    const intercepted=page.waitForRequest(r=>new URL(r.url()).pathname==="/authorize",{timeout:15000});
+    await page.getByTestId("login-provider").click({noWaitAfter:true});
+    const authorizationRequest=await intercepted;
+    const pendingCookies=await page.context().cookies(base);
+    assert.ok(pendingCookies.some(c=>c.name==="SESSION"&&c.httpOnly),
+      "Spring Session JDBC must issue an HttpOnly SESSION cookie");
+    const durableCount=Number(docker([...args,"exec","-T","db","psql",
+      "-U","protocolia","-d","protocolia","-Atc",
+      "SELECT COUNT(*) FROM SPRING_SESSION"],15000).trim());
+    assert.ok(durableCount>=1,"Authorization PKCE state must be stored in PostgreSQL");
+    docker([...args,"restart","app"],180000);
+    let restored=false;
+    const restartedUntil=Date.now()+90000;
+    while(Date.now()<restartedUntil){
+      try{
+        if((await fetch(upstream+"/health",{signal:AbortSignal.timeout(2000)})).status===200){
+          restored=true;break;
+        }
+      }catch{}
+      await new Promise(ok=>setTimeout(ok,850));
+    }
+    assert.ok(restored,"Spring backend must restart with existing PostgreSQL login state");
+    await page.unroute("**/authorize?*");
+    await page.goto(authorizationRequest.url(),{waitUntil:"domcontentloaded"});
+  }else{
+    await page.getByTestId("login-provider").click();
+  }
+  try{await page.getByTestId("open-create").waitFor({timeout:15000});}
+  catch(error){
+    console.error("BFF_DIAGNOSTIC",JSON.stringify({
+      url:page.url(),body:(await page.locator("body").innerText()).slice(0,1700),
+      cookies:(await page.context().cookies()).map(c=>({name:c.name,httpOnly:c.httpOnly,sameSite:c.sameSite})),
+      errors,navigation
+    }));
+    console.error("BFF_SERVER_DIAGNOSTIC",docker([...args,"logs","--no-color","app"],15000).slice(-9500));
+    throw error;
+  }
+  assert.equal(exchanges,1,"Exactly one server PKCE exchange required");
+  assert.ok(validPkce);
+  assert.ok(!page.url().includes("code="));
+  assert.equal(bearerLeaks.length,0,"Generated browser must never send access tokens");
+  const storage=await page.evaluate(()=>({
+    local:Object.keys(localStorage),session:Object.keys(sessionStorage),cookie:document.cookie
+  }));
+  assert.deepEqual(storage.local.filter(n=>/oauth|token/i.test(n)),[]);
+  assert.deepEqual(storage.session.filter(n=>/oauth|pkce|token/i.test(n)),[]);
+  assert.ok(!storage.cookie.includes("pia_bff"),"HttpOnly session must not be readable in JS");
+  const cookies=await page.context().cookies();
+  const sessionCookie=cookies.find(c=>c.name==="__Host-pia_bff");
+  assert.ok(sessionCookie?.httpOnly,"Session must use HttpOnly cookie");
+  assert.equal(sessionCookie.secure,true,"TLS proxy must deliver Secure host-only BFF cookie");
+  assert.equal(sessionCookie.path,"/");
+  assert.ok(!sessionCookie.domain.startsWith("."),"Session cookie must not be wildcard domain");
+  assert.equal(sessionCookie.sameSite,"Lax");
+  if(!restartDuringOAuth){
+    // The Java OAuth transaction cookie is expected to use Secure behind TLS
+    // even when the servlet container sees internal HTTP only.
+    const prior=await page.context().cookies();
+    assert.ok(!prior.some(c=>c.name==="pia_bff_dev"),
+      "HTTPS BFF must not emit development cookie");
+  }
+  const sessionResponse=await page.request.get(base+"/api/_protocolia/bff/session");
+  const session=await sessionResponse.json();
+  assert.equal(session.authenticated,true);
+  assert.match(session.csrf,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal(sessionResponse.headers()["cache-control"],"no-store");
+  assert.equal(sessionResponse.headers()["x-content-type-options"],"nosniff");
+  assert.equal(sessionResponse.headers()["referrer-policy"],"no-referrer");
+  assert.match(sessionResponse.headers()["content-security-policy"],/frame-ancestors 'none'/);
+  assert.match(sessionResponse.headers()["content-security-policy"],/script-src 'self'/);
+  assert.equal(sessionResponse.headers()["strict-transport-security"],"max-age=31536000");
+  // Real PostgreSQL housekeeping: bounded worker must delete expired records,
+  // retain future-dated records and preserve the authenticated browser session.
+  const expiredKey=randomBytes(32).toString("hex"),futureKey=randomBytes(32).toString("hex");
+  const sql=(q)=>docker([...args,"exec","-T","db","psql",
+    "-U","protocolia","-d","protocolia","-Atc",q],15000).trim();
+  sql("INSERT INTO protocolia_bff_sessions(sid_hash,payload,expires_at) VALUES "+
+    "('"+expiredKey+"','expired-probe',now()-INTERVAL '1 minute'),"+
+    "('"+futureKey+"','future-probe',now()+INTERVAL '1 hour')");
+  let expiredDeleted=false;
+  const cleanupDeadline=Date.now()+20000;
+  while(Date.now()<cleanupDeadline){
+    const count=Number(sql("SELECT count(*) FROM protocolia_bff_sessions WHERE sid_hash='"+expiredKey+"'"));
+    if(count===0){expiredDeleted=true;break;}
+    await new Promise(ok=>setTimeout(ok,1000));
+  }
+  assert.ok(expiredDeleted,"BFF expired rows must be cleaned without external cron");
+  assert.equal(Number(sql("SELECT count(*) FROM protocolia_bff_sessions WHERE sid_hash='"+futureKey+"'")),1,
+    "BFF housekeeping must not delete valid future-dated sessions");
+  assert.equal((await page.request.get(base+"/api/_protocolia/bff/session")).status(),200);
+  sql("DELETE FROM protocolia_bff_sessions WHERE sid_hash='"+futureKey+"'");
+
+  const noCsrf=await page.request.post(base+"/api/notes",{
+    data:{noteCode:"unauthorized",title:"CSRF attempted"}
+  });
+  assert.equal(noCsrf.status(),403,"CSRF must block mutations");
+  const badOrigin=await page.request.post(base+"/api/notes",{
+    headers:{"X-ProtocolIA-CSRF":session.csrf,Origin:"https://attacker.example"},
+    data:{noteCode:"wrong-origin",title:"Attempt"}
+  });
+  assert.equal(badOrigin.status(),403,"Cross-origin write forbidden even with CSRF");
+  const foreignFetch=await page.request.post(base+"/api/notes",{
+    headers:{"X-ProtocolIA-CSRF":session.csrf,"Sec-Fetch-Site":"cross-site"},
+    data:{noteCode:"fetch-site",title:"Cross-site attempt"}
+  });
+  assert.equal(foreignFetch.status(),403,"Cross-site fetch metadata must be blocked");
+  const directBearer=await page.request.get(base+"/api/_protocolia/me",{
+    headers:{Authorization:"Bearer "+token()}
+  });
+  assert.equal(directBearer.status(),401,"Bearer header forbidden in cookie session mode");
+  await page.getByTestId("open-create").click();
+  const form=page.getByTestId("create-form-PrivateNote");
+  const code="bff-"+randomBytes(5).toString("hex");
+  await form.getByTestId("create-noteCode").fill(code);
+  await form.getByTestId("create-title").fill("Created with HttpOnly session");
+  const posting=page.waitForResponse(r=>r.request().method()==="POST"&&
+    new URL(r.url()).pathname==="/api/notes");
+  await form.getByRole("button",{name:"Crear",exact:true}).click();
+  assert.equal((await posting).status(),201,"Generated write must work through BFF CSRF");
+  const detail=await page.request.get(base+"/api/notes/"+code);
+  assert.equal(detail.status(),200);
+  assert.equal((await detail.json()).owner,"alice");
+  assert.equal(bearerLeaks.length,0);
+  await page.reload({waitUntil:"domcontentloaded"});
+  await page.getByTestId("open-create").waitFor({timeout:15000});
+  assert.equal(exchanges,1,"BFF cookie must restore session without a new OAuth exchange");
+  await page.getByRole("button",{name:"Cerrar sesión"}).click();
+  await page.getByTestId("login-provider").waitFor({timeout:15000});
+  assert.deepEqual(await (await page.request.get(base+"/api/_protocolia/bff/session")).json(),
+    {authenticated:false});
+  assert.equal((await page.request.get(base+"/api/notes")).status(),401,
+    "Server session must be revoked after logout");
+  const forgedResponse=await page.request.get(callback+"?code=forged&state=wrong&iss="+encodeURIComponent(issuer));
+  assert.ok([400,401,403].includes(forgedResponse.status()),
+    "Forged callback without login state must fail closed");
+  assert.equal(exchanges,1,"Forged callback must not reach the provider");
+  assert.deepEqual(errors,[]);
+  if(rotateKeys){
+    const sqlRaw=(q)=>docker([...args,"exec","-T","db","psql",
+      "-U","protocolia","-d","protocolia","-Atc",q],15000).trim();
+    const cookieHash=(cookie)=>createHash("sha256").update(cookie.value).digest("hex");
+    const rotate=async(active,retired)=>{
+      let raw=readFileSync(envFile,"utf8");
+      raw=raw.replace(/^PROTOCOLIA_BFF_ENCRYPTION_KEY=.*$/m,"PROTOCOLIA_BFF_ENCRYPTION_KEY="+active)
+        .replace(/^PROTOCOLIA_BFF_DECRYPTION_KEYS=.*$/m,"PROTOCOLIA_BFF_DECRYPTION_KEYS="+retired);
+      writeFileSync(envFile,raw,{mode:0o600});
+      docker([...args,"up","--detach","--force-recreate","app"],180000);
+      let healthy=false;
+      for(let attempt=0;attempt<90;attempt++){
+        try{if((await fetch(upstream+"/health",{signal:AbortSignal.timeout(2000)})).ok){
+          healthy=true;break;
+        }}catch{}
+        await new Promise(ok=>setTimeout(ok,800));
+      }
+      assert.ok(healthy,"New BFF backend must restore from the existing PostgreSQL store");
+    };
+    const freshPage=async()=>{
+      const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
+      const tab=await context.newPage();
+      await tab.goto(base+"/",{waitUntil:"domcontentloaded"});
+      await tab.getByTestId("login-provider").waitFor({timeout:15000});
+      await tab.getByTestId("login-provider").click();
+      await tab.getByTestId("open-create").waitFor({timeout:15000});
+      const cookie=(await context.cookies()).find(x=>x.name==="__Host-pia_bff");
+      assert.ok(cookie?.secure&&cookie.httpOnly);
+      return {context,tab,cookie};
+    };
+    const old=await freshPage();
+    const oldHash=cookieHash(old.cookie);
+    const oldPayload=sqlRaw("SELECT payload FROM protocolia_bff_sessions WHERE sid_hash='"+oldHash+"'");
+    assert.match(oldPayload,/^v1:[a-f0-9]{16}:[A-Za-z0-9_-]+$/);
+    // Exercise migration from S1d.2i untagged ciphertext, without exposing
+    // either the encrypted payload or any token to logs.
+    sqlRaw("UPDATE protocolia_bff_sessions SET payload='"+
+      oldPayload.split(":")[2]+"' WHERE sid_hash='"+oldHash+"'");
+    await rotate(nextKey,initialKey);
+    assert.equal((await old.tab.request.get(base+"/api/_protocolia/bff/session")).status(),200);
+    const legacySession=await old.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.equal((await legacySession.json()).authenticated,true);
+    const current=await freshPage();
+    const newHash=cookieHash(current.cookie);
+    const newPayload=sqlRaw("SELECT payload FROM protocolia_bff_sessions WHERE sid_hash='"+newHash+"'");
+    const newTag=createHash("sha256").update(Buffer.from(nextKey,"hex")).digest("hex").slice(0,16);
+    assert.ok(newPayload.startsWith("v1:"+newTag+":"),"Rotated BFF must encrypt with new key only");
+    // Bring up a concurrent replica sharing the same DB and current keyring.
+    const secondaryPort=await freePort(),secondaryTlsPort=await freePort();
+    const replica=docker([...args,"run","--detach","--no-deps",
+      "-p","127.0.0.1:"+secondaryPort+":8080","app"],120000).trim();
+    const replicaUrl="https://127.0.0.1:"+secondaryTlsPort;
+    const replicaProxy=httpsServer({key:readFileSync(keyFile),cert:readFileSync(cert)},(req,res)=>{
+      const headers={...req.headers,"x-forwarded-proto":"https","x-forwarded-host":req.headers.host};
+      delete headers.forwarded;
+      const proxy=httpRequest({host:"127.0.0.1",port:secondaryPort,
+        method:req.method,path:req.url,headers},r=>{
+        res.writeHead(r.statusCode??502,r.headers);r.pipe(res);
+      });
+      proxy.on("error",()=>{if(!res.headersSent)res.writeHead(502);res.end();});
+      req.pipe(proxy);
+    });
+    try{
+      await new Promise((ok,fail)=>replicaProxy.once("error",fail).listen(
+        secondaryTlsPort,"127.0.0.1",ok));
+      let replicaReady=false;
+      for(let attempt=0;attempt<90;attempt++){
+        try{if((await fetch("http://127.0.0.1:"+secondaryPort+"/health",
+            {signal:AbortSignal.timeout(2000)})).ok){replicaReady=true;break;}}catch{}
+        await new Promise(ok=>setTimeout(ok,800));
+      }
+      assert.ok(replicaReady,"Concurrent Spring/Nest BFF replica must start");
+      const throughReplica=await old.tab.request.get(replicaUrl+"/api/_protocolia/bff/session");
+      assert.equal((await throughReplica.json()).authenticated,true,
+        "Legacy AES session must survive across concurrent BFF replicas");
+      const newOnReplica=await current.tab.request.get(replicaUrl+"/api/_protocolia/bff/session");
+      assert.equal((await newOnReplica.json()).authenticated,true);
+      const activeSession=await current.tab.request.get(base+"/api/_protocolia/bff/session");
+      const csrf=(await activeSession.json()).csrf;
+      const remoteLogout=await current.tab.request.post(replicaUrl+"/api/_protocolia/bff/logout",{
+        headers:{"X-ProtocolIA-CSRF":csrf,Origin:base}
+      });
+      assert.equal(remoteLogout.status(),204,"Replica must revoke PostgreSQL session");
+      assert.equal(Number(sqlRaw("SELECT COUNT(*) FROM protocolia_bff_sessions WHERE sid_hash='"+
+        newHash+"'")),0,"Revocation must remove the shared database session");
+    }finally{
+      docker(["stop",replica],30000);
+      await new Promise(ok=>replicaProxy.close(ok));
+      await current.context.close();
+    }
+    await rotate(nextKey,"");
+    const removed=await old.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.deepEqual(await removed.json(),{authenticated:false},
+      "Removing retired key must fail closed for old legacy ciphertext");
+    const latest=await freshPage();
+    const freshSession=await latest.tab.request.get(base+"/api/_protocolia/bff/session");
+    assert.equal((await freshSession.json()).authenticated,true);
+    await latest.context.close();
+    await old.context.close();
+    console.log("PROTOCOLIA_S1D2J_KEYRING_PASS "+
+      JSON.stringify({oldLegacySurvivesRotation:true,currentKeyWritesOnly:true,
+        concurrentReplicaReads:true,replicaRevocation:true,retiredKeyRemovalFailsClosed:true}));
+  }
+  await page.screenshot({path:join(generated,"s1-bff-nest-mobile.png"),fullPage:true});
+ }finally{await browser.close();}
+ console.log("PROTOCOLIA_S1D2G_NEST_BFF_PASS "+JSON.stringify({
+   serverPkce:true,signedIdentity:true,encryptedDbSession:true,httpOnly:true,
+   expiredSessionCleanup:true,activeSessionPreserved:true,fetchMetadataEnforced:true,defensiveHeaders:true,
+   httpsReverseProxy:true,secureHostPrefixCookie:true,strictScriptsCsp:true,hsts:true,
+   oauthLoginRestartsAcrossSpringInstances:restartDuringOAuth,
+   noBrowserBearer:true,csrf:true,originChecked:true,serverLogout:true,
+   reloadRestoresSession:true,forgedCallbackDenied:true
+ }));
+}finally{
+ if(running)try{docker([...args,"down","--volumes","--remove-orphans"],120000)}
+ catch(error){console.error(error.message);process.exitCode=1;}
+ if(provider)await new Promise(ok=>provider.close(ok));
+ if(tlsProxy)await new Promise(ok=>tlsProxy.close(ok));
+ rmSync(temp,{recursive:true,force:true});
+}

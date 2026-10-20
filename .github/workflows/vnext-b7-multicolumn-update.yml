@@ -1,0 +1,58 @@
+name: vnext-b7-multicolumn-update
+on:
+  push:
+    branches:
+      - feature/b7-atomic-multicolumn-20261017
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/compound-update-3/**'
+      - 'tests/vnext/compound-update-multicolumn.test.mjs'
+      - 'scripts/vnext/probe-compound-update-3-http.mjs'
+      - '.github/workflows/vnext-b7-multicolumn-update.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vnext-b7-multicolumn-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Build compilers and run B6/B7 contract regressions
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/compound-update.test.mjs tests/vnext/compound-update-multicolumn.test.mjs
+      - name: Generate independent complete B7 application
+        run: npm run app:build -- examples/vnext/compound-update-3 --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b7-generated"
+      - name: Generated runtime smoke and PostgreSQL
+        run: npm run app:test -- "${RUNNER_TEMP}/b7-generated"
+      - name: Install Chromium and Playwright
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: B7 three-column atomic patch, races, role, mobile and desktop React
+        run: node scripts/vnext/probe-compound-update-3-http.mjs "${RUNNER_TEMP}/b7-generated"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: b7-multicolumn-${{ matrix.target }}
+          path: ${{ runner.temp }}/b7-generated/b7-compound-update-3-desktop.png
+          if-no-files-found: error

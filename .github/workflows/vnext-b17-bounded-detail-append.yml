@@ -1,0 +1,54 @@
+name: vnext-b17-bounded-detail-append
+on:
+  push:
+    branches: [main, feature/b17-atomic-bounded-detail-append-20261020]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/dynamic-order-audited-append/**'
+      - 'tests/vnext/dynamic-order-multi-edit.test.mjs'
+      - 'tests/vnext/dynamic-order-audited-append.test.mjs'
+      - 'scripts/vnext/probe-dynamic-order-multi-edit-http.mjs'
+      - '.github/workflows/vnext-b17-bounded-detail-append.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b17-bounded-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  bounded-append:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile TypeSpec and validate B12-B16 invariants
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/dynamic-order-details.test.mjs tests/vnext/dynamic-order-read.test.mjs tests/vnext/dynamic-order-lifecycle.test.mjs tests/vnext/dynamic-order-multi-edit.test.mjs tests/vnext/dynamic-order-audited-append.test.mjs
+      - name: Generate app from existing TypeSpec contract
+        run: npm run app:build -- examples/vnext/dynamic-order-audited-append --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b17-app"
+      - name: Build generated app and exercise PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/b17-app"
+      - name: Install pinned Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Prove 20-row bound, last-slot contention and B16 UI regressions
+        run: node scripts/vnext/probe-dynamic-order-multi-edit-http.mjs "${RUNNER_TEMP}/b17-app"

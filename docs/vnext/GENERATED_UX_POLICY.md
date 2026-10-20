@@ -1,0 +1,189 @@
+# ProtocolIA — Generated UX Policy (vNext)
+
+**Purpose:** From formal TypeSpec domain/API contracts, generate applications that are **usable**, not merely correct CRUD forms. Keep domain semantics, UX defaults, and visual style separate. Source-derived behavior and permission checks always remain authoritative.
+
+## Architecture and dependency decision
+
+- **TypeSpec + IR** describes authoritative entities, relationships, constraints, capabilities, and operations. Never infer missing permissions or calculations from presentation.
+- **UX policy / presentation IR (next increment)** chooses view/interaction patterns based on *domain shape and task complexity* (not on project name). Sensible defaults need no annotations; an optional explicit `@ui`/manifest extension may override presentation only without changing business outcomes.
+- **React presentation engine** binds list, search, create, details, state transitions, audit, and errors to generated operations. Share this engine across NestJS, Spring and future adapters, rather than handcrafting per-app forms.
+- **Accessible primitives, not DIY focus traps**: use a pinned version of `@radix-ui/react-dialog` for modal focus trapping, Escape handling, background inertness, closing/focus restoration, and named dialogs. Keep the markup/theme owned by ProtocolIA. Reference: https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/ and https://www.radix-ui.com/primitives/docs/components/dialog .
+- Do **not** indiscriminately adopt a complete heavy admin framework or replace all workflows with dialogs. Consider proven dedicated primitives incrementally (TanStack Table for growing datasets, React Hook Form for cross-field form state, and accessible confirm dialogs for dangerous actions), measured on generated apps first.
+
+## Interaction-level heuristics to formalize
+
+| Task | Default | When to use something else |
+| --- | --- | --- |
+| Quick list/detail | Context-preserving **modal** for short read-only details, actions and concise audit | **Side drawer** for frequent read/compare with the list; full route for long documents, nested navigation and durable shareable links |
+| Create simple entity | `Nuevo` action adjacent to list controls, in a dialog | Full route or stepper for multi-step, conditional, large or high-consequence forms |
+| Edit small property | Inline/within record context with visible Save and Cancel | Full form if multiple interdependent changes require review |
+| Field relationships | Authorized native select for small sets, with loading/empty/error; **never silently submit missing FKs** | Searchable/virtualized relation picker using paginated server query as cardinality grows (current large-list limit must remain explicit) |
+| Delete, publish, irreversible action | Separate explicit confirmation, exact object name and capability; safe focus placement | Two-phase approval and audit when contract semantics require it |
+| Success/error feedback | Non-blocking status anchored to the operation; actionable server error; preserve filled form on failure | Dedicated recovery screen for unrecoverable network or authentication errors |
+| Mobile details/forms | Full-screen dialog/sheet with **internal scrolling**, viewport-safe keyboard interaction and touch-friendly controls | Dedicated page when workflow cannot fit |
+| Main list | Keep filters, selection, pagination and scroll location stable when inspecting or editing | Persist URL/route for shareable navigation in a later increment |
+
+## UX0 — implemented first slice in shared React template (independent branch)
+
+- List remains the primary view; remove appended bottom detail/create panels.
+- `Detalle` opens an accessible controlled Radix dialog preserving focus and original scroll context; audit/actions appear inside, with internal scrolling. Escape/Close dismisses.
+- `Nuevo` appears alongside list heading, opening a responsive dialog; errors/validation are visible in-context and success returns to list.
+- On small screens, dialog uses a full-screen layout with independent content scrolling; reduced-motion respected.
+- Field/operation capabilities, IR restrictions and PostgreSQL behavior **unchanged**. This is a generative change inherited by all apps using the shared template.
+- Validate both Spring and Nest compilation; *real Chromium* must test FK-created Section → GuardDuty → Volunteer → MonthlyEvaluation, computed score, role/dialog semantics, keyboard Tab trap, Escape, focus restoration, mobile bounds and inner scroll. **Only mark UX0 passed after functional CI reports SUCCESS.**
+
+## UX1 — interaction reliability and form usability
+
+- Adopt a consistent command/feedback state machine: pending, success, conflict, validation error, cancellation, optimistic vs confirmed.
+- Replace generic 400/409 messages with safely normalized per-field issues where server supports them; do not leak internals.
+- Distinguish new vs edit vs read-only consistently, use visible required constraints and cancel/unsaved-change protection.
+- Support searchable paginated FK references (not just first 50), explicit empty-state onboarding and invalid/stale choice handling.
+- Accessible destructive confirmation and audited transitions with clear action verbs and contextual results.
+
+## UX2 — information architecture and navigability
+
+- Domain labels and user-facing help from contract metadata with locale-aware fallback, not `camelCase` splitting alone.
+- Column priorities, sorting, filters, density, truncation/expansion and readable relationship names rather than opaque codes.
+- Use heuristics for dialog vs drawer vs full detail page, configurable by **presentation metadata**; an audit/history panel should not force users to scroll through unrelated creation forms.
+- State in URL for selected resource/filter/record where safe and authorized; back/forward/history should behave naturally.
+
+## UX3 — real task workflows
+
+- Multiple related mutations and multistep forms from declared contracts; never fabricate business logic.
+- Role/capability-centric navigation: show tasks and actions people can complete, not just entity/table names.
+- Explicit view of computed/read-only values, provenance and actionable errors; preserve server authority and audit.
+- Reuse patterns across **two unrelated independent requirement sets** before calling a UX policy general-purpose.
+
+## Acceptance gates (not subjective visual ratings)
+
+- Detail reachable from row **without manually scrolling**, and Close/Escape returns focus to row action and preserves list context.
+- Keyboard navigation stays within open modal; inert background cannot receive interactions. A non-empty accessible title is mandatory.
+- A mobile 390x780 viewport keeps modal within viewport and scrollable content within the modal, not in the background.
+- Full browser create and detail workflows succeed using real API and PostgreSQL, not DOM mocks.
+- Reader vs writer capabilities unchanged; protected data never becomes available via UI-only shortcuts.
+- Generated React builds for Nest/Spring, no extra handwritten application code or sensitive fixtures.
+- User observation remains the arbiter of ergonomics: automation validates correctness and interaction basics but cannot prove a product is 10/10.
+
+## Deployment discipline
+
+Work on `independent/volunteer-evaluations`; preserve `main` and PR #52. Railway Free uses actual credit; deploy only a CI-proven version. Keep Neon demo seeded exclusively with fictitious data, inspect public health and auth after deployment; do not equate green build with complete UX/production readiness.
+
+## UX0 verified evidence — 2026-10-15
+
+- [Actions #38752413215](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38752413215), functional SHA `3d4782dfbffef5aef16cdaba99420a7b9d93ae9a`, **SUCCESS** for both generated NestJS + Spring Boot with real Postgres source-frozen business oracle.
+- Actual Chromium marker: `BV_GENERATED_NATIVE_FK_BROWSER_PASS` with `detailModal:true`, `preservedScroll:true`, `focusRestored:true`, `mobileInternalScroll:true`, `clientJavascriptErrors:0`, four UI-created entities, three FK selects, DB-calculated score 80 and disabled creation when parent missing. Browser asserted focused element stays inside modal across keyboard Tab presses, Escape close, focus returns to originating table action, same scroll position, and 390×780 modal fits viewport with internal overflow.
+- The first browser iterations found **real usability and accessibility defects** (implicit scrolled bottom detail, missing explicit `aria-modal`, focus restoration when content was cleared before dialog closed). Remediation is in the shared generated template: Radix controlled dialog with separate open vs selected-record state, `onCloseAutoFocus` returning focus to original row action; default create dialog next to list heading; responsive internally scrollable overlay.
+- Unchanged: authorization is server-owned; no unsupported score or leave formulas were added. CI is product-level proof for the UI pattern, **not** a claim that the whole volunteer system fulfills all 16 frozen business requirements.
+
+## UX quality gate — permanent critical review standard (2026-10-15)
+
+Every generated UI change must satisfy the following **observable** criteria before a demo deploy:
+
+- **Legibility, language and semantics:** labels must be understandable to domain users, not leak technical entity identifiers or storage keys as primary information. Use metadata-defined labels first; generic localizable fallback second. The actual referenced public key must remain the value persisted, never the display label.
+- **Coherent interaction components:** relation pickers match the rest of the form, have minimum 44px touch targets, name-first rendering, clear placeholder, stable width, internally scrollable list of choices, visible focus/active/selected states and a keyboard-operable combobox/listbox. Use tested accessible primitives; don't simulate selection with non-semantic clickable divs.
+- **Nested overlay safety:** choosing a relation preserves the parent modal; first Escape with picker open closes only that picker, and a subsequent Escape dismisses the dialog. Verify Tab/focus return, backdrop inertness, and mobile viewport in real Chromium. If components conflict, coordinate open state centrally in the generated presentation engine, not per app.
+- **Async feedback:** never use a bare unexplained `Cargando...` placeholder. Show a contextual spinner and accessible status for initial app load, list refresh, relationship options and audit history, preserving the surrounding layout where feasible. Loading must not impersonate an empty result or allow dependent submissions before references resolve; errors and empty states stay distinct.
+- **Reduced motion:** disable nonessential spinners/animations with `prefers-reduced-motion:reduce`; preserve accessible textual status regardless of animation.
+- **No cosmetic-only signoff:** technical builds and screenshots are insufficient. Require a real-browser test against generated backend and DB, with HTTP assertions, keyboard interactions, mobile constraints, and a negative-path test. Do not treat compliance in a single independent app as universal proof.
+- **Progressively smarter controls:** a finite choice list is appropriate only for small relationship sets. The current adapter **explicitly rejects lists over 50**, and must not silently omit valid options. Next milestone: accessible server-searched, paginated/virtualized entity pickers with cancellation and clear selection validation.
+- **Full UX task review:** assess CRUD friction, defaults, cancellation, large forms, table readability, status messages, role-centric navigation, persistence of filters/scroll, success/error affordances, WCAG contrast and keyboard operation. Each real user finding should result in a generic fix or documented contract-level presentation option, not an application-specific patch.
+
+### UX0.1 implemented and empirically verified
+
+- Generated `FormField` reference paths now use pinned `@radix-ui/react-select` and the shared `App.jsx` presentation template. Choices show the name prominently and the immutable reference code secondarily. Local state is coordinated with the modal through `activePicker`, avoiding double-Escape propagation bugs.
+- Generated `LoadingIndicator` provides an accessible spinner plus concise status text; a delayed authorized reference-list response was simulated in Chromium and the loading spinner verified before the empty-state message.
+- [Workflow #38765432990](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38765432990), functional SHA `d95996e4c8f2f82bca26bf519ee215326563e8a7`, **SUCCESS**. Both generated Spring and Nest pass Docker/Postgres/source-frozen HTTP oracles. Real Chromium created FK-linked entities through the new selector, confirmed the exact stored FK, and verified *Escape closes the nested dropdown without dismissing the form*, as well as retained detail modal, keyboard focus, and mobile behavior. No handwritten business-application components.
+- **Not yet solved:** server-side searchable relation lists, full business-localized contract metadata, sophisticated skeletons/transition delays, visual regression baselines and role-based task dashboards. The improved select and spinner alone do not constitute a premium UX rating.
+
+## UX0.2 — actionable validation and human-readable relationship summaries (2026-10-15)
+
+**Real-user reports:** A `MonthlyEvaluation` form submitted period `123` and responded only `Revisá los datos ingresados.`; it exposed the contract's fixed initial state `draft`. A `GuardDuty` table displayed an opaque `SEC-DEMO` FK and browser-native tooltip; success banner leaked the verb `create`.
+
+Implemented once in `packages/adapters/modular/templates/web/src/App.jsx` (shared by generated NestJS and Spring Boot frontends):
+- Validate the contract's `required`, `min/max` int32 and `minLength/maxLength` string bounds before HTTP. Mark errors on the exact control with `aria-invalid`, described inline via `aria-describedby`; keep user inputs intact and focus the first invalid field. Validation is **not** a substitute for the server.
+- A `period` string with exact 7-character constraint uses HTML month input and expects ISO `YYYY-MM`; **current fallback heuristic**, not a new TypeSpec/IR `@format` capability. Formal `year-month` format metadata with backend parity is a follow-up.
+- Initial-state fields (e.g. `status=draft`) remain sent as contract-prescribed values but are no longer editable inputs during create; the details/list can show human-friendly labels.
+- Replace `Operación confirmada: create` with an understandable success message. Reference columns/details use the related record's authorized display name as primary text with the exact immutable key shown in subdued secondary text. If no authorized related record was fetched, fall back to its key; **no unauthorized relationship fetches**.
+- Remove browser-native `title` tooltips from table cells; retain accessible readable text and action buttons.
+- Generated feedback and inputs get visible error borders and accessible contextual hints.
+
+**Regression evidence:** Real generated Chromium workflow [#38769690176](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38769690176) **SUCCESS**, both NestJS and Spring Boot Docker/PostgreSQL/API jobs, and Chromium `BV_GENERATED_NATIVE_FK_BROWSER_PASS`. Browser checks both an invalid 26-point incident input (contract allows 0–25), `aria-invalid`, no HTTP persisted invalid record, a valid `2026-09` month, read-only initial status omission, meaningful relation columns, no native tooltip, friendly confirmation, four-entity FK creation and computed 80-point total. Initial iteration had incorrectly escaped the month validation regexp and **rejected valid `2026-09`**: a real failure captured in GitHub Actions screenshot, then fixed before promoting. Positive and negative cases now both pass.
+
+**Live rollout:** Railway Free deploy `86974af3-3a39-45b2-86a8-caa91f398ea0` **SUCCESS**; external `/` served the React login, `/health` reported `{"status":"UP"}`, and anonymous `/api/guards` was HTTP 401. Dedicated Neon read-only SQL confirmed the fictional Sep/Oct stored scores still **80/100**. No schema migration, no real volunteer identities. `main` and integration PR #52 unchanged.
+
+**Still critically incomplete:** expose `@format("year-month")` or equivalent compiled metadata to validate months identically on both backends; bind server 400 responses to structured field-specific errors (instead of an undifferentiated generic message for failures not caught by client validation); generate friendly labels and enumerated choices from explicit domain metadata; provide searchable/paged reference controls beyond 50; implement field-level edit flows and test all screen sizes; improve loading skeletons and meaningful data hierarchy. Current improvements are a verified UX slice, **not** a fully polished domain application.
+
+## UX2 — one coherent interaction system, not attractive isolated CRUD screens (2026-10-15)
+
+**User-provided defect:** The `Volunteer` detail modal displayed a browser-native `<select>` for the protected GuardDuty reassignment even though create forms had already adopted the Radix picker. This was **a second, previously unconverted path** in the shared generated React `App.jsx`. It was not a caching illusion. An honest claim that *all* selectors were fixed would have been incorrect.
+
+**Implemented generically (no Volunteer-specific view code):**
+- The generated `reassignReference` action now renders the exact same shared `FormField`/Radix Select primitive as the create flow. It uses the operation's declared reference field, fetches only authorized target choices, displays friendly names with public identities as secondary details, and submits the immutable key with compare-and-swap/audit semantics. There are no remaining handwritten native `<select>` tags in the **shared App.jsx** template; other generated files must still be audited independently.
+- The **detail dialog** coordinates `activePicker` with Escape, exactly like create: first Escape closes the nested listbox, the next closes the modal. The generic detail-action panel provides meaningful context and guards against re-submitting unchanged assignment.
+- Introduced a cohesive, responsive **visual token system** (surface, canvas, ink, primary, border, focus rings, elevations, spacing) consumed across navigation, list headings, relation cells, table row hover, buttons, filter disclosures, empty states, dialogs, details and action areas. Native `details/summary` keeps infrequent filters available without permanently dominating the page. Mobile detail retains internal scrolling.
+- Made state transitions comprehensible: `closeMonthlyEvaluation: closed` is replaced with a human-readable action such as **Cerrar registro** and target **Estado nuevo: Cerrado**. This is a generic action-word fallback, not a fake translation of unknown business concepts.
+- Added a specific **visual defect regression**: a hovered Radix Select trigger had inherited the global primary-button dark background but kept dark foreground text. An explicit button-specific style restores a legible white trigger through normal/hover/selected states, with a Chromium assertion of the actual computed foreground/background colors. This was discovered by inspecting captured real Chromium screenshots, **not** by CSS/static tests.
+
+**Verification evidence:**
+- [GitHub Actions #38773458446](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38773458446) **SUCCESS**. Both NestJS and Spring Boot generated projects passed real Compose/Postgres/source-frozen HTTP conformance; Chromium created Section→GuardDuty→Volunteer→MonthlyEvaluation, then used the **new detail picker** to reassign a Volunteer to a second GuardDuty and verified the PostgreSQL persisted CAS result and status message. Browser asserted nested Escape, contrast on hover, localized close transition, preserved focus/scroll, 390×780 modal, 80-point computed base, zero JS exceptions.
+- The CI job uploads an artifact `protocolia-generated-ux-review` containing real generated **desktop list**, **desktop detail**, and **mobile detail** screenshots for critical human inspection. The first visual review exposed and caused the hover contrast/state-transition fixes; a second screenshot review confirmed both improvements. These screenshots use fictional CI-generated records only.
+- [Railway generated independent demo](https://volunteer-evaluations-web-production.up.railway.app/) deployment `029da1bc-bf6d-43c4-8615-3d08db4f4f8d` **SUCCESS**. External independent fetch verified public React login, `/health` = `UP`, unauthenticated `/api/guards` = **401**; Neon read-only SQL confirmed fictional September/October scores of **80** and **100** after rollout. `main` and PR #52 unchanged.
+
+**Next important milestones before calling this a genuinely top-tier UX:**
+1. **UX3 contract-bound presentation metadata:** explicit display names, help text, format (year-month, money, date, duration), domain enums, representation/ordering priorities, and status-action labels. Compile through TypeSpec→IR→shared UI; never infer role semantics or validation rules from guessed language dictionaries.
+2. **UX4 reusable intelligent inputs:** server-side searchable/paged FK combobox (current 50-item cap is explicit and inadequate for real staff directories), async cancellation, inline field/server errors, keyboard-first entry, sensible constrained formats, and safe unsaved-change recovery.
+3. **UX5 domain-workflow information architecture:** navigable list/details with deep links and history, grouped steps for long forms, contextual KPIs and related records, role-aware actionable views, polished deletion/transition confirmations, and responsive data density.
+4. **UX quality gates:** automated accessibility checks, color contrast (normal/hover/disabled), long names and missing data, narrow/mobile and reduced-motion viewport inspection, performance/interaction latency, real browser screenshots/visual baselines across **multiple unrelated contract sets**. CI success alone cannot establish delight or universal polish.
+
+The objective is *not* "make this one firefighter application pretty". All improvements above live in shared, generated React behavior and belong to a reusable design system. An attractive initial screen is insufficient without robust task completion.
+
+## UX3 — TypeSpec presentation metadata proven through both generated backends (2026-10-15)
+
+- Source contracts may now annotate **any persisted entity field** with `@uiLabel("...")` and `@uiHelp("...")`; bounded seven-character string fields may opt into presentation-only `@uiControl("month")`. See [UI_CONTRACT_METADATA.md](UI_CONTRACT_METADATA.md). All three are compiled through the `@protocolia/domain` TypeSpec decorators into canonical `IrField` and exported in the generated React manifest, without handwritten domain-app UI.
+- Generated create forms, detail columns, summary tables, relevant query filters, and relation-field controls use declared `uiLabel` before fallback localization. Form and filter help text is visible and referenced by `aria-describedby`, with field errors also linked. This preserves authorization and the exact FK public identity sent to the backend.
+- The compiler **fails closed** on blank/overlong/multiline UI labels and descriptions, unknown control names, and `month` on fields other than bounded seven-character strings. Metamorphic compiler tests exercise those refusals. Presentation metadata is **not** a backend format validator or a replacement for server authority.
+- Validation evidence: [Actions #38776962092](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38776962092) **SUCCESS** (functional SHA `4e150666b8cdf62df528a3540126b991910015d7`), with both generated NestJS and Spring Boot PostgreSQL/HTTP oracles and real Chromium. Browser `BV_GENERATED_NATIVE_FK_BROWSER_PASS` recorded `compiledFieldMetadata:true`, `accessibleFieldHints:true`, `reassignPicker:true`, `confirmedCasReferenceUpdate:true`, retained focus/mobile tests, zero JavaScript errors and computed total of 80. [General CI #38776962191](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/38776962191) **SUCCESS**. An unrelated older Python 3.11 `.git` cleanup race had appeared in a previous general CI run; the latest general run is green.
+- Live rollout: Railway deployment `493af954-2b34-4aa7-9500-e2f0f1f078e6` from the exact verified functional SHA **SUCCESS**, healthcheck passed and Nest started with 20 operations/five entities. External read-only smoke test returned React login at `/`, `{"status":"UP"}` at `/health`, **401** for an unauthenticated `/api/guards`; dedicated Neon Postgres still stores fictional September/October evaluations with base points 80 and 100. No database migration or real personnel data; `main` and PR #52 remain unchanged.
+- Critical visual review inspected Chromium screenshots: field captions now visibly show **Nombre completo**, **Guardia asignada**, **Jerarquía**, **Período de evaluación** and accompanying source-defined help. Both desktop and mobile behavior remain covered. Tests and screenshots verify this independent example, not the usability of every potential generated domain.
+
+**What is still next:** metadata for declared finite-choice enumerations and friendly state options, server-side field-format semantics for `YYYY-MM` with Nest/Spring parity, stable async state and error mapping from structured server validation, and explicit task-oriented page hierarchy. None should be faked by arbitrary client-only heuristics.
+
+## UX4 follow-through — Server-paged relationships
+
+The shared TypeSpec-to-IR-to-React architecture now emits a server-paginated relationship picker when the authorized related dataset exceeds 50. It uses a permitted `listPage` for browsing, a separately declared `queryPage` with the `contains` operator for case-insensitive literal text search, and `get` for restoring existing off-page selections. Both NestJS and Spring Boot apply the same read permissions, SQL-parameter binding and literal wildcard escaping. Creation and compare-and-swap reassignment share the generic picker. Mobile rendering uses an adaptive bottom sheet after visual review.
+
+Proof is maintained in [UX4_PAGED_RELATIONSHIPS_20261015.md](./evidence/UX4_PAGED_RELATIONSHIPS_20261015.md), with the independent two-backend PostgreSQL/Chromium run #38792714442 and its desktop/mobile screenshots. The current limits on table-label hydration, indexed substring search at extreme scale and server-authoritative `YYYY-MM` validation remain explicit rather than being declared solved.
+
+## UX5 — Authoritative year-month fields
+
+Do not infer a domain rule from a visual month input. Use the standard, explicitly declared TypeSpec `@pattern("^[0-9]{4}-(0[1-9]|1[0-2])$")`. The compiler checks this limited portable format and emits the same invariant through IR, React, NestJS, Spring Boot, and PostgreSQL. A generated application must reject invalid requests regardless of client controls. Existing data is checked by versioned, atomic additive migrations; immutable release contracts are used to reconstruct baselines before evolution.
+
+Validated with source-frozen independent requirements, a separate FacilitySearch contract, real PostgreSQL positive/negative cases, Nest/Spring parity, Chromium, and a full UX4→UX5 generated Nest migration. See [UX5 evidence](./evidence/UX5_YEAR_MONTH_20261015.md). Unsupported date patterns, business scoring, per-user row authorization, and field-oriented server errors remain outside this milestone.
+
+## UX6 — Draft-loss protection for generated creation forms
+
+The shared React template uses its canonical IR field list to identify unsaved modifications (including relational references). Cancel, Escape, close and outside interactions show an in-dialog choice to keep editing or explicitly discard; successful server-validated creation closes normally. Keyboard focus is restored to the invoking action. Browser beforeunload warnings are best-effort. Both NestJS and Spring Boot continue to generate the same React implementation without entity-specific UX patches.
+
+The [UX6 evidence](./evidence/UX6_FORM_DRAFT_PROTECTION_20261015.md) confirms the independent PostgreSQL/Chromium regression run and desktop/mobile screenshot review. This milestone does not assert persistent drafts or generalized protection for all editing operations.
+
+## UX7 — Contract-authorized backend field errors
+
+For server-side field validation, generated NestJS and Spring Boot implement one consistent HTTP 400 envelope: `statusCode`, `message`, and a list of `issues: [{field,code}]`. Field identifiers come from contract field declarations, not external SQL error strings. The shared React form verifies each returned field against the current entity manifest and each code against an explicit allowlist before showing localized inline feedback and focusing the field. Existing client-side checks remain an ergonomic first pass, never the source of truth.
+
+The initial portable codes are `required`, `invalid_initial`, `invalid_format`, `invalid_type`, and `out_of_range`. Unexpected generic errors and database conflicts remain top-level errors rather than guessing which field caused them. The underlying domain constraints and permissions are unchanged. See [UX7 evidence](./evidence/UX7_FIELD_VALIDATION_20261015.md).
+
+Future layout quality work should select compact bottom sheets vs full-screen forms based on task complexity. On mobile, a short creation form still consumes the full viewport, which is functional but visually inefficient; do not classify this as 10/10 usability.
+
+## UX8 — Responsive mobile form layout from contract complexity
+
+The generator decides whether a mobile create dialog can use a compact, viewport-bottom sheet by checking the canonical IR fields: no more than four editable inputs, without a relationship picker. Longer forms and relational workflows keep the accessible, independently scrollable full-screen dialog. This remains a presentation decision only; no backend rules or contract privileges change.
+
+Use safe-area padding and dynamic viewport height instead of fixed device-specific offsets. Radix focus restoration, nested selectors, dirty-draft warnings and server field errors must continue passing real Chromium tests. UX8 is proven across NestJS and Spring Boot with PostgreSQL ([evidence](./evidence/UX8_ADAPTIVE_MOBILE_FORMS_20261015.md)). The field-count threshold is a limited heuristic until more expressive task/layout metadata is supported.
+
+## UX9 — Manifest-scoped URL navigation and draft-safe history
+
+The shared generated React frontend maps only declared resources into `?resource=<entity name>` and projects bounded pagination and declared `queryPage` filters into query parameters. The browser Back/Forward stack now works across resources; reselecting a resource restores its page, applied filters and draft filter inputs. Filter/page changes update the current URL entry, while resource switches create a history entry.
+
+A pending create draft cannot silently disappear because of a resource route change: the same accessible confirmation presents Continue editing or Discard changes, and cancelling a browser Back/Forward movement returns to the original history position. A pending server write cannot be falsely labelled as discarded. Async resource requests are scoped so stale list responses cannot overwrite another entity's records after rapid navigation. No domain-specific application React component has been patched.
+
+This does **not** generate task-centric dashboards or record-specific routes; it improves the reusable workspace navigation before UX10. Filter URLs are shareable and users should avoid confidential search values. Evidence and current acceptance status: [UX9 URL navigation](./evidence/UX9_URL_NAVIGATION_20261015.md).
