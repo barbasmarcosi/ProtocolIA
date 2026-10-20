@@ -43,7 +43,8 @@ jobs:
           node --test tests/vnext/dynamic-order-versioned.test.mjs
       - name: Generate app from @versionedDetails TypeSpec contract
         run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b17-versioned"
-      - name: Build generated app and exercise PostgreSQL conformance
-        run: npm run app:test -- "${RUNNER_TEMP}/b17-versioned"
+      # The generic app:test runner exercises legacy non-versioned HTTP POST/PATCH.
+      # This fixture requires a strict If-Match header; use the comprehensive
+      # versioned live HTTP/PostgreSQL oracle below instead.
       - name: Prove shared CAS on live PostgreSQL for appends and audited patches
         run: node scripts/vnext/probe-versioned-order-http.mjs "${RUNNER_TEMP}/b17-versioned"
