@@ -180,9 +180,14 @@ function createDetails(context: DecoratorContext, target: Operation, childEntity
 }
 function versionedDetails(context: DecoratorContext, target: Operation,
   closeField?: string, closeState?: string): void {
+  // TypeSpec may provide optional decorator arguments as typed string literals.
+  // Preserve their declared values rather than object-coercing to "[object Object]".
+  const stringArg=(arg:unknown)=>typeof arg==="string"?arg:
+    arg&&typeof arg==="object"&&"value" in arg&&typeof arg.value==="string"?
+      arg.value:undefined;
   context.program.stateMap($lib.stateKeys.versionedDetails).set(target,
-    {enabled:true,...(closeField===undefined?{}:{closeField}),
-      ...(closeState===undefined?{}:{closeState})});
+    {enabled:true,...(closeField===undefined?{}:{closeField:stringArg(closeField)}),
+      ...(closeState===undefined?{}:{closeState:stringArg(closeState)})});
 }
 function moveBatch(context: DecoratorContext, target: Operation, stockEntity: string,
     availableField: string, legs: string): void {
