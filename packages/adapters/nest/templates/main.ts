@@ -677,7 +677,10 @@ class RuntimeService{
         relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
         "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
     const insertParams=relation?[...params,input[relation.field],actor]:params;
-    if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length){
+    // B17: a direct child POST must not bypass @createDetails maxRows.
+    // The header row lock serializes competing appends within one document.
+    const boundedCreator=spec.operations.find(x=>x.createDetails?.childEntity===e.name);
+    if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length||boundedCreator){
       const batch=op.moveBatch;
       const movement=op.moveUnits;
       const reservation=op.reserve;
@@ -694,6 +697,23 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        if(boundedCreator){
+          const bound=boundedCreator.createDetails!;
+          const parent=spec.entities.find(x=>x.name===boundedCreator.entity);
+          if(!parent)throw new Error("Missing bounded detail header");
+          const raw=input[bound.parentField];
+          if(typeof raw!=="string"||!raw.trim())
+            throw new Problem(400,"Invalid detail parent");
+          const locked=await client.query("SELECT "+parent.identityColumn+" FROM "+
+            parent.table+" WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[raw]);
+          if(locked.rowCount!==1)throw new Problem(400,"Detail parent not found");
+          const fk=e.fields.find(x=>x.name===bound.parentField);
+          if(!fk)throw new Error("Missing bounded detail relationship");
+          const count=await client.query("SELECT COUNT(*)::int AS used FROM "+e.table+
+            " WHERE "+fk.column+"=$1",[raw]);
+          if(!count.rows.length||count.rows[0].used>=bound.maxRows)
+            throw new Problem(409,"Document detail limit reached");
+        }
         if(batch){
           const deltas=new Map<string,number>();
           for(const leg of batch.legs){
