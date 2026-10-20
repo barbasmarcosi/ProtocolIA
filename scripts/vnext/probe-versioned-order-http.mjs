@@ -105,9 +105,38 @@ try{
     "-Atc","SELECT count(*)::text FROM order_line WHERE line_code IN "+
       "('NO-IFMATCH','STALE','UNAUTHORIZED')"]);
   assert.equal(rejects,"0");
+  // Inject a deterministic database failure in the audit step: the inserted
+  // detail AND its document version must both roll back on the same connection.
+  const failSql=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_version_audit_fail()",
+    "RETURNS trigger LANGUAGE plpgsql AS $p$",
+    "BEGIN IF NEW.resource_id = 'AUDIT-ROLLBACK' THEN",
+    "RAISE EXCEPTION 'B17 forced audit transaction failure';",
+    "END IF; RETURN NEW; END; $p$;",
+    "CREATE TRIGGER protocolia_test_version_audit_fail",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_version_audit_fail();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",failSql]);
+  assert.equal((await append("AUDIT-ROLLBACK",'"6"')).status,500);
+  assert.equal((await header()).body.documentVersion,6,
+    "Audit exception must not increment document version");
+  assert.equal((await req("GET","/api/order-lines/AUDIT-ROLLBACK")).status,404);
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event "+
+      "WHERE resource_id='AUDIT-ROLLBACK'"]),"0");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_version_audit_fail ON protocolia_audit_event; "+
+    "DROP FUNCTION protocolia_test_version_audit_fail()"]);
+  assert.equal((await append("AUDIT-ROLLBACK",'"6"')).status,201,
+    "Rolled-back version must remain reusable after audit failure is repaired");
+  assert.equal((await header()).body.documentVersion,7);
   console.log("PROTOCOLIA_B17_VERSIONED_DETAILS_PASS "+JSON.stringify({
     persisted:true,strongIfMatch:true,staleAppendConflict:true,concurrentAppendOneWinner:true,
-    auditedPatchVersioned:true,appendVsPatchOneWinner:true,versionEtag:true,parentPermission:true
+    auditedPatchVersioned:true,appendVsPatchOneWinner:true,versionEtag:true,parentPermission:true,
+    failedAuditRollsBackVersion:true
   }));
 }finally{
   if(started)try{docker([...args,"down","--volumes","--remove-orphans"],120000);}catch(e){console.error(String(e));}
