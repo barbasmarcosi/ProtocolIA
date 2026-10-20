@@ -200,7 +200,7 @@ export function generate(ir,spec,out){
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete"].includes(kind);
+      const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
