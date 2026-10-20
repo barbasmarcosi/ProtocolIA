@@ -1,0 +1,49 @@
+name: vnext-b17-versioned-details
+on:
+  push:
+    branches: [feature/b17-atomic-bounded-detail-append-20261020]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/dynamic-order-versioned/**'
+      - 'tests/vnext/dynamic-order-versioned.test.mjs'
+      - 'scripts/vnext/probe-versioned-order-http.mjs'
+      - '.github/workflows/vnext-b17-versioned-details.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b17-version-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  versioned-document:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile TypeSpec and prove @versionedDetails contract
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/dynamic-order-versioned.test.mjs
+      - name: Generate app from @versionedDetails TypeSpec contract
+        run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b17-versioned"
+      - name: Build generated app and exercise PostgreSQL conformance
+        run: npm run app:test -- "${RUNNER_TEMP}/b17-versioned"
+      - name: Prove shared CAS on live PostgreSQL for appends and audited patches
+        run: node scripts/vnext/probe-versioned-order-http.mjs "${RUNNER_TEMP}/b17-versioned"
