@@ -164,7 +164,7 @@ public class DomainRuntime {
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
-      case "create" -> result = create(entity, matched, body, user);
+      case "create" -> result = create(entity, matched, body, user,request.getHeader("If-Match"),false);
       case "get" -> result = row(entity, publicKey, user.getName());
       case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "sumDetails" -> result = sumDetails(matched,publicKey);
@@ -173,15 +173,19 @@ public class DomainRuntime {
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
-      case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName());
+      case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName(),request.getHeader("If-Match"));
+      case "replaceDetails" -> result = replaceDetails(entity, matched, publicKey, body,
+        user,request.getHeader("If-Match"));
       case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
-      case "transition" -> result = transition(entity, matched, publicKey, body);
+      case "transition" -> result = transition(entity, matched, publicKey, body,
+        request.getHeader("If-Match"));
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
-      case "delete" -> result = delete(entity, publicKey);
+      case "delete" -> result = delete(entity, matched, publicKey, user,
+        request.getHeader("If-Match"),body);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
-    if(!matched.audit().isEmpty()){
+    if(!matched.audit().isEmpty()&&!matched.kind().equals("delete")){
       if(user==null || !user.isAuthenticated())
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
       @SuppressWarnings("unchecked")
@@ -224,7 +228,10 @@ public class DomainRuntime {
       }
     }
     int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
-    return ResponseEntity.status(status).body(result);
+    var response=ResponseEntity.status(status);
+    if(result instanceof Map<?,?> v && v.get("documentVersion") instanceof Number number)
+      response.header("ETag","\""+number.intValue()+"\"");
+    return response.body(result);
   }
 
   private Object inbox(Manifest.Entity entity,Manifest.Op op,String id,Map<String,String> query,
@@ -267,6 +274,9 @@ public class DomainRuntime {
   private String selectSql(Manifest.Entity e) {
     String columns = e.fields().stream().map(f -> f.column() + " AS \"" + f.name() + "\"")
         .reduce((a,b) -> a + "," + b).orElseThrow();
+    if(Manifest.OPS.stream().anyMatch(op->op.entity().equals(e.name())&&
+        op.createDetails()!=null&&op.createDetails().versioned()))
+      columns+=",document_version AS \"documentVersion\"";
     return "SELECT " + columns + " FROM " + e.table();
   }
 
@@ -433,7 +443,46 @@ public class DomainRuntime {
     return false;
   }
 
-  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, Authentication user) {
+  private int parseDocumentVersion(String header) {
+    if(header==null||!header.matches("\"[1-9][0-9]{0,9}\""))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected a strong If-Match document version");
+    try{
+      int version=Integer.parseInt(header.substring(1,header.length()-1));
+      if(version<1)throw new NumberFormatException();
+      return version;
+    }catch(NumberFormatException error){
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid document version",error);
+    }
+  }
+
+  private void assertDocumentVersion(Manifest.Entity parent,String id,String ifMatch) {
+    int expected=parseDocumentVersion(ifMatch);
+    var creator=Manifest.OPS.stream().filter(o->o.entity().equals(parent.name())&&
+      o.createDetails()!=null&&o.createDetails().versioned()).findFirst().orElse(null);
+    var closure=creator==null?null:creator.createDetails();
+    String column=closure==null||closure.closeField().isEmpty()?"":parent.fields().stream()
+      .filter(x->x.name().equals(closure.closeField())).findFirst().orElseThrow().column();
+    var values=jdbc.queryForList("SELECT document_version"+
+      (column.isEmpty()?"":","+column+" AS document_state")+" FROM "+parent.table()+
+      " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",id));
+    if(values.size()!=1)
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Versioned document not found");
+    if(((Number)values.get(0).get("document_version")).intValue()!=expected)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale document version");
+    if(!column.isEmpty()&&closure.closeState().equals(values.get(0).get("document_state")))
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Document already closed");
+  }
+
+  private void incrementDocumentVersion(Manifest.Entity parent,String id) {
+    int changed=jdbc.update("UPDATE "+parent.table()+
+      " SET document_version=document_version+1 WHERE "+parent.identityColumn()+
+      "=:id AND document_version<2147483647",Map.of("id",id));
+    if(changed!=1)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Document version exhausted");
+  }
+
+  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body,
+      Authentication user,String ifMatch,boolean nested) {
     // Nested DTO is validated against the declared child entity, not flattened into parent SQL.
     java.util.List<Map<String,Object>> details=null;
     Manifest.Entity detailEntity=null;
@@ -604,6 +653,41 @@ public class DomainRuntime {
             HttpStatus.CONFLICT:HttpStatus.BAD_REQUEST,"Missing or insufficient exact balance");
       }
     }
+    // B17 foundation: even legacy single-line POSTs must respect the document's
+    // declared bounded collection. Lock the header inside dispatch()'s transaction
+    // before counting so concurrent appends cannot both claim the last slot.
+    var boundedCreator=Manifest.OPS.stream()
+      .filter(x->x.createDetails()!=null && x.createDetails().childEntity().equals(e.name()))
+      .findFirst().orElse(null);
+    Manifest.Entity versionedParent=null;
+    String versionedParentId=null;
+    if(boundedCreator!=null){
+      // A child-write permission alone must never authorize mutating a header.
+      if(user==null||user.getAuthorities().stream().noneMatch(
+          a->a.getAuthority().equals(boundedCreator.capability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Parent write permission required");
+      var bound=boundedCreator.createDetails();
+      var parent=Manifest.ENTITIES.stream().filter(x->x.name().equals(boundedCreator.entity()))
+        .findFirst().orElseThrow();
+      Object raw=body.get(bound.parentField());
+      if(!(raw instanceof String parentId)||parentId.isBlank())
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid detail parent");
+      var locked=jdbc.queryForList("SELECT "+parent.identityColumn()+" FROM "+parent.table()+
+        " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",parentId),String.class);
+      if(locked.size()!=1)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Detail parent not found");
+      if(bound.versioned()&&!nested){
+        assertDocumentVersion(parent,parentId,ifMatch);
+        versionedParent=parent;
+        versionedParentId=parentId;
+      }
+      String fk=e.fields().stream().filter(f->f.name().equals(bound.parentField()))
+        .findFirst().orElseThrow().column();
+      Number used=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+
+        " WHERE "+fk+"=:id",Map.of("id",parentId),Long.class);
+      if(used==null||used.longValue()>=bound.maxRows())
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Document detail limit reached");
+    }
     var params = new MapSqlParameterSource();
     for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
@@ -631,7 +715,8 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Database constraint violation");
       throw ex;
     }
-    if(details!=null)for(var detail:details)create(detailEntity,detailCreate,detail,user);
+    if(details!=null)for(var detail:details)create(detailEntity,detailCreate,detail,user,null,true);
+    if(versionedParent!=null)incrementDocumentVersion(versionedParent,versionedParentId);
     return row(e, (String) body.get(e.identity()),subject);
   }
 
@@ -793,7 +878,8 @@ public class DomainRuntime {
     return row(e,id,subject);
   }
 
-  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body, String subject) {
+  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id,
+      Map<String,Object> body, String subject,String ifMatch) {
     if(op.audit().isEmpty()){
       validate(e, body, false, Set.of(op.field()));
       if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
@@ -806,6 +892,23 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.CONFLICT,"New value matches the previous value");
       validate(e,Map.of(op.input(),body.get(op.input())),false,Set.of(op.field()));
       validate(e,Map.of(op.input(),body.get("expected")),false,Set.of(op.field()));
+    }
+    var versionedCreator=Manifest.OPS.stream()
+      .filter(x->x.createDetails()!=null&&x.createDetails().versioned()&&
+        x.createDetails().childEntity().equals(e.name())).findFirst().orElse(null);
+    Manifest.Entity versionedParent=null;
+    String versionedParentId=null;
+    if(versionedCreator!=null){
+      if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+      var plan=versionedCreator.createDetails();
+      var field=e.fields().stream().filter(f->f.name().equals(plan.parentField())).findFirst().orElseThrow();
+      var keys=jdbc.queryForList("SELECT "+field.column()+" FROM "+e.table()+
+        " WHERE "+e.identityColumn()+"=:id",Map.of("id",id),String.class);
+      if(keys.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      versionedParentId=keys.get(0);
+      versionedParent=Manifest.ENTITIES.stream().filter(x->x.name().equals(versionedCreator.entity()))
+        .findFirst().orElseThrow();
+      assertDocumentVersion(versionedParent,versionedParentId,ifMatch);
     }
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
     if(e.ownerField()!=null&&(subject==null||e.ownerField().equals(op.field())))
@@ -832,6 +935,7 @@ public class DomainRuntime {
       row(e,id,subject);
       throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale expected value");
     }
+    if(versionedParent!=null)incrementDocumentVersion(versionedParent,versionedParentId);
     return row(e,id,subject);
   }
 
@@ -861,24 +965,186 @@ public class DomainRuntime {
     return row(e,id);
   }
 
-  private Object delete(Manifest.Entity e, String id) {
-    if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+  private Map<String,Object> replaceDetails(Manifest.Entity parent,Manifest.Op op,String id,
+      Map<String,Object> body,Authentication user,String ifMatch) {
+    var creator=Manifest.OPS.stream().filter(x->x.entity().equals(parent.name())&&
+      x.createDetails()!=null&&x.createDetails().versioned()).findFirst()
+      .orElseThrow(()->new IllegalStateException("Missing versioned details creator"));
+    var plan=creator.createDetails();
+    var child=Manifest.ENTITIES.stream().filter(x->x.name().equals(plan.childEntity()))
+      .findFirst().orElseThrow();
+    var createOp=Manifest.OPS.stream().filter(x->x.entity().equals(child.name())&&
+      x.kind().equals("create")).findFirst().orElseThrow();
+    var deleteOp=Manifest.OPS.stream().filter(x->x.entity().equals(child.name())&&
+      x.kind().equals("delete")).findFirst().orElseThrow();
+    if(user==null||user.getAuthorities().stream().noneMatch(a->
+       a.getAuthority().equals(createOp.capability()))||
+       user.getAuthorities().stream().noneMatch(a->
+       a.getAuthority().equals(deleteOp.capability())))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Both child mutation permissions required");
+    if(id==null||body==null||body.size()!=1||
+       !(body.get(plan.rowsField()) instanceof java.util.List<?> rows)||
+       rows.isEmpty()||rows.size()>plan.maxRows())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected 1..20 replacement rows");
+    var writable=child.fields().stream().filter(f->!f.computed())
+      .map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
+    var incoming=new java.util.ArrayList<Map<String,Object>>();
+    var keys=new java.util.HashSet<String>();
+    for(var raw:rows){
+      if(!(raw instanceof Map<?,?> values)||values.keySet().stream()
+          .anyMatch(x->!(x instanceof String)))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid replacement row");
+      var row=new java.util.LinkedHashMap<String,Object>();
+      for(var item:values.entrySet())row.put((String)item.getKey(),item.getValue());
+      if(row.containsKey(plan.parentField()))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Parent reference is server-managed");
+      row.put(plan.parentField(),id);
+      validate(child,row,true,writable);
+      var key=(String)row.get(child.identity());
+      if(!keys.add(key))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Duplicate replacement identity");
+      incoming.add(row);
+    }
+    // Same parent-first lock as all B17 child mutations.
+    assertDocumentVersion(parent,id,ifMatch);
+    String fk=child.fields().stream().filter(x->x.name().equals(plan.parentField()))
+      .findFirst().orElseThrow().column();
+    var before=jdbc.queryForList(selectSql(child)+" WHERE "+fk+"=:parent ORDER BY "+
+      child.identityColumn(),Map.of("parent",id));
+    try{
+      jdbc.update("DELETE FROM "+child.table()+" WHERE "+fk+"=:parent",Map.of("parent",id));
+      for(var old:before)for(String field:deleteOp.audit()){
+        Object value=old.get(field);
+        jdbc.update("INSERT INTO protocolia_audit_event "+
+          "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+          "VALUES (:actor,:entity,:id,:op,:field,:old,NULL)",
+          new MapSqlParameterSource().addValue("actor",user.getName())
+            .addValue("entity",child.name()).addValue("id",old.get(child.identity()))
+            .addValue("op",deleteOp.name()).addValue("field",field)
+            .addValue("old",value==null?null:String.valueOf(value)));
+      }
+      var persisted=child.fields().stream().filter(f->!f.computed()).toList();
+      String columns=persisted.stream().map(Manifest.Field::column).collect(java.util.stream.Collectors.joining(","));
+      String binds=persisted.stream().map(f->":"+f.name()).collect(java.util.stream.Collectors.joining(","));
+      for(var entry:incoming){
+        var params=new MapSqlParameterSource();
+        for(var field:persisted)params.addValue(field.name(),sqlValue(field,entry.get(field.name())));
+        jdbc.update("INSERT INTO "+child.table()+" ("+columns+") VALUES ("+binds+")",params);
+        for(String field:createOp.audit()){
+          Object value=entry.get(field);
+          jdbc.update("INSERT INTO protocolia_audit_event "+
+            "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+            "VALUES (:actor,:entity,:id,:op,:field,NULL,:next)",
+            new MapSqlParameterSource().addValue("actor",user.getName())
+              .addValue("entity",child.name()).addValue("id",entry.get(child.identity()))
+              .addValue("op",createOp.name()).addValue("field",field)
+              .addValue("next",value==null?null:String.valueOf(value)));
+        }
+      }
+      incrementDocumentVersion(parent,id);
+    }catch(DataIntegrityViolationException error){
+      if(constraintSqlState(error,"23505")||constraintSqlState(error,"23503"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Replacement collides with existing references");
+      if(constraintSqlState(error,"23502")||constraintSqlState(error,"23514"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid replacement data");
+      throw error;
+    }
+    return row(parent,id,user.getName());
+  }
+
+  private Object delete(Manifest.Entity e, Manifest.Op op, String id, Authentication actor,
+      String ifMatch, Map<String,Object> body) {
+    if(id==null||body!=null&&!body.isEmpty())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"DELETE has no request body");
+    var creator=Manifest.OPS.stream().filter(x->x.createDetails()!=null&&
+        x.createDetails().childEntity().equals(e.name())).findFirst().orElse(null);
+    if(creator==null){
+      if(!op.audit().isEmpty())
+        throw new IllegalStateException("Nonversioned audited delete is unsupported");
+      int affected;
+      try{
+        affected=jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key",Map.of("key",id));
+      }catch(DataIntegrityViolationException ex){
+        if(constraintSqlState(ex,"23503"))
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Referenced by another resource");
+        throw ex;
+      }
+      if(affected==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      return null;
+    }
+    var plan=creator.createDetails();
+    if(!plan.versioned()||op.audit().isEmpty()||!op.audit().contains(plan.parentField()))
+      throw new IllegalStateException("Unsafe bounded detail DELETE contract");
+    if(actor==null||actor.getAuthorities().stream().noneMatch(a->
+        a.getAuthority().equals(creator.capability())))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Parent write permission required");
+    // Validate If-Match before exposing the child or touching the database.
+    parseDocumentVersion(ifMatch);
+    var parent=Manifest.ENTITIES.stream().filter(x->x.name().equals(creator.entity()))
+      .findFirst().orElseThrow();
+    String fk=e.fields().stream().filter(x->x.name().equals(plan.parentField()))
+      .findFirst().orElseThrow().column();
+    var childFk=jdbc.queryForList("SELECT "+fk+" FROM "+e.table()+
+      " WHERE "+e.identityColumn()+"=:id",Map.of("id",id),String.class);
+    if(childFk.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    String parentId=childFk.get(0);
+    // Canonical lock order (header before child) matches POST/PATCH and
+    // prevents two deletions or an append from violating the collection floor.
+    assertDocumentVersion(parent,parentId,ifMatch);
+    var params=Map.of("id",id,"parent",parentId);
+    var before=jdbc.queryForList(selectSql(e)+" WHERE "+e.identityColumn()+
+      "=:id AND "+fk+"=:parent",params);
+    if(before.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    Number count=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+
+      " WHERE "+fk+"=:parent",Map.of("parent",parentId),Long.class);
+    if(count==null||count.longValue()<=1)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"A bounded document requires at least one detail");
     int affected;
-    try {
-      affected = jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key", Map.of("key",id));
-    } catch (DataIntegrityViolationException ex) {
-      if (constraintSqlState(ex,"23503"))
+    try{
+      affected=jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+
+        "=:id AND "+fk+"=:parent",params);
+    }catch(DataIntegrityViolationException ex){
+      if(constraintSqlState(ex,"23503"))
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Referenced by another resource");
       throw ex;
     }
-    if (affected == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    if(affected!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Detail changed concurrently");
+    // Old values only: no reconstructed payload, and audit and version commit
+    // in the same @Transactional dispatch as the DELETE.
+    for(String field:op.audit()){
+      Object value=before.get(0).get(field);
+      jdbc.update("INSERT INTO protocolia_audit_event "+
+        "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+        "VALUES (:actor,:entity,:id,:op,:field,:before,NULL)",
+        new MapSqlParameterSource().addValue("actor",actor.getName())
+          .addValue("entity",e.name()).addValue("id",id)
+          .addValue("op",op.name()).addValue("field",field)
+          .addValue("before",value==null?null:String.valueOf(value)));
+    }
+    incrementDocumentVersion(parent,parentId);
     return null;
   }
 
-  private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
+  private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id,
+      Map<String,Object> body,String ifMatch) {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    var documentCreator=Manifest.OPS.stream().filter(o->o.entity().equals(e.name())&&
+      o.createDetails()!=null&&o.createDetails().versioned()&&
+      !o.createDetails().closeField().isEmpty()&&
+      o.createDetails().closeField().equals(op.field())&&
+      o.createDetails().closeState().equals(op.toState())).findFirst().orElse(null);
+    if(documentCreator!=null){
+      assertDocumentVersion(e,id,ifMatch);
+      int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+        e.identityColumn()+"=:id AND "+col+"=:from",
+        Map.of("to",op.toState(),"id",id,"from",op.fromState()));
+      if(changed!=1)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot close document");
+      incrementDocumentVersion(e,id);
+      return row(e,id);
+    }
     if(op.reverseBatch()!=null){
       var reverse=op.reverseBatch();
       var columns=reverse.legs().stream()

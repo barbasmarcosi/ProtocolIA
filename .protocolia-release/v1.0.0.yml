@@ -1,0 +1,6 @@
+version: v1.0.0
+name: ProtocolIA v1 bounded developer baseline
+source: main
+release_date: 2026-10-20
+gate: release-v1.0.0
+scope: supported TypeSpec-to-application profiles; not production-certified

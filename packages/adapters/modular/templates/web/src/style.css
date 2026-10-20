@@ -413,3 +413,35 @@ button.discard-button:hover:not(:disabled){background:#79262a}
   .related-summary-value{margin-top:11px}
 }
 @media(prefers-reduced-motion:reduce){.related-summary{scroll-behavior:auto}}
+
+/* Version-aware bounded detail UI. Actions remain contract/capability gated. */
+.document-version{font-size:.82rem;color:var(--muted-ink);display:inline-flex;align-items:center;gap:.4rem;
+  background:#f0f4fa;border:1px solid #dce5f1;border-radius:8px;padding:6px 10px;margin:0 0 14px}
+.document-version strong{color:var(--ink);font-variant-numeric:tabular-nums}
+.document-conflict{border:1px solid #e7bca0;background:#fff6ef;border-radius:12px;
+  color:#7a3613;padding:14px 16px;margin:10px 0 16px}
+.document-conflict strong{display:block;font-size:.94rem}
+.document-conflict p{font-size:.86rem;line-height:1.55;margin:6px 0 12px}
+.document-conflict button{background:#fff!important;color:#71390f!important}
+.detail-append{border:1px solid var(--line);border-radius:14px;padding:15px 16px;
+  margin-top:16px;background:#f9fbff}
+.detail-append h4{font-size:.99rem;margin:0 0 15px;color:var(--ink)}
+.detail-append .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:14px}
+.detail-append .modal-actions{margin-top:15px;padding-top:12px}
+.detail-delete-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  padding:8px;border-radius:10px;background:#fff6ef;border:1px solid #efd7c7}
+.detail-delete-confirm span{font-size:.82rem;color:#7a3613;width:100%}
+.detail-delete-confirm button{min-width:unset!important}
+.danger-button{background:#ae2e28;color:white;border:1px solid #ae2e28;border-radius:10px;
+  padding:9px 13px;font-weight:700;cursor:pointer}
+.danger-button:hover:not(:disabled){background:#86201b}
+.danger-button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:520px){
+  .detail-delete-confirm{flex-direction:column;align-items:stretch}
+  .detail-append{padding:14px}
+  .details-section .data-table td:last-child{min-width:178px}
+}
+
+.document-closed{font-size:.82rem;font-weight:750;display:inline-flex;align-items:center;
+  color:#475569;background:#eef2f6;border:1px solid #cbd5e1;border-radius:9px;
+  padding:8px 11px;margin:0 0 12px}

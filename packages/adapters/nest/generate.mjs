@@ -137,16 +137,16 @@ export function generate(ir,spec,out){
   const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",
-    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
+    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
   const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,
-    atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
+    atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
   if(of("health").length!==1)throw Error("One health operation required");
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","replaceDetails","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
     const edits=of("patchFields",e.name);
     const associated=ir.operations.some(op=>op.behavior.createDetails?.childEntity===e.name);
@@ -184,7 +184,7 @@ export function generate(ir,spec,out){
           throw Error("Unsafe compound-key PATCH "+op.name);
       }
       const cap=kind==="health"?"public":
-        ["create","patchFields","patchTogether","atomicIncrement","transition","delete"].includes(kind)?write:read;
+        ["create","patchFields","patchTogether","atomicIncrement","transition","replaceDetails","delete"].includes(kind)?write:read;
       const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
@@ -200,7 +200,7 @@ export function generate(ir,spec,out){
         throw Error("Duplicate/invalid route "+op.name);
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
-      const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete"].includes(kind);
+      const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete"].includes(kind);
       if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
@@ -210,10 +210,13 @@ export function generate(ir,spec,out){
       if(b.audit){
         const fields=b.audit;
         if(!Array.isArray(fields)||fields.length===0||fields.length>8||
-           new Set(fields).size!==fields.length||!["create","transition","reassignReference","patchFields"].includes(kind)||
+           new Set(fields).size!==fields.length||!["create","transition","reassignReference","patchFields"].includes(kind)&&
+           !(kind==="delete"&&ir.operations.some(x=>x.behavior.createDetails?.versioned&&
+             x.behavior.createDetails.childEntity===e.name&&
+             fields.includes(x.behavior.createDetails.parentField)))||
            fields.some(x=>!e.fields.some(f=>f.name===x))||
            (["transition","reassignReference","patchFields"].includes(kind)&&(fields.length!==1||fields[0]!==b.field))||
-           (kind==="create"&&fields.includes(e.publicIdentity)))
+           (["create","delete"].includes(kind)&&fields.includes(e.publicIdentity)))
           throw Error("Invalid audited operation "+op.name);
       }
       if(b.moveUnits)assertMoveUnits(ir,e,op);
@@ -313,6 +316,9 @@ export function generate(ir,spec,out){
       if(b.createDetails){
         const plan=assertCreateDetails(ir,e,op);
         item.createDetails={
+          versioned:b.createDetails.versioned===true,
+          ...(b.createDetails.closeField?{closeField:b.createDetails.closeField,
+            closeState:b.createDetails.closeState}:{}),
           childEntity:plan.child.name,
           parentField:plan.relation.name,
           rowsField:plan.rowsField,
@@ -451,7 +457,8 @@ export function generate(ir,spec,out){
       return "  CONSTRAINT ck_gt_"+snake(e.name)+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    const versioned=ir.operations.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){

@@ -35,6 +35,8 @@ export const $lib = createTypeSpecLibrary({
     moveUnits: {description:"Atomic two-record inventory transfer and durable movement creation"},
     moveBatch: {description:"Atomic 2–4-leg movement net settlement over shared parent balances and durable journal row"},
     createDetails: {description:"Atomic parent and dynamic typed child collection insert (1–20 rows)"},
+    versionedDetails: {description:"Opt-in document-wide optimistic version for bounded detail append and audited child patches"},
+    replaceDetails: {description:"Atomically replace all child rows of a versioned bounded document"},
     detailSum: {description:"Authorized, snapshot-consistent full relational detail quantity sum"},
     reverseBatch: {description:"Exactly-once reversal of all bounded batch legs in one auditable transaction"},
     reverseUnits: {description:"Exactly-once guarded reversal of a journalled transfer"},
@@ -177,6 +179,20 @@ function createDetails(context: DecoratorContext, target: Operation, childEntity
   context.program.stateMap($lib.stateKeys.createDetails).set(target,
     {childEntity,parentField,rowsField});
 }
+function versionedDetails(context: DecoratorContext, target: Operation,
+  closeField?: string, closeState?: string): void {
+  // TypeSpec may provide optional decorator arguments as typed string literals.
+  // Preserve their declared values rather than object-coercing to "[object Object]".
+  const stringArg=(arg:unknown)=>typeof arg==="string"?arg:
+    arg&&typeof arg==="object"&&"value" in arg&&typeof arg.value==="string"?
+      arg.value:undefined;
+  context.program.stateMap($lib.stateKeys.versionedDetails).set(target,
+    {enabled:true,...(closeField===undefined?{}:{closeField:stringArg(closeField)}),
+      ...(closeState===undefined?{}:{closeState:stringArg(closeState)})});
+}
+function replaceDetails(context: DecoratorContext, target: Operation): void {
+  context.program.stateMap($lib.stateKeys.replaceDetails).set(target,{enabled:true});
+}
 function moveBatch(context: DecoratorContext, target: Operation, stockEntity: string,
     availableField: string, legs: string): void {
   context.program.stateMap($lib.stateKeys.moveBatch).set(target,
@@ -270,6 +286,8 @@ export const $decorators = {
     moveUnits,
     moveBatch,
     createDetails,
+    versionedDetails,
+    replaceDetails,
     detailSum,
     reverseBatch,
     reverseUnits,

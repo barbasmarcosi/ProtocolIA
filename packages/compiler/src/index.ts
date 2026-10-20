@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -517,11 +517,22 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (auditMeta) {
       const list = typeof auditMeta.fields==="string" ? auditMeta.fields.split(",") : [];
       const allowed = new Set(entity.fields.map(x=>x.name));
-      if (!["create","transition","reassignReference","patchFields"].includes(kind) || !list.length || list.length>8 ||
+      const versionedParentCreator=relevant.find(candidate=>{
+        const source=metadata(p,"createDetails",candidate);
+        return String(source?.childEntity??"")===entity.name&&
+          !!metadata(p,"versionedDetails",candidate)&&
+          metadata(p,"behavior",candidate)?.kind==="create";
+      });
+      const parentFk=versionedParentCreator?
+        String(metadata(p,"createDetails",versionedParentCreator)?.parentField??""):null;
+      const versionedDetailDelete=kind==="delete"&&!!parentFk;
+      if (!["create","transition","reassignReference","patchFields"].includes(kind)&&!versionedDetailDelete ||
+          !list.length || list.length>8 ||
           list.some(x=>x.length===0 || x.trim()!==x || !allowed.has(x)) ||
           new Set(list).size!==list.length ||
           (["transition","reassignReference","patchFields"].includes(kind) && (list.length!==1 || list[0]!==f)) ||
-          (kind==="create" && list.includes(entity.publicIdentity))) {
+          (["create","delete"].includes(kind) && list.includes(entity.publicIdentity)) ||
+          (kind==="delete"&&(!versionedDetailDelete||!list.includes(parentFk!)))) {
         reject("invalid-audit",op.name+" must explicitly allowlist 1–8 supported entity fields (transition: state field only)",op);
         continue;
       }
@@ -612,8 +623,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
     }
     const reservation = metadata(p,"reserve",op);
+    const replaceMarker=metadata(p,"replaceDetails",op);
+    if((kind==="replaceDetails")!==!!replaceMarker){
+      reject("replace-details-declaration",op.name+
+        " requires @replaceDetails exactly on a replaceDetails behavior",op);continue;
+    }
     const details=metadata(p,"createDetails",op);
-    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number}|undefined;
+    const versioned=metadata(p,"versionedDetails",op);
+    if(versioned&&!details){
+      reject("orphan-versioned-details",op.name+" @versionedDetails requires @createDetails",op);
+      continue;
+    }
+    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number;
+      versioned?:boolean;closeField?:string;closeState?:string}|undefined;
     if(details){
       const child=declared.get(String(details.childEntity));
       const relation=child?.fields.find(x=>x.name===details.parentField);
@@ -664,7 +686,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       detailConfig={childEntity:child!.name,
-        parentField:String(details.parentField),rowsField:rowName,maxRows:20};
+        parentField:String(details.parentField),rowsField:rowName,maxRows:20,
+        ...(versioned?{versioned:true,
+          ...(versioned.closeField!==undefined?{closeField:String(versioned.closeField)}:{}),
+          ...(versioned.closeState!==undefined?{closeState:String(versioned.closeState)}:{})
+        }:{})};
     }
     const movement = metadata(p,"moveUnits",op);
     const multiMovement = metadata(p,"moveBatch",op);
@@ -1155,12 +1181,26 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    if(kind==="replaceDetails"){
+      const identity=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
+      if(http.verb!=="put"||identity.length!==1||identity[0]!==entity.publicIdentity||
+        http.parameters.body?.bodyKind!=="single"||
+        ![200,400,401,403,404,409].every(x=>statuses.includes(x))||
+        auditFields||f!==undefined||input!==undefined||detailConfig||
+        metadata(p,"transition",op)||reservation||release){
+        reject("replace-details-http",op.name+
+          " requires identity-keyed PUT, bounded typed body and 200/400/401/403/404/409",op);
+        continue;
+      }
+    }
     if(kind==="patchFields"&&auditFields&&
        (http.verb!=="patch"||![200,400,401,403,404,409].every(s=>statuses.includes(s)))){
       reject("audited-patch-http",op.name+" must declare 200/400/401/403/404/409",op);
       continue;
     }
-    if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
+    if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete" ||
+      (auditFields && (![400,401,403,404,409].every(s=>statuses.includes(s))||
+        http.parameters.body!==undefined)))) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
     if(reverseMovement){
@@ -1598,11 +1638,94 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
     }
   }
+  // B17.5b: do not derive collection replacement from its HTTP route.
+  // It is a deliberate, separately marked operation on a versioned parent
+  // with an identical bounded DTO to the nested children accepted at creation.
+  for(const replacement of operations.filter(o=>o.behavior.kind==="replaceDetails")){
+    const matches=operations.filter(o=>o.entity===replacement.entity&&
+      o.behavior.createDetails?.versioned);
+    const original=matches[0],plan=original?.behavior.createDetails;
+    const parent=entities.find(x=>x.name===replacement.entity);
+    const child=entities.find(x=>x.name===plan?.childEntity);
+    const source=ops.find(x=>x.name===replacement.name)!;
+    const payload=source.parameters.properties.get("input")?.type;
+    const props=payload?.kind==="Model"?payload.properties:undefined;
+    const row=plan&&props?.get(plan.rowsField);
+    const array=row?.type;
+    const model=array?.kind==="Model"&&array.indexer?.value.kind==="Model"?
+      array.indexer.value:undefined;
+    const item=model?.properties;
+    const eligible=child?.fields.filter(f=>f.name!==plan?.parentField&&!f.computedSum&&
+      !f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
+    const sameField=(a:IrField,b?:ModelProperty)=>{
+      const parsed=b?field(p,b):undefined;
+      return !!parsed&&a.type===parsed.type&&a.required===parsed.required&&
+        a.nullable===parsed.nullable&&a.min===parsed.min&&a.max===parsed.max&&
+        a.minLength===parsed.minLength&&a.maxLength===parsed.maxLength&&
+        a.pattern===parsed.pattern&&
+        JSON.stringify(a.choices)===JSON.stringify(parsed.choices)&&
+        JSON.stringify(a.decimal)===JSON.stringify(parsed.decimal);
+    };
+    const createChild=operations.find(o=>o.entity===child?.name&&o.behavior.kind==="create");
+    const deleteChild=operations.find(o=>o.entity===child?.name&&o.behavior.kind==="delete");
+    if(matches.length!==1||
+      operations.filter(o=>o.entity===replacement.entity&&o.behavior.kind==="replaceDetails").length!==1||
+      !parent||!plan||!child||!createChild||!deleteChild||
+      replacement.capability!==original.capability||
+      createChild.capability!==deleteChild.capability||
+      !createChild.behavior.audit?.includes(plan.parentField)||
+      !deleteChild.behavior.audit?.includes(plan.parentField)||
+      !props||props.size!==1||!row||row.optional||
+      getMinItems(p,row)!==1||getMaxItems(p,row)!==plan.maxRows||
+      !item||!eligible||item.size!==eligible.length||
+      eligible.some(f=>!sameField(f,item.get(f.name)))){
+      reject("invalid-replace-details",replacement.name+
+        " must replace exactly 1..20 typed children of one versioned parent, with both child audits and parent-write permission",source);
+    }
+  }
   // B16: a declared dynamic detail may expose up to three independent
   // audited, optimistic, distinct scalar-field editors; never owner-scoped.
   // optimistic, audited text patch. Never allow direct FK/identity rewrites.
   for(const creator of operations.filter(o=>o.behavior.createDetails)){
     const cfg=creator.behavior.createDetails!;
+    if(cfg.versioned){
+      const createChild=operations.find(x=>x.entity===cfg.childEntity&&x.behavior.kind==="create");
+      const audit=createChild?.behavior.audit??[];
+      if(!audit.length||!audit.includes(cfg.parentField)){
+        reject("versioned-details-audit",creator.name+
+          " requires a declared child create audit containing the parent FK",ops.find(o=>o.name===creator.name)!);
+      }
+      const parent=entities.find(e=>e.name===creator.entity);
+      const child=entities.find(e=>e.name===cfg.childEntity);
+      if(cfg.closeField!==undefined||cfg.closeState!==undefined){
+        const state=parent?.fields.find(f=>f.name===cfg.closeField);
+        const closes=operations.filter(o=>o.entity===creator.entity&&
+          o.behavior.kind==="transition");
+        const close=closes[0];
+        const allowed=operations.filter(o=>o.entity===creator.entity&&
+          ["create","get","listPage","queryPage","auditPage","sumDetails","replaceDetails","health","transition"].includes(o.behavior.kind));
+        if(!state||!state.initial||state.type!=="string"||!state.required||state.nullable||
+          !cfg.closeState||!/^([a-z][a-z0-9_-]{0,63})$/.test(cfg.closeState)||
+          cfg.closeState===state.initial||
+          (state.choices&&!state.choices.some(x=>x.value===cfg.closeState))||
+          closes.length!==1||close?.behavior.field!==cfg.closeField||
+          close?.behavior.from!==state.initial||close?.behavior.to!==cfg.closeState||
+          close?.behavior.audit?.length!==1||close.behavior.audit[0]!==cfg.closeField||
+          close?.capability!==creator.capability||close.method!=="POST"||
+          ![200,400,401,403,404,409].every(s=>close.statuses.includes(s))||
+          allowed.length!==operations.filter(o=>o.entity===creator.entity).length){
+          reject("invalid-versioned-close",creator.name+
+            " requires exactly one audited initial-to-terminal transition with parent-write authority",
+          ops.find(o=>o.name===creator.name)!);
+        }
+      }
+      if(parent?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
+        child?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
+        operations.some(o=>o.entity===creator.entity&&o.behavior.kind==="delete")){
+        reject("invalid-versioned-details",creator.name+
+          " cannot collide with the generated document version or remove its parent",ops.find(o=>o.name===creator.name)!);
+      }
+    }
     const patches=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.kind==="patchFields");
     if(patches.length>3||
        new Set(patches.map(o=>o.behavior.field)).size!==patches.length||
@@ -1611,6 +1734,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
         " requires at most three distinct audited editable child fields",ops.find(o=>o.name===creator.name)!);
     for(const mut of operations.filter(o=>o.entity===cfg.childEntity&&
       !["create","get","listPage","queryPage","auditPage","health"].includes(o.behavior.kind))){
+      if(cfg.versioned&&mut.behavior.kind==="delete"&&
+        mut.behavior.audit?.includes(cfg.parentField)&&
+        mut.behavior.audit.length>=1&&mut.behavior.audit.length<=8)continue;
       const child=entities.find(x=>x.name===cfg.childEntity);
       const field=child?.fields.find(x=>x.name===mut.behavior.field);
       if(mut.behavior.kind!=="patchFields"||!field||

@@ -130,9 +130,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
+  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
@@ -162,7 +162,7 @@ export function generate(ir, openapi, outDir) {
     }
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
@@ -185,10 +185,13 @@ export function generate(ir, openapi, outDir) {
     if(op.behavior.audit){
       const a=op.behavior.audit;
       if(!Array.isArray(a)||a.length<1||a.length>8||new Set(a).size!==a.length||
-         !["create","transition","reassignReference","patchFields"].includes(op.behavior.kind)||
+         !["create","transition","reassignReference","patchFields"].includes(op.behavior.kind)&&
+           !(op.behavior.kind==="delete"&&ops.some(x=>x.behavior.createDetails?.versioned&&
+             x.behavior.createDetails.childEntity===bound.name&&
+             a.includes(x.behavior.createDetails.parentField)))||
          a.some(field=>!bound.fields.some(f=>f.name===field))||
          (["transition","reassignReference","patchFields"].includes(op.behavior.kind)&&(a.length!==1||a[0]!==op.behavior.field))||
-         (op.behavior.kind==="create"&&a.includes(bound.publicIdentity)))
+         (["create","delete"].includes(op.behavior.kind)&&a.includes(bound.publicIdentity)))
         throw Error("Invalid audited mutation "+op.name);
     }
     if(op.behavior.moveUnits)assertMoveUnits(ir,bound,op);
@@ -265,7 +268,7 @@ export function generate(ir, openapi, outDir) {
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","replaceDetails","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const edits=byKind("patchFields",e.name);
     const associated=ops.some(op=>op.behavior.createDetails?.childEntity===e.name);
@@ -293,7 +296,7 @@ export function generate(ir, openapi, outDir) {
     }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
-      const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
+      const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","replaceDetails","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
@@ -341,7 +344,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
     "  public record MoveLeg(String sourceField,String targetField,String quantityField) {}",
-    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows) {}",
+    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState) {}",
     "  public record MoveBatch(String stockTable,String stockKeyColumn,String availableColumn,int maxBalance,String parentWriteCapability,List<MoveLeg> legs) {}",
     "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
@@ -467,7 +470,8 @@ export function generate(ir, openapi, outDir) {
       const plan=assertCreateDetails(ir,entityMap.get(op.entity),op);
       createDetails="new CreateDetails("+[
         j(plan.child.name),j(plan.relation.name),j(plan.rowsField),
-        j(plan.childWriteCapability),n(plan.maxRows)
+        j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false",
+        j(b.createDetails.closeField??""),j(b.createDetails.closeState??"")
       ].join(",")+")";
     }
     let release="null";
@@ -579,7 +583,8 @@ export function generate(ir, openapi, outDir) {
       return "  CONSTRAINT ck_gt_"+table+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    const versioned=ops.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){

@@ -304,6 +304,112 @@ try{
     "-Atc","SELECT (SELECT count(*) FROM purchase_order)::text || ':' || "+
       "(SELECT count(*) FROM order_line)::text"]);
   assert.equal(after,"4:27");
+  // B17 first slice: legacy direct child POST must obey the SAME 20-row
+  // document bound as nested creation, including when appends race.
+  const append=(parent,id,units=1)=>request("POST","/api/order-lines",{
+    lineCode:id,orderCode:parent,product:"Renglón agregado",units
+  });
+  assert.equal((await append("TWENTY","ROW-21")).status,409,
+    "Direct child POST must not create row 21 on a full header");
+  assert.equal((await request("GET","/api/order-lines/ROW-21")).status,404);
+  assert.equal((await append("NO-PARENT","ORPHAN-B17")).status,400);
+  assert.equal((await append("SUCCESS","ADDED-B17",5)).status,201,
+    "A non-full document still supports a valid direct append");
+  assert.equal((await total("SUCCESS")).body.totalUnits,"42");
+  const directAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT field_name || ':' || COALESCE(before_value,'<null>') || ':' || "+
+      "after_value FROM protocolia_audit_event WHERE entity_name='OrderLine' "+
+      "AND resource_id='ADDED-B17' ORDER BY field_name"]);
+  assert.equal(directAudit,[
+    "orderCode:<null>:SUCCESS","product:<null>:Renglón agregado","units:<null>:5"
+  ].join("\n"),"Direct child append must create precisely the three declared audit events");
+  // Inject an audit failure into the same PostgreSQL transaction as the child
+  // INSERT. Both adapters must roll back the new line, not merely its audit.
+  const failAuditSql=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_fail_detail_audit()",
+    "RETURNS trigger LANGUAGE plpgsql AS $audit$",
+    "BEGIN IF NEW.resource_id = 'AUDIT-FAIL' THEN",
+    "RAISE EXCEPTION 'B17 forced audit failure';",
+    "END IF; RETURN NEW; END; $audit$;",
+    "CREATE TRIGGER protocolia_test_fail_detail_audit",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_fail_detail_audit();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",failAuditSql]);
+  const beforeAuditFailure=(await total("SUCCESS")).body.totalUnits;
+  const rejectedAudit=await append("SUCCESS","AUDIT-FAIL",7);
+  assert.equal(rejectedAudit.status,500,"An audit INSERT failure must fail the HTTP child mutation");
+  assert.equal((await request("GET","/api/order-lines/AUDIT-FAIL")).status,404,
+    "A failed audit must roll back the appended child");
+  assert.equal((await total("SUCCESS")).body.totalUnits,beforeAuditFailure,
+    "No failed-audit append may change the SQL-derived document total");
+  const failedAuditRows=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event WHERE entity_name='OrderLine' "+
+      "AND resource_id='AUDIT-FAIL'"]);
+  assert.equal(failedAuditRows,"0","Failed audit must not leave partial audit rows");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_fail_detail_audit ON protocolia_audit_event; "+
+      "DROP FUNCTION protocolia_test_fail_detail_audit()"]);
+  const nineteen=Array.from({length:19},(_,i)=>item("BOUNDED-"+i,"Producto",1));
+  assert.equal((await create("BOUNDED-RACE",nineteen)).status,201);
+  const competingAppends=await Promise.all([
+    append("BOUNDED-RACE","APPEND-A"),append("BOUNDED-RACE","APPEND-B")
+  ]);
+  assert.deepEqual(competingAppends.map(x=>x.status).sort(),[201,409],
+    "Parent row lock must permit only one concurrent final-slot append");
+  assert.equal((await total("BOUNDED-RACE")).body.totalUnits,"20");
+  const fullCount=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT (SELECT count(*) FROM order_line WHERE order_code='TWENTY')::text || ':' || "+
+      "(SELECT count(*) FROM order_line WHERE order_code='BOUNDED-RACE')::text || ':' || "+
+      "(SELECT count(*) FROM order_line WHERE order_code NOT IN (SELECT code FROM purchase_order))::text"]);
+  assert.equal(fullCount,"20:20:0","Hard bound and zero orphans must hold after races");
+  const winnerAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text || ':' || count(DISTINCT resource_id)::text "+
+      "FROM protocolia_audit_event WHERE entity_name='OrderLine' "+
+      "AND resource_id IN ('APPEND-A','APPEND-B')"]);
+  assert.equal(winnerAudit,"3:1","Losing append must not leave audit events");
+  // Recreate only the application with a child writer who cannot write headers.
+  // This distinguishes the new parent-auth gate from the pre-existing child gate.
+  const originalEnv=readFileSync(env,"utf8");
+  const scopedKey="PROTOCOLIA_SCOPED_CAPABILITIES=orders.read,lines.read,lines.product.write";
+  assert.ok(originalEnv.includes(scopedKey));
+  writeFileSync(env,originalEnv.replace(scopedKey,
+    "PROTOCOLIA_SCOPED_CAPABILITIES=orders.read,lines.read,lines.write"),{mode:0o600});
+  docker([...args,"up","--detach","--no-deps","--force-recreate","app"],600000);
+  let restarted=false;
+  for(let attempt=0;attempt<120;attempt++){
+    try{
+      const health=await fetch(base+"/health",{signal:AbortSignal.timeout(2500)});
+      if(health.ok){restarted=true;break;}
+    }catch{}
+    await new Promise(resolve=>setTimeout(resolve,900));
+  }
+  assert.ok(restarted,"Restarted generated service must be healthy");
+  const childWriter=basic("product_editor",scopedPassword);
+  const session=await request("GET","/api/_protocolia/me",undefined,
+    {Authorization:childWriter});
+  assert.equal(session.status,200,JSON.stringify(session));
+  assert.ok(session.body.capabilities.includes("lines.write"));
+  assert.ok(!session.body.capabilities.includes("orders.write"));
+  assert.equal((await append("SUCCESS","UNAUTHORIZED-CHILD")).status,201,
+    "The manager must still be authorized after restart");
+  assert.equal((await request("POST","/api/order-lines",{
+    lineCode:"NO-PARENT-WRITE",orderCode:"SUCCESS",product:"Negado",units:1
+  },{Authorization:childWriter})).status,403,
+    "Child write authority must not bypass header write authorization");
+  assert.equal((await request("GET","/api/order-lines/NO-PARENT-WRITE")).status,404);
+  console.log("PROTOCOLIA_B17_PARENT_AUTH_AUDIT_PASS "+JSON.stringify({
+    childWriteWithoutParentDenied:true,managerAppendAllowed:true,
+    auditedDirectAppend:true,losingAppendUnaudited:true,
+    failedAuditRollsBackChild:true
+  }));
+  console.log("PROTOCOLIA_B17_BOUNDED_APPEND_PASS "+JSON.stringify({
+    directAppendAllowedBelowLimit:true,twentyFirstRejected:true,
+    finalSlotRaceOneWinner:true,fullDocumentSumFromSql:true,noOrphans:true,
+    documentVersioning:false,appendAuditing:true
+  }));
   console.log("PROTOCOLIA_B16_TWO_FIELD_CAS_PASS "+JSON.stringify({
     atomic:true,maxRowsAccepted:20,duplicateChildRollback:true,
     concurrentCreateWinners:1,concurrentConflict:9,

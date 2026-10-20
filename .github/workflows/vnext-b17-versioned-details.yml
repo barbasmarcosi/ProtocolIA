@@ -1,0 +1,62 @@
+name: vnext-b17-versioned-details
+on:
+  push:
+    branches: [main, feature/b17-atomic-bounded-detail-append-20261020]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/dynamic-order-versioned/**'
+      - 'tests/vnext/dynamic-order-versioned.test.mjs'
+      - 'scripts/vnext/probe-versioned-order-http.mjs'
+      - '.github/workflows/vnext-b17-versioned-details.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b17-version-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  versioned-document:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile TypeSpec and prove @versionedDetails contract
+        run: |
+          npm run build:vnext
+          node --test tests/vnext/dynamic-order-versioned.test.mjs
+      - name: Generate app from @versionedDetails TypeSpec contract
+        run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${RUNNER_TEMP}/b17-versioned"
+      # The generic app:test runner exercises legacy non-versioned HTTP POST/PATCH.
+      # This fixture requires a strict If-Match header; use the comprehensive
+      # versioned live HTTP/PostgreSQL oracle below instead.
+      - name: Install pinned Chromium for generated React conformance
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Prove CAS and generated React UI on PostgreSQL + mobile Chromium
+        run: node scripts/vnext/probe-versioned-order-http.mjs "${RUNNER_TEMP}/b17-versioned"
+      - name: Retain generated mobile UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b17-versioned-react-${{ matrix.target }}
+          path: ${{ runner.temp }}/b17-versioned/b17-versioned-mobile.png
+          if-no-files-found: ignore
+          retention-days: 7

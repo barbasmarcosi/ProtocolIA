@@ -26,7 +26,28 @@ export function assertCreateDetails(ir,parent,op){
       !x.capability||x.capability==="public"||
       x.capability===ir.operations.find(y=>y.entity===child.name&&y.behavior.kind==="get")?.capability;
   });
+  // Auditing an independent child append is safe only when the parent FK is
+  // recorded and the selected fields come from the declared, non-identity child.
+  const childAudit=childCreate[0]?.behavior.audit;
+  const invalidChildAudit=childAudit!==undefined&&(
+    !Array.isArray(childAudit)||childAudit.length<1||childAudit.length>8||
+    !childAudit.includes(meta?.parentField)||
+    new Set(childAudit).size!==childAudit.length||
+    childAudit.some(name=>!child?.fields.some(f=>f.name===name&&name!==child.publicIdentity))
+  );
   const patches=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="patchFields");
+  const deletes=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="delete");
+  const unsafeDeletes=deletes.length>0&&(
+    meta?.versioned!==true||deletes.length!==1||deletes.some(x=>
+      x.method!=="DELETE"||![204,400,401,403,404,409].every(s=>x.statuses?.includes(s))||
+      !x.behavior.audit?.includes(meta.parentField)||
+      x.behavior.audit.some(name=>name===child.publicIdentity||
+        !child.fields.some(f=>f.name===name))||
+      x.behavior.audit.length>8||x.behavior.audit.length<1||
+      new Set(x.behavior.audit).size!==x.behavior.audit.length||
+      x.capability!==childCreate[0]?.capability
+    )
+  );
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
     new Set(patches.map(x=>x.capability)).size!==patches.length||
@@ -44,14 +65,18 @@ export function assertCreateDetails(ir,parent,op){
     childCreate.length!==1||parentCreate.length!==1||parentCreate[0].name!==op.name||
     !childCreate[0].capability||childCreate[0].capability==="public"||
     !op.capability||op.capability==="public"||
-    childCreate[0].behavior.audit||childCreate[0].behavior.reserve||
+    invalidChildAudit||(meta.versioned===true&&!childAudit)||
+    (meta.versioned!==undefined&&meta.versioned!==true)||
+    childCreate[0].behavior.reserve||
     childCreate[0].behavior.moveUnits||childCreate[0].behavior.moveBatch||
     childCreate[0].behavior.createDetails||childCreate[0].behavior.debitExact||
     ir.operations.some(x=>x.entity===parent.name&&x.behavior.kind==="create"&&x.behavior.moveBatch)||
     op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
     op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
     ir.operations.some(x=>x.entity===child.name&&
-      !["create","get","listPage","queryPage","auditPage","patchFields","health"].includes(x.behavior.kind))||
+      !["create","get","listPage","queryPage","auditPage","patchFields","health",
+        ...(meta.versioned?["delete"]:[])].includes(x.behavior.kind))||
+    unsafeDeletes||
     (invalidPatch||unsafePatches))
     throw Error("Unsafe bounded relational header/detail contract");
   return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,

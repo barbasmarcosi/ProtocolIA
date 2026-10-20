@@ -16,7 +16,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
-type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string};
+type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean;closeField?:string;closeState?:string};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -467,7 +467,37 @@ class RuntimeService{
     }
   }
   private select(e:Entity):string{
-    return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+" FROM "+e.table;
+    const versioned=spec.operations.some(op=>op.entity===e.name&&op.createDetails?.versioned);
+    return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+
+      (versioned?',document_version AS "documentVersion"':"")+" FROM "+e.table;
+  }
+  private parseDocumentVersion(ifMatch:unknown):number{
+    if(typeof ifMatch!=="string"||!/^"[1-9][0-9]{0,9}"$/.test(ifMatch))
+      throw new Problem(400,"Expected a strong If-Match document version");
+    const version=Number(ifMatch.slice(1,-1));
+    if(!Number.isInteger(version)||version>2147483647)
+      throw new Problem(400,"Invalid document version");
+    return version;
+  }
+  private async assertDocumentVersion(client:any,parent:Entity,id:string,ifMatch:unknown):Promise<void>{
+    const expected=this.parseDocumentVersion(ifMatch);
+    const plan=spec.operations.find(op=>op.entity===parent.name&&op.createDetails?.versioned)
+      ?.createDetails;
+    const field=plan?.closeField?parent.fields.find(f=>f.name===plan.closeField):undefined;
+    const locked=await client.query("SELECT document_version"+
+      (field?","+field.column+' AS "documentState"':"")+" FROM "+parent.table+
+      " WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[id]);
+    if(locked.rowCount!==1)throw new Problem(404,"Versioned document not found");
+    if(locked.rows[0].document_version!==expected)
+      throw new Problem(409,"Stale document version");
+    if(plan?.closeState&&locked.rows[0].documentState===plan.closeState)
+      throw new Problem(409,"Document is closed");
+  }
+  private async bumpDocumentVersion(client:any,parent:Entity,id:string):Promise<void>{
+    const changed=await client.query("UPDATE "+parent.table+
+      " SET document_version=document_version+1 WHERE "+parent.identityColumn+
+      "=$1 AND document_version<2147483647",[id]);
+    if(changed.rowCount!==1)throw new Problem(409,"Document version exhausted");
   }
   private async row(e:Entity,id:string,subject?:string):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
@@ -620,7 +650,7 @@ class RuntimeService{
         [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
     }
   }
-  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[]):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown):Promise<Record<string,unknown>>{
     const plan=op.createDetails;
     let detailRows:Record<string,unknown>[]|undefined;
     let child:Entity|undefined;
@@ -677,7 +707,12 @@ class RuntimeService{
         relation.parentKey+"=$"+(cols.length+1)+" AND "+relation.parentOwnerColumn+
         "=$"+(cols.length+2)+") RETURNING "+e.identityColumn:")");
     const insertParams=relation?[...params,input[relation.field],actor]:params;
-    if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length){
+    // B17: a direct child POST must not bypass @createDetails maxRows.
+    // The header row lock serializes competing appends within one document.
+    const boundedCreator=spec.operations.find(x=>x.createDetails?.childEntity===e.name);
+    if(boundedCreator&&!capabilities.includes(boundedCreator.capability))
+      throw new Problem(403,"Parent write permission required to append a detail");
+    if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length||boundedCreator){
       const batch=op.moveBatch;
       const movement=op.moveUnits;
       const reservation=op.reserve;
@@ -694,6 +729,24 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        if(boundedCreator){
+          const bound=boundedCreator.createDetails!;
+          const parent=spec.entities.find(x=>x.name===boundedCreator.entity);
+          if(!parent)throw new Error("Missing bounded detail header");
+          const raw=input[bound.parentField];
+          if(typeof raw!=="string"||!raw.trim())
+            throw new Problem(400,"Invalid detail parent");
+          const locked=await client.query("SELECT "+parent.identityColumn+" FROM "+
+            parent.table+" WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[raw]);
+          if(locked.rowCount!==1)throw new Problem(400,"Detail parent not found");
+          if(bound.versioned)await this.assertDocumentVersion(client,parent,raw,ifMatch);
+          const fk=e.fields.find(x=>x.name===bound.parentField);
+          if(!fk)throw new Error("Missing bounded detail relationship");
+          const count=await client.query("SELECT COUNT(*)::int AS used FROM "+e.table+
+            " WHERE "+fk.column+"=$1",[raw]);
+          if(!count.rows.length||count.rows[0].used>=bound.maxRows)
+            throw new Problem(409,"Document detail limit reached");
+        }
         if(batch){
           const deltas=new Map<string,number>();
           for(const leg of batch.legs){
@@ -787,6 +840,10 @@ class RuntimeService{
           }
         }
         if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
+        if(boundedCreator?.createDetails?.versioned){
+          const parent=spec.entities.find(x=>x.name===boundedCreator.entity)!;
+          await this.bumpDocumentVersion(client,parent,input[boundedCreator.createDetails.parentField] as string);
+        }
         await client.query("COMMIT");
       }catch(error){
         await client.query("ROLLBACK");
@@ -820,7 +877,7 @@ class RuntimeService{
     return this.row(e,key,subject);
   }
 
-  private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
+  private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string,ifMatch?:unknown):Promise<Record<string,unknown>>{
     const audited=Boolean(op.audit?.length);
     if(!isRecord(body)||Object.keys(body).length!==(audited?2:1)||
       !Object.hasOwn(body,op.input!)||(audited&&!Object.hasOwn(body,"expected")))
@@ -833,10 +890,25 @@ class RuntimeService{
     const field=e.fields.find(f=>f.name===op.field)!;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!subject||field.ownerManaged))throw new Problem(403,"Owner-scoped patch denied");
+    const versionedCreator=spec.operations.find(x=>x.createDetails?.versioned&&
+      x.createDetails.childEntity===e.name);
     if(audited){
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        let versionedParent:Entity|undefined;
+        let versionedParentId:string|undefined;
+        if(versionedCreator){
+          const plan=versionedCreator.createDetails!;
+          const fk=e.fields.find(x=>x.name===plan.parentField);
+          versionedParent=spec.entities.find(x=>x.name===versionedCreator.entity);
+          if(!fk||!versionedParent)throw new Error("Missing versioned parent relationship");
+          const child=await client.query("SELECT "+fk.column+" FROM "+e.table+
+            " WHERE "+e.identityColumn+"=$1",[key]);
+          if(child.rowCount!==1)throw new Problem(404,"Detail not found");
+          versionedParentId=child.rows[0][fk.column] as string;
+          await this.assertDocumentVersion(client,versionedParent,versionedParentId,ifMatch);
+        }
         const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
           "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
           e.identityColumn,[input[op.input!],key,body.expected]);
@@ -848,6 +920,8 @@ class RuntimeService{
         }
         await this.recordAudit(client,e,op,key,subject??"",
           {[op.input!]:body.expected},input);
+        if(versionedParent&&versionedParentId)
+          await this.bumpDocumentVersion(client,versionedParent,versionedParentId);
         await client.query("COMMIT");
       }catch(error){await client.query("ROLLBACK");throw error;}
       finally{client.release();}
@@ -871,10 +945,30 @@ class RuntimeService{
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
     return this.row(e,key);
   }
-  private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string):Promise<Record<string,unknown>>{
+  private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string,
+    ifMatch?:unknown):Promise<Record<string,unknown>>{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    const creator=spec.operations.find(x=>x.entity===e.name&&x.createDetails?.versioned&&
+      x.createDetails.closeField===op.field&&x.createDetails.closeState===op.to);
+    if(creator){
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        await this.assertDocumentVersion(client,e,key,ifMatch);
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3",
+          [op.to,key,op.from]);
+        if(changed.rowCount!==1)throw new Problem(409,"Document closing precondition failed");
+        await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
+        await this.bumpDocumentVersion(client,e,key);
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     if(op.reverseBatch){
       const plan=op.reverseBatch;
       const client=await this.pool.connect();
@@ -1067,15 +1161,127 @@ class RuntimeService{
     finally{client.release();}
     return this.row(e,key);
   }
-  private async remove(e:Entity,key:string):Promise<void>{
-    try{
-      const deleted=await this.pool.query("DELETE FROM "+e.table+
-        " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
-      if(!deleted.rowCount)throw new Problem(404,"Not found");
-    }catch(e){
-      if((e as {code?:string}).code==="23503")throw new Problem(409,"Referenced resource cannot be deleted");
-      throw e;
+  private async replaceDetails(parent:Entity,key:string,body:unknown,actor:string,
+      capabilities:string[],ifMatch:unknown):Promise<Record<string,unknown>>{
+    const creator=spec.operations.find(x=>x.entity===parent.name&&x.createDetails?.versioned);
+    const plan=creator?.createDetails;
+    if(!plan)throw new Error("Unresolved versioned parent");
+    const child=spec.entities.find(x=>x.name===plan.childEntity);
+    const create=spec.operations.find(x=>x.entity===child?.name&&x.kind==="create");
+    const remove=spec.operations.find(x=>x.entity===child?.name&&x.kind==="delete");
+    if(!child||!create||!remove)throw new Error("Missing child audit operations");
+    if(!capabilities.includes(creator!.capability)||!capabilities.includes(create.capability)||
+       !capabilities.includes(remove.capability))
+      throw new Problem(403,"Parent, child create and child delete permissions required");
+    if(typeof key!=="string"||!isRecord(body)||Object.keys(body).length!==1||
+       !Array.isArray(body[plan.rowsField])||
+       (body[plan.rowsField] as unknown[]).length<1||
+       (body[plan.rowsField] as unknown[]).length>plan.maxRows)
+      throw new Problem(400,"Expected 1..20 typed replacement rows");
+    const writable=child.fields.filter(f=>!f.computedSum&&!f.computedProduct&&
+      !f.computedRoundedProduct&&!f.computedDiscountedTotal);
+    const incoming:Record<string,unknown>[]=[];
+    const identities=new Set<string>();
+    for(const raw of body[plan.rowsField] as unknown[]){
+      if(!isRecord(raw)||Object.hasOwn(raw,plan.parentField))
+        throw new Problem(400,"The parent FK is server managed");
+      const values=validateInput(child,{...raw,[plan.parentField]:key},writable.map(f=>f.name),true);
+      const identity=values[child.publicIdentity];
+      if(typeof identity!=="string"||identities.has(identity))
+        throw new Problem(409,"Duplicate replacement identity");
+      identities.add(identity);
+      incoming.push(values);
     }
+    const fk=child.fields.find(f=>f.name===plan.parentField);
+    if(!fk)throw new Error("Unknown bounded parent FK");
+    const client=await this.pool.connect();
+    try{
+      await client.query("BEGIN");
+      await this.assertDocumentVersion(client,parent,key,ifMatch);
+      const old=await client.query(this.select(child)+" WHERE "+fk.column+
+        "=$1 ORDER BY "+child.identityColumn,[key]);
+      await client.query("DELETE FROM "+child.table+" WHERE "+fk.column+"=$1",[key]);
+      for(const before of old.rows)
+        await this.recordAudit(client,child,remove,String(before[child.publicIdentity]),
+          actor,before,{});
+      const columns=writable.map(f=>f.column).join(",");
+      const placeholders=writable.map((_,i)=>"$"+(i+1)).join(",");
+      for(const data of incoming){
+        const args=writable.map(f=>f.type==="utcDateTime"&&data[f.name]!=null?
+          parseTimestamp(data[f.name]):data[f.name]??null);
+        await client.query("INSERT INTO "+child.table+" ("+columns+") VALUES ("+
+          placeholders+")",args);
+        await this.recordAudit(client,child,create,String(data[child.publicIdentity]),
+          actor,null,data);
+      }
+      await this.bumpDocumentVersion(client,parent,key);
+      await client.query("COMMIT");
+    }catch(error){
+      await client.query("ROLLBACK");
+      const code=(error as {code?:string}).code;
+      if(code==="23503"||code==="23505")
+        throw new Problem(409,"Replacement conflicts with unique or referenced resource");
+      if(code==="23502"||code==="23514")
+        throw new Problem(400,"Invalid replacement data");
+      throw error;
+    }finally{client.release();}
+    return this.row(parent,key);
+  }
+  private async remove(e:Entity,op:Operation,key:string,actor:string,
+    capabilities:string[],ifMatch:unknown,body:unknown):Promise<void>{
+    if(!key||(body!=null&&(!isRecord(body)||Object.keys(body).length!==0)))
+      throw new Problem(400,"DELETE must have no request body");
+    const creator=spec.operations.find(x=>x.createDetails?.childEntity===e.name);
+    if(!creator){
+      if(op.audit?.length)throw new Error("Nonversioned audited delete is unsupported");
+      try{
+        const deleted=await this.pool.query("DELETE FROM "+e.table+
+          " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
+        if(!deleted.rowCount)throw new Problem(404,"Not found");
+      }catch(error){
+        if((error as {code?:string}).code==="23503")
+          throw new Problem(409,"Referenced resource cannot be deleted");
+        throw error;
+      }
+      return;
+    }
+    const plan=creator.createDetails!;
+    if(!plan.versioned||!op.audit?.length||!op.audit.includes(plan.parentField))
+      throw new Error("Unsafe bounded detail DELETE contract");
+    if(!capabilities.includes(creator.capability))
+      throw new Problem(403,"Parent write permission required");
+    this.parseDocumentVersion(ifMatch);
+    const parent=spec.entities.find(x=>x.name===creator.entity);
+    const fk=e.fields.find(x=>x.name===plan.parentField);
+    if(!parent||!fk)throw new Error("Unresolved versioned detail FK");
+    const client=await this.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const childFk=await client.query("SELECT "+fk.column+" FROM "+e.table+
+        " WHERE "+e.identityColumn+"=$1",[key]);
+      if(childFk.rowCount!==1)throw new Problem(404,"Detail not found");
+      const parentId=childFk.rows[0][fk.column] as string;
+      // Same header lock as versioned append/patch. Re-check row after lock.
+      await this.assertDocumentVersion(client,parent,parentId,ifMatch);
+      const before=await client.query(this.select(e)+" WHERE "+e.identityColumn+
+        "=$1 AND "+fk.column+"=$2",[key,parentId]);
+      if(before.rowCount!==1)throw new Problem(404,"Detail changed");
+      const count=await client.query("SELECT COUNT(*)::int AS total FROM "+e.table+
+        " WHERE "+fk.column+"=$1",[parentId]);
+      if(count.rows[0].total<=1)
+        throw new Problem(409,"A bounded document requires at least one detail");
+      const deleted=await client.query("DELETE FROM "+e.table+
+        " WHERE "+e.identityColumn+"=$1 AND "+fk.column+"=$2",[key,parentId]);
+      if(deleted.rowCount!==1)throw new Problem(409,"Detail changed concurrently");
+      await this.recordAudit(client,e,op,key,actor,before.rows[0],{});
+      await this.bumpDocumentVersion(client,parent,parentId);
+      await client.query("COMMIT");
+    }catch(error){
+      await client.query("ROLLBACK");
+      if((error as {code?:string}).code==="23503")
+        throw new Problem(409,"Referenced resource cannot be deleted");
+      throw error;
+    }finally{client.release();}
   }
   async dispatch(op:Operation,req:any,res:any):Promise<void>{
     try{
@@ -1110,7 +1316,7 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities);break;
+        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"]);break;
         case "get":data=await this.row(entity,identity,session.username);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "sumDetails":data=await this.sumDetails(op,identity);break;
@@ -1119,12 +1325,16 @@ class RuntimeService{
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
-        case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username);break;
+        case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username,req.headers["if-match"]);break;
+        case "replaceDetails":data=await this.replaceDetails(entity,identity,req.body,
+          session.username,session.capabilities,req.headers["if-match"]);break;
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
-        case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
+        case "transition":data=await this.transition(entity,op,identity,req.body,session.username,
+          req.headers["if-match"]);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
-        case "delete":await this.remove(entity,identity);res.status(204).send();return;
+        case "delete":await this.remove(entity,op,identity,session.username,session.capabilities,
+          req.headers["if-match"],req.body);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }
       const redacted=(record:unknown):unknown=>{
@@ -1137,6 +1347,9 @@ class RuntimeService{
       if(["create","get","patchFields","patchTogether"].includes(op.kind))data=redacted(data);
       else if(op.kind==="listPage"&&isRecord(data)&&Array.isArray(data.items))
         data={...data,items:data.items.map(redacted)};
+      if(["get","create"].includes(op.kind)&&isRecord(data)&&
+        Number.isInteger(data.documentVersion))
+        res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
       res.status(op.kind==="create"?201:200).json(data);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
