@@ -178,10 +178,11 @@ public class DomainRuntime {
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
-      case "delete" -> result = delete(entity, publicKey);
+      case "delete" -> result = delete(entity, matched, publicKey, user,
+        request.getHeader("If-Match"),body);
       default -> throw new IllegalStateException("Unsupported generated behavior");
     }
-    if(!matched.audit().isEmpty()){
+    if(!matched.audit().isEmpty()&&!matched.kind().equals("delete")){
       if(user==null || !user.isAuthenticated())
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
       @SuppressWarnings("unchecked")
@@ -953,17 +954,76 @@ public class DomainRuntime {
     return row(e,id);
   }
 
-  private Object delete(Manifest.Entity e, String id) {
-    if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+  private Object delete(Manifest.Entity e, Manifest.Op op, String id, Authentication actor,
+      String ifMatch, Map<String,Object> body) {
+    if(id==null||body!=null&&!body.isEmpty())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"DELETE has no request body");
+    var creator=Manifest.OPS.stream().filter(x->x.createDetails()!=null&&
+        x.createDetails().childEntity().equals(e.name())).findFirst().orElse(null);
+    if(creator==null){
+      if(!op.audit().isEmpty())
+        throw new IllegalStateException("Nonversioned audited delete is unsupported");
+      int affected;
+      try{
+        affected=jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key",Map.of("key",id));
+      }catch(DataIntegrityViolationException ex){
+        if(constraintSqlState(ex,"23503"))
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Referenced by another resource");
+        throw ex;
+      }
+      if(affected==0)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      return null;
+    }
+    var plan=creator.createDetails();
+    if(!plan.versioned()||op.audit().isEmpty()||!op.audit().contains(plan.parentField()))
+      throw new IllegalStateException("Unsafe bounded detail DELETE contract");
+    if(actor==null||actor.getAuthorities().stream().noneMatch(a->
+        a.getAuthority().equals(creator.capability())))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Parent write permission required");
+    // Validate If-Match before exposing the child or touching the database.
+    parseDocumentVersion(ifMatch);
+    var parent=Manifest.ENTITIES.stream().filter(x->x.name().equals(creator.entity()))
+      .findFirst().orElseThrow();
+    String fk=e.fields().stream().filter(x->x.name().equals(plan.parentField()))
+      .findFirst().orElseThrow().column();
+    var childFk=jdbc.queryForList("SELECT "+fk+" FROM "+e.table()+
+      " WHERE "+e.identityColumn()+"=:id",Map.of("id",id),String.class);
+    if(childFk.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    String parentId=childFk.get(0);
+    // Canonical lock order (header before child) matches POST/PATCH and
+    // prevents two deletions or an append from violating the collection floor.
+    assertDocumentVersion(parent,parentId,ifMatch);
+    var params=Map.of("id",id,"parent",parentId);
+    var before=jdbc.queryForList(selectSql(e)+" WHERE "+e.identityColumn()+
+      "=:id AND "+fk+"=:parent",params);
+    if(before.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    Number count=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+
+      " WHERE "+fk+"=:parent",Map.of("parent",parentId),Long.class);
+    if(count==null||count.longValue()<=1)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"A bounded document requires at least one detail");
     int affected;
-    try {
-      affected = jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+"=:key", Map.of("key",id));
-    } catch (DataIntegrityViolationException ex) {
-      if (constraintSqlState(ex,"23503"))
+    try{
+      affected=jdbc.update("DELETE FROM "+e.table()+" WHERE "+e.identityColumn()+
+        "=:id AND "+fk+"=:parent",params);
+    }catch(DataIntegrityViolationException ex){
+      if(constraintSqlState(ex,"23503"))
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Referenced by another resource");
       throw ex;
     }
-    if (affected == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+    if(affected!=1)throw new ResponseStatusException(HttpStatus.CONFLICT,"Detail changed concurrently");
+    // Old values only: no reconstructed payload, and audit and version commit
+    // in the same @Transactional dispatch as the DELETE.
+    for(String field:op.audit()){
+      Object value=before.get(0).get(field);
+      jdbc.update("INSERT INTO protocolia_audit_event "+
+        "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+        "VALUES (:actor,:entity,:id,:op,:field,:before,NULL)",
+        new MapSqlParameterSource().addValue("actor",actor.getName())
+          .addValue("entity",e.name()).addValue("id",id)
+          .addValue("op",op.name()).addValue("field",field)
+          .addValue("before",value==null?null:String.valueOf(value)));
+    }
+    incrementDocumentVersion(parent,parentId);
     return null;
   }
 
