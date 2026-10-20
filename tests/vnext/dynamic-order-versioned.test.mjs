@@ -16,6 +16,13 @@ test("B17.3 @versionedDetails opt-in emits parent CAS and strong If-Match child 
     closeField:"status",closeState:"closed"
   });
   assert.equal(assertCreateDetails(ir,parent,creator).maxRows,20);
+  const replacement=ir.operations.find(x=>x.name==="replaceOrderLines");
+  assert.ok(replacement,"Bulk replacement must be part of canonical IR");
+  assert.equal(replacement.behavior.kind,"replaceDetails");
+  assert.equal(replacement.method,"PUT");
+  assert.equal(replacement.path,"/api/orders/{code}/lines");
+  assert.deepEqual(replacement.statuses,[200,400,401,403,404,409]);
+  assert.equal(replacement.capability,creator.capability);
   const close=ir.operations.find(x=>x.name==="closePurchaseOrder");
   assert.ok(close);
   assert.equal(close.behavior.kind,"transition");
