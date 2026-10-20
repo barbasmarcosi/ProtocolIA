@@ -73,7 +73,8 @@ export interface IrOperation {
     reserve?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     moveUnits?: {stockEntity:string;availableField:string;sourceField:string;targetField:string;quantityField:string};
     moveBatch?: {stockEntity:string;availableField:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
-    createDetails?: {childEntity:string;parentField:string;rowsField:string;maxRows:number;versioned?:boolean};
+    createDetails?: {childEntity:string;parentField:string;rowsField:string;maxRows:number;
+      versioned?:boolean;closeField?:string;closeState?:string};
     detailSum?: {childEntity:string;parentField:string;quantityField:string};
     reverseBatch?: {stockEntity:string;availableField:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
     reverseUnits?: {stockEntity:string;availableField:string;sourceField:string;targetField:string;quantityField:string};

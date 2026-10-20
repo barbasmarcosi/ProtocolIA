@@ -629,7 +629,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-versioned-details",op.name+" @versionedDetails requires @createDetails",op);
       continue;
     }
-    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number;versioned?:boolean}|undefined;
+    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number;
+      versioned?:boolean;closeField?:string;closeState?:string}|undefined;
     if(details){
       const child=declared.get(String(details.childEntity));
       const relation=child?.fields.find(x=>x.name===details.parentField);
@@ -681,7 +682,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       detailConfig={childEntity:child!.name,
         parentField:String(details.parentField),rowsField:rowName,maxRows:20,
-        ...(versioned?{versioned:true}:{})};
+        ...(versioned?{versioned:true,
+          ...(versioned.closeField!==undefined?{closeField:String(versioned.closeField)}:{}),
+          ...(versioned.closeState!==undefined?{closeState:String(versioned.closeState)}:{})
+        }:{})};
     }
     const movement = metadata(p,"moveUnits",op);
     const multiMovement = metadata(p,"moveBatch",op);
@@ -1631,6 +1635,27 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       const parent=entities.find(e=>e.name===creator.entity);
       const child=entities.find(e=>e.name===cfg.childEntity);
+      if(cfg.closeField!==undefined||cfg.closeState!==undefined){
+        const state=parent?.fields.find(f=>f.name===cfg.closeField);
+        const closes=operations.filter(o=>o.entity===creator.entity&&
+          o.behavior.kind==="transition");
+        const close=closes[0];
+        const allowed=operations.filter(o=>o.entity===creator.entity&&
+          ["create","get","listPage","queryPage","auditPage","sumDetails","health","transition"].includes(o.behavior.kind));
+        if(!state||!state.initial||state.type!=="string"||!state.required||state.nullable||
+          !cfg.closeState||!/^([a-z][a-z0-9_-]{0,63})$/.test(cfg.closeState)||
+          cfg.closeState===state.initial||
+          (state.choices&&!state.choices.some(x=>x.value===cfg.closeState))||
+          closes.length!==1||close?.behavior.field!==cfg.closeField||
+          close?.behavior.from!==state.initial||close?.behavior.to!==cfg.closeState||
+          close?.behavior.audit?.length!==1||close.behavior.audit[0]!==cfg.closeField||
+          close?.capability!==creator.capability||close.method!=="POST"||
+          ![200,400,401,403,404,409].every(s=>close.statuses.includes(s))||
+          allowed.length!==operations.filter(o=>o.entity===creator.entity).length){
+          reject("invalid-versioned-close",creator.name+
+            " requires exactly one audited initial-to-terminal transition with parent-write authority",ops.find(o=>o.name===creator.name)!);
+        }
+      }
       if(parent?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
         child?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
         operations.some(o=>o.entity===creator.entity&&o.behavior.kind==="delete")){

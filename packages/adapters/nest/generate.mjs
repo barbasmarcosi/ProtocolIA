@@ -317,6 +317,8 @@ export function generate(ir,spec,out){
         const plan=assertCreateDetails(ir,e,op);
         item.createDetails={
           versioned:b.createDetails.versioned===true,
+          ...(b.createDetails.closeField?{closeField:b.createDetails.closeField,
+            closeState:b.createDetails.closeState}:{}),
           childEntity:plan.child.name,
           parentField:plan.relation.name,
           rowsField:plan.rowsField,

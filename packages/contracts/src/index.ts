@@ -178,8 +178,11 @@ function createDetails(context: DecoratorContext, target: Operation, childEntity
   context.program.stateMap($lib.stateKeys.createDetails).set(target,
     {childEntity,parentField,rowsField});
 }
-function versionedDetails(context: DecoratorContext, target: Operation): void {
-  context.program.stateMap($lib.stateKeys.versionedDetails).set(target,{enabled:true});
+function versionedDetails(context: DecoratorContext, target: Operation,
+  closeField?: string, closeState?: string): void {
+  context.program.stateMap($lib.stateKeys.versionedDetails).set(target,
+    {enabled:true,...(closeField===undefined?{}:{closeField}),
+      ...(closeState===undefined?{}:{closeState})});
 }
 function moveBatch(context: DecoratorContext, target: Operation, stockEntity: string,
     availableField: string, legs: string): void {

@@ -344,7 +344,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
     "  public record MoveLeg(String sourceField,String targetField,String quantityField) {}",
-    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned) {}",
+    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState) {}",
     "  public record MoveBatch(String stockTable,String stockKeyColumn,String availableColumn,int maxBalance,String parentWriteCapability,List<MoveLeg> legs) {}",
     "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
@@ -470,7 +470,8 @@ export function generate(ir, openapi, outDir) {
       const plan=assertCreateDetails(ir,entityMap.get(op.entity),op);
       createDetails="new CreateDetails("+[
         j(plan.child.name),j(plan.relation.name),j(plan.rowsField),
-        j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false"
+        j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false",
+        j(b.createDetails.closeField??""),j(b.createDetails.closeState??"")
       ].join(",")+")";
     }
     let release="null";
