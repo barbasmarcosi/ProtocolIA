@@ -285,12 +285,36 @@ try{
       scrollWidth:node.scrollWidth,clientWidth:node.clientWidth
     }));
     assert.ok(styles.clientWidth>0);
+    await page.screenshot({path:join(dir,"b17-versioned-mobile.png"),fullPage:true});
+    // Preserve the invariant in the presentation as well as the API: the
+    // final row may not expose an enabled Delete action.
+    await page.getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-SINGLE").click();
+    const singlePanel=page.getByTestId("detail-lines-panel");
+    await singlePanel.getByTestId("detail-document-version").getByText("1",{exact:true}).waitFor();
+    assert.equal(await singlePanel.getByTestId("delete-detail-SINGLE-1").isDisabled(),true);
+    await page.getByRole("button",{name:"Cerrar detalle"}).click();
+    // The UI must not expose append/delete to an actor who can write child
+    // fields but cannot write parent headers. Server-side enforcement is
+    // independently proven by the B17.3b HTTP suite above.
+    await page.getByRole("button",{name:"Cerrar sesión"}).click();
+    await page.getByTestId("username").fill("child_writer");
+    await page.getByTestId("password").fill(scopedPass);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    await page.getByRole("button",{name:"Órdenes",exact:true}).waitFor();
+    await page.getByRole("button",{name:"Órdenes",exact:true}).click();
+    await page.getByTestId("open-detail-UI-VERSION").click();
+    const scopedPanel=page.getByTestId("detail-lines-panel");
+    await scopedPanel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
+    assert.equal(await scopedPanel.getByTestId("detail-append-open").count(),0);
+    assert.equal(await scopedPanel.getByTestId("delete-detail-UI-BASE-1").count(),0);
     assert.deepEqual(pageErrors,[],"React must have no JavaScript runtime error");
     console.log("PROTOCOLIA_B17_VERSIONED_REACT_PASS "+JSON.stringify({
       mobileViewport390:true,stalePatch409:true,
       conflictRecoveryRefresh:true,generatedPatch:true,generatedAppend:true,
       generatedDelete:true,strongIfMatchForwarded:true,
-      totalsUpdated:true,consoleErrorsNone:true
+      totalsUpdated:true,lastRowDeleteDisabled:true,capabilityActionsHidden:true,
+      consoleErrorsNone:true
     }));
   }finally{await browser.close();}
   console.log("PROTOCOLIA_B17_VERSIONED_DELETE_PASS "+JSON.stringify({
