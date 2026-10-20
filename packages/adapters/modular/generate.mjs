@@ -341,7 +341,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
     "  public record MoveLeg(String sourceField,String targetField,String quantityField) {}",
-    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows) {}",
+    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned) {}",
     "  public record MoveBatch(String stockTable,String stockKeyColumn,String availableColumn,int maxBalance,String parentWriteCapability,List<MoveLeg> legs) {}",
     "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
@@ -467,7 +467,7 @@ export function generate(ir, openapi, outDir) {
       const plan=assertCreateDetails(ir,entityMap.get(op.entity),op);
       createDetails="new CreateDetails("+[
         j(plan.child.name),j(plan.relation.name),j(plan.rowsField),
-        j(plan.childWriteCapability),n(plan.maxRows)
+        j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false"
       ].join(",")+")";
     }
     let release="null";
@@ -579,7 +579,8 @@ export function generate(ir, openapi, outDir) {
       return "  CONSTRAINT ck_gt_"+table+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    const versioned=ops.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){

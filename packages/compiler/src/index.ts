@@ -613,7 +613,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     const reservation = metadata(p,"reserve",op);
     const details=metadata(p,"createDetails",op);
-    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number}|undefined;
+    const versioned=metadata(p,"versionedDetails",op);
+    if(versioned&&!details){
+      reject("orphan-versioned-details",op.name+" @versionedDetails requires @createDetails",op);
+      continue;
+    }
+    let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number;versioned?:boolean}|undefined;
     if(details){
       const child=declared.get(String(details.childEntity));
       const relation=child?.fields.find(x=>x.name===details.parentField);
@@ -664,7 +669,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
       detailConfig={childEntity:child!.name,
-        parentField:String(details.parentField),rowsField:rowName,maxRows:20};
+        parentField:String(details.parentField),rowsField:rowName,maxRows:20,
+        ...(versioned?{versioned:true}:{})};
     }
     const movement = metadata(p,"moveUnits",op);
     const multiMovement = metadata(p,"moveBatch",op);
@@ -1603,6 +1609,16 @@ export function compileDomain(p: Program): IrDocument | undefined {
   // optimistic, audited text patch. Never allow direct FK/identity rewrites.
   for(const creator of operations.filter(o=>o.behavior.createDetails)){
     const cfg=creator.behavior.createDetails!;
+    if(cfg.versioned){
+      const parent=entities.find(e=>e.name===creator.entity);
+      const child=entities.find(e=>e.name===cfg.childEntity);
+      if(parent?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
+        child?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||
+        operations.some(o=>o.entity===creator.entity&&o.behavior.kind==="delete")){
+        reject("invalid-versioned-details",creator.name+
+          " cannot collide with the generated document version or remove its parent",ops.find(o=>o.name===creator.name)!);
+      }
+    }
     const patches=operations.filter(o=>o.entity===cfg.childEntity&&o.behavior.kind==="patchFields");
     if(patches.length>3||
        new Set(patches.map(o=>o.behavior.field)).size!==patches.length||

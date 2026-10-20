@@ -313,6 +313,7 @@ export function generate(ir,spec,out){
       if(b.createDetails){
         const plan=assertCreateDetails(ir,e,op);
         item.createDetails={
+          versioned:b.createDetails.versioned===true,
           childEntity:plan.child.name,
           parentField:plan.relation.name,
           rowsField:plan.rowsField,
@@ -451,7 +452,8 @@ export function generate(ir,spec,out){
       return "  CONSTRAINT ck_gt_"+snake(e.name)+"_"+col+" CHECK ("+
         col+" IS NULL OR "+col+" > "+source+")";
     });
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    const versioned=ir.operations.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){
