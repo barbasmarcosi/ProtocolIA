@@ -1135,15 +1135,61 @@ class RuntimeService{
     finally{client.release();}
     return this.row(e,key);
   }
-  private async remove(e:Entity,key:string):Promise<void>{
-    try{
-      const deleted=await this.pool.query("DELETE FROM "+e.table+
-        " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
-      if(!deleted.rowCount)throw new Problem(404,"Not found");
-    }catch(e){
-      if((e as {code?:string}).code==="23503")throw new Problem(409,"Referenced resource cannot be deleted");
-      throw e;
+  private async remove(e:Entity,op:Operation,key:string,actor:string,
+    capabilities:string[],ifMatch:unknown,body:unknown):Promise<void>{
+    if(!key||(body!=null&&(!isRecord(body)||Object.keys(body).length!==0)))
+      throw new Problem(400,"DELETE must have no request body");
+    const creator=spec.operations.find(x=>x.createDetails?.childEntity===e.name);
+    if(!creator){
+      if(op.audit?.length)throw new Error("Nonversioned audited delete is unsupported");
+      try{
+        const deleted=await this.pool.query("DELETE FROM "+e.table+
+          " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
+        if(!deleted.rowCount)throw new Problem(404,"Not found");
+      }catch(error){
+        if((error as {code?:string}).code==="23503")
+          throw new Problem(409,"Referenced resource cannot be deleted");
+        throw error;
+      }
+      return;
     }
+    const plan=creator.createDetails!;
+    if(!plan.versioned||!op.audit?.length||!op.audit.includes(plan.parentField))
+      throw new Error("Unsafe bounded detail DELETE contract");
+    if(!capabilities.includes(creator.capability))
+      throw new Problem(403,"Parent write permission required");
+    this.parseDocumentVersion(ifMatch);
+    const parent=spec.entities.find(x=>x.name===creator.entity);
+    const fk=e.fields.find(x=>x.name===plan.parentField);
+    if(!parent||!fk)throw new Error("Unresolved versioned detail FK");
+    const client=await this.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const childFk=await client.query("SELECT "+fk.column+" FROM "+e.table+
+        " WHERE "+e.identityColumn+"=$1",[key]);
+      if(childFk.rowCount!==1)throw new Problem(404,"Detail not found");
+      const parentId=childFk.rows[0][fk.column] as string;
+      // Same header lock as versioned append/patch. Re-check row after lock.
+      await this.assertDocumentVersion(client,parent,parentId,ifMatch);
+      const before=await client.query(this.select(e)+" WHERE "+e.identityColumn+
+        "=$1 AND "+fk.column+"=$2",[key,parentId]);
+      if(before.rowCount!==1)throw new Problem(404,"Detail changed");
+      const count=await client.query("SELECT COUNT(*)::int AS total FROM "+e.table+
+        " WHERE "+fk.column+"=$1",[parentId]);
+      if(count.rows[0].total<=1)
+        throw new Problem(409,"A bounded document requires at least one detail");
+      const deleted=await client.query("DELETE FROM "+e.table+
+        " WHERE "+e.identityColumn+"=$1 AND "+fk.column+"=$2",[key,parentId]);
+      if(deleted.rowCount!==1)throw new Problem(409,"Detail changed concurrently");
+      await this.recordAudit(client,e,op,key,actor,before.rows[0],{});
+      await this.bumpDocumentVersion(client,parent,parentId);
+      await client.query("COMMIT");
+    }catch(error){
+      await client.query("ROLLBACK");
+      if((error as {code?:string}).code==="23503")
+        throw new Problem(409,"Referenced resource cannot be deleted");
+      throw error;
+    }finally{client.release();}
   }
   async dispatch(op:Operation,req:any,res:any):Promise<void>{
     try{
@@ -1192,7 +1238,8 @@ class RuntimeService{
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
-        case "delete":await this.remove(entity,identity);res.status(204).send();return;
+        case "delete":await this.remove(entity,op,identity,session.username,session.capabilities,
+          req.headers["if-match"],req.body);res.status(204).send();return;
         default:throw new Error("Unsupported generated operation");
       }
       const redacted=(record:unknown):unknown=>{
