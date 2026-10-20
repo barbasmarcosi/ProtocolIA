@@ -176,7 +176,8 @@ public class DomainRuntime {
       case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName(),request.getHeader("If-Match"));
       case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
-      case "transition" -> result = transition(entity, matched, publicKey, body);
+      case "transition" -> result = transition(entity, matched, publicKey, body,
+        request.getHeader("If-Match"));
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
       case "delete" -> result = delete(entity, matched, publicKey, user,
         request.getHeader("If-Match"),body);
@@ -454,12 +455,20 @@ public class DomainRuntime {
 
   private void assertDocumentVersion(Manifest.Entity parent,String id,String ifMatch) {
     int expected=parseDocumentVersion(ifMatch);
-    var versions=jdbc.queryForList("SELECT document_version FROM "+parent.table()+
-      " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",id),Integer.class);
-    if(versions.size()!=1)
+    var creator=Manifest.OPS.stream().filter(o->o.entity().equals(parent.name())&&
+      o.createDetails()!=null&&o.createDetails().versioned()).findFirst().orElse(null);
+    var closure=creator==null?null:creator.createDetails();
+    String column=closure==null||closure.closeField().isEmpty()?"":parent.fields().stream()
+      .filter(x->x.name().equals(closure.closeField())).findFirst().orElseThrow().column();
+    var values=jdbc.queryForList("SELECT document_version"+
+      (column.isEmpty()?"":","+column+" AS document_state")+" FROM "+parent.table()+
+      " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",id));
+    if(values.size()!=1)
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Versioned document not found");
-    if(versions.get(0)!=expected)
+    if(((Number)values.get(0).get("document_version")).intValue()!=expected)
       throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale document version");
+    if(!column.isEmpty()&&closure.closeState().equals(values.get(0).get("document_state")))
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Document already closed");
   }
 
   private void incrementDocumentVersion(Manifest.Entity parent,String id) {
@@ -1027,10 +1036,26 @@ public class DomainRuntime {
     return null;
   }
 
-  private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body) {
+  private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id,
+      Map<String,Object> body,String ifMatch) {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    var documentCreator=Manifest.OPS.stream().filter(o->o.entity().equals(e.name())&&
+      o.createDetails()!=null&&o.createDetails().versioned()&&
+      !o.createDetails().closeField().isEmpty()&&
+      o.createDetails().closeField().equals(op.field())&&
+      o.createDetails().closeState().equals(op.toState())).findFirst().orElse(null);
+    if(documentCreator!=null){
+      assertDocumentVersion(e,id,ifMatch);
+      int changed=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+        e.identityColumn()+"=:id AND "+col+"=:from",
+        Map.of("to",op.toState(),"id",id,"from",op.fromState()));
+      if(changed!=1)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Cannot close document");
+      incrementDocumentVersion(e,id);
+      return row(e,id);
+    }
     if(op.reverseBatch()!=null){
       var reverse=op.reverseBatch();
       var columns=reverse.legs().stream()

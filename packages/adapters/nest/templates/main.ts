@@ -16,7 +16,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
-type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean};
+type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean;closeField?:string;closeState?:string};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -481,11 +481,17 @@ class RuntimeService{
   }
   private async assertDocumentVersion(client:any,parent:Entity,id:string,ifMatch:unknown):Promise<void>{
     const expected=this.parseDocumentVersion(ifMatch);
-    const locked=await client.query("SELECT document_version FROM "+parent.table+
+    const plan=spec.operations.find(op=>op.entity===parent.name&&op.createDetails?.versioned)
+      ?.createDetails;
+    const field=plan?.closeField?parent.fields.find(f=>f.name===plan.closeField):undefined;
+    const locked=await client.query("SELECT document_version"+
+      (field?","+field.column+' AS "documentState"':"")+" FROM "+parent.table+
       " WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[id]);
     if(locked.rowCount!==1)throw new Problem(404,"Versioned document not found");
     if(locked.rows[0].document_version!==expected)
       throw new Problem(409,"Stale document version");
+    if(plan?.closeState&&locked.rows[0].documentState===plan.closeState)
+      throw new Problem(409,"Document is closed");
   }
   private async bumpDocumentVersion(client:any,parent:Entity,id:string):Promise<void>{
     const changed=await client.query("UPDATE "+parent.table+
@@ -939,10 +945,30 @@ class RuntimeService{
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
     return this.row(e,key);
   }
-  private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string):Promise<Record<string,unknown>>{
+  private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string,
+    ifMatch?:unknown):Promise<Record<string,unknown>>{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    const creator=spec.operations.find(x=>x.entity===e.name&&x.createDetails?.versioned&&
+      x.createDetails.closeField===op.field&&x.createDetails.closeState===op.to);
+    if(creator){
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        await this.assertDocumentVersion(client,e,key,ifMatch);
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3",
+          [op.to,key,op.from]);
+        if(changed.rowCount!==1)throw new Problem(409,"Document closing precondition failed");
+        await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
+        await this.bumpDocumentVersion(client,e,key);
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     if(op.reverseBatch){
       const plan=op.reverseBatch;
       const client=await this.pool.connect();
@@ -1236,7 +1262,8 @@ class RuntimeService{
         case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username,req.headers["if-match"]);break;
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
-        case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
+        case "transition":data=await this.transition(entity,op,identity,req.body,session.username,
+          req.headers["if-match"]);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
         case "delete":await this.remove(entity,op,identity,session.username,session.capabilities,
           req.headers["if-match"],req.body);res.status(204).send();return;
