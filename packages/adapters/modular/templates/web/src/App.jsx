@@ -275,13 +275,27 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 }
 // B13: generated read-side of a typed header/detail aggregate, using the existing
 // child queryPage filter and explicit child read authority. Never fetch unscoped rows.
-function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSaved}){
+function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],parentGet,
+  parentWrite=false,createOp,deleteOp,maxRows=20,onSaved}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
   const [editing,setEditing]=useState(null);
   const [draft,setDraft]=useState("");
   const [editError,setEditError]=useState("");
   const [saving,setSaving]=useState(false);
+  const [appendOpen,setAppendOpen]=useState(false);
+  const [appendValues,setAppendValues]=useState({});
+  const [appendErrors,setAppendErrors]=useState({});
+  const [deleteConfirm,setDeleteConfirm]=useState(null);
+  const [conflict,setConflict]=useState(false);
+  const versioned=Boolean(parentGet);
+  const canAppend=versioned&&parentWrite&&Boolean(createOp);
+  const canDelete=versioned&&parentWrite&&Boolean(deleteOp);
+  const createFields=child.entity.fields.filter(f=>f.name!==filter.field&&!f.ownerManaged&&
+    !f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
+    f.initial===undefined);
+  const mutationHeaders=()=>versioned?{"If-Match":'"'+state.version+'"'}:{};
+  const isVersionReady=()=>!versioned||Number.isSafeInteger(state.version)&&state.version>=1;
   const [state,setState]=useState({busy:true,items:[],total:0,error:"",offset:0});
   const limit=7;
   const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
@@ -295,7 +309,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
   const editOp=editing?.op;
   const editField=editOp?child.entity.fields.find(f=>f.name===editOp.behavior.field):null;
   async function saveLine(item){
-    if(!editField||saving)return;
+    if(!editField||saving||conflict||!isVersionReady())return;
     const value=editField.type==="int32"?Number(draft):draft.trim();
     const valid=editField.type==="int32"?
       draft.trim()!==""&&/^(?:0|[1-9][0-9]*)$/.test(draft.trim())&&
@@ -309,14 +323,58 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
     setSaving(true);setEditError("");
     try{
       const response=await authenticatedFetch(route(editOp,item[child.entity.publicIdentity]),{
-        method:"PATCH",headers:{Authorization:auth,"Content-Type":"application/json"},
+        method:"PATCH",headers:{Authorization:auth,"Content-Type":"application/json",...mutationHeaders()},
         body:JSON.stringify({[editField.name]:value,expected:item[editField.name]})
       });
-      if(!response.ok)throw Error(response.status===409?
-        "Otro usuario modificó el renglón. Actualizá antes de volver a editar.":
+      if(response.status===409){
+        setConflict(true);
+        throw Error("La orden cambió desde tu última lectura. Actualizá antes de guardar.");
+      }
+      if(!response.ok)throw Error(
         response.status===403?"No tenés permiso para modificar este renglón.":
         "No se pudo actualizar el renglón.");
       setEditing(null);setDraft("");setRetry(n=>n+1);onSaved?.();
+    }catch(error){setEditError(error.message);}
+    finally{setSaving(false);}
+  }
+  async function appendLine(event){
+    event.preventDefault();
+    if(!canAppend||saving||conflict||!isVersionReady()||state.total>=maxRows)return;
+    const errors=validateCreate(createFields,appendValues);
+    setAppendErrors(errors);
+    if(Object.keys(errors).length)return;
+    setSaving(true);setEditError("");
+    try{
+      const response=await authenticatedFetch(createOp.path,{
+        method:"POST",headers:{Authorization:auth,"Content-Type":"application/json",...mutationHeaders()},
+        body:JSON.stringify({...normalizePayload(createFields,appendValues),[filter.field]:identity})
+      });
+      if(response.status===409){
+        setConflict(true);throw Error("La orden cambió. Actualizá antes de agregar el renglón.");
+      }
+      if(!response.ok)throw Error(response.status===403?
+        "No tenés permisos para agregar renglones.":"No se pudo agregar el renglón.");
+      setAppendValues({});setAppendErrors({});setAppendOpen(false);
+      setRetry(n=>n+1);onSaved?.();
+    }catch(error){setEditError(error.message);}
+    finally{setSaving(false);}
+  }
+  async function removeLine(item){
+    if(!canDelete||saving||conflict||!isVersionReady()||state.total<=1)return;
+    const key=item[child.entity.publicIdentity];
+    setSaving(true);setEditError("");
+    try{
+      const response=await authenticatedFetch(route(deleteOp,key),{
+        method:"DELETE",headers:{Authorization:auth,...mutationHeaders()}
+      });
+      if(response.status===409){
+        setConflict(true);throw Error("La orden cambió o es su último renglón. Actualizá y revisá.");
+      }
+      if(!response.ok)throw Error(response.status===403?
+        "No tenés permisos para eliminar el renglón.":"No se pudo eliminar el renglón.");
+      setDeleteConfirm(null);setEditing(null);
+      if(offset>0&&state.items.length===1)setOffset(n=>Math.max(0,n-limit));
+      setRetry(n=>n+1);onSaved?.();
     }catch(error){setEditError(error.message);}
     finally{setSaving(false);}
   }
@@ -325,25 +383,43 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
     setState(old=>({...old,busy:true,error:""}));
     const query=new URLSearchParams({limit:String(limit),offset:String(offset),
       [filter.parameter]:String(identity)});
-    authenticatedFetch(operation.path+"?"+query.toString(),{
-      headers:{Authorization:auth},signal:controller.signal
-    }).then(async response=>{
-      if(!response.ok)throw Error(response.status===403?
-        "No tenés permiso para ver los renglones.":"No se pudieron consultar los renglones.");
-      const result=await response.json();
-      if(!result||!Array.isArray(result.items)||
-        !Number.isSafeInteger(result.total)||result.total<0||
-        result.items.length>limit||
-        result.items.some(item=>!item||item[filter.field]!==identity))
-        throw Error("El servicio devolvió renglones fuera de la cabecera o de la página solicitada.");
-      return result;
-    }).then(result=>{if(!controller.signal.aborted)setState({
-      busy:false,items:result.items,total:result.total,error:"",offset
-    });}).catch(error=>{
-      if(!controller.signal.aborted)setState({busy:false,items:[],total:0,error:error.message,offset});
+    Promise.all([
+      authenticatedFetch(operation.path+"?"+query.toString(),{
+        headers:{Authorization:auth},signal:controller.signal
+      }).then(async response=>{
+        if(!response.ok)throw Error(response.status===403?
+          "No tenés permiso para ver los renglones.":"No se pudieron consultar los renglones.");
+        const result=await response.json();
+        if(!result||!Array.isArray(result.items)||
+          !Number.isSafeInteger(result.total)||result.total<0||
+          result.items.length>limit||
+          result.items.some(item=>!item||item[filter.field]!==identity))
+          throw Error("El servicio devolvió renglones fuera de la cabecera o de la página solicitada.");
+        return result;
+      }),
+      versioned?authenticatedFetch(route(parentGet,identity),{
+        headers:{Authorization:auth},signal:controller.signal
+      }).then(async response=>{
+        if(!response.ok)throw Error("No se pudo obtener la versión actual de la orden.");
+        const data=await response.json();
+        const etag=response.headers.get("ETag");
+        if(!Number.isSafeInteger(data?.documentVersion)||data.documentVersion<1||
+          etag!=='"'+data.documentVersion+'"')
+          throw Error("El servicio devolvió una versión del documento inconsistente.");
+        return data.documentVersion;
+      }):Promise.resolve(null)
+    ]).then(([result,version])=>{
+      if(!controller.signal.aborted){
+        setState({busy:false,items:result.items,total:result.total,error:"",offset,version});
+        setConflict(false);
+      }
+    }).catch(error=>{
+      if(!controller.signal.aborted)setState({
+        busy:false,items:[],total:0,error:error.message,offset,version:null
+      });
     });
     return ()=>controller.abort();
-  },[child,operation,filter,identity,auth,offset,retry]);
+  },[child,operation,filter,identity,auth,offset,retry,parentGet]);
   const pending=state.busy||state.offset!==offset;
   const subtotal=quantity?state.items.reduce((sum,item)=>sum+item[quantity.name],0):null;
   return <section className="details-section" aria-label="Renglones relacionados"
@@ -358,6 +434,15 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
     {pending?<LoadingIndicator compact message="Cargando renglones…"/>:
       state.error?<p className="message error" role="alert" data-testid="detail-lines-error">{state.error}</p>:
       <>
+        {versioned&&<p className="document-version" data-testid="detail-document-version"
+          role="status">Versión del documento: <strong>{state.version}</strong></p>}
+        {conflict&&<div className="document-conflict" role="alert" data-testid="detail-version-conflict">
+          <strong>Hay cambios de otra sesión.</strong>
+          <p>Actualizá la orden, revisá los valores y volvé a confirmar tu operación.</p>
+          <button type="button" className="ghost" data-testid="detail-conflict-refresh"
+            disabled={saving} onClick={()=>setRetry(n=>n+1)}>Actualizar orden</button>
+        </div>}
+        {editError&&!editing&&<p role="alert" className="message error">{editError}</p>}
         <p data-testid="detail-lines-count" role="status">{state.total} renglones en total</p>
         {subtotal!==null&&<p data-testid="detail-lines-subtotal" className="field-help">
           Suma de {fieldLabel(quantity).toLowerCase()} en esta página: {subtotal.toLocaleString("es-AR")}
@@ -365,10 +450,10 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
         <div className="scroll data-table-scroll">
           <table className="data-table"><thead><tr>{columns.map(field=>
             <th scope="col" key={field.name}>{fieldLabel(field)}</th>)}
-            {writableEdits.length>0&&<th scope="col">Editar</th>}</tr></thead>
+            {(writableEdits.length>0||canDelete)&&<th scope="col">Acciones</th>}</tr></thead>
             <tbody>{state.items.map((item,index)=><tr key={String(item[child.entity.publicIdentity]??index)}>
               {columns.map(field=><td key={field.name}>{cellText(item[field.name])}</td>)}
-              {writableEdits.length>0&&<td>{editing?.key===item[child.entity.publicIdentity]?<>
+              {(writableEdits.length>0||canDelete)&&<td>{editing?.key===item[child.entity.publicIdentity]?<>
                 <label className="field"><span>{fieldLabel(editField)}</span>
                   <input data-testid="detail-inline-edit" value={draft}
                     type={editField.type==="int32"?"number":"text"}
@@ -379,7 +464,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
                     disabled={saving}
                     onChange={event=>setDraft(event.target.value)}/></label>
                 {editError&&<p role="alert" className="message error">{editError}</p>}
-                <button type="button" disabled={saving} onClick={()=>saveLine(item)}>Guardar</button>
+                <button type="button" disabled={saving||conflict||!isVersionReady()} onClick={()=>saveLine(item)}>Guardar</button>
                 <button type="button" className="ghost" disabled={saving}
                   onClick={()=>{setEditing(null);setEditError("");}}>Cancelar</button>
               </>:<div className="detail-edit-actions">{writableEdits.map(op=>{
@@ -390,10 +475,50 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],onSav
                   onClick={()=>{setEditing({key:item[child.entity.publicIdentity],op});
                     setDraft(String(item[field.name]??""));setEditError("");}}>
                   Editar {fieldLabel(field)}</button>;
-              })}</div>}</td>}</tr>)}</tbody>
+              })}  {canDelete&&(deleteConfirm===item[child.entity.publicIdentity]?
+                <span className="detail-delete-confirm">
+                  <span>¿Eliminar este renglón?</span>
+                  <button type="button" className="danger-button"
+                    data-testid={"confirm-delete-detail-"+item[child.entity.publicIdentity]}
+                    disabled={saving||conflict||state.total<=1||!isVersionReady()}
+                    onClick={()=>removeLine(item)}>Eliminar</button>
+                  <button type="button" className="ghost" disabled={saving}
+                    onClick={()=>setDeleteConfirm(null)}>Cancelar</button>
+                </span>:
+                <button type="button" className="ghost"
+                  data-testid={"delete-detail-"+item[child.entity.publicIdentity]}
+                  disabled={saving||conflict||state.total<=1||!isVersionReady()}
+                  onClick={()=>{setDeleteConfirm(item[child.entity.publicIdentity]);setEditError("");}}>
+                  Eliminar</button>)}
+                </div>}</td>}</tr>)}</tbody>
           </table>
         </div>
         {state.total===0&&<p className="field-help">Esta cabecera todavía no tiene renglones.</p>}
+        {canAppend&&<div className="detail-append">
+          {!appendOpen?<button type="button" className="ghost" data-testid="detail-append-open"
+            disabled={saving||conflict||state.total>=maxRows||!isVersionReady()}
+            onClick={()=>{setAppendOpen(true);setEditError("");}}>
+            Agregar renglón</button>:
+            <form noValidate data-testid="detail-append-form" onSubmit={appendLine}>
+              <h4>Nuevo renglón</h4>
+              <div className="fields">{createFields.map(field=><FormField key={field.name}
+                field={field} auth={auth} value={appendValues[field.name]??(
+                  field.type==="int32"&&field.required?0:"")}
+                validationError={appendErrors[field.name]}
+                onChange={(name,value)=>{
+                  setAppendValues(old=>({...old,[name]:value}));
+                  setAppendErrors(old=>{const next={...old};delete next[name];return next;});
+                }}/>)}</div>
+              <div className="modal-actions">
+                <button type="button" className="ghost" disabled={saving}
+                  onClick={()=>{setAppendOpen(false);setAppendErrors({});setEditError("");}}>Cancelar</button>
+                <button type="submit" data-testid="detail-append-submit"
+                  disabled={saving||conflict||!isVersionReady()||state.total>=maxRows}>
+                  {saving?"Guardando…":"Guardar renglón"}</button>
+              </div>
+            </form>}
+          <p className="field-help">{state.total} de {maxRows} renglones permitidos.</p>
+        </div>}
         <div className="modal-actions">
           <button type="button" className="ghost" data-testid="detail-lines-prev"
             disabled={saving||offset===0} onClick={()=>{setEditing(null);setOffset(n=>Math.max(0,n-limit));}}>Anterior</button>
