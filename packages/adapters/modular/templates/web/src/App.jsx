@@ -327,8 +327,10 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
         body:JSON.stringify({[editField.name]:value,expected:item[editField.name]})
       });
       if(response.status===409){
-        setConflict(true);
-        throw Error("La orden cambió desde tu última lectura. Actualizá antes de guardar.");
+        if(versioned)setConflict(true);
+        throw Error(versioned?
+          "La orden cambió desde tu última lectura. Actualizá antes de guardar.":
+          "Otro usuario modificó el renglón. Actualizá antes de volver a editar.");
       }
       if(!response.ok)throw Error(
         response.status===403?"No tenés permiso para modificar este renglón.":
@@ -442,7 +444,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
           <button type="button" className="ghost" data-testid="detail-conflict-refresh"
             disabled={saving} onClick={()=>setRetry(n=>n+1)}>Actualizar orden</button>
         </div>}
-        {editError&&!editing&&<p role="alert" className="message error">{editError}</p>}
+        {editError&&(!editing||conflict)&&<p role="alert" className="message error">{editError}</p>}
         <p data-testid="detail-lines-count" role="status">{state.total} renglones en total</p>
         {subtotal!==null&&<p data-testid="detail-lines-subtotal" className="field-help">
           Suma de {fieldLabel(quantity).toLowerCase()} en esta página: {subtotal.toLocaleString("es-AR")}
@@ -863,6 +865,14 @@ export default function App(){
   const canReadDetailSum=Boolean(detailSum&&detailResource&&
     capabilities.includes(detailSum.capability)&&
     capabilities.includes(detailResource.operations.get?.capability));
+  const detailVersioned=detailPlan?.versioned===true;
+  const detailCanWrite=Boolean(detailPlan&&capabilities.includes(operations.create?.capability));
+  const detailCreate=detailVersioned&&detailCanWrite&&
+    capabilities.includes(detailResource?.operations?.create?.capability)?
+      detailResource.operations.create:null;
+  const detailDelete=detailVersioned&&detailCanWrite&&
+    capabilities.includes(detailResource?.operations?.delete?.capability)?
+      detailResource.operations.delete:null;
   const detailEdits=(detailResource?.patchFieldsOptions??
     (detailResource?.operations?.patchFields?[detailResource.operations.patchFields]:[]))
     .filter(op=>op.behavior?.audit?.length===1&&
@@ -1476,6 +1486,11 @@ export default function App(){
           identity={selected[active.entity.publicIdentity]}
           auth={auth}
           editOps={detailEdits}
+          parentGet={detailVersioned?operations.get:null}
+          parentWrite={detailCanWrite}
+          createOp={detailCreate}
+          deleteOp={detailDelete}
+          maxRows={detailPlan?.maxRows??20}
           onSaved={()=>setSummaryRevision(n=>n+1)}/>} 
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
