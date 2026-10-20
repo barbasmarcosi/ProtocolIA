@@ -1,7 +1,7 @@
 name: vnext-b17-versioned-details
 on:
   push:
-    branches: [feature/b17-atomic-bounded-detail-append-20261020]
+    branches: [main, feature/b17-atomic-bounded-detail-append-20261020]
     paths:
       - 'packages/**'
       - 'examples/vnext/dynamic-order-versioned/**'
