@@ -1653,9 +1653,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           ![200,400,401,403,404,409].every(s=>close.statuses.includes(s))||
           allowed.length!==operations.filter(o=>o.entity===creator.entity).length){
           reject("invalid-versioned-close",creator.name+
-            " requires exactly one audited initial-to-terminal transition with parent-write authority: "+
-          JSON.stringify({field:cfg.closeField,target:cfg.closeState,state,close,closeCount:closes.length,
-            parentCount:operations.filter(o=>o.entity===creator.entity).length,allowedCount:allowed.length}),
+            " requires exactly one audited initial-to-terminal transition with parent-write authority",
           ops.find(o=>o.name===creator.name)!);
         }
       }
