@@ -1161,6 +1161,71 @@ class RuntimeService{
     finally{client.release();}
     return this.row(e,key);
   }
+  private async replaceDetails(parent:Entity,key:string,body:unknown,actor:string,
+      capabilities:string[],ifMatch:unknown):Promise<Record<string,unknown>>{
+    const creator=spec.operations.find(x=>x.entity===parent.name&&x.createDetails?.versioned);
+    const plan=creator?.createDetails;
+    if(!plan)throw new Error("Unresolved versioned parent");
+    const child=spec.entities.find(x=>x.name===plan.childEntity);
+    const create=spec.operations.find(x=>x.entity===child?.name&&x.kind==="create");
+    const remove=spec.operations.find(x=>x.entity===child?.name&&x.kind==="delete");
+    if(!child||!create||!remove)throw new Error("Missing child audit operations");
+    if(!capabilities.includes(creator!.capability)||!capabilities.includes(create.capability)||
+       !capabilities.includes(remove.capability))
+      throw new Problem(403,"Parent, child create and child delete permissions required");
+    if(typeof key!=="string"||!isRecord(body)||Object.keys(body).length!==1||
+       !Array.isArray(body[plan.rowsField])||
+       (body[plan.rowsField] as unknown[]).length<1||
+       (body[plan.rowsField] as unknown[]).length>plan.maxRows)
+      throw new Problem(400,"Expected 1..20 typed replacement rows");
+    const writable=child.fields.filter(f=>!f.computedSum&&!f.computedProduct&&
+      !f.computedRoundedProduct&&!f.computedDiscountedTotal);
+    const incoming:Record<string,unknown>[]=[];
+    const identities=new Set<string>();
+    for(const raw of body[plan.rowsField] as unknown[]){
+      if(!isRecord(raw)||Object.hasOwn(raw,plan.parentField))
+        throw new Problem(400,"The parent FK is server managed");
+      const values=validateInput(child,{...raw,[plan.parentField]:key},writable.map(f=>f.name),true);
+      const identity=values[child.publicIdentity];
+      if(typeof identity!=="string"||!identities.add(identity))
+        throw new Problem(409,"Duplicate replacement identity");
+      incoming.push(values);
+    }
+    const fk=child.fields.find(f=>f.name===plan.parentField);
+    if(!fk)throw new Error("Unknown bounded parent FK");
+    const client=await this.pool.connect();
+    try{
+      await client.query("BEGIN");
+      await this.assertDocumentVersion(client,parent,key,ifMatch);
+      const old=await client.query(this.select(child)+" WHERE "+fk.column+
+        "=$1 ORDER BY "+child.identityColumn,[key]);
+      await client.query("DELETE FROM "+child.table+" WHERE "+fk.column+"=$1",[key]);
+      for(const before of old.rows)
+        await this.recordAudit(client,child,remove,String(before[child.publicIdentity]),
+          actor,before,{});
+      const columns=writable.map(f=>f.column).join(",");
+      const placeholders=writable.map((_,i)=>"$"+(i+1)).join(",");
+      for(const data of incoming){
+        const args=writable.map(f=>f.type==="utcDateTime"&&data[f.name]!=null?
+          parseTimestamp(data[f.name]):data[f.name]??null);
+        await client.query("INSERT INTO "+child.table+" ("+columns+") VALUES ("+
+          placeholders+")",args);
+        await this.recordAudit(client,child,create,String(data[child.publicIdentity]),
+          actor,null,data);
+      }
+      await this.bumpDocumentVersion(client,parent,key);
+      await client.query("COMMIT");
+    }catch(error){
+      await client.query("ROLLBACK");
+      const code=(error as {code?:string}).code;
+      if(code==="23503"||code==="23505")
+        throw new Problem(409,"Replacement conflicts with unique or referenced resource");
+      if(code==="23502"||code==="23514")
+        throw new Problem(400,"Invalid replacement data");
+      throw error;
+    }finally{client.release();}
+    return this.row(parent,key);
+  }
   private async remove(e:Entity,op:Operation,key:string,actor:string,
     capabilities:string[],ifMatch:unknown,body:unknown):Promise<void>{
     if(!key||(body!=null&&(!isRecord(body)||Object.keys(body).length!==0)))
@@ -1260,6 +1325,8 @@ class RuntimeService{
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
         case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username,req.headers["if-match"]);break;
+        case "replaceDetails":data=await this.replaceDetails(entity,identity,req.body,
+          session.username,session.capabilities,req.headers["if-match"]);break;
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username,
