@@ -116,21 +116,65 @@ async function runMulti(){
   const sessionRes=await fetch(baseUrl+"/api/_protocolia/me",{headers:{Authorization:writer}});
   assert.equal(sessionRes.status,200);
   const session=await sessionRes.json();
-  async function run(resource,kind,who,{key,body,query}={}){
+  // Derive the versioned document relationship from canonical generated metadata.
+  // No special entity/table/field names; never infer concurrency from URL shapes.
+  const creators=resources.filter(r=>r.operations.create?.behavior?.createDetails?.versioned);
+  const versionedChild=resource=>creators.find(parent=>
+    parent.operations.create.behavior.createDetails.childEntity===resource.entity.name);
+  const versionedTransition=(resource,op)=>{
+    const details=resource.operations.create?.behavior?.createDetails;
+    return details?.versioned && details.closeField&&details.closeState&&
+      op.behavior.kind==="transition"&&op.behavior.field===details.closeField&&
+      op.behavior.to===details.closeState;
+  };
+  async function run(resource,kind,who,{key,body,query,ifMatch}={}){
     const op=typeof kind==="string"?resource.operations[kind]:kind;
     assert.ok(op,resource.entity.name+" missing operation "+kind);
     const route=op.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(key));
     const suffix=query?"?"+new URLSearchParams(query).toString():"";
+    // Resolve the ETag only for authorized mutation attempts. Negative 403
+    // tests must reach the backend without accidentally acquiring authority.
+    let versionTag=ifMatch;
+    if(versionTag===undefined&&who===writer){
+      const childParent=versionedChild(resource);
+      const parent=childParent??(
+        versionedTransition(resource,op)||op.behavior.kind==="replaceDetails"&&
+        resource.operations.create?.behavior?.createDetails?.versioned?resource:null);
+      if(parent && (childParent?
+        ["create","patchFields","delete"].includes(op.behavior.kind):
+        ["transition","replaceDetails"].includes(op.behavior.kind))){
+        const details=parent.operations.create.behavior.createDetails;
+        let parentKey=childParent?body?.[details.parentField]:key;
+        if(childParent&&op.behavior.kind!=="create"){
+          const child=await run(resource,"get",writer,{key});
+          parentKey=child.status===200?child.data[details.parentField]:undefined;
+        }
+        if(typeof parentKey==="string"){
+          const header=await run(parent,"get",writer,{key:parentKey});
+          if(header.status===200){
+            assert.ok(Number.isInteger(header.data.documentVersion)&&
+              header.data.documentVersion>=1,"Document read lacks persisted version");
+            assert.equal(header.etag,'"'+header.data.documentVersion+'"',
+              "Generated parent ETag must match the documentVersion field");
+            versionTag=header.etag;
+          }
+        }
+        // Preserve 404/400 negative tests for missing child/parent identities.
+        // An absent child must not be mistaken for an invalid If-Match header.
+        versionTag??='"1"';
+      }
+    }
     const response=await fetch(baseUrl+route+suffix,{
       method:op.method,headers:{
         ...(who?{Authorization:who}:{}),
-        ...(body===undefined?{}:{"Content-Type":"application/json"})
+        ...(body===undefined?{}:{"Content-Type":"application/json"}),
+        ...(versionTag===undefined?{}:{"If-Match":versionTag})
       },...(body===undefined?{}:{body:JSON.stringify(body)})
     });
     const raw=await response.text();
     let result;
     try{result=JSON.parse(raw);}catch{result=raw;}
-    return {status:response.status,data:result};
+    return {status:response.status,data:result,etag:response.headers.get("etag")};
   }
   const createBodies=new Map();
   for(const resource of resources){
@@ -395,8 +439,20 @@ async function runMulti(){
     if(!resource.operations.delete)continue;
     const key=keys.get(resource.entity.name);
     assert.equal((await run(resource,"delete",reader,{key})).status,403);
-    assert.equal((await run(resource,"delete",writer,{key})).status,204);
-    assert.equal((await run(resource,"get",reader,{key})).status,404);
+    const versionedParent=versionedChild(resource);
+    const plan=versionedParent?.operations.create?.behavior?.createDetails;
+    const parentKey=createBodies.get(resource.entity.name)?.[plan?.parentField];
+    const closed=plan?.closeField&&plan?.closeState&&typeof parentKey==="string"&&
+      (await run(versionedParent,"get",writer,{key:parentKey})).data?.[plan.closeField]===
+        plan.closeState;
+    if(closed){
+      assert.equal((await run(resource,"delete",writer,{key})).status,409,
+        "A closed versioned parent must reject child cleanup mutation");
+      assert.equal((await run(resource,"get",reader,{key})).status,200);
+    }else{
+      assert.equal((await run(resource,"delete",writer,{key})).status,204);
+      assert.equal((await run(resource,"get",reader,{key})).status,404);
+    }
   }
   console.log((resources.some(r=>r.operations.create?.behavior?.reserve)?
     (resources.some(r=>(r.transitions??[]).some(t=>t.behavior.release))?
