@@ -16,7 +16,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
-type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string};
+type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -467,7 +467,31 @@ class RuntimeService{
     }
   }
   private select(e:Entity):string{
-    return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+" FROM "+e.table;
+    const versioned=spec.operations.some(op=>op.entity===e.name&&op.createDetails?.versioned);
+    return "SELECT "+e.fields.map(f=>f.column+' AS "'+f.name+'"').join(",")+
+      (versioned?',document_version AS "documentVersion"':"")+" FROM "+e.table;
+  }
+  private parseDocumentVersion(ifMatch:unknown):number{
+    if(typeof ifMatch!=="string"||!/^"[1-9][0-9]{0,9}"$/.test(ifMatch))
+      throw new Problem(400,"Expected a strong If-Match document version");
+    const version=Number(ifMatch.slice(1,-1));
+    if(!Number.isInteger(version)||version>2147483647)
+      throw new Problem(400,"Invalid document version");
+    return version;
+  }
+  private async assertDocumentVersion(client:any,parent:Entity,id:string,ifMatch:unknown):Promise<void>{
+    const expected=this.parseDocumentVersion(ifMatch);
+    const locked=await client.query("SELECT document_version FROM "+parent.table+
+      " WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[id]);
+    if(locked.rowCount!==1)throw new Problem(404,"Versioned document not found");
+    if(locked.rows[0].document_version!==expected)
+      throw new Problem(409,"Stale document version");
+  }
+  private async bumpDocumentVersion(client:any,parent:Entity,id:string):Promise<void>{
+    const changed=await client.query("UPDATE "+parent.table+
+      " SET document_version=document_version+1 WHERE "+parent.identityColumn+
+      "=$1 AND document_version<2147483647",[id]);
+    if(changed.rowCount!==1)throw new Problem(409,"Document version exhausted");
   }
   private async row(e:Entity,id:string,subject?:string):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
@@ -620,7 +644,7 @@ class RuntimeService{
         [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
     }
   }
-  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[]):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown):Promise<Record<string,unknown>>{
     const plan=op.createDetails;
     let detailRows:Record<string,unknown>[]|undefined;
     let child:Entity|undefined;
@@ -709,6 +733,7 @@ class RuntimeService{
           const locked=await client.query("SELECT "+parent.identityColumn+" FROM "+
             parent.table+" WHERE "+parent.identityColumn+"=$1 FOR UPDATE",[raw]);
           if(locked.rowCount!==1)throw new Problem(400,"Detail parent not found");
+          if(bound.versioned)await this.assertDocumentVersion(client,parent,raw,ifMatch);
           const fk=e.fields.find(x=>x.name===bound.parentField);
           if(!fk)throw new Error("Missing bounded detail relationship");
           const count=await client.query("SELECT COUNT(*)::int AS used FROM "+e.table+
@@ -809,6 +834,10 @@ class RuntimeService{
           }
         }
         if(op.audit?.length)await this.recordAudit(client,e,op,String(input[e.publicIdentity]),actor,null,input);
+        if(boundedCreator?.createDetails?.versioned){
+          const parent=spec.entities.find(x=>x.name===boundedCreator.entity)!;
+          await this.bumpDocumentVersion(client,parent,input[boundedCreator.createDetails.parentField] as string);
+        }
         await client.query("COMMIT");
       }catch(error){
         await client.query("ROLLBACK");
@@ -842,7 +871,7 @@ class RuntimeService{
     return this.row(e,key,subject);
   }
 
-  private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string):Promise<Record<string,unknown>>{
+  private async patch(e:Entity,op:Operation,key:string,body:unknown,subject?:string,ifMatch?:unknown):Promise<Record<string,unknown>>{
     const audited=Boolean(op.audit?.length);
     if(!isRecord(body)||Object.keys(body).length!==(audited?2:1)||
       !Object.hasOwn(body,op.input!)||(audited&&!Object.hasOwn(body,"expected")))
@@ -855,10 +884,25 @@ class RuntimeService{
     const field=e.fields.find(f=>f.name===op.field)!;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!subject||field.ownerManaged))throw new Problem(403,"Owner-scoped patch denied");
+    const versionedCreator=spec.operations.find(x=>x.createDetails?.versioned&&
+      x.createDetails.childEntity===e.name);
     if(audited){
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        let versionedParent:Entity|undefined;
+        let versionedParentId:string|undefined;
+        if(versionedCreator){
+          const plan=versionedCreator.createDetails!;
+          const fk=e.fields.find(x=>x.name===plan.parentField);
+          versionedParent=spec.entities.find(x=>x.name===versionedCreator.entity);
+          if(!fk||!versionedParent)throw new Error("Missing versioned parent relationship");
+          const child=await client.query("SELECT "+fk.column+" FROM "+e.table+
+            " WHERE "+e.identityColumn+"=$1",[key]);
+          if(child.rowCount!==1)throw new Problem(404,"Detail not found");
+          versionedParentId=child.rows[0][fk.column] as string;
+          await this.assertDocumentVersion(client,versionedParent,versionedParentId,ifMatch);
+        }
         const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
           "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
           e.identityColumn,[input[op.input!],key,body.expected]);
@@ -870,6 +914,8 @@ class RuntimeService{
         }
         await this.recordAudit(client,e,op,key,subject??"",
           {[op.input!]:body.expected},input);
+        if(versionedParent&&versionedParentId)
+          await this.bumpDocumentVersion(client,versionedParent,versionedParentId);
         await client.query("COMMIT");
       }catch(error){await client.query("ROLLBACK");throw error;}
       finally{client.release();}
@@ -1132,7 +1178,7 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities);break;
+        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"]);break;
         case "get":data=await this.row(entity,identity,session.username);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "sumDetails":data=await this.sumDetails(op,identity);break;
@@ -1141,7 +1187,7 @@ class RuntimeService{
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
-        case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username);break;
+        case "patchFields":data=await this.patch(entity,op,identity,req.body,session.username,req.headers["if-match"]);break;
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username);break;
@@ -1159,6 +1205,9 @@ class RuntimeService{
       if(["create","get","patchFields","patchTogether"].includes(op.kind))data=redacted(data);
       else if(op.kind==="listPage"&&isRecord(data)&&Array.isArray(data.items))
         data={...data,items:data.items.map(redacted)};
+      if(["get","create"].includes(op.kind)&&isRecord(data)&&
+        Number.isInteger(data.documentVersion))
+        res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
       res.status(op.kind==="create"?201:200).json(data);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
