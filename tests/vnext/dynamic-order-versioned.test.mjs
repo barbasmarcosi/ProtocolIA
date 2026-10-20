@@ -12,9 +12,17 @@ test("B17.3 @versionedDetails opt-in emits parent CAS and strong If-Match child 
   const parent=ir.entities.find(x=>x.name==="PurchaseOrder");
   const creator=ir.operations.find(x=>x.name==="createPurchaseOrder");
   assert.deepEqual(creator.behavior.createDetails,{
-    childEntity:"OrderLine",parentField:"orderCode",rowsField:"lines",maxRows:20,versioned:true
+    childEntity:"OrderLine",parentField:"orderCode",rowsField:"lines",maxRows:20,versioned:true,
+    closeField:"status",closeState:"closed"
   });
   assert.equal(assertCreateDetails(ir,parent,creator).maxRows,20);
+  const close=ir.operations.find(x=>x.name==="closePurchaseOrder");
+  assert.ok(close);
+  assert.equal(close.behavior.kind,"transition");
+  assert.equal(close.behavior.field,"status");
+  assert.equal(close.behavior.to,"closed");
+  assert.deepEqual(close.behavior.audit,["status"]);
+  assert.equal(close.capability,creator.capability);
   const child=ir.operations.find(x=>x.name==="createOrderLine");
   assert.ok(child.behavior.audit.includes("orderCode"));
   for(const name of ["createOrderLine","patchLineProduct","patchLineUnits","deleteOrderLine"]){

@@ -9,6 +9,7 @@ namespace DynamicOrders {
   model PurchaseOrder {
     @publicIdentity @unique @minLength(1) @maxLength(40) code:string;
     @minLength(1) @maxLength(120) title:string;
+    @initial("draft") status:string;
   }
   @entity @view("Renglones")
   model OrderLine {
@@ -40,7 +41,7 @@ namespace DynamicOrders {
     @minLength(1) @maxLength(120) product:string;
     @minValue(1) @maxValue(100) units:int32;
   }
-  model VersionedPurchaseOrder {code:string;title:string;documentVersion:int32;}
+  model VersionedPurchaseOrder {code:string;title:string;status:string;documentVersion:int32;}
   model PurchaseOrderPage {items:PurchaseOrder[];@minValue(1) @maxValue(50) limit:int32;@minValue(0) offset:int32;@minValue(0) total:int32;}
   model OrderLinePage {items:OrderLine[];@minValue(1) @maxValue(50) limit:int32;@minValue(0) offset:int32;@minValue(0) total:int32;}
   model Health {status:string;}
@@ -52,10 +53,15 @@ namespace DynamicOrders {
   @route("/api/orders")
   @post @behavior("create","PurchaseOrder")
   @createDetails("OrderLine","orderCode","lines")
-  @versionedDetails
+  @versionedDetails("status","closed")
   @capability("orders.write")
   op createPurchaseOrder(@body input:PurchaseOrderRequest):
     {@statusCode _:201;@body result:VersionedPurchaseOrder;} | Invalid | Conflict | Unauthorized | Forbidden;
+  @route("/api/orders/{code}/close")
+  @post @behavior("transition","PurchaseOrder","status")
+  @transition("draft","closed") @audit("status") @capability("orders.write")
+  op closePurchaseOrder(@path code:string,@header("If-Match") ifMatch:string):
+    VersionedPurchaseOrder | Invalid | Conflict | Missing | Unauthorized | Forbidden;
   @route("/api/orders/{code}/total")
   @get @behavior("sumDetails","PurchaseOrder")
   @detailSum("OrderLine","orderCode","units") @capability("orders.read")
