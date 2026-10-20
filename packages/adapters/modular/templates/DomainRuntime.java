@@ -164,7 +164,7 @@ public class DomainRuntime {
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
     Object result;
     switch (matched.kind()) {
-      case "create" -> result = create(entity, matched, body, user);
+      case "create" -> result = create(entity, matched, body, user,request.getHeader("If-Match"),false);
       case "get" -> result = row(entity, publicKey, user.getName());
       case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "sumDetails" -> result = sumDetails(matched,publicKey);
@@ -173,7 +173,7 @@ public class DomainRuntime {
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
-      case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName());
+      case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName(),request.getHeader("If-Match"));
       case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body);
@@ -224,7 +224,10 @@ public class DomainRuntime {
       }
     }
     int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
-    return ResponseEntity.status(status).body(result);
+    var response=ResponseEntity.status(status);
+    if(result instanceof Map<?,?> v && v.get("documentVersion") instanceof Number number)
+      response.header("ETag","\""+number.intValue()+"\"");
+    return response.body(result);
   }
 
   private Object inbox(Manifest.Entity entity,Manifest.Op op,String id,Map<String,String> query,
@@ -267,6 +270,9 @@ public class DomainRuntime {
   private String selectSql(Manifest.Entity e) {
     String columns = e.fields().stream().map(f -> f.column() + " AS \"" + f.name() + "\"")
         .reduce((a,b) -> a + "," + b).orElseThrow();
+    if(Manifest.OPS.stream().anyMatch(op->op.entity().equals(e.name())&&
+        op.createDetails()!=null&&op.createDetails().versioned()))
+      columns+=",document_version AS \"documentVersion\"";
     return "SELECT " + columns + " FROM " + e.table();
   }
 
@@ -433,7 +439,38 @@ public class DomainRuntime {
     return false;
   }
 
-  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body, Authentication user) {
+  private int parseDocumentVersion(String header) {
+    if(header==null||!header.matches("\"[1-9][0-9]{0,9}\""))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected a strong If-Match document version");
+    try{
+      int version=Integer.parseInt(header.substring(1,header.length()-1));
+      if(version<1)throw new NumberFormatException();
+      return version;
+    }catch(NumberFormatException error){
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid document version",error);
+    }
+  }
+
+  private void assertDocumentVersion(Manifest.Entity parent,String id,String ifMatch) {
+    int expected=parseDocumentVersion(ifMatch);
+    var versions=jdbc.queryForList("SELECT document_version FROM "+parent.table()+
+      " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",id),Integer.class);
+    if(versions.size()!=1)
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Versioned document not found");
+    if(versions.get(0)!=expected)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale document version");
+  }
+
+  private void incrementDocumentVersion(Manifest.Entity parent,String id) {
+    int changed=jdbc.update("UPDATE "+parent.table()+
+      " SET document_version=document_version+1 WHERE "+parent.identityColumn()+
+      "=:id AND document_version<2147483647",Map.of("id",id));
+    if(changed!=1)
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Document version exhausted");
+  }
+
+  private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body,
+      Authentication user,String ifMatch,boolean nested) {
     // Nested DTO is validated against the declared child entity, not flattened into parent SQL.
     java.util.List<Map<String,Object>> details=null;
     Manifest.Entity detailEntity=null;
@@ -610,6 +647,8 @@ public class DomainRuntime {
     var boundedCreator=Manifest.OPS.stream()
       .filter(x->x.createDetails()!=null && x.createDetails().childEntity().equals(e.name()))
       .findFirst().orElse(null);
+    Manifest.Entity versionedParent=null;
+    String versionedParentId=null;
     if(boundedCreator!=null){
       // A child-write permission alone must never authorize mutating a header.
       if(user==null||user.getAuthorities().stream().noneMatch(
@@ -625,6 +664,11 @@ public class DomainRuntime {
         " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",parentId),String.class);
       if(locked.size()!=1)
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Detail parent not found");
+      if(bound.versioned()&&!nested){
+        assertDocumentVersion(parent,parentId,ifMatch);
+        versionedParent=parent;
+        versionedParentId=parentId;
+      }
       String fk=e.fields().stream().filter(f->f.name().equals(bound.parentField()))
         .findFirst().orElseThrow().column();
       Number used=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+
@@ -659,7 +703,8 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Database constraint violation");
       throw ex;
     }
-    if(details!=null)for(var detail:details)create(detailEntity,detailCreate,detail,user);
+    if(details!=null)for(var detail:details)create(detailEntity,detailCreate,detail,user,null,true);
+    if(versionedParent!=null)incrementDocumentVersion(versionedParent,versionedParentId);
     return row(e, (String) body.get(e.identity()),subject);
   }
 
@@ -821,7 +866,8 @@ public class DomainRuntime {
     return row(e,id,subject);
   }
 
-  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id, Map<String,Object> body, String subject) {
+  private Map<String,Object> patch(Manifest.Entity e, Manifest.Op op, String id,
+      Map<String,Object> body, String subject,String ifMatch) {
     if(op.audit().isEmpty()){
       validate(e, body, false, Set.of(op.field()));
       if (!body.containsKey(op.input())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
@@ -834,6 +880,23 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.CONFLICT,"New value matches the previous value");
       validate(e,Map.of(op.input(),body.get(op.input())),false,Set.of(op.field()));
       validate(e,Map.of(op.input(),body.get("expected")),false,Set.of(op.field()));
+    }
+    var versionedCreator=Manifest.OPS.stream()
+      .filter(x->x.createDetails()!=null&&x.createDetails().versioned()&&
+        x.createDetails().childEntity().equals(e.name())).findFirst().orElse(null);
+    Manifest.Entity versionedParent=null;
+    String versionedParentId=null;
+    if(versionedCreator!=null){
+      if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+      var plan=versionedCreator.createDetails();
+      var field=e.fields().stream().filter(f->f.name().equals(plan.parentField())).findFirst().orElseThrow();
+      var keys=jdbc.queryForList("SELECT "+field.column()+" FROM "+e.table()+
+        " WHERE "+e.identityColumn()+"=:id",Map.of("id",id),String.class);
+      if(keys.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      versionedParentId=keys.get(0);
+      versionedParent=Manifest.ENTITIES.stream().filter(x->x.name().equals(versionedCreator.entity()))
+        .findFirst().orElseThrow();
+      assertDocumentVersion(versionedParent,versionedParentId,ifMatch);
     }
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
     if(e.ownerField()!=null&&(subject==null||e.ownerField().equals(op.field())))
@@ -860,6 +923,7 @@ public class DomainRuntime {
       row(e,id,subject);
       throw new ResponseStatusException(HttpStatus.CONFLICT,"Stale expected value");
     }
+    if(versionedParent!=null)incrementDocumentVersion(versionedParent,versionedParentId);
     return row(e,id,subject);
   }
 
