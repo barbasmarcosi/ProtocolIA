@@ -36,17 +36,16 @@ Java 21/Maven for `modular-spring`. From a clean checkout:
 
 ```sh
 npm ci
-npm run app:build -- examples/vnext/dynamic-order-versioned \
+npm run app:build -- examples/vnext/dynamic-order-audited-append \
   --target nestjs --out /tmp/protocolia-v1-nest
 npm run app:test -- /tmp/protocolia-v1-nest
 ```
 
-`npm run app:test` currently uses the older generic HTTP oracle; for
-`@versionedDetails`, use the dedicated PostgreSQL/Chromium acceptance workflow
-`vnext-b17-versioned-details` until the CLI supports `If-Match` globally.
-For an application supported by that generic oracle, see the non-versioned
-`examples/vnext/dynamic-order-audited-append` fixture. To generate
-Spring Boot, use `--target modular-spring` and an empty output directory.
+This example deliberately uses the non-versioned contract because the
+generic `app:test` cannot yet supply `If-Match`. For the versioned contract
+`examples/vnext/dynamic-order-versioned`, use the dedicated
+PostgreSQL/Chromium acceptance workflow `vnext-b17-versioned-details`.
+For Spring Boot use `--target modular-spring` with an empty output directory.
 
 **Architecture:** `@protocolia/domain` TypeSpec decorators → canonical
 semantic IR and OpenAPI → separate Spring/Nest adapters → React UI and
