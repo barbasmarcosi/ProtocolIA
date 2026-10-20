@@ -317,6 +317,110 @@ try{
       consoleErrorsNone:true
     }));
   }finally{await browser.close();}
+  // B17.5a — closing a document is an audited, terminal transition
+  // protected by the same parent lock and If-Match across all mutations.
+  const makeOrder=(code,rows)=>req("POST","/api/orders",{
+    code,title:"Cierre versionado",lines:rows
+  });
+  const close=(code,tag,headers={})=>req("POST","/api/orders/"+code+"/close",
+    undefined,{...(tag?{"If-Match":tag}:{}),...headers});
+  assert.equal((await makeOrder("TO-CLOSE",[line("CLOSE-1",2),line("CLOSE-2",4)])).status,201);
+  assert.equal((await close("TO-CLOSE")).status,400,
+    "Closing requires a strong If-Match");
+  assert.equal((await close("TO-CLOSE",'W/"1"')).status,400);
+  const scopedClose=await close("TO-CLOSE",'"1"',{
+    Authorization:basic("child_writer",scopedPass)
+  });
+  assert.equal(scopedClose.status,403,"Only the parent writer can close");
+  const finalized=await close("TO-CLOSE",'"1"');
+  assert.equal(finalized.status,200,JSON.stringify(finalized));
+  assert.equal(finalized.body.status,"closed");
+  assert.equal(finalized.body.documentVersion,2);
+  const closedHeader=await req("GET","/api/orders/TO-CLOSE");
+  assert.equal(closedHeader.body.status,"closed");
+  assert.equal(closedHeader.body.documentVersion,2);
+  assert.equal(closedHeader.etag,'"2"');
+  assert.equal((await close("TO-CLOSE",'"1"')).status,409);
+  assert.equal((await close("TO-CLOSE",'"2"')).status,409,
+    "A terminal document cannot be closed again even with its current version");
+  const closedAppend=await req("POST","/api/order-lines",{
+    ...line("CLOSE-APPEND",2),orderCode:"TO-CLOSE"
+  },{"If-Match":'"2"'});
+  assert.equal(closedAppend.status,409,"Append must be rejected after close");
+  assert.equal((await req("PATCH","/api/order-lines/CLOSE-1/units",
+    {units:5,expected:2},{"If-Match":'"2"'})).status,409,
+    "Audited PATCH must be rejected after close");
+  assert.equal((await req("DELETE","/api/order-lines/CLOSE-2",
+    undefined,{"If-Match":'"2"'})).status,409,
+    "Audited DELETE must be rejected after close");
+  assert.equal((await req("GET","/api/orders/TO-CLOSE/total")).body.totalUnits,"6");
+  assert.equal((await req("GET","/api/order-lines/CLOSE-2")).status,200);
+  const closeAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT field_name || ':' || before_value || ':' || after_value "+
+      "FROM protocolia_audit_event WHERE entity_name='PurchaseOrder' "+
+      "AND operation_name='closePurchaseOrder' AND resource_id='TO-CLOSE'"]);
+  assert.equal(closeAudit,"status:draft:closed");
+  // Concurrent close/append with exactly one matching ETag: one succeeds.
+  assert.equal((await makeOrder("CLOSE-RACE",[line("CLOSE-RACE-1")])).status,201);
+  const closureRace=await Promise.all([
+    close("CLOSE-RACE",'"1"'),
+    req("POST","/api/order-lines",{
+      ...line("CLOSE-RACE-2"),orderCode:"CLOSE-RACE"
+    },{"If-Match":'"1"'})
+  ]);
+  assert.ok((closureRace[0].status===200&&closureRace[1].status===409)||
+    (closureRace[0].status===409&&closureRace[1].status===201),
+    "Close/append must arbitrate a shared version: "+
+    JSON.stringify(closureRace.map(x=>x.status)));
+  const raceDoc=await req("GET","/api/orders/CLOSE-RACE");
+  assert.equal(raceDoc.body.documentVersion,2);
+  const raceRows=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM order_line WHERE order_code='CLOSE-RACE'"]);
+  assert.equal(raceRows,closureRace[0].status===200?"1":"2");
+  if(closureRace[0].status===200){
+    assert.equal((await req("POST","/api/order-lines",{
+      ...line("CLOSE-RACE-3"),orderCode:"CLOSE-RACE"
+    },{"If-Match":'"2"'})).status,409);
+  }else{
+    assert.equal((await close("CLOSE-RACE",'"2"')).status,200);
+    assert.equal((await req("GET","/api/orders/CLOSE-RACE")).body.documentVersion,3);
+  }
+  // Forced PostgreSQL failure during close audit must revert status/version
+  // and make the exact same If-Match reusable on the next attempt.
+  assert.equal((await makeOrder("CLOSE-ROLLBACK",[line("CLOSE-ROLLBACK-1")])).status,201);
+  const failCloseSql=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_close_audit_fail()",
+    "RETURNS trigger LANGUAGE plpgsql AS $p$",
+    "BEGIN IF NEW.resource_id='CLOSE-ROLLBACK' AND NEW.operation_name='closePurchaseOrder'",
+    "THEN RAISE EXCEPTION 'B17 forced closing audit failure'; END IF;",
+    "RETURN NEW; END; $p$;",
+    "CREATE TRIGGER protocolia_test_close_audit_fail",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_close_audit_fail();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",failCloseSql]);
+  assert.equal((await close("CLOSE-ROLLBACK",'"1"')).status,500);
+  const reverted=await req("GET","/api/orders/CLOSE-ROLLBACK");
+  assert.equal(reverted.body.status,"draft");
+  assert.equal(reverted.body.documentVersion,1);
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event "+
+      "WHERE operation_name='closePurchaseOrder' AND resource_id='CLOSE-ROLLBACK'"]),"0");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_close_audit_fail ON protocolia_audit_event; "+
+    "DROP FUNCTION protocolia_test_close_audit_fail()"]);
+  const retried=await close("CLOSE-ROLLBACK",'"1"');
+  assert.equal(retried.status,200);
+  assert.equal(retried.body.documentVersion,2);
+  assert.equal(retried.body.status,"closed");
+  console.log("PROTOCOLIA_B17_TERMINAL_DOCUMENT_PASS "+JSON.stringify({
+    strongIfMatchRequired:true,parentWriteRequired:true,
+    auditableClose:true,closePreventsAppend:true,closePreventsPatch:true,
+    closePreventsDelete:true,closeVersusAppendOneWinner:true,
+    auditRollbackPreservesDraft:true,retrySameVersionAfterRollback:true
+  }));
   console.log("PROTOCOLIA_B17_VERSIONED_DELETE_PASS "+JSON.stringify({
     bothCapabilitiesRequired:true,ifMatchRequired:true,auditedBeforeValues:true,
     lastRowGuarded:true,concurrentDeletesOneWinner:true,
