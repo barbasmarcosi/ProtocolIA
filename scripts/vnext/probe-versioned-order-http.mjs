@@ -133,6 +133,92 @@ try{
   assert.equal((await append("AUDIT-ROLLBACK",'"6"')).status,201,
     "Rolled-back version must remain reusable after audit failure is repaired");
   assert.equal((await header()).body.documentVersion,7);
+  // B17.3b: versioned DELETE with permission, audit, last-row floor and rollback.
+  const remove=(code,tag,headers={})=>req("DELETE","/api/order-lines/"+code,undefined,{
+    ...(tag==null?{}:{"If-Match":tag}),...headers
+  });
+  const raceLine=race[0].status===201?"RACE-ONE":"RACE-TWO";
+  const beforeDeleteTotal=Number((await req("GET","/api/orders/VERSIONED/total")).body.totalUnits);
+  assert.equal((await remove("INITIAL")).status,400,"Deleting a detail requires If-Match");
+  assert.equal((await remove("INITIAL",'W/"7"')).status,400);
+  assert.equal((await remove("INITIAL",'"6"')).status,409);
+  assert.equal((await remove("INITIAL",'"7"',{
+    Authorization:basic("child_writer",scopedPass)
+  })).status,403,"Child writer without parent write must not delete");
+  assert.equal((await req("GET","/api/order-lines/INITIAL")).status,200);
+  const firstDelete=await remove("INITIAL",'"7"');
+  assert.equal(firstDelete.status,204,JSON.stringify(firstDelete));
+  assert.equal((await req("GET","/api/order-lines/INITIAL")).status,404);
+  assert.equal((await header()).body.documentVersion,8);
+  const removedQuantity=cross[0].status===200?7:5;
+  assert.equal(Number((await req("GET","/api/orders/VERSIONED/total")).body.totalUnits),
+    beforeDeleteTotal-removedQuantity);
+  const deleteAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT field_name || ':' || COALESCE(before_value,'<null>') || ':' || "+
+      "COALESCE(after_value,'<null>') FROM protocolia_audit_event "+
+      "WHERE operation_name='deleteOrderLine' AND resource_id='INITIAL' ORDER BY field_name"]);
+  assert.equal(deleteAudit,[
+    "orderCode:VERSIONED:<null>","product:Nuevo:<null>",
+    "units:"+removedQuantity+":<null>"
+  ].join("\n"),"DELETE audit must contain original values and empty after values");
+  const deletes=await Promise.all([
+    remove("ADDED",'"8"'),remove(raceLine,'"8"')
+  ]);
+  assert.deepEqual(deletes.map(x=>x.status).sort(),[204,409],
+    "Two different details cannot both delete against the same document version");
+  assert.equal((await header()).body.documentVersion,9);
+  const survivingDelete=deletes[0].status===204?raceLine:"ADDED";
+  assert.equal((await req("GET","/api/order-lines/"+survivingDelete)).status,200);
+  const loserAudit=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event "+
+      "WHERE operation_name='deleteOrderLine' AND resource_id IN ('ADDED','RACE-ONE','RACE-TWO')"]);
+  assert.equal(loserAudit,"3","The losing delete must not generate audit events");
+  const deleteFailSql=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_delete_audit_fail()",
+    "RETURNS trigger LANGUAGE plpgsql AS $p$",
+    "BEGIN IF NEW.resource_id='AUDIT-ROLLBACK' AND NEW.operation_name='deleteOrderLine'",
+    "THEN RAISE EXCEPTION 'B17 forced DELETE audit failure'; END IF;",
+    "RETURN NEW; END; $p$;",
+    "CREATE TRIGGER protocolia_test_delete_audit_fail",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_delete_audit_fail();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",deleteFailSql]);
+  const countBeforeFailedDelete=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM order_line WHERE order_code='VERSIONED'"]);
+  assert.equal((await remove("AUDIT-ROLLBACK",'"9"')).status,500);
+  assert.equal((await header()).body.documentVersion,9,"Failed audit must rollback document version");
+  assert.equal((await req("GET","/api/order-lines/AUDIT-ROLLBACK")).status,200,
+    "Failed audit must rollback physical DELETE");
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM order_line WHERE order_code='VERSIONED'"]),
+    countBeforeFailedDelete);
+  assert.equal(docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event "+
+      "WHERE operation_name='deleteOrderLine' AND resource_id='AUDIT-ROLLBACK'"]),"0");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_delete_audit_fail ON protocolia_audit_event; "+
+    "DROP FUNCTION protocolia_test_delete_audit_fail()"]);
+  assert.equal((await remove("AUDIT-ROLLBACK",'"9"')).status,204,
+    "Rolled-back version must remain usable for DELETE after auditing recovers");
+  assert.equal((await header()).body.documentVersion,10);
+  assert.equal((await req("GET","/api/order-lines/AUDIT-ROLLBACK")).status,404);
+  const single=await req("POST","/api/orders",{
+    code:"SINGLE",title:"Una línea",lines:[line("SINGLE-1")]
+  });
+  assert.equal(single.status,201,JSON.stringify(single));
+  assert.equal((await remove("SINGLE-1",'"1"')).status,409,
+    "A bounded document may not be left without its last detail");
+  assert.equal((await req("GET","/api/orders/SINGLE")).body.documentVersion,1);
+  assert.equal((await req("GET","/api/order-lines/SINGLE-1")).status,200);
+  console.log("PROTOCOLIA_B17_VERSIONED_DELETE_PASS "+JSON.stringify({
+    bothCapabilitiesRequired:true,ifMatchRequired:true,auditedBeforeValues:true,
+    lastRowGuarded:true,concurrentDeletesOneWinner:true,
+    failedAuditRollsBackDeletion:true,failedAuditRollsBackVersion:true,
+    sqlAggregateUpdated:true
+  }));
   console.log("PROTOCOLIA_B17_VERSIONED_DETAILS_PASS "+JSON.stringify({
     persisted:true,strongIfMatch:true,staleAppendConflict:true,concurrentAppendOneWinner:true,
     auditedPatchVersioned:true,appendVsPatchOneWinner:true,versionEtag:true,parentPermission:true,
