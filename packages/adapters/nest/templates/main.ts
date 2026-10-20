@@ -1187,8 +1187,9 @@ class RuntimeService{
         throw new Problem(400,"The parent FK is server managed");
       const values=validateInput(child,{...raw,[plan.parentField]:key},writable.map(f=>f.name),true);
       const identity=values[child.publicIdentity];
-      if(typeof identity!=="string"||!identities.add(identity))
+      if(typeof identity!=="string"||identities.has(identity))
         throw new Problem(409,"Duplicate replacement identity");
+      identities.add(identity);
       incoming.push(values);
     }
     const fk=child.fields.find(f=>f.name===plan.parentField);
