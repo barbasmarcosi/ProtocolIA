@@ -177,6 +177,7 @@ async function runMulti(){
     return {status:response.status,data:result,etag:response.headers.get("etag")};
   }
   const createBodies=new Map();
+  const deferredClosures=[];
   for(const resource of resources){
     const e=resource.entity,identity=e.publicIdentity;
     for(const kind of ["create","get","listPage"])
@@ -393,6 +394,13 @@ async function runMulti(){
     }
     let executed=0;
     for(const op of resource.transitions??[]){
+      // Terminal closure must execute after all dependent resource fixtures have
+      // been created and edited. Closing midway would correctly forbid later
+      // child creation and produce a false-negative generic conformance result.
+      if(versionedTransition(resource,op)){
+        deferredClosures.push({resource,op,key});
+        continue;
+      }
       const field=e.fields.find(f=>f.name===op.behavior.field);
       assert.ok(field?.initial, "Transition requires an initial-state field");
       const current=await run(resource,"get",reader,{key});
@@ -421,11 +429,49 @@ async function runMulti(){
       }
       executed++;
     }
-    if((resource.transitions??[]).length)assert.ok(executed>0,"No declared transition was executable");
+    if((resource.transitions??[]).some(op=>!versionedTransition(resource,op)))
+      assert.ok(executed>0,"No declared transition was executable");
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
         [f.name]:"UNMATCHED-"+uuid};
       assert.equal((await run(resource,"create",writer,{body:bad})).status,400);
+    }
+  }
+  // A terminal state is evaluated only once all resource fixtures have been
+  // created. The same 10-writer CAS contention still proves one transition
+  // can succeed and that the other nine are rejected by document version/state.
+  for(const {resource,op,key} of deferredClosures){
+    const field=resource.entity.fields.find(f=>f.name===op.behavior.field);
+    assert.ok(field?.initial,"Terminal transition requires initial state");
+    const before=await run(resource,"get",reader,{key});
+    assert.equal(before.status,200);
+    assert.equal(before.data[field.name],op.behavior.from);
+    const version=before.data.documentVersion;
+    assert.ok(Number.isSafeInteger(version)&&version>=1);
+    assert.equal((await run(resource,op,reader,{key})).status,403);
+    assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
+    const results=await Promise.all(Array.from({length:10},()=>
+      run(resource,op,writer,{key})));
+    assert.equal(results.filter(x=>x.status===200).length,1,
+      "Exactly one terminal close may consume the current version");
+    assert.equal(results.filter(x=>x.status===409).length,9);
+    const after=await run(resource,"get",reader,{key});
+    assert.equal(after.status,200);
+    assert.equal(after.data[field.name],op.behavior.to);
+    assert.equal(after.data.documentVersion,version+1);
+    assert.equal(after.etag,'"'+after.data.documentVersion+'"');
+    const closedChild=resources.find(x=>versionedChild(x)===resource);
+    if(closedChild){
+      const parentField=resource.operations.create.behavior.createDetails.parentField;
+      const sample=createBodies.get(closedChild.entity.name);
+      if(sample?.[parentField]===key){
+        const attempt=await run(closedChild,"create",writer,{
+          body:{...sample,[closedChild.entity.publicIdentity]:
+            ("CLOSED-"+uuid).slice(0,closedChild.entity.fields.find(f=>
+              f.name===closedChild.entity.publicIdentity).maxLength??64)}
+        });
+        assert.equal(attempt.status,409,"Closed parent must reject child writes");
+      }
     }
   }
   // RESTRICT is not cosmetic: parents referenced by persisted children must refuse delete.
