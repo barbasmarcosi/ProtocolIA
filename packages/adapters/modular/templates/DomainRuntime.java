@@ -174,6 +174,8 @@ public class DomainRuntime {
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
       case "auditPage" -> result = auditPage(entity, publicKey, query, matched);
       case "patchFields" -> result = patch(entity, matched, publicKey, body, user.getName(),request.getHeader("If-Match"));
+      case "replaceDetails" -> result = replaceDetails(entity, matched, publicKey, body,
+        user,request.getHeader("If-Match"));
       case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body,
@@ -961,6 +963,93 @@ public class DomainRuntime {
       throw ex;
     }
     return row(e,id);
+  }
+
+  private Map<String,Object> replaceDetails(Manifest.Entity parent,Manifest.Op op,String id,
+      Map<String,Object> body,Authentication user,String ifMatch) {
+    var creator=Manifest.OPS.stream().filter(x->x.entity().equals(parent.name())&&
+      x.createDetails()!=null&&x.createDetails().versioned()).findFirst()
+      .orElseThrow(()->new IllegalStateException("Missing versioned details creator"));
+    var plan=creator.createDetails();
+    var child=Manifest.ENTITIES.stream().filter(x->x.name().equals(plan.childEntity()))
+      .findFirst().orElseThrow();
+    var createOp=Manifest.OPS.stream().filter(x->x.entity().equals(child.name())&&
+      x.kind().equals("create")).findFirst().orElseThrow();
+    var deleteOp=Manifest.OPS.stream().filter(x->x.entity().equals(child.name())&&
+      x.kind().equals("delete")).findFirst().orElseThrow();
+    if(user==null||user.getAuthorities().stream().noneMatch(a->
+       a.getAuthority().equals(createOp.capability()))||
+       user.getAuthorities().stream().noneMatch(a->
+       a.getAuthority().equals(deleteOp.capability())))
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Both child mutation permissions required");
+    if(id==null||body==null||body.size()!=1||
+       !(body.get(plan.rowsField()) instanceof java.util.List<?> rows)||
+       rows.isEmpty()||rows.size()>plan.maxRows())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expected 1..20 replacement rows");
+    var writable=child.fields().stream().filter(f->!f.computed())
+      .map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
+    var incoming=new java.util.ArrayList<Map<String,Object>>();
+    var keys=new java.util.HashSet<String>();
+    for(var raw:rows){
+      if(!(raw instanceof Map<?,?> values)||values.keySet().stream()
+          .anyMatch(x->!(x instanceof String)))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid replacement row");
+      var row=new java.util.LinkedHashMap<String,Object>();
+      for(var item:values.entrySet())row.put((String)item.getKey(),item.getValue());
+      if(row.containsKey(plan.parentField()))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Parent reference is server-managed");
+      row.put(plan.parentField(),id);
+      validate(child,row,true,writable);
+      var key=(String)row.get(child.identity());
+      if(!keys.add(key))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Duplicate replacement identity");
+      incoming.add(row);
+    }
+    // Same parent-first lock as all B17 child mutations.
+    assertDocumentVersion(parent,id,ifMatch);
+    String fk=child.fields().stream().filter(x->x.name().equals(plan.parentField()))
+      .findFirst().orElseThrow().column();
+    var before=jdbc.queryForList(selectSql(child)+" WHERE "+fk+"=:parent ORDER BY "+
+      child.identityColumn(),Map.of("parent",id));
+    try{
+      jdbc.update("DELETE FROM "+child.table()+" WHERE "+fk+"=:parent",Map.of("parent",id));
+      for(var old:before)for(String field:deleteOp.audit()){
+        Object value=old.get(field);
+        jdbc.update("INSERT INTO protocolia_audit_event "+
+          "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+          "VALUES (:actor,:entity,:id,:op,:field,:old,NULL)",
+          new MapSqlParameterSource().addValue("actor",user.getName())
+            .addValue("entity",child.name()).addValue("id",old.get(child.identity()))
+            .addValue("op",deleteOp.name()).addValue("field",field)
+            .addValue("old",value==null?null:String.valueOf(value)));
+      }
+      var persisted=child.fields().stream().filter(f->!f.computed()).toList();
+      String columns=persisted.stream().map(Manifest.Field::column).collect(java.util.stream.Collectors.joining(","));
+      String binds=persisted.stream().map(f->":"+f.name()).collect(java.util.stream.Collectors.joining(","));
+      for(var entry:incoming){
+        var params=new MapSqlParameterSource();
+        for(var field:persisted)params.addValue(field.name(),sqlValue(field,entry.get(field.name())));
+        jdbc.update("INSERT INTO "+child.table()+" ("+columns+") VALUES ("+binds+")",params);
+        for(String field:createOp.audit()){
+          Object value=entry.get(field);
+          jdbc.update("INSERT INTO protocolia_audit_event "+
+            "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
+            "VALUES (:actor,:entity,:id,:op,:field,NULL,:next)",
+            new MapSqlParameterSource().addValue("actor",user.getName())
+              .addValue("entity",child.name()).addValue("id",entry.get(child.identity()))
+              .addValue("op",createOp.name()).addValue("field",field)
+              .addValue("next",value==null?null:String.valueOf(value)));
+        }
+      }
+      incrementDocumentVersion(parent,id);
+    }catch(DataIntegrityViolationException error){
+      if(constraintSqlState(error,"23505")||constraintSqlState(error,"23503"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Replacement collides with existing references");
+      if(constraintSqlState(error,"23502")||constraintSqlState(error,"23514"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid replacement data");
+      throw error;
+    }
+    return row(parent,id,user.getName());
   }
 
   private Object delete(Manifest.Entity e, Manifest.Op op, String id, Authentication actor,
