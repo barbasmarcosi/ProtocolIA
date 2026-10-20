@@ -1610,6 +1610,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
   for(const creator of operations.filter(o=>o.behavior.createDetails)){
     const cfg=creator.behavior.createDetails!;
     if(cfg.versioned){
+      const createChild=operations.find(x=>x.entity===cfg.childEntity&&x.behavior.kind==="create");
+      const audit=createChild?.behavior.audit??[];
+      if(!audit.length||!audit.includes(cfg.parentField)){
+        reject("versioned-details-audit",creator.name+
+          " requires a declared child create audit containing the parent FK",ops.find(o=>o.name===creator.name)!);
+      }
       const parent=entities.find(e=>e.name===creator.entity);
       const child=entities.find(e=>e.name===cfg.childEntity);
       if(parent?.fields.some(f=>f.name==="documentVersion"||f.name==="document_version")||

@@ -53,7 +53,9 @@ export function assertCreateDetails(ir,parent,op){
     childCreate.length!==1||parentCreate.length!==1||parentCreate[0].name!==op.name||
     !childCreate[0].capability||childCreate[0].capability==="public"||
     !op.capability||op.capability==="public"||
-    invalidChildAudit||childCreate[0].behavior.reserve||
+    invalidChildAudit||(meta.versioned===true&&!childAudit)||
+    (meta.versioned!==undefined&&meta.versioned!==true)||
+    childCreate[0].behavior.reserve||
     childCreate[0].behavior.moveUnits||childCreate[0].behavior.moveBatch||
     childCreate[0].behavior.createDetails||childCreate[0].behavior.debitExact||
     ir.operations.some(x=>x.entity===parent.name&&x.behavior.kind==="create"&&x.behavior.moveBatch)||
