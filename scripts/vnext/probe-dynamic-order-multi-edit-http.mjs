@@ -323,6 +323,35 @@ try{
   assert.equal(directAudit,[
     "orderCode:<null>:SUCCESS","product:<null>:Renglón agregado","units:<null>:5"
   ].join("\n"),"Direct child append must create precisely the three declared audit events");
+  // Inject an audit failure into the same PostgreSQL transaction as the child
+  // INSERT. Both adapters must roll back the new line, not merely its audit.
+  const failAuditSql=[
+    "CREATE OR REPLACE FUNCTION protocolia_test_fail_detail_audit()",
+    "RETURNS trigger LANGUAGE plpgsql AS $audit$",
+    "BEGIN IF NEW.resource_id = 'AUDIT-FAIL' THEN",
+    "RAISE EXCEPTION 'B17 forced audit failure';",
+    "END IF; RETURN NEW; END; $audit$;",
+    "CREATE TRIGGER protocolia_test_fail_detail_audit",
+    "BEFORE INSERT ON protocolia_audit_event FOR EACH ROW",
+    "EXECUTE FUNCTION protocolia_test_fail_detail_audit();"
+  ].join(" ");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",failAuditSql]);
+  const beforeAuditFailure=(await total("SUCCESS")).body.totalUnits;
+  const rejectedAudit=await append("SUCCESS","AUDIT-FAIL",7);
+  assert.equal(rejectedAudit.status,500,"An audit INSERT failure must fail the HTTP child mutation");
+  assert.equal((await request("GET","/api/order-lines/AUDIT-FAIL")).status,404,
+    "A failed audit must roll back the appended child");
+  assert.equal((await total("SUCCESS")).body.totalUnits,beforeAuditFailure,
+    "No failed-audit append may change the SQL-derived document total");
+  const failedAuditRows=docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-Atc","SELECT count(*)::text FROM protocolia_audit_event WHERE entity_name='OrderLine' "+
+      "AND resource_id='AUDIT-FAIL'"]);
+  assert.equal(failedAuditRows,"0","Failed audit must not leave partial audit rows");
+  docker([...args,"exec","-T","db","psql","-U","protocolia","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c",
+    "DROP TRIGGER protocolia_test_fail_detail_audit ON protocolia_audit_event; "+
+      "DROP FUNCTION protocolia_test_fail_detail_audit()"]);
   const nineteen=Array.from({length:19},(_,i)=>item("BOUNDED-"+i,"Producto",1));
   assert.equal((await create("BOUNDED-RACE",nineteen)).status,201);
   const competingAppends=await Promise.all([
@@ -373,7 +402,8 @@ try{
   assert.equal((await request("GET","/api/order-lines/NO-PARENT-WRITE")).status,404);
   console.log("PROTOCOLIA_B17_PARENT_AUTH_AUDIT_PASS "+JSON.stringify({
     childWriteWithoutParentDenied:true,managerAppendAllowed:true,
-    auditedDirectAppend:true,losingAppendUnaudited:true
+    auditedDirectAppend:true,losingAppendUnaudited:true,
+    failedAuditRollsBackChild:true
   }));
   console.log("PROTOCOLIA_B17_BOUNDED_APPEND_PASS "+JSON.stringify({
     directAppendAllowedBelowLimit:true,twentyFirstRejected:true,
