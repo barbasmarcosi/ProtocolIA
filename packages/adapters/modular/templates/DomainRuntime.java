@@ -604,6 +604,30 @@ public class DomainRuntime {
             HttpStatus.CONFLICT:HttpStatus.BAD_REQUEST,"Missing or insufficient exact balance");
       }
     }
+    // B17 foundation: even legacy single-line POSTs must respect the document's
+    // declared bounded collection. Lock the header inside dispatch()'s transaction
+    // before counting so concurrent appends cannot both claim the last slot.
+    var boundedCreator=Manifest.OPS.stream()
+      .filter(x->x.createDetails()!=null && x.createDetails().childEntity().equals(e.name()))
+      .findFirst().orElse(null);
+    if(boundedCreator!=null){
+      var bound=boundedCreator.createDetails();
+      var parent=Manifest.ENTITIES.stream().filter(x->x.name().equals(boundedCreator.entity()))
+        .findFirst().orElseThrow();
+      Object raw=body.get(bound.parentField());
+      if(!(raw instanceof String parentId)||parentId.isBlank())
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid detail parent");
+      var locked=jdbc.queryForList("SELECT "+parent.identityColumn()+" FROM "+parent.table()+
+        " WHERE "+parent.identityColumn()+"=:id FOR UPDATE",Map.of("id",parentId),String.class);
+      if(locked.size()!=1)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Detail parent not found");
+      String fk=e.fields().stream().filter(f->f.name().equals(bound.parentField()))
+        .findFirst().orElseThrow().column();
+      Number used=jdbc.queryForObject("SELECT COUNT(*) FROM "+e.table()+
+        " WHERE "+fk+"=:id",Map.of("id",parentId),Long.class);
+      if(used==null||used.longValue()>=bound.maxRows())
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Document detail limit reached");
+    }
     var params = new MapSqlParameterSource();
     for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
