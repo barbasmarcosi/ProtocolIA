@@ -42,3 +42,7 @@ jobs:
         run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${{ runner.temp }}/v11-ifmatch-app"
       - name: Verify generic CLI accepts versioned documents on isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/v11-ifmatch-app"
+      - name: Build non-versioned compatibility fixture
+        run: npm run app:build -- examples/vnext/dynamic-order-audited-append --target ${{ matrix.target }} --out "${{ runner.temp }}/v11-legacy-app"
+      - name: Confirm historical generic conformance still passes
+        run: npm run app:test -- "${{ runner.temp }}/v11-legacy-app"
