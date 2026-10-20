@@ -276,7 +276,8 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 // B13: generated read-side of a typed header/detail aggregate, using the existing
 // child queryPage filter and explicit child read authority. Never fetch unscoped rows.
 function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],parentGet,
-  parentWrite=false,createOp,deleteOp,maxRows=20,onSaved}){
+  parentWrite=false,createOp,deleteOp,maxRows=20,closeField,closeState,revision=0,
+  onSaved,onParentLoaded}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
   const [editing,setEditing]=useState(null);
@@ -295,7 +296,8 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
     !f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
     f.initial===undefined);
   const mutationHeaders=()=>versioned?{"If-Match":'"'+state.version+'"'}:{};
-  const isVersionReady=()=>!versioned||Number.isSafeInteger(state.version)&&state.version>=1;
+  const isVersionReady=()=>!versioned||!state.closed&&
+    Number.isSafeInteger(state.version)&&state.version>=1;
   const [state,setState]=useState({busy:true,items:[],total:0,error:"",offset:0});
   const limit=7;
   const columns=child.entity.fields.filter(f=>!f.readCapability).filter(f=>
@@ -408,12 +410,15 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
         if(!Number.isSafeInteger(data?.documentVersion)||data.documentVersion<1||
           etag!=='"'+data.documentVersion+'"')
           throw Error("El servicio devolvió una versión del documento inconsistente.");
-        return data.documentVersion;
+        return data;
       }):Promise.resolve(null)
-    ]).then(([result,version])=>{
+    ]).then(([result,parent])=>{
       if(!controller.signal.aborted){
-        setState({busy:false,items:result.items,total:result.total,error:"",offset,version});
+        const version=parent?.documentVersion??null;
+        const closed=Boolean(closeField&&closeState&&parent?.[closeField]===closeState);
+        setState({busy:false,items:result.items,total:result.total,error:"",offset,version,closed});
         setConflict(false);
+        if(parent)onParentLoaded?.(parent);
       }
     }).catch(error=>{
       if(!controller.signal.aborted)setState({
@@ -421,7 +426,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
       });
     });
     return ()=>controller.abort();
-  },[child,operation,filter,identity,auth,offset,retry,parentGet]);
+  },[child,operation,filter,identity,auth,offset,retry,parentGet,revision,closeField,closeState]);
   const pending=state.busy||state.offset!==offset;
   const subtotal=quantity?state.items.reduce((sum,item)=>sum+item[quantity.name],0):null;
   return <section className="details-section" aria-label="Renglones relacionados"
@@ -438,6 +443,8 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
       <>
         {versioned&&<p className="document-version" data-testid="detail-document-version"
           role="status">Versión del documento: <strong>{state.version}</strong></p>}
+        {state.closed&&<p className="document-closed" data-testid="detail-document-closed"
+          role="status">Documento cerrado · Solo consulta</p>}
         {conflict&&<div className="document-conflict" role="alert" data-testid="detail-version-conflict">
           <strong>Hay cambios de otra sesión.</strong>
           <p>Actualizá la orden, revisá los valores y volvé a confirmar tu operación.</p>
@@ -474,6 +481,7 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
                 return <button type="button" className="ghost" key={op.name??op.path}
                   data-testid={"edit-detail-"+item[child.entity.publicIdentity]+
                     (writableEdits.length>1?"-"+field.name:"")}
+                  disabled={saving||conflict||!isVersionReady()}
                   onClick={()=>{setEditing({key:item[child.entity.publicIdentity],op});
                     setDraft(String(item[field.name]??""));setEditError("");}}>
                   Editar {fieldLabel(field)}</button>;
@@ -1043,9 +1051,18 @@ export default function App(){
     const operation=operations[kind]??transitions.find(x=>x.name===kind);
     if(!operation)throw Error("Operation is not in the contract: "+kind);
     const suffix=query?"?"+new URLSearchParams(query):"";
+    const plan=operations.create?.behavior?.createDetails;
+    const terminal=plan?.versioned&&plan.closeField&&plan.closeState&&
+      operation.behavior?.kind==="transition"&&
+      operation.behavior.field===plan.closeField&&
+      operation.behavior.to===plan.closeState;
+    if(terminal&&(!Number.isSafeInteger(selected?.documentVersion)||
+      selected.documentVersion<1||selected[active.entity.publicIdentity]!==code))
+      throw Error("Actualizá el documento para obtener una versión antes de cerrarlo.");
     const response=await authenticatedFetch(route(operation,code)+suffix,{
       method:operation.method,
-      headers:{"Authorization":auth,...(body===undefined?{}:{"Content-Type":"application/json"})},
+      headers:{"Authorization":auth,...(terminal?{"If-Match":'"'+selected.documentVersion+'"'}:{}),
+        ...(body===undefined?{}:{"Content-Type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)})
     });
     const text=await response.text();
@@ -1491,6 +1508,13 @@ export default function App(){
           createOp={detailCreate}
           deleteOp={detailDelete}
           maxRows={detailPlan?.maxRows??20}
+          closeField={detailPlan?.closeField} closeState={detailPlan?.closeState}
+          revision={summaryRevision}
+          onParentLoaded={parent=>setSelected(previous=>
+            previous&&previous[active.entity.publicIdentity]===parent[active.entity.publicIdentity]&&
+            (previous.documentVersion!==parent.documentVersion||
+             (detailPlan?.closeField&&previous[detailPlan.closeField]!==parent[detailPlan.closeField]))?
+              {...previous,...parent}:previous)}
           onSaved={()=>setSummaryRevision(n=>n+1)}/>} 
         <div className="details-section"><h3>Datos generales</h3>
           <dl>{active.entity.fields.filter(field=>!field.readCapability||capabilities.includes(field.readCapability)).map(field=><React.Fragment key={field.name}><dt>{fieldLabel(field)}</dt><dd>{displayCell(field,selected[field.name],referenceOptions)}</dd></React.Fragment>)}</dl>
