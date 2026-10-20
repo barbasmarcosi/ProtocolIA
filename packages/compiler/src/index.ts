@@ -517,11 +517,22 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if (auditMeta) {
       const list = typeof auditMeta.fields==="string" ? auditMeta.fields.split(",") : [];
       const allowed = new Set(entity.fields.map(x=>x.name));
-      if (!["create","transition","reassignReference","patchFields"].includes(kind) || !list.length || list.length>8 ||
+      const versionedParentCreator=relevant.find(candidate=>{
+        const source=metadata(p,"createDetails",candidate);
+        return String(source?.childEntity??"")===entity.name&&
+          !!metadata(p,"versionedDetails",candidate)&&
+          metadata(p,"behavior",candidate)?.kind==="create";
+      });
+      const parentFk=versionedParentCreator?
+        String(metadata(p,"createDetails",versionedParentCreator)?.parentField??""):null;
+      const versionedDetailDelete=kind==="delete"&&!!parentFk;
+      if (!["create","transition","reassignReference","patchFields"].includes(kind)&&!versionedDetailDelete ||
+          !list.length || list.length>8 ||
           list.some(x=>x.length===0 || x.trim()!==x || !allowed.has(x)) ||
           new Set(list).size!==list.length ||
           (["transition","reassignReference","patchFields"].includes(kind) && (list.length!==1 || list[0]!==f)) ||
-          (kind==="create" && list.includes(entity.publicIdentity))) {
+          (["create","delete"].includes(kind) && list.includes(entity.publicIdentity)) ||
+          (kind==="delete"&&(!versionedDetailDelete||!list.includes(parentFk!)))) {
         reject("invalid-audit",op.name+" must explicitly allowlist 1–8 supported entity fields (transition: state field only)",op);
         continue;
       }
@@ -1166,7 +1177,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("audited-patch-http",op.name+" must declare 200/400/401/403/404/409",op);
       continue;
     }
-    if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete")) {
+    if (kind === "delete" && (!statuses.includes(204) || http.verb !== "delete" ||
+      (auditFields && (![400,401,403,404,409].every(s=>statuses.includes(s))||
+        http.parameters.body!==undefined)))) {
       reject("delete-http",op.name+" must DELETE and return 204",op);continue;
     }
     if(reverseMovement){
@@ -1633,6 +1646,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
         " requires at most three distinct audited editable child fields",ops.find(o=>o.name===creator.name)!);
     for(const mut of operations.filter(o=>o.entity===cfg.childEntity&&
       !["create","get","listPage","queryPage","auditPage","health"].includes(o.behavior.kind))){
+      if(cfg.versioned&&mut.behavior.kind==="delete"&&
+        mut.behavior.audit?.includes(cfg.parentField)&&
+        mut.behavior.audit.length>=1&&mut.behavior.audit.length<=8)continue;
       const child=entities.find(x=>x.name===cfg.childEntity);
       const field=child?.fields.find(x=>x.name===mut.behavior.field);
       if(mut.behavior.kind!=="patchFields"||!field||

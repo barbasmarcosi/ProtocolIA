@@ -36,6 +36,18 @@ export function assertCreateDetails(ir,parent,op){
     childAudit.some(name=>!child?.fields.some(f=>f.name===name&&name!==child.publicIdentity))
   );
   const patches=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="patchFields");
+  const deletes=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="delete");
+  const unsafeDeletes=deletes.length>0&&(
+    meta?.versioned!==true||deletes.length!==1||deletes.some(x=>
+      x.method!=="DELETE"||![204,400,401,403,404,409].every(s=>x.statuses?.includes(s))||
+      !x.behavior.audit?.includes(meta.parentField)||
+      x.behavior.audit.some(name=>name===child.publicIdentity||
+        !child.fields.some(f=>f.name===name))||
+      x.behavior.audit.length>8||x.behavior.audit.length<1||
+      new Set(x.behavior.audit).size!==x.behavior.audit.length||
+      x.capability!==childCreate[0]?.capability
+    )
+  );
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
     new Set(patches.map(x=>x.capability)).size!==patches.length||
@@ -62,7 +74,9 @@ export function assertCreateDetails(ir,parent,op){
     op.behavior.moveUnits||op.behavior.moveBatch||op.behavior.reserve||
     op.behavior.debitExact||op.behavior.reverseExact||op.behavior.reverseBatch||
     ir.operations.some(x=>x.entity===child.name&&
-      !["create","get","listPage","queryPage","auditPage","patchFields","health"].includes(x.behavior.kind))||
+      !["create","get","listPage","queryPage","auditPage","patchFields","health",
+        ...(meta.versioned?["delete"]:[])].includes(x.behavior.kind))||
+    unsafeDeletes||
     (invalidPatch||unsafePatches))
     throw Error("Unsafe bounded relational header/detail contract");
   return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,

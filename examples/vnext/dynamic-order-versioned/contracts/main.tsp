@@ -84,6 +84,11 @@ namespace DynamicOrders {
   op patchLineUnits(@path lineCode:string,@header("If-Match") ifMatch:string,@body input:QuantityChange):
     OrderLine | Invalid | Conflict | Missing | Unauthorized | Forbidden;
   @route("/api/order-lines/{lineCode}")
+  @delete @behavior("delete","OrderLine") @audit("orderCode,product,units")
+  @capability("lines.write")
+  op deleteOrderLine(@path lineCode:string,@header("If-Match") ifMatch:string):
+    {@statusCode _:204;} | Invalid | Conflict | Missing | Unauthorized | Forbidden;
+  @route("/api/order-lines/{lineCode}")
   @get @behavior("get","OrderLine") @capability("lines.read")
   op getOrderLine(@path lineCode:string):OrderLine | Missing | Unauthorized | Forbidden;
   @route("/api/order-lines")

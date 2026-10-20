@@ -17,11 +17,18 @@ test("B17.3 @versionedDetails opt-in emits parent CAS and strong If-Match child 
   assert.equal(assertCreateDetails(ir,parent,creator).maxRows,20);
   const child=ir.operations.find(x=>x.name==="createOrderLine");
   assert.ok(child.behavior.audit.includes("orderCode"));
-  for(const name of ["createOrderLine","patchLineProduct","patchLineUnits"]){
+  for(const name of ["createOrderLine","patchLineProduct","patchLineUnits","deleteOrderLine"]){
     const op=ir.operations.find(x=>x.name===name);
     assert.ok(op);
-    assert.ok(["POST","PATCH"].includes(op.method));
+    assert.ok(["POST","PATCH","DELETE"].includes(op.method));
   }
+  const del=ir.operations.find(x=>x.name==="deleteOrderLine");
+  assert.equal(del.method,"DELETE");
+  assert.deepEqual(del.behavior.audit,["orderCode","product","units"]);
+  const malformed=structuredClone(ir);
+  malformed.operations.find(x=>x.name==="deleteOrderLine").behavior.audit=["product"];
+  assert.throws(()=>assertCreateDetails(malformed,parent,malformed.operations.find(x=>x.name==="createPurchaseOrder")),
+    /Unsafe bounded relational header\/detail contract/);
   const unsafe=structuredClone(ir);
   unsafe.operations.find(x=>x.name==="createOrderLine").behavior.audit=undefined;
   assert.throws(()=>assertCreateDetails(unsafe,parent,unsafe.operations.find(x=>x.name==="createPurchaseOrder")),
