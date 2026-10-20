@@ -611,6 +611,10 @@ public class DomainRuntime {
       .filter(x->x.createDetails()!=null && x.createDetails().childEntity().equals(e.name()))
       .findFirst().orElse(null);
     if(boundedCreator!=null){
+      // A child-write permission alone must never authorize mutating a header.
+      if(user==null||user.getAuthorities().stream().noneMatch(
+          a->a.getAuthority().equals(boundedCreator.capability())))
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Parent write permission required");
       var bound=boundedCreator.createDetails();
       var parent=Manifest.ENTITIES.stream().filter(x->x.name().equals(boundedCreator.entity()))
         .findFirst().orElseThrow();

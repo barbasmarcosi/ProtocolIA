@@ -26,6 +26,15 @@ export function assertCreateDetails(ir,parent,op){
       !x.capability||x.capability==="public"||
       x.capability===ir.operations.find(y=>y.entity===child.name&&y.behavior.kind==="get")?.capability;
   });
+  // Auditing an independent child append is safe only when the parent FK is
+  // recorded and the selected fields come from the declared, non-identity child.
+  const childAudit=childCreate[0]?.behavior.audit;
+  const invalidChildAudit=childAudit!==undefined&&(
+    !Array.isArray(childAudit)||childAudit.length<1||childAudit.length>8||
+    !childAudit.includes(meta?.parentField)||
+    new Set(childAudit).size!==childAudit.length||
+    childAudit.some(name=>!child?.fields.some(f=>f.name===name&&name!==child.publicIdentity))
+  );
   const patches=ir.operations.filter(x=>x.entity===child?.name&&x.behavior.kind==="patchFields");
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
@@ -44,7 +53,7 @@ export function assertCreateDetails(ir,parent,op){
     childCreate.length!==1||parentCreate.length!==1||parentCreate[0].name!==op.name||
     !childCreate[0].capability||childCreate[0].capability==="public"||
     !op.capability||op.capability==="public"||
-    childCreate[0].behavior.audit||childCreate[0].behavior.reserve||
+    invalidChildAudit||childCreate[0].behavior.reserve||
     childCreate[0].behavior.moveUnits||childCreate[0].behavior.moveBatch||
     childCreate[0].behavior.createDetails||childCreate[0].behavior.debitExact||
     ir.operations.some(x=>x.entity===parent.name&&x.behavior.kind==="create"&&x.behavior.moveBatch)||

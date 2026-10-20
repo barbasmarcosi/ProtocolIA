@@ -680,6 +680,8 @@ class RuntimeService{
     // B17: a direct child POST must not bypass @createDetails maxRows.
     // The header row lock serializes competing appends within one document.
     const boundedCreator=spec.operations.find(x=>x.createDetails?.childEntity===e.name);
+    if(boundedCreator&&!capabilities.includes(boundedCreator.capability))
+      throw new Problem(403,"Parent write permission required to append a detail");
     if(op.reserve||op.moveUnits||op.moveBatch||op.createDetails||op.exactDebit||op.audit?.length||boundedCreator){
       const batch=op.moveBatch;
       const movement=op.moveUnits;
