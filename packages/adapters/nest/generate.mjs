@@ -137,16 +137,16 @@ export function generate(ir,spec,out){
   const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
   const methods={create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",
-    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
+    atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
   const ok={create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,
-    atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
+    atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
   if(of("health").length!==1)throw Error("One health operation required");
   for(const e of ir.entities){
     for(const kind of ["create","get","listPage"])
       if(of(kind,e.name).length!==1)throw Error("Missing "+kind+" on "+e.name);
-    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","replaceDetails","delete"])
       if(of(kind,e.name).length>1)throw Error("Duplicate "+kind+" on "+e.name);
     const edits=of("patchFields",e.name);
     const associated=ir.operations.some(op=>op.behavior.createDetails?.childEntity===e.name);
@@ -184,7 +184,7 @@ export function generate(ir,spec,out){
           throw Error("Unsafe compound-key PATCH "+op.name);
       }
       const cap=kind==="health"?"public":
-        ["create","patchFields","patchTogether","atomicIncrement","transition","delete"].includes(kind)?write:read;
+        ["create","patchFields","patchTogether","atomicIncrement","transition","replaceDetails","delete"].includes(kind)?write:read;
       const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)

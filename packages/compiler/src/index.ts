@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -623,6 +623,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("orphan-related-sum",op.name+" @relatedSum requires sumRelated behavior",op);continue;
     }
     const reservation = metadata(p,"reserve",op);
+    const replaceMarker=metadata(p,"replaceDetails",op);
+    if((kind==="replaceDetails")!==!!replaceMarker){
+      reject("replace-details-declaration",op.name+
+        " requires @replaceDetails exactly on a replaceDetails behavior",op);continue;
+    }
     const details=metadata(p,"createDetails",op);
     const versioned=metadata(p,"versionedDetails",op);
     if(versioned&&!details){
@@ -1176,6 +1181,18 @@ export function compileDomain(p: Program): IrDocument | undefined {
         continue;
       }
     }
+    if(kind==="replaceDetails"){
+      const identity=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
+      if(http.verb!=="put"||identity.length!==1||identity[0]!==entity.publicIdentity||
+        http.parameters.body?.bodyKind!=="single"||
+        ![200,400,401,403,404,409].every(x=>statuses.includes(x))||
+        auditFields||f!==undefined||input!==undefined||detailConfig||
+        metadata(p,"transition",op)||reservation||release){
+        reject("replace-details-http",op.name+
+          " requires identity-keyed PUT, bounded typed body and 200/400/401/403/404/409",op);
+        continue;
+      }
+    }
     if(kind==="patchFields"&&auditFields&&
        (http.verb!=="patch"||![200,400,401,403,404,409].every(s=>statuses.includes(s)))){
       reject("audited-patch-http",op.name+" must declare 200/400/401/403/404/409",op);
@@ -1621,6 +1638,51 @@ export function compileDomain(p: Program): IrDocument | undefined {
       reject("exact-reversal-lifecycle",reverse.name+" needs exactly one matching debit and terminal reversal, with no ledger deletion or reassignment",ops.find(o=>o.name===reverse.name)!);
     }
   }
+  // B17.5b: do not derive collection replacement from its HTTP route.
+  // It is a deliberate, separately marked operation on a versioned parent
+  // with an identical bounded DTO to the nested children accepted at creation.
+  for(const replacement of operations.filter(o=>o.behavior.kind==="replaceDetails")){
+    const matches=operations.filter(o=>o.entity===replacement.entity&&
+      o.behavior.createDetails?.versioned);
+    const original=matches[0],plan=original?.behavior.createDetails;
+    const parent=entities.find(x=>x.name===replacement.entity);
+    const child=entities.find(x=>x.name===plan?.childEntity);
+    const source=ops.find(x=>x.name===replacement.name)!;
+    const payload=source.parameters.properties.get("input")?.type;
+    const props=payload?.kind==="Model"?payload.properties:undefined;
+    const row=plan&&props?.get(plan.rowsField);
+    const array=row?.type;
+    const model=array?.kind==="Model"&&array.indexer?.value.kind==="Model"?
+      array.indexer.value:undefined;
+    const item=model?.properties;
+    const eligible=child?.fields.filter(f=>f.name!==plan?.parentField&&!f.computedSum&&
+      !f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
+    const sameField=(a:IrField,b?:ModelProperty)=>{
+      const parsed=b?field(p,b):undefined;
+      return !!parsed&&a.type===parsed.type&&a.required===parsed.required&&
+        a.nullable===parsed.nullable&&a.min===parsed.min&&a.max===parsed.max&&
+        a.minLength===parsed.minLength&&a.maxLength===parsed.maxLength&&
+        a.pattern===parsed.pattern&&
+        JSON.stringify(a.choices)===JSON.stringify(parsed.choices)&&
+        JSON.stringify(a.decimal)===JSON.stringify(parsed.decimal);
+    };
+    const createChild=operations.find(o=>o.entity===child?.name&&o.behavior.kind==="create");
+    const deleteChild=operations.find(o=>o.entity===child?.name&&o.behavior.kind==="delete");
+    if(matches.length!==1||
+      operations.filter(o=>o.entity===replacement.entity&&o.behavior.kind==="replaceDetails").length!==1||
+      !parent||!plan||!child||!createChild||!deleteChild||
+      replacement.capability!==original.capability||
+      createChild.capability!==deleteChild.capability||
+      !createChild.behavior.audit?.includes(plan.parentField)||
+      !deleteChild.behavior.audit?.includes(plan.parentField)||
+      !props||props.size!==1||!row||row.optional||
+      getMinItems(p,row)!==1||getMaxItems(p,row)!==plan.maxRows||
+      !item||!eligible||item.size!==eligible.length||
+      eligible.some(f=>!sameField(f,item.get(f.name)))){
+      reject("invalid-replace-details",replacement.name+
+        " must replace exactly 1..20 typed children of one versioned parent, with both child audits and parent-write permission",source);
+    }
+  }
   // B16: a declared dynamic detail may expose up to three independent
   // audited, optimistic, distinct scalar-field editors; never owner-scoped.
   // optimistic, audited text patch. Never allow direct FK/identity rewrites.
@@ -1641,7 +1703,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           o.behavior.kind==="transition");
         const close=closes[0];
         const allowed=operations.filter(o=>o.entity===creator.entity&&
-          ["create","get","listPage","queryPage","auditPage","sumDetails","health","transition"].includes(o.behavior.kind));
+          ["create","get","listPage","queryPage","auditPage","sumDetails","replaceDetails","health","transition"].includes(o.behavior.kind));
         if(!state||!state.initial||state.type!=="string"||!state.required||state.nullable||
           !cfg.closeState||!/^([a-z][a-z0-9_-]{0,63})$/.test(cfg.closeState)||
           cfg.closeState===state.initial||

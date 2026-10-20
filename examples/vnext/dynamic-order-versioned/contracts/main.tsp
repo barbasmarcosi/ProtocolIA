@@ -23,6 +23,9 @@ namespace DynamicOrders {
     @minLength(1) @maxLength(120) product:string;
     @minValue(1) @maxValue(100) units:int32;
   }
+  model ReplaceOrderLines {
+    @minItems(1) @maxItems(20) lines:OrderLineInput[];
+  }
   model PurchaseOrderRequest {
     @minLength(1) @maxLength(40) code:string;
     @minLength(1) @maxLength(120) title:string;
@@ -61,6 +64,12 @@ namespace DynamicOrders {
   @post @behavior("transition","PurchaseOrder","status")
   @transition("draft","closed") @audit("status") @capability("orders.write")
   op closePurchaseOrder(@path code:string,@header("If-Match") ifMatch:string):
+    VersionedPurchaseOrder | Invalid | Conflict | Missing | Unauthorized | Forbidden;
+  @route("/api/orders/{code}/lines")
+  @put @behavior("replaceDetails","PurchaseOrder") @replaceDetails
+  @capability("orders.write")
+  op replaceOrderLines(@path code:string,@header("If-Match") ifMatch:string,
+    @body input:ReplaceOrderLines):
     VersionedPurchaseOrder | Invalid | Conflict | Missing | Unauthorized | Forbidden;
   @route("/api/orders/{code}/total")
   @get @behavior("sumDetails","PurchaseOrder")

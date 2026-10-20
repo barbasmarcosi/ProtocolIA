@@ -36,6 +36,7 @@ export const $lib = createTypeSpecLibrary({
     moveBatch: {description:"Atomic 2–4-leg movement net settlement over shared parent balances and durable journal row"},
     createDetails: {description:"Atomic parent and dynamic typed child collection insert (1–20 rows)"},
     versionedDetails: {description:"Opt-in document-wide optimistic version for bounded detail append and audited child patches"},
+    replaceDetails: {description:"Atomically replace all child rows of a versioned bounded document"},
     detailSum: {description:"Authorized, snapshot-consistent full relational detail quantity sum"},
     reverseBatch: {description:"Exactly-once reversal of all bounded batch legs in one auditable transaction"},
     reverseUnits: {description:"Exactly-once guarded reversal of a journalled transfer"},
@@ -189,6 +190,9 @@ function versionedDetails(context: DecoratorContext, target: Operation,
     {enabled:true,...(closeField===undefined?{}:{closeField:stringArg(closeField)}),
       ...(closeState===undefined?{}:{closeState:stringArg(closeState)})});
 }
+function replaceDetails(context: DecoratorContext, target: Operation): void {
+  context.program.stateMap($lib.stateKeys.replaceDetails).set(target,{enabled:true});
+}
 function moveBatch(context: DecoratorContext, target: Operation, stockEntity: string,
     availableField: string, legs: string): void {
   context.program.stateMap($lib.stateKeys.moveBatch).set(target,
@@ -283,6 +287,7 @@ export const $decorators = {
     moveBatch,
     createDetails,
     versionedDetails,
+    replaceDetails,
     detailSum,
     reverseBatch,
     reverseUnits,

@@ -130,8 +130,8 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",delete:"DELETE",health:"GET"};
+  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
+  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
   const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
@@ -268,7 +268,7 @@ export function generate(ir, openapi, outDir) {
   for(const e of entities){
     for(const kind of ["create","get","listPage"])
       if(byKind(kind,e.name).length!==1)throw Error("Entity "+e.name+" requires one "+kind);
-    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","delete"])
+    for(const kind of ["patchTogether","atomicIncrement","auditPage","queryPage","reassignReference","replaceDetails","delete"])
       if(byKind(kind,e.name).length>1)throw Error("Duplicate "+kind+" for "+e.name);
     const edits=byKind("patchFields",e.name);
     const associated=ops.some(op=>op.behavior.createDetails?.childEntity===e.name);
@@ -296,7 +296,7 @@ export function generate(ir, openapi, outDir) {
     }
     for(const op of ops.filter(o=>o.entity===e.name&&o.behavior.kind!=="health")){
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
-      const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete"].includes(op.behavior.kind)?write:read;
+      const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","replaceDetails","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
