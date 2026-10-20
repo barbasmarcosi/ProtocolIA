@@ -213,6 +213,86 @@ try{
     "A bounded document may not be left without its last detail");
   assert.equal((await req("GET","/api/orders/SINGLE")).body.documentVersion,1);
   assert.equal((await req("GET","/api/order-lines/SINGLE-1")).status,200);
+  // B17.4: prove generated React UI on mobile, including a stale writer and
+  // deliberate recovery. All mutations originate in generated controls.
+  const uiCreated=await req("POST","/api/orders",{
+    code:"UI-VERSION",title:"Orden en móvil",lines:[line("UI-BASE-1",2),line("UI-BASE-2",3)]
+  });
+  assert.equal(uiCreated.status,201,JSON.stringify(uiCreated));
+  const {chromium}=await import("playwright");
+  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+  try{
+    const page=await browser.newPage({viewport:{width:390,height:844},locale:"es-AR"});
+    const pageErrors=[];page.on("pageerror",error=>pageErrors.push(error.message));
+    await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+    await page.getByTestId("username").fill("manager");
+    await page.getByTestId("password").fill(secret);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    await page.getByRole("button",{name:"Órdenes",exact:true}).waitFor({timeout:30000});
+    await page.getByRole("button",{name:"Órdenes",exact:true}).click();
+    await page.getByTestId("open-detail-UI-VERSION").click();
+    const panel=page.getByTestId("detail-lines-panel");
+    await panel.getByTestId("detail-document-version").getByText("1",{exact:true}).waitFor({timeout:20000});
+    await panel.getByTestId("detail-lines-count").getByText("2 renglones en total").waitFor();
+    await panel.getByTestId("edit-detail-UI-BASE-1-product").click();
+    await panel.getByTestId("detail-inline-edit").fill("Editado desde la pantalla");
+    assert.equal((await req("POST","/api/order-lines",{
+      ...line("EXTERNAL",1),orderCode:"UI-VERSION"
+    },{"If-Match":'"1"'})).status,201);
+    const stale=page.waitForResponse(r=>r.request().method()==="PATCH"&&
+      r.url().endsWith("/api/order-lines/UI-BASE-1/product"));
+    await panel.getByRole("button",{name:"Guardar",exact:true}).click();
+    const staleReply=await stale;
+    assert.equal(staleReply.status(),409);
+    assert.equal(staleReply.request().headers()["if-match"],'"1"');
+    await panel.getByTestId("detail-version-conflict").waitFor();
+    await panel.getByTestId("detail-conflict-refresh").click();
+    await panel.getByTestId("detail-document-version").getByText("2",{exact:true}).waitFor();
+    await panel.getByTestId("detail-version-conflict").waitFor({state:"detached"});
+    const patchResponse=page.waitForResponse(r=>r.request().method()==="PATCH"&&
+      r.url().endsWith("/api/order-lines/UI-BASE-1/product"));
+    await panel.getByRole("button",{name:"Guardar",exact:true}).click();
+    const patched=await patchResponse;
+    assert.equal(patched.status(),200);
+    assert.equal(patched.request().headers()["if-match"],'"2"');
+    await panel.getByTestId("detail-document-version").getByText("3",{exact:true}).waitFor();
+    assert.equal((await req("GET","/api/order-lines/UI-BASE-1")).body.product,
+      "Editado desde la pantalla");
+    await panel.getByTestId("detail-append-open").click();
+    const form=panel.getByTestId("detail-append-form");
+    await form.getByTestId("create-lineCode").fill("UI-ADDED");
+    await form.getByTestId("create-product").fill("Nuevo renglón");
+    await form.getByTestId("create-units").fill("4");
+    const addReply=page.waitForResponse(r=>r.request().method()==="POST"&&
+      r.url().endsWith("/api/order-lines"));
+    await form.getByTestId("detail-append-submit").click();
+    const added=await addReply;
+    assert.equal(added.status(),201);
+    assert.equal(added.request().headers()["if-match"],'"3"');
+    await panel.getByTestId("detail-document-version").getByText("4",{exact:true}).waitFor();
+    assert.equal((await req("GET","/api/order-lines/UI-ADDED")).body.orderCode,"UI-VERSION");
+    await panel.getByTestId("delete-detail-UI-BASE-2").click();
+    const deleteReply=page.waitForResponse(r=>r.request().method()==="DELETE"&&
+      r.url().endsWith("/api/order-lines/UI-BASE-2"));
+    await panel.getByTestId("confirm-delete-detail-UI-BASE-2").click();
+    const removed=await deleteReply;
+    assert.equal(removed.status(),204);
+    assert.equal(removed.request().headers()["if-match"],'"4"');
+    await panel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
+    assert.equal((await req("GET","/api/order-lines/UI-BASE-2")).status,404);
+    assert.equal((await req("GET","/api/orders/UI-VERSION/total")).body.totalUnits,"7");
+    const styles=await panel.evaluate(node=>({
+      scrollWidth:node.scrollWidth,clientWidth:node.clientWidth
+    }));
+    assert.ok(styles.clientWidth>0);
+    assert.deepEqual(pageErrors,[],"React must have no JavaScript runtime error");
+    console.log("PROTOCOLIA_B17_VERSIONED_REACT_PASS "+JSON.stringify({
+      mobileViewport390:true,stalePatch409:true,
+      conflictRecoveryRefresh:true,generatedPatch:true,generatedAppend:true,
+      generatedDelete:true,strongIfMatchForwarded:true,
+      totalsUpdated:true,consoleErrorsNone:true
+    }));
+  }finally{await browser.close();}
   console.log("PROTOCOLIA_B17_VERSIONED_DELETE_PASS "+JSON.stringify({
     bothCapabilitiesRequired:true,ifMatchRequired:true,auditedBeforeValues:true,
     lastRowGuarded:true,concurrentDeletesOneWinner:true,
