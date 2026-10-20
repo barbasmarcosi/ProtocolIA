@@ -441,3 +441,7 @@ button.discard-button:hover:not(:disabled){background:#79262a}
   .detail-append{padding:14px}
   .details-section .data-table td:last-child{min-width:178px}
 }
+
+.document-closed{font-size:.82rem;font-weight:750;display:inline-flex;align-items:center;
+  color:#475569;background:#eef2f6;border:1px solid #cbd5e1;border-radius:9px;
+  padding:8px 11px;margin:0 0 12px}
