@@ -47,7 +47,7 @@ export function preflightOptions(args){
 // sort the row digests (including duplicates) and stream the result to a
 // private temporary file. A second SHA-256 attests to the ordered multiset.
 // Unlike SUM(hashtextextended), no cancellation can hide two changed rows.
-function exactRowsDigest(container,table,columns){
+function exactRowsDigest(container,table,columns,database="protocolia"){
   const select=columns.map(quoted).join(",");
   const sql="COPY (SELECT h FROM (SELECT encode(sha256(convert_to("+
     "row_to_json(t)::text,'UTF8')),'hex') AS h FROM (SELECT "+select+
@@ -57,7 +57,7 @@ function exactRowsDigest(container,table,columns){
   try{
     fd=openSync(path,"wx",0o600);
     const proc=spawnSync("docker",["exec",container,"psql","-X","-q",
-      "-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],
+      "-U","protocolia","-d",database,"-v","ON_ERROR_STOP=1","-c",sql],
       {encoding:"utf8",timeout:600000,maxBuffer:1024*1024,
         stdio:["ignore",fd,"pipe"]});
     if(proc.error||proc.status!==0)
@@ -89,35 +89,35 @@ function exactRowsDigest(container,table,columns){
     if(existsSync(path))unlinkSync(path);
   }
 }
-function queryCatalog(container,sql){
+function queryCatalog(container,sql,database="protocolia"){
   return docker(["exec",container,"psql","-X","-U","protocolia",
-    "-d","protocolia","-v","ON_ERROR_STOP=1","-At","-c",sql]);
+    "-d",database,"-v","ON_ERROR_STOP=1","-At","-c",sql]);
 }
-export function tableSnapshot(container){
+export function tableSnapshot(container,database="protocolia"){
   const tables=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
-    "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
+    "WHERE schemaname='public' ORDER BY tablename",database).split("\n").filter(Boolean);
   const snapshot={};
   let totalRows=0;
   for(const name of tables){
     const escaped=name.replaceAll("'","''");
     const columns=queryCatalog(container,"SELECT column_name FROM information_schema.columns "+
       "WHERE table_schema='public' AND table_name='"+escaped+"' "+
-      "ORDER BY ordinal_position").split("\n").filter(Boolean);
+      "ORDER BY ordinal_position",database).split("\n").filter(Boolean);
     if(!columns.length)deny("Missing columns in "+name);
-    const result=exactRowsDigest(container,name,columns);
+    const result=exactRowsDigest(container,name,columns,database);
     snapshot[name]={columns,...result};
     totalRows+=result.count;
   }
   return {snapshot,totalRows};
 }
-export function verifyRows(container,before){
+export function verifyRows(container,before,database="protocolia"){
   const current=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
-    "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
+    "WHERE schemaname='public' ORDER BY tablename",database).split("\n").filter(Boolean);
   const oldTables=Object.keys(before.snapshot);
   for(const table of oldTables){
     if(!current.includes(table))deny("Existing table disappeared: "+table);
     const {columns,count,sha256}=before.snapshot[table];
-    const result=exactRowsDigest(container,table,columns);
+    const result=exactRowsDigest(container,table,columns,database);
     if(result.count!==count||result.sha256!==sha256)
       deny("Existing row count/cryptographic digest differs after SQL: "+table);
   }
