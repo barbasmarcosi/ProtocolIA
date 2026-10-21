@@ -435,7 +435,7 @@ function migrations(folder,target){
 function ownedArea(folder,target){
   const trees=target==="nestjs"?[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
-    ["src",new Set(["main.ts","manifest.json","schema.sql","migrations"])]
+    ["src",new Set(["main.ts","BffSession.ts","BffKeyring.ts","manifest.json","schema.sql","migrations"])]
   ]:[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
     ["src",new Set(["main"])],
