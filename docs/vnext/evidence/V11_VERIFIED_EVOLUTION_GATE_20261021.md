@@ -1,3 +1,5 @@
+> **Historical evidence notice (2026-10-21):** This document describes the earlier preflight/report behavior at the linked historical commit. Since v1.1g, the preflight uses sorted per-row SHA-256 multiset attestation and the verified evolution gate requires report `schema=2`. See [v1.1g evidence](V11_CRYPTOGRAPHIC_ROW_ATTESTATION_20261021.md). Statements here about non-cryptographic hashes or `schema=1` are **superseded**, not current claims.
+
 # v1.1 — Verified evolution gate after PostgreSQL rehearsal
 
 **Date:** 2026-10-21  
