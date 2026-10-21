@@ -172,7 +172,7 @@ try{
   const ledger=afterBuild.target==="nestjs"?
     dbSql("protocolia","SELECT version::text FROM protocolia_nest_migration_history ORDER BY version"):
     dbSql("protocolia","SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank");
-  assert.equal(ledger,"2".trim()==="2"&&afterBuild.target==="nestjs"?"2":"1\n2",
+  assert.equal(ledger,afterBuild.target==="nestjs"?"2":"1\n2",
     "Version journal must record the V2 migration exactly once");
   const createdAfterUpgrade=await request("POST","/api/orders",{
     code:"POST-V2",title:"Works after migration",note:"Preserved new optional field",
@@ -196,6 +196,7 @@ try{
     "SELECT count(*) FROM protocolia_audit_event "+
     "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C','AFTER-V2-CHILD')"))>
     Number(original.audit));
+  const postEvolveSnapshot=snapshot("protocolia");
   const evolutionEvidence={
     generatedTarget:afterBuild.target,
     v2MigrationFromTypeSpec:true,
@@ -234,7 +235,8 @@ try{
   appendFileSync(corrupt,Buffer.from("tampered"));
   assert.notEqual(run(process.execPath,[appcli,"db:verify",corrupt],
     {cwd:resolve("."),allowFailure:true}),0,"Corrupted archive must fail checksum");
-  assert.deepEqual(snapshot("protocolia"),original,"Source database must not change");
+  assert.deepEqual(snapshot("protocolia"),postEvolveSnapshot,
+    "Restoring an independent copy must not change the successfully upgraded source");
   console.log("PROTOCOLIA_V11_DB_PREFLIGHT_PASS "+JSON.stringify({
     migrationSqlFromTypeSpec:true,isolatedPostgresNoNetwork:true,
     restoredOldData:true,allExistingRowsPreserved:true,
