@@ -89,6 +89,46 @@ try{
     /PROTOCOLIA_DB_CHECKPOINT_VERIFY_PASS/);
   assert.notEqual(run(process.execPath,[appcli,...options],
     {cwd:resolve("."),allowFailure:true}),0,"Checkpoint overwrite must be refused");
+  // v1.1d: run the exact canonical TypeSpec additive migration SQL in a
+  // separate network-isolated PG container using this proven old-data dump.
+  const newContract=resolve("examples/vnext/dynamic-order-versioned-additive");
+  const report=join(scratch,"migration-preflight.json");
+  const probeArgs=["db:preflight",newContract,generated,
+    "--checkpoint",archive,"--report",report];
+  const preview=run(process.execPath,[appcli,...probeArgs],{cwd:resolve(".")});
+  assert.match(preview,/PROTOCOLIA_EVOLUTION_SQL_PREVIEW/);
+  assert.match(preview,/PROTOCOLIA_DB_PREFLIGHT_PASS/);
+  const summary=JSON.parse(readFileSync(report,"utf8"));
+  assert.equal(summary.status,"pass");
+  assert.equal(summary.target,JSON.parse(readFileSync(
+    join(generated,"protocolia-build.json"))).target);
+  assert.ok(summary.tablesChecked>=3 && summary.rowsChecked>=3);
+  assert.equal(summary.originDatabaseAccess,false);
+  assert.equal(summary.isolatedNetwork,"none");
+  assert.match(summary.proposedSqlSha256,/^[0-9a-f]{64}$/);
+  assert.notEqual(run(process.execPath,[appcli,...probeArgs],{
+    cwd:resolve("."),allowFailure:true}),0,
+    "Migration preflight must never overwrite a report");
+  const incompatible=resolve("examples/vnext/dynamic-order-versioned-breaking");
+  assert.notEqual(run(process.execPath,[appcli,"db:preflight",
+    incompatible,generated,"--checkpoint",archive,
+    "--report",join(scratch,"should-not-exist.json")],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "An incompatible contract must never reach the migration container");
+  assert.equal(existsSync(join(scratch,"should-not-exist.json")),false);
+  const forged=join(scratch,"wrong-source.dump");
+  copyFileSync(archive,forged);
+  const forgedMeta=JSON.parse(readFileSync(archive+".json","utf8"));
+  forgedMeta.contractSha256="f".repeat(64);
+  writeFileSync(forged+".json",JSON.stringify(forgedMeta),{mode:0o600});
+  assert.notEqual(run(process.execPath,[appcli,"db:preflight",
+    newContract,generated,"--checkpoint",forged,
+    "--report",join(scratch,"wrong-source.json")],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "A checkpoint from the wrong contract must be rejected");
+  assert.equal(existsSync(join(scratch,"wrong-source.json")),false);
+  assert.deepEqual(snapshot("protocolia"),original,
+    "Offline preflight must never modify the source database");
   const restoreDb="restore_"+randomBytes(5).toString("hex");
   docker("exec","-T","db","createdb","-U","protocolia","-T","template0",restoreDb);
   const fd=openSync(archive,"r");
@@ -115,6 +155,13 @@ try{
   assert.notEqual(run(process.execPath,[appcli,"db:verify",corrupt],
     {cwd:resolve("."),allowFailure:true}),0,"Corrupted archive must fail checksum");
   assert.deepEqual(snapshot("protocolia"),original,"Source database must not change");
+  console.log("PROTOCOLIA_V11_DB_PREFLIGHT_PASS "+JSON.stringify({
+    migrationSqlFromTypeSpec:true,isolatedPostgresNoNetwork:true,
+    restoredOldData:true,allExistingRowsPreserved:true,
+    sqlDigestBoundToReport:true,noAutoDeploy:true,
+    wrongContractRejected:true,wrongSourceSnapshotRejected:true,
+    noOverwrite:true,originalDatabaseUntouched:true
+  }));
   console.log("PROTOCOLIA_V11_DB_BACKUP_RESTORE_PASS "+JSON.stringify({
     adapter:JSON.parse(readFileSync(join(generated,"protocolia-build.json"))).target,
     postgresCustomDump:true,checkedSha256:true,restoreIsolated:true,
