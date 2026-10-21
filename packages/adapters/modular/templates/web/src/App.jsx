@@ -276,7 +276,7 @@ function RelatedSumPanel({operation,identity,auth,child,revision=0}){
 // B13: generated read-side of a typed header/detail aggregate, using the existing
 // child queryPage filter and explicit child read authority. Never fetch unscoped rows.
 function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],parentGet,
-  parentWrite=false,createOp,deleteOp,maxRows=20,closeField,closeState,revision=0,
+  parentWrite=false,createOp,deleteOp,replaceOp,rowsField,maxRows=20,closeField,closeState,revision=0,
   onSaved,onParentLoaded}){
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
@@ -289,9 +289,17 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
   const [appendErrors,setAppendErrors]=useState({});
   const [deleteConfirm,setDeleteConfirm]=useState(null);
   const [conflict,setConflict]=useState(false);
+  const [bulkDraft,setBulkDraft]=useState(null);
+  const [bulkVersion,setBulkVersion]=useState(null);
+  const [bulkConfirm,setBulkConfirm]=useState(false);
+  const [bulkLoading,setBulkLoading]=useState(false);
+  const [bulkErrors,setBulkErrors]=useState({});
+  const [bulkError,setBulkError]=useState("");
   const versioned=Boolean(parentGet);
   const canAppend=versioned&&parentWrite&&Boolean(createOp);
   const canDelete=versioned&&parentWrite&&Boolean(deleteOp);
+  const canReplace=versioned&&parentWrite&&Boolean(replaceOp)&&canAppend&&canDelete&&
+    typeof rowsField==="string"&&rowsField.length>0;
   const createFields=child.entity.fields.filter(f=>f.name!==filter.field&&!f.ownerManaged&&
     !f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
     f.initial===undefined);
@@ -380,6 +388,103 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
       if(offset>0&&state.items.length===1)setOffset(n=>Math.max(0,n-limit));
       setRetry(n=>n+1);onSaved?.();
     }catch(error){setEditError(error.message);}
+    finally{setSaving(false);}
+  }
+  const bulkIsStale=bulkDraft!==null&&bulkVersion!==state.version;
+  async function loadBulkDraft(){
+    if(!canReplace||saving||bulkLoading||state.busy||conflict||!isVersionReady())return;
+    setBulkLoading(true);setBulkError("");setBulkErrors({});setBulkConfirm(false);
+    const getDocument=async()=>{
+      const response=await authenticatedFetch(route(parentGet,identity),{
+        headers:{Authorization:auth}
+      });
+      if(!response.ok)throw Error("No se pudo comprobar la versión de la cabecera.");
+      const data=await response.json();
+      const etag=response.headers.get("ETag");
+      if(!Number.isSafeInteger(data?.documentVersion)||data.documentVersion<1||
+        etag!=='"'+data.documentVersion+'"')
+        throw Error("El servidor devolvió una versión inconsistente.");
+      if(closeField&&closeState&&data[closeField]===closeState)
+        throw Error("El documento ya está cerrado.");
+      return data.documentVersion;
+    };
+    try{
+      const before=await getDocument();
+      if(before!==state.version)throw Error("La orden cambió. Actualizá antes de editar en lote.");
+      const q=new URLSearchParams({limit:String(maxRows),offset:"0",
+        [filter.parameter]:String(identity)});
+      const response=await authenticatedFetch(operation.path+"?"+q,{
+        headers:{Authorization:auth}
+      });
+      if(!response.ok)throw Error("No se pudo cargar la colección completa.");
+      const page=await response.json();
+      if(!page||!Number.isSafeInteger(page.total)||page.total<1||
+        page.total>maxRows||!Array.isArray(page.items)||
+        page.items.length!==page.total||
+        page.items.some(item=>!item||item[filter.field]!==identity))
+        throw Error("La consulta no devolvió la colección completa y acotada.");
+      const after=await getDocument();
+      if(after!==before)throw Error("La orden cambió durante la lectura. Actualizá antes de editar.");
+      setBulkVersion(before);
+      setBulkDraft(page.items.map(item=>Object.fromEntries(
+        createFields.map(field=>[field.name,item[field.name]??""]))));
+      setEditing(null);setAppendOpen(false);setDeleteConfirm(null);
+    }catch(error){setBulkError(error.message);}
+    finally{setBulkLoading(false);}
+  }
+  function bulkChange(index,name,value){
+    setBulkDraft(old=>old.map((row,i)=>i===index?{...row,[name]:value}:row));
+    setBulkConfirm(false);setBulkError("");
+    setBulkErrors(old=>{
+      const next={...old};delete next[index+"."+name];return next;
+    });
+  }
+  function validateBulkDraft(){
+    const errors={},ids=new Set();
+    for(let i=0;i<bulkDraft.length;i++){
+      const row=bulkDraft[i];
+      const rowErrors=validateCreate(createFields,row);
+      for(const [name,message] of Object.entries(rowErrors))errors[i+"."+name]=message;
+      const key=String(row[child.entity.publicIdentity]??"").trim();
+      if(key&&ids.has(key))errors[i+"."+child.entity.publicIdentity]="Identificador repetido.";
+      ids.add(key);
+    }
+    setBulkErrors(errors);
+    if(bulkDraft.length<1||bulkDraft.length>maxRows){
+      setBulkError("La colección requiere entre 1 y "+maxRows+" renglones.");
+      return false;
+    }
+    if(Object.keys(errors).length){
+      setBulkError("Corregí los campos marcados antes de continuar.");return false;
+    }
+    setBulkError("");
+    return true;
+  }
+  function previewBulkReplacement(event){
+    event.preventDefault();
+    if(!canReplace||saving||bulkLoading||conflict||bulkIsStale||!isVersionReady())return;
+    if(validateBulkDraft())setBulkConfirm(true);
+  }
+  async function confirmBulkReplacement(){
+    if(!bulkConfirm||!canReplace||saving||conflict||bulkIsStale||!isVersionReady())return;
+    setSaving(true);setBulkError("");
+    try{
+      const payload={[rowsField]:bulkDraft.map(row=>normalizePayload(createFields,row))};
+      const response=await authenticatedFetch(route(replaceOp,identity),{
+        method:"PUT",headers:{Authorization:auth,"Content-Type":"application/json",
+          "If-Match":'"'+bulkVersion+'"'},
+        body:JSON.stringify(payload)
+      });
+      if(response.status===409){
+        setConflict(true);
+        throw Error("Otro usuario modificó la orden. Se conservó tu borrador, pero no se aplicó.");
+      }
+      if(!response.ok)throw Error(response.status===403?
+        "No tenés permisos para reemplazar los renglones.":
+        "No se aplicó el reemplazo. Revisá los datos y volvé a confirmar.");
+      setBulkDraft(null);setBulkVersion(null);setBulkConfirm(false);setBulkErrors({});
+      setOffset(0);setRetry(n=>n+1);onSaved?.();
+    }catch(error){setBulkError(error.message);}
     finally{setSaving(false);}
   }
   useEffect(()=>{
@@ -503,6 +608,77 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
                 </div>}</td>}</tr>)}</tbody>
           </table>
         </div>
+        {canReplace&&<div className="detail-bulk" data-testid="detail-bulk-panel">
+          {bulkDraft===null?<div className="detail-bulk-intro">
+            <div><h4>Edición completa de renglones</h4>
+              <p className="field-help">Permite modificar varios renglones en una única operación.
+                Se reemplaza la colección completa, no solamente esta página.</p></div>
+            <button type="button" className="ghost" data-testid="bulk-open"
+              disabled={saving||bulkLoading||pending||conflict||!isVersionReady()}
+              onClick={loadBulkDraft}>
+              {bulkLoading?"Cargando colección…":"Editar colección completa"}</button>
+          </div>:<form noValidate data-testid="bulk-edit-form"
+              onSubmit={previewBulkReplacement}>
+            <h4>Reemplazo completo · versión {bulkVersion}</h4>
+            <p className="field-help">Editá los renglones, agregá o quitá los necesarios y revisá
+              todo antes de confirmar. Ningún cambio se guardará hasta la confirmación final.</p>
+            {bulkIsStale&&<p className="message error" role="alert"
+              data-testid="bulk-stale-warning">Este borrador pertenece a una versión anterior.
+              Guardá los datos que necesites y descartá el borrador para volver a cargar.
+              Nunca se fusionará automáticamente con los cambios de otra sesión.</p>}
+            {bulkDraft.map((row,index)=><section key={index}
+              className="detail-bulk-row" data-testid={"bulk-row-"+index}>
+              <div className="detail-bulk-row-head"><strong>Renglón {index+1}</strong>
+                <button type="button" className="ghost" data-testid={"bulk-remove-"+index}
+                  disabled={saving||bulkLoading||bulkDraft.length===1}
+                  onClick={()=>{
+                    setBulkDraft(old=>old.filter((_,i)=>i!==index));
+                    setBulkConfirm(false);setBulkErrors({});setBulkError("");
+                  }}>Quitar</button></div>
+              <div className="fields">{createFields.map(field=><FormField key={field.name}
+                field={field} auth={auth}
+                value={row[field.name]??(field.type==="int32"&&field.required?0:"")}
+                validationError={bulkErrors[index+"."+field.name]}
+                onChange={(name,value)=>bulkChange(index,name,value)}
+              />)}</div>
+            </section>)}
+            <button type="button" className="ghost" data-testid="bulk-add"
+              disabled={saving||bulkLoading||bulkDraft.length>=maxRows}
+              onClick={()=>{
+                setBulkDraft(old=>[...old,Object.fromEntries(createFields.map(field=>[
+                  field.name,field.type==="int32"&&field.required?0:""]))]);
+                setBulkConfirm(false);setBulkError("");setBulkErrors({});
+              }}>Agregar renglón</button>
+            <p className="field-help">{bulkDraft.length} de {maxRows} renglones.</p>
+            <div className="modal-actions">
+              <button type="button" className="ghost" data-testid="bulk-discard"
+                disabled={saving} onClick={()=>{
+                  setBulkDraft(null);setBulkVersion(null);setBulkConfirm(false);
+                  setBulkErrors({});setBulkError("");
+                }}>Descartar borrador</button>
+              {!bulkConfirm&&<button type="submit" data-testid="bulk-review"
+                disabled={saving||bulkLoading||conflict||bulkIsStale||!isVersionReady()}>
+                Revisar reemplazo</button>}
+            </div>
+            {bulkConfirm&&<div className="detail-bulk-confirm" role="group"
+                aria-label="Confirmación del reemplazo" data-testid="bulk-confirm-panel">
+              <strong>Confirmar reemplazo de toda la colección</strong>
+              <p>Se eliminarán los renglones anteriores y se guardarán exactamente
+                {bulkDraft.length} renglones nuevos. La operación es atómica y auditada.
+                La versión {bulkVersion} debe seguir vigente.</p>
+              <div className="modal-actions">
+                <button type="button" className="ghost" disabled={saving}
+                  onClick={()=>setBulkConfirm(false)}>Volver a editar</button>
+                <button type="button" className="danger-button" data-testid="bulk-confirm"
+                  disabled={saving||conflict||bulkIsStale||!isVersionReady()}
+                  onClick={confirmBulkReplacement}>
+                  {saving?"Reemplazando…":"Confirmar reemplazo"}</button>
+              </div>
+            </div>}
+          </form>}
+          {bulkError&&<p role="alert" className="message error" data-testid="bulk-error">
+            {bulkError}</p>}
+        </div>}
         {state.total===0&&<p className="field-help">Esta cabecera todavía no tiene renglones.</p>}
         {canAppend&&<div className="detail-append">
           {!appendOpen?<button type="button" className="ghost" data-testid="detail-append-open"
@@ -881,6 +1057,9 @@ export default function App(){
   const detailDelete=detailVersioned&&detailCanWrite&&
     capabilities.includes(detailResource?.operations?.delete?.capability)?
       detailResource.operations.delete:null;
+  const detailReplace=detailVersioned&&detailCanWrite&&detailCreate&&detailDelete&&
+    capabilities.includes(operations.replaceDetails?.capability)?
+      operations.replaceDetails:null;
   const detailEdits=(detailResource?.patchFieldsOptions??
     (detailResource?.operations?.patchFields?[detailResource.operations.patchFields]:[]))
     .filter(op=>op.behavior?.audit?.length===1&&
@@ -1507,6 +1686,8 @@ export default function App(){
           parentWrite={detailCanWrite}
           createOp={detailCreate}
           deleteOp={detailDelete}
+          replaceOp={detailReplace}
+          rowsField={detailPlan?.rowsField}
           maxRows={detailPlan?.maxRows??20}
           closeField={detailPlan?.closeField} closeState={detailPlan?.closeState}
           revision={summaryRevision}
