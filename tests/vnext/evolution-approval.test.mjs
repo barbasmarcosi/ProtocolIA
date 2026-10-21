@@ -26,7 +26,8 @@ function fixture(){
     changeCount:1,isolatedNetwork:"none",originDatabaseAccess:false,
     tablesChecked:3,rowsChecked:14};
   writeFileSync(report,JSON.stringify(passed),{mode:0o600});
-  return {archive,report,passed,build,nextIr,sql,changeCount:1};
+  return {archive,report,archivePath:archive,reportPath:report,
+    passed,build,nextIr,sql,changeCount:1};
 }
 test("verified evolution binds to exact typed contract, SQL and checkpoint bytes",()=>{
   const args=fixture();
