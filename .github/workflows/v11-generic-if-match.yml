@@ -9,6 +9,7 @@ on:
       - 'packages/contracts/**'
       - 'examples/vnext/dynamic-order-versioned/**'
       - '.github/workflows/v11-generic-if-match.yml'
+      - 'scripts/vnext/probe-versioned-order-http.mjs'
   workflow_dispatch:
 permissions:
   contents: read
