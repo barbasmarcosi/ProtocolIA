@@ -425,6 +425,8 @@ try{
     assert.equal(closedResponse.request().headers()["if-match"],'"5"');
     await closingPanel.getByTestId("detail-document-closed").waitFor();
     await closingPanel.getByTestId("detail-document-version").getByText("6",{exact:true}).waitFor();
+    assert.equal(await closingPanel.getByTestId("bulk-open").isDisabled(),true,
+      "Closed parent must disable the destructive batch editor");
     assert.equal(await closingPanel.getByTestId("detail-append-open").isDisabled(),true);
     assert.equal(await closingPanel.getByTestId("delete-detail-UI-BASE-1").isDisabled(),true);
     assert.equal(await closingPanel.getByTestId("edit-detail-UI-BASE-1-product").isDisabled(),true);
