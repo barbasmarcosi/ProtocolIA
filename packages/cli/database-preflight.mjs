@@ -93,7 +93,7 @@ function queryCatalog(container,sql){
   return docker(["exec",container,"psql","-X","-U","protocolia",
     "-d","protocolia","-v","ON_ERROR_STOP=1","-At","-c",sql]);
 }
-function tableSnapshot(container){
+export function tableSnapshot(container){
   const tables=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
     "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
   const snapshot={};
@@ -110,7 +110,7 @@ function tableSnapshot(container){
   }
   return {snapshot,totalRows};
 }
-function verifyRows(container,before){
+export function verifyRows(container,before){
   const current=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
     "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
   const oldTables=Object.keys(before.snapshot);
