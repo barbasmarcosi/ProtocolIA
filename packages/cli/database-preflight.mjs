@@ -3,7 +3,7 @@
 import {spawnSync} from "node:child_process";
 import {createHash,randomBytes} from "node:crypto";
 import {closeSync,existsSync,openSync,readFileSync,readSync,rmSync,
-  mkdtempSync,writeFileSync} from "node:fs";
+  mkdtempSync,writeFileSync,unlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname,join,relative,resolve,sep} from "node:path";
 import {verifyApp} from "./ownership.mjs";
@@ -43,51 +43,86 @@ export function preflightOptions(args){
     deny("Explicit source contracts and sealed generated application required");
   return {project,dir,archive,report};
 }
-function tableSnapshot(container){
-  const query=sql=>docker(["exec",container,"psql","-X","-U","protocolia",
+// Hash each complete *old-column* row with PostgreSQL's built-in SHA-256,
+// sort the row digests (including duplicates) and stream the result to a
+// private temporary file. A second SHA-256 attests to the ordered multiset.
+// Unlike SUM(hashtextextended), no cancellation can hide two changed rows.
+function exactRowsDigest(container,table,columns){
+  const select=columns.map(quoted).join(",");
+  const sql="COPY (SELECT h FROM (SELECT encode(sha256(convert_to("+
+    "row_to_json(t)::text,'UTF8')),'hex') AS h FROM (SELECT "+select+
+    " FROM "+quoted(table)+") t) hashes ORDER BY h) TO STDOUT";
+  const path=join(tmpdir(),"pia-row-digest-"+randomBytes(16).toString("hex")+".tmp");
+  let fd;
+  try{
+    fd=openSync(path,"wx",0o600);
+    const proc=spawnSync("docker",["exec",container,"psql","-X","-q",
+      "-U","protocolia","-d","protocolia","-v","ON_ERROR_STOP=1","-c",sql],
+      {encoding:"utf8",timeout:600000,maxBuffer:1024*1024,
+        stdio:["ignore",fd,"pipe"]});
+    if(proc.error||proc.status!==0)
+      deny("Failed to stream the isolated PostgreSQL row digest: "+
+        (proc.stderr??proc.error?.message??"").slice(-450));
+    closeSync(fd);fd=undefined;
+    const reader=openSync(path,"r"),buf=Buffer.allocUnsafe(1024*1024);
+    const sha=createHash("sha256");
+    let rows=0,lineLength=0,n=0;
+    try{
+      while((n=readSync(reader,buf,0,buf.length,null))!==0){
+        sha.update(buf.subarray(0,n));
+        for(let i=0;i<n;i++){
+          const byte=buf[i];
+          if(byte===10){
+            if(lineLength!==64)deny("Unexpected PostgreSQL digest row format");
+            rows++;lineLength=0;
+          }else if((byte>=48&&byte<=57)||(byte>=97&&byte<=102)){
+            lineLength++;
+            if(lineLength>64)deny("Invalid PostgreSQL digest row length");
+          }else deny("Unexpected nonhexadecimal PostgreSQL digest output");
+        }
+      }
+      if(lineLength!==0)deny("Truncated PostgreSQL digest stream");
+      return {count:rows,sha256:sha.digest("hex")};
+    }finally{closeSync(reader);}
+  }finally{
+    if(fd!==undefined)closeSync(fd);
+    if(existsSync(path))unlinkSync(path);
+  }
+}
+function queryCatalog(container,sql){
+  return docker(["exec",container,"psql","-X","-U","protocolia",
     "-d","protocolia","-v","ON_ERROR_STOP=1","-At","-c",sql]);
-  const tables=query("SELECT tablename FROM pg_catalog.pg_tables "+
+}
+function tableSnapshot(container){
+  const tables=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
     "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
   const snapshot={};
   let totalRows=0;
   for(const name of tables){
     const escaped=name.replaceAll("'","''");
-    const columns=query("SELECT column_name FROM information_schema.columns "+
+    const columns=queryCatalog(container,"SELECT column_name FROM information_schema.columns "+
       "WHERE table_schema='public' AND table_name='"+escaped+"' "+
       "ORDER BY ordinal_position").split("\n").filter(Boolean);
     if(!columns.length)deny("Missing columns in "+name);
-    // This exact set of *old columns* is reused after the migration; additions
-    // cannot hide changes to old data behind changed row_to_json shape.
-    const expression=columns.map(quoted).join(",");
-    const digest=query("SELECT count(*)::text||'|'||"+
-      "coalesce(sum(hashtextextended(row_to_json(t)::text,0)::numeric),0)::text"+
-      " FROM (SELECT "+expression+" FROM "+quoted(name)+") t");
-    const [count,hash]=digest.split("|");
-    if(!/^\d+$/.test(count)||!/^[-\d]+$/.test(hash))
-      deny("Invalid data digest for table "+name);
-    snapshot[name]={columns,count:Number(count),hash};
-    totalRows+=Number(count);
+    const result=exactRowsDigest(container,name,columns);
+    snapshot[name]={columns,...result};
+    totalRows+=result.count;
   }
   return {snapshot,totalRows};
 }
 function verifyRows(container,before){
-  const query=sql=>docker(["exec",container,"psql","-X","-U","protocolia",
-    "-d","protocolia","-v","ON_ERROR_STOP=1","-At","-c",sql]);
-  const current=query("SELECT tablename FROM pg_catalog.pg_tables "+
+  const current=queryCatalog(container,"SELECT tablename FROM pg_catalog.pg_tables "+
     "WHERE schemaname='public' ORDER BY tablename").split("\n").filter(Boolean);
   const oldTables=Object.keys(before.snapshot);
   for(const table of oldTables){
     if(!current.includes(table))deny("Existing table disappeared: "+table);
-    const {columns,count,hash}=before.snapshot[table];
-    const sql="SELECT count(*)::text||'|'||"+
-      "coalesce(sum(hashtextextended(row_to_json(t)::text,0)::numeric),0)::text"+
-      " FROM (SELECT "+columns.map(quoted).join(",")+" FROM "+quoted(table)+") t";
-    const [afterCount,afterHash]=query(sql).split("|");
-    if(Number(afterCount)!==count||afterHash!==hash)
-      deny("Existing row count/content differs after SQL: "+table);
+    const {columns,count,sha256}=before.snapshot[table];
+    const result=exactRowsDigest(container,table,columns);
+    if(result.count!==count||result.sha256!==sha256)
+      deny("Existing row count/cryptographic digest differs after SQL: "+table);
   }
-  return {tablesChecked:oldTables.length,
-    rowsChecked:before.totalRows,newTables:current.length-oldTables.length};
+  return {tablesChecked:oldTables.length,rowsChecked:before.totalRows,
+    newTables:current.length-oldTables.length};
 }
 export async function preflightMigration(args){
   const options=preflightOptions(args);
@@ -149,7 +184,8 @@ export async function preflightMigration(args){
       "-U","protocolia","-d","protocolia","-f","-"],
       {input:sql+"\n",timeout:600000});
     const preserved=verifyRows(id,before);
-    const report={schema:1,status:"pass",target:build.target,
+    const report={schema:2,status:"pass",target:build.target,
+      rowAttestation:"sha256-sorted-row-json-v1",
       sourceContractSha256:build.contractSha256,
       checkpointSha256:archive.archiveSha256,
       proposedSqlSha256:sqlHash,
@@ -158,7 +194,7 @@ export async function preflightMigration(args){
       ...preserved,postgresImage:"postgres:16.15-alpine",
       isolatedNetwork:"none",originDatabaseAccess:false,
       elapsedSeconds:Math.round((Date.now()-started)/1000),
-      warning:"Checks old-column row count and bounded hash summary; not a cryptographic row proof or production upgrade."};
+      warning:"Streams PostgreSQL SHA-256 of every old-column row in every public table, verifies exact row multiset after SQL. This is a single restored snapshot, not proof of live-db freshness, DB isolation from local Docker admins or production readiness."};
     writeFileSync(options.report,JSON.stringify(report,null,2)+"\n",
       {flag:"wx",mode:0o600});
     console.log("PROTOCOLIA_DB_PREFLIGHT_PASS "+JSON.stringify(report));
