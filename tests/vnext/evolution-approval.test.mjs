@@ -19,7 +19,8 @@ function fixture(){
     contractSha256:build.contractSha256,
     archiveBytes:bytes.length,archiveSha256:sha(bytes)};
   writeFileSync(archive+".json",JSON.stringify(checkpoint),{mode:0o600});
-  const passed={schema:1,status:"pass",target:build.target,
+  const passed={schema:2,status:"pass",target:build.target,
+    rowAttestation:"sha256-sorted-row-json-v1",
     sourceContractSha256:build.contractSha256,
     checkpointSha256:sha(bytes),proposedSqlSha256:sha(sql),
     proposedIrSha256:sha(JSON.stringify(nextIr)),
@@ -40,6 +41,7 @@ test("verified evolution binds to exact typed contract, SQL and checkpoint bytes
     ["sourceContractSha256","b".repeat(64)],
     ["isolatedNetwork","default"],
     ["originDatabaseAccess",true],["rowsChecked",-1],
+    ["schema",1],["rowAttestation","legacy-non-cryptographic"],
   ]){
     writeFileSync(args.report,JSON.stringify({...args.passed,[field]:value}));
     assert.throws(()=>verifyEvolutionApproval(args),
