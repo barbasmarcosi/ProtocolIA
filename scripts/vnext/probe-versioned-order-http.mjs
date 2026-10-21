@@ -353,6 +353,10 @@ try{
     await bulkPanel.getByTestId("bulk-open").click();
     const freshBulkForm=bulkPanel.getByTestId("bulk-edit-form");
     await freshBulkForm.getByTestId("bulk-row-9").waitFor();
+    // Newly appended identities may sort ahead of previous rows.
+    // Follow the public identity of the actual edited row, not row index 0.
+    const editedIdentity=await freshBulkForm.getByTestId("bulk-row-0")
+      .getByTestId("create-lineCode").inputValue();
     await freshBulkForm.getByTestId("bulk-row-0").getByTestId("create-product")
       .fill("Versión actual confirmada");
     await freshBulkForm.getByTestId("bulk-review").click();
@@ -361,8 +365,10 @@ try{
     await freshBulkForm.getByTestId("bulk-confirm").click();
     assert.equal((await freshPut).status(),200);
     await bulkPanel.getByTestId("detail-document-version").getByText("4",{exact:true}).waitFor();
-    assert.equal((await req("GET","/api/order-lines/UI-BULK-OLD-1")).body.product,
+    assert.equal((await req("GET","/api/order-lines/"+encodeURIComponent(editedIdentity))).body.product,
       "Versión actual confirmada");
+    assert.equal((await req("GET","/api/order-lines/UI-BULK-OLD-1")).body.product,
+      "Actualizado en lote");
     assert.equal((await req("GET","/api/orders/UI-BULK/total")).body.totalUnits,"13");
     console.log("PROTOCOLIA_V11_BULK_REACT_PASS "+JSON.stringify({
       completeBeyondPage:true,explicitReview:true,putStrongETag:true,
