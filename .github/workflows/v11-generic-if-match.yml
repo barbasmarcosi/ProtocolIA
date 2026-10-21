@@ -15,6 +15,7 @@ on:
       - 'scripts/vnext/probe-db-checkpoint.mjs'
       - 'tests/vnext/database-checkpoint.test.mjs'
       - 'tests/vnext/database-preflight.test.mjs'
+      - 'tests/vnext/evolution-approval.test.mjs'
   workflow_dispatch:
 permissions:
   contents: read
@@ -45,7 +46,7 @@ jobs:
           cache: maven
       - run: npm ci
       - name: Test DB checkpoint CLI guardrails and SHA-256 verification
-        run: node --test tests/vnext/database-checkpoint.test.mjs tests/vnext/database-preflight.test.mjs
+        run: node --test tests/vnext/database-checkpoint.test.mjs tests/vnext/database-preflight.test.mjs tests/vnext/evolution-approval.test.mjs
       - name: Build generated versioned application
         run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${{ runner.temp }}/v11-ifmatch-app"
       - name: Verify generic CLI accepts versioned documents on isolated PostgreSQL
