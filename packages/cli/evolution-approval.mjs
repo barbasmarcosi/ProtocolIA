@@ -30,7 +30,8 @@ export function verifyEvolutionApproval({reportPath,archivePath,build,newIr,sql,
   // report hash. Tampering or using a different snapshot must fail closed.
   const checkpoint=verifyCheckpoint(archivePath);
   const expected={
-    schema:1,status:"pass",target:build.target,
+    schema:2,status:"pass",target:build.target,
+    rowAttestation:"sha256-sorted-row-json-v1",
     sourceContractSha256:build.contractSha256,
     checkpointSha256:checkpoint.archiveSha256,
     proposedSqlSha256:digest(sql),
