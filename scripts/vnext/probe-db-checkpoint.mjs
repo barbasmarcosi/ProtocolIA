@@ -267,6 +267,24 @@ try{
   assert.equal(dbSql(restoreDb,"SELECT count(*) FROM information_schema.columns "+
     "WHERE table_name='purchase_order' AND column_name='must_rollback'"),"0");
   assert.deepEqual(snapshot(restoreDb),original,"Failed migration must roll back all DDL");
+  // Cryptographic regression on the independent restored copy: changing
+  // one row's original value WITHOUT changing row count must be detected.
+  const {tableSnapshot,verifyRows}=await import("../../packages/cli/database-preflight.mjs");
+  const oldDigest=tableSnapshot(dbBefore,restoreDb);
+  dbSql(restoreDb,"UPDATE order_line SET product='ALTERED-ROW-CHECK' "+
+    "WHERE line_code='BEFORE-A'");
+  assert.equal(dbSql(restoreDb,
+    "SELECT count(*) FROM order_line WHERE order_code='RETAINED'"),"3",
+    "The tampered restore must keep its original row count");
+  assert.throws(()=>verifyRows(dbBefore,oldDigest,restoreDb),
+    /cryptographic digest differs/,
+    "A changed historical value cannot be hidden by unchanged row counts");
+  dbSql(restoreDb,"UPDATE order_line SET product='Unchanged' "+
+    "WHERE line_code='BEFORE-A'");
+  assert.doesNotThrow(()=>verifyRows(dbBefore,oldDigest,restoreDb),
+    "Undoing the mutation must recover the exact digest");
+  assert.deepEqual(snapshot(restoreDb),original,
+    "The isolated tamper test must not alter restored business data");
   const corrupt=join(scratch,"damaged.dump");
   copyFileSync(archive,corrupt);
   copyFileSync(archive+".json",corrupt+".json");
@@ -278,7 +296,8 @@ try{
   console.log("PROTOCOLIA_V11_DB_PREFLIGHT_PASS "+JSON.stringify({
     migrationSqlFromTypeSpec:true,isolatedPostgresNoNetwork:true,
     restoredOldData:true,allExistingRowsPreserved:true,
-    sqlDigestBoundToReport:true,noAutoDeploy:true,
+    sqlDigestBoundToReport:true,cryptographicOldRows:true,
+    countPreservingTamperRejected:true,noAutoDeploy:true,
     wrongContractRejected:true,wrongSourceSnapshotRejected:true,
     noOverwrite:true,originalDatabaseUntouched:true
   }));
