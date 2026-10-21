@@ -129,6 +129,86 @@ try{
   assert.equal(existsSync(join(scratch,"wrong-source.json")),false);
   assert.deepEqual(snapshot("protocolia"),original,
     "Offline preflight must never modify the source database");
+  // v1.1e — graduate the SQL-only rehearsal into a real *application* upgrade.
+  // This Compose project is ephemeral and created by this test. Never use this
+  // procedure on an external/real database without a separate maintenance plan.
+  const dbBefore=docker("ps","--quiet","db");
+  assert.match(dbBefore,/^[0-9a-f]{12,64}$/i);
+  const originalContract=JSON.parse(readFileSync(join(generated,"protocolia-build.json")));
+  assert.equal(originalContract.contractSha256,summary.sourceContractSha256);
+  const evolveLog=run(process.execPath,[
+    appcli,"evolve",newContract,generated],{cwd:resolve("."),timeout:600000});
+  assert.match(evolveLog,/PROTOCOLIA_EVOLUTION_APPLIED/);
+  const afterBuild=JSON.parse(readFileSync(join(generated,"protocolia-build.json")));
+  assert.equal(afterBuild.target,originalContract.target);
+  assert.notEqual(afterBuild.contractSha256,originalContract.contractSha256);
+  const migrationFiles=afterBuild.target==="nestjs"?
+    join(generated,"src/migrations/V2__protocolia_additive.sql"):
+    join(generated,"src/main/resources/db/migration/V2__protocolia_additive.sql");
+  assert.ok(existsSync(migrationFiles),"Version 2 migration must be generated, without editing V1");
+  assert.ok(readFileSync(migrationFiles,"utf8").includes("ALTER TABLE purchase_order"));
+  // Only the application is recreated. Preserve the original PostgreSQL
+  // container, volume and exact Compose project across the upgrade.
+  docker("up","--detach","--build","--force-recreate","--no-deps","app");
+  assert.equal(docker("ps","--quiet","db"),dbBefore,
+    "The existing database container must remain unchanged during upgrade");
+  let upgraded=false;
+  for(let i=0;i<135;i++){
+    try{
+      const response=await fetch("http://127.0.0.1:"+port+"/health",
+        {signal:AbortSignal.timeout(2200)});
+      if(response.status===200){upgraded=true;break;}
+    }catch{}
+    await new Promise(ok=>setTimeout(ok,850));
+  }
+  if(!upgraded)throw Error("Generated app failed to start after applying V2 migration: "+
+    docker("logs","--tail","60","app"));
+  assert.deepEqual(snapshot("protocolia"),original,
+    "Real V2 startup must preserve the pre-upgrade document, children and audit");
+  assert.equal(dbSql("protocolia",
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "+
+    "AND table_name='purchase_order' AND column_name='note'"),"1",
+    "New optional TypeSpec field must be present in the existing PostgreSQL schema");
+  const ledger=afterBuild.target==="nestjs"?
+    dbSql("protocolia","SELECT version::text FROM protocolia_nest_migration_history ORDER BY version"):
+    dbSql("protocolia","SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank");
+  assert.equal(ledger,"2".trim()==="2"&&afterBuild.target==="nestjs"?"2":"1\n2",
+    "Version journal must record the V2 migration exactly once");
+  const createdAfterUpgrade=await request("POST","/api/orders",{
+    code:"POST-V2",title:"Works after migration",note:"Preserved new optional field",
+    lines:[{lineCode:"POST-V2-CHILD",product:"New version",units:1}]
+  });
+  assert.equal(createdAfterUpgrade.status,201,createdAfterUpgrade.body);
+  assert.equal(dbSql("protocolia",
+    "SELECT note FROM purchase_order WHERE code='POST-V2'"),
+    "Preserved new optional field","Regenerated backend must write the new TypeSpec field");
+  // A post-upgrade child mutation still needs document-wide If-Match and
+  // continues appending journal entries within the same PostgreSQL database.
+  const postUpgradeChild=await request("POST","/api/order-lines",{
+    lineCode:"AFTER-V2-CHILD",orderCode:"RETAINED",product:"Still writable",units:1
+  },{"If-Match":'"2"'});
+  assert.equal(postUpgradeChild.status,201,postUpgradeChild.body);
+  assert.equal(dbSql("protocolia",
+    "SELECT document_version::text FROM purchase_order WHERE code='RETAINED'"),"3");
+  assert.equal(dbSql("protocolia",
+    "SELECT count(*) FROM order_line WHERE order_code='RETAINED'"),"4");
+  assert.ok(Number(dbSql("protocolia",
+    "SELECT count(*) FROM protocolia_audit_event "+
+    "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C','AFTER-V2-CHILD')"))>
+    Number(original.audit));
+  const evolutionEvidence={
+    generatedTarget:afterBuild.target,
+    v2MigrationFromTypeSpec:true,
+    databaseContainerUnchanged:true,
+    preexistingRowsPreserved:true,
+    preexistingJournalPreserved:true,
+    migrationLedgerVersion2:true,
+    newFieldPersisted:true,
+    postUpgradeAuditedWrite:true,
+    versionEtagsContinue:true,
+    preflightReportMatchedOldContract:true
+  };
+  console.log("PROTOCOLIA_V11_APP_EVOLUTION_PASS "+JSON.stringify(evolutionEvidence));
   const restoreDb="restore_"+randomBytes(5).toString("hex");
   docker("exec","-T","db","createdb","-U","protocolia","-T","template0",restoreDb);
   const fd=openSync(archive,"r");
