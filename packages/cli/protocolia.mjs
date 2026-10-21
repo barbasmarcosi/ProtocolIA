@@ -107,7 +107,10 @@ function main(){
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
 try {
-  if(process.argv[2]==="db:checkpoint"){
+  if(process.argv[2]==="db:preflight"){
+    const {preflightMigration}=await import("./database-preflight.mjs");
+    await preflightMigration(process.argv.slice(3));
+  }else if(process.argv[2]==="db:checkpoint"){
     const {createCheckpoint}=await import("./database-checkpoint.mjs");
     createCheckpoint(process.argv.slice(3));
   }else if(process.argv[2]==="db:verify"){
