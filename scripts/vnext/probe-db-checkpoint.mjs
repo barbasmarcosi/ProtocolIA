@@ -140,8 +140,35 @@ try{
     "src/main/resources/db/migration/V2__protocolia_bff_http_session.sql");
   const previousBff=originalContract.target==="modular-spring"?
     readFileSync(springBffMigration,"utf8"):null;
+  // Guard every upgrade against an actual, reproducible *prior* preflight.
+  // A report is not an authorization to reuse a different SQL or archive.
+  const verifiedArgs=["evolve:verified",newContract,generated,
+    "--checkpoint",archive,"--report",report];
+  const untouchedBuild=readFileSync(join(generated,"protocolia-build.json"),"utf8");
+  const invalidReports=[
+    ["wrong-sql",{...summary,proposedSqlSha256:"0".repeat(64)}],
+    ["wrong-ir",{...summary,proposedIrSha256:"f".repeat(64)}],
+    ["wrong-checkpoint",{...summary,checkpointSha256:"f".repeat(64)}],
+    ["not-passed",{...summary,status:"fail"}]
+  ];
+  for(const [label,payload] of invalidReports){
+    const bad=join(scratch,"invalid-"+label+".json");
+    writeFileSync(bad,JSON.stringify(payload),{mode:0o600});
+    assert.notEqual(run(process.execPath,[
+      appcli,"evolve:verified",newContract,generated,
+      "--checkpoint",archive,"--report",bad],
+      {cwd:resolve("."),allowFailure:true}),0,
+      "Unapproved evolution must fail: "+label);
+    assert.equal(readFileSync(join(generated,"protocolia-build.json"),"utf8"),
+      untouchedBuild,"A failed approval must never regenerate the application");
+  }
+  const noReport=run(process.execPath,[
+    appcli,"evolve:verified",newContract,generated],
+    {cwd:resolve("."),allowFailure:true});
+  assert.notEqual(noReport,0,"Verified evolution requires explicit report and archive");
   const evolveLog=run(process.execPath,[
-    appcli,"evolve",newContract,generated],{cwd:resolve("."),timeout:600000});
+    appcli,...verifiedArgs],{cwd:resolve("."),timeout:600000});
+  assert.match(evolveLog,/PROTOCOLIA_EVOLUTION_PREFLIGHT_VERIFIED/);
   assert.match(evolveLog,/PROTOCOLIA_EVOLUTION_APPLIED/);
   const afterBuild=JSON.parse(readFileSync(join(generated,"protocolia-build.json")));
   assert.equal(afterBuild.target,originalContract.target);
@@ -214,7 +241,11 @@ try{
     newFieldPersisted:true,
     postUpgradeAuditedWrite:true,
     versionEtagsContinue:true,
-    preflightReportMatchedOldContract:true
+    preflightReportMatchedOldContract:true,
+    verifiedEvolutionGate:true,
+    mismatchedSqlRejected:true,mismatchedIrRejected:true,
+    mismatchedArchiveRejected:true,
+    failedOrMissingReportRejected:true
   };
   console.log("PROTOCOLIA_V11_APP_EVOLUTION_PASS "+JSON.stringify(evolutionEvidence));
   const restoreDb="restore_"+randomBytes(5).toString("hex");
