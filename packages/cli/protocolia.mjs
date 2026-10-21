@@ -107,7 +107,14 @@ function main(){
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
 try {
-  if(["plan","evolve"].includes(process.argv[2])){
+  if(process.argv[2]==="db:checkpoint"){
+    const {createCheckpoint}=await import("./database-checkpoint.mjs");
+    createCheckpoint(process.argv.slice(3));
+  }else if(process.argv[2]==="db:verify"){
+    if(process.argv.length!==4)throw Error("Usage: protocolia db:verify <archive.dump>");
+    const {verifyCheckpoint}=await import("./database-checkpoint.mjs");
+    verifyCheckpoint(process.argv[3]);
+  }else if(["plan","evolve"].includes(process.argv[2])){
     if(process.argv.length!==5)throw Error("Usage: protocolia "+process.argv[2]+" <TypeSpec-project> <generated-directory>");
     const {evolve}=await import("./regeneration.mjs");
     await evolve(process.argv[2],process.argv[3],process.argv[4]);
