@@ -107,7 +107,15 @@ function main(){
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
 try {
-  if(process.argv[2]==="db:preflight"){
+  if(process.argv[2]==="evolve:verified"){
+    if(process.argv.length!==9||process.argv[5]!=="--checkpoint"||
+       process.argv[7]!=="--report")
+      throw Error("Usage: protocolia evolve:verified <TypeSpec-project> <generated-dir> --checkpoint <archive.dump> --report <passed-report.json>");
+    const {evolve}=await import("./regeneration.mjs");
+    await evolve("evolve",process.argv[3],process.argv[4],{
+      requireApproval:true,archivePath:process.argv[6],reportPath:process.argv[8]
+    });
+  }else if(process.argv[2]==="db:preflight"){
     const {preflightMigration}=await import("./database-preflight.mjs");
     await preflightMigration(process.argv.slice(3));
   }else if(process.argv[2]==="db:checkpoint"){
