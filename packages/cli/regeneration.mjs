@@ -481,8 +481,23 @@ export async function evolve(action,projectPath,outputPath){
   diff.blockers.push(...validateOpenApiEvolution(oldOpenApi,nextOpenApi,oldIr,newIr,diff));
   diff.compatible=diff.blockers.length===0;
   console.log("PROTOCOLIA_EVOLUTION_PLAN "+JSON.stringify(diff));
-  if(action==="plan")return diff;
+  if(action==="plan"){
+    if(diff.compatible){
+      const migration=additiveSql(diff,newIr);
+      console.log("PROTOCOLIA_EVOLUTION_SQL_PREVIEW "+JSON.stringify({
+        sha256:createHash("sha256").update(migration).digest("hex"),
+        statements:migration.split("\n").filter(Boolean).length,
+        sql:migration,
+        warning:"SQL preview only; app:plan does not change the database. "+
+          "Take and rehearse a verified DB checkpoint before app:evolve or deployment."
+      }));
+    }
+    return diff;
+  }
   if(!diff.compatible)throw Error("Breaking evolution forbidden: "+diff.blockers.join("; "));
+  console.log("PROTOCOLIA_EVOLUTION_BACKUP_REMINDER "+
+    "Before app:evolve and next app startup: create a verified DB checkpoint, "+
+    "rehearse restoration into a separate database and arrange a maintenance window.");
   if(!diff.changes.length){
     console.log("PROTOCOLIA_EVOLUTION_NO_CHANGES");
     return diff;
