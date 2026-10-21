@@ -136,6 +136,10 @@ try{
   assert.match(dbBefore,/^[0-9a-f]{12,64}$/i);
   const originalContract=JSON.parse(readFileSync(join(generated,"protocolia-build.json")));
   assert.equal(originalContract.contractSha256,summary.sourceContractSha256);
+  const springBffMigration=join(generated,
+    "src/main/resources/db/migration/V2__protocolia_bff_http_session.sql");
+  const previousBff=originalContract.target==="modular-spring"?
+    readFileSync(springBffMigration,"utf8"):null;
   const evolveLog=run(process.execPath,[
     appcli,"evolve",newContract,generated],{cwd:resolve("."),timeout:600000});
   assert.match(evolveLog,/PROTOCOLIA_EVOLUTION_APPLIED/);
@@ -144,8 +148,11 @@ try{
   assert.notEqual(afterBuild.contractSha256,originalContract.contractSha256);
   const migrationFiles=afterBuild.target==="nestjs"?
     join(generated,"src/migrations/V2__protocolia_additive.sql"):
-    join(generated,"src/main/resources/db/migration/V2__protocolia_additive.sql");
-  assert.ok(existsSync(migrationFiles),"Version 2 migration must be generated, without editing V1");
+    join(generated,"src/main/resources/db/migration/V3__protocolia_additive.sql");
+  assert.ok(existsSync(migrationFiles),
+    "Next migration must follow the existing immutable versions (Nest V2; Spring V3)");
+  if(previousBff!==null)assert.equal(readFileSync(springBffMigration,"utf8"),previousBff,
+    "Spring BFF V2 must remain byte-identical after additive V3 migration");
   assert.ok(readFileSync(migrationFiles,"utf8").includes("ALTER TABLE purchase_order"));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
@@ -172,8 +179,8 @@ try{
   const ledger=afterBuild.target==="nestjs"?
     dbSql("protocolia","SELECT version::text FROM protocolia_nest_migration_history ORDER BY version"):
     dbSql("protocolia","SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank");
-  assert.equal(ledger,afterBuild.target==="nestjs"?"2":"1\n2",
-    "Version journal must record the V2 migration exactly once");
+  assert.equal(ledger,afterBuild.target==="nestjs"?"2":"1\n2\n3",
+    "Version journal must record the next migration after the preserved history");
   const createdAfterUpgrade=await request("POST","/api/orders",{
     code:"POST-V2",title:"Works after migration",note:"Preserved new optional field",
     lines:[{lineCode:"POST-V2-CHILD",product:"New version",units:1}]
@@ -199,7 +206,7 @@ try{
   const postEvolveSnapshot=snapshot("protocolia");
   const evolutionEvidence={
     generatedTarget:afterBuild.target,
-    v2MigrationFromTypeSpec:true,
+    typeSpecMigrationAfterExistingHistory:true,
     databaseContainerUnchanged:true,
     preexistingRowsPreserved:true,
     preexistingJournalPreserved:true,
