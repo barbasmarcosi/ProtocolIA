@@ -403,6 +403,8 @@ try{
     await page.getByTestId("open-detail-UI-VERSION").click();
     const scopedPanel=page.getByTestId("detail-lines-panel");
     await scopedPanel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
+    assert.equal(await scopedPanel.getByTestId("bulk-open").count(),0,
+      "Unprivileged child writer must not be offered full replacement");
     assert.equal(await scopedPanel.getByTestId("detail-append-open").count(),0);
     assert.equal(await scopedPanel.getByTestId("delete-detail-UI-BASE-1").count(),0);
     await page.getByRole("button",{name:"Cerrar detalle"}).click();
