@@ -119,13 +119,21 @@ export async function preflightMigration(args){
       "postgres:16.15-alpine"],{timeout:120000});
     startedContainer=true;
     let ready=false;
-    for(let i=0;i<70;i++){
-      const result=docker(["exec",id,"pg_isready","-U","protocolia",
-        "-d","protocolia"],{allowFailure:true,timeout:10000});
-      if(result.status===0){ready=true;break;}
-      await new Promise(done=>setTimeout(done,450));
+    for(let i=0;i<90;i++){
+      // The official PostgreSQL image briefly runs a bootstrap server and
+      // shuts it down. A premature pg_isready succeeds on that server;
+      // restoration must wait until initdb finishes and the final server starts.
+      const logs=docker(["logs",id],{allowFailure:true,timeout:10000});
+      const initialized=logs.status===0&&
+        logs.stderr.includes("PostgreSQL init process complete; ready for start up.");
+      if(initialized){
+        const response=docker(["exec",id,"psql","-X","-U","protocolia",
+          "-d","protocolia","-At","-c","SELECT 1"],{allowFailure:true,timeout:10000});
+        if(response.status===0){ready=true;break;}
+      }
+      await new Promise(done=>setTimeout(done,550));
     }
-    if(!ready)deny("Isolated PostgreSQL did not become ready");
+    if(!ready)deny("Isolated PostgreSQL final server did not become ready");
     const fd=openSync(options.archive,"r");
     try{
       docker(["exec","-i",id,"pg_restore","-U","protocolia","-d","protocolia",
