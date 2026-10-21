@@ -17,7 +17,9 @@
     "app:test": "node packages/cli/protocolia.mjs test",
     "app:run": "node packages/cli/protocolia.mjs run",
     "app:plan": "node packages/cli/protocolia.mjs plan",
-    "app:evolve": "node packages/cli/protocolia.mjs evolve"
+    "app:evolve": "node packages/cli/protocolia.mjs evolve",
+    "app:db:checkpoint": "node packages/cli/protocolia.mjs db:checkpoint",
+    "app:db:verify": "node packages/cli/protocolia.mjs db:verify"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
