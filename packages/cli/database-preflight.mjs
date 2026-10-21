@@ -20,7 +20,8 @@ function docker(args,{input,stdin,allowFailure=false,timeout=120000}={}){
   if(child.error)deny("Docker unavailable: "+child.error.message);
   if(!allowFailure&&child.status!==0)
     deny("Isolated PostgreSQL command failed: "+(child.stderr??"").slice(-750));
-  return allowFailure?{status:child.status,stderr:child.stderr??""}:(child.stdout??"").trim();
+  return allowFailure?{status:child.status,stderr:child.stderr??"",
+    stdout:child.stdout??""}:(child.stdout??"").trim();
 }
 const inside=(root,path)=>{
   const rel=relative(root,path);
@@ -125,7 +126,7 @@ export async function preflightMigration(args){
       // restoration must wait until initdb finishes and the final server starts.
       const logs=docker(["logs",id],{allowFailure:true,timeout:10000});
       const initialized=logs.status===0&&
-        logs.stderr.includes("PostgreSQL init process complete; ready for start up.");
+        (logs.stderr+logs.stdout).includes("PostgreSQL init process complete; ready for start up.");
       if(initialized){
         const response=docker(["exec",id,"psql","-X","-U","protocolia",
           "-d","protocolia","-At","-c","SELECT 1"],{allowFailure:true,timeout:10000});
