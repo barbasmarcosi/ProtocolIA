@@ -531,7 +531,10 @@ export function generate(ir,spec,out){
   ].join("\n"));
   write(".dockerignore","node_modules/\nweb/\n.protocolia-toolchain/\n.env\n");
   write(".env.example",[
-    "PROTOCOLIA_DB_PASSWORD=","PROTOCOLIA_AUTH_MODE=demo",
+    "PROTOCOLIA_DB_PASSWORD=", "# Optional split: runtime DB uses restricted role; migration DB uses privileged role",
+    "PROTOCOLIA_RUNTIME_DB_USER=", "PROTOCOLIA_RUNTIME_DB_PASSWORD=",
+    "PROTOCOLIA_MIGRATION_DB_USER=", "PROTOCOLIA_MIGRATION_DB_PASSWORD=",
+    "PROTOCOLIA_AUTH_MODE=demo",
     "# Use jwt for verified Bearer resource-server APIs (demo and jwt are mutually exclusive).",
     "PROTOCOLIA_JWT_ISSUER=","PROTOCOLIA_JWT_AUDIENCE=","PROTOCOLIA_JWT_JWKS_URI=",
     "PROTOCOLIA_JWT_ALLOW_TEST_HTTP=false",
@@ -569,8 +572,10 @@ export function generate(ir,spec,out){
     "    depends_on:","      db:","        condition: service_healthy",
     "    environment:",'      PORT: "8080"',
     "      PROTOCOLIA_JDBC_URL: postgresql://db:5432/protocolia",
-    "      PROTOCOLIA_JDBC_USER: protocolia",
-    '      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}',
+    '      PROTOCOLIA_JDBC_USER: ${PROTOCOLIA_RUNTIME_DB_USER:-protocolia}',
+    '      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_RUNTIME_DB_PASSWORD:-${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}}',
+    '      PROTOCOLIA_MIGRATION_JDBC_USER: ${PROTOCOLIA_MIGRATION_DB_USER:-}',
+    '      PROTOCOLIA_MIGRATION_JDBC_PASSWORD: ${PROTOCOLIA_MIGRATION_DB_PASSWORD:-}',
     '      PROTOCOLIA_AUTH_MODE: ${PROTOCOLIA_AUTH_MODE:-demo}',
     '      PROTOCOLIA_JWT_ISSUER: ${PROTOCOLIA_JWT_ISSUER:-}',
     '      PROTOCOLIA_JWT_AUDIENCE: ${PROTOCOLIA_JWT_AUDIENCE:-}',
