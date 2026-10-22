@@ -181,7 +181,7 @@ export async function rehearseRecovery(args,{inspectOld=checkImage}={}){
     const ir=JSON.parse(readFileSync(join(options.dir,"protocolia-contract-ir.json"),"utf8"));
     const readable=(ir.operations??[]).filter(op=>op.method==="GET"&&
       op.behavior?.kind==="listPage"&&
-      /^\\/api\\/[A-Za-z0-9/_-]+$/.test(op.path));
+      /^\/api\/[A-Za-z0-9/_-]+$/.test(op.path));
     if(!readable.length)
       deny("No safe TypeSpec-derived list operation available to check the old runtime");
     const readPath=readable[0].path;
