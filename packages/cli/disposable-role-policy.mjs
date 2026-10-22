@@ -50,10 +50,10 @@ export function roleSQL(kind,secret){
     " AND has_table_privilege('"+writer+"',format('%I.%I',schemaname,tablename),'SELECT')"+
     " AND has_table_privilege('"+writer+"',format('%I.%I',schemaname,tablename),'UPDATE')),"+
     "false)::text FROM pg_tables WHERE schemaname='public' AND tablename NOT IN "+
-    "('flyway_schema_history','protocolia_nest_migration_history','protocolia_audit_event')";
+    "('flyway_schema_history','protocolia_nest_migration_history','protocolia_audit_event','protocolia_migration_handoff_v1')";
   if(kind==="firstTable")return "SELECT tablename FROM pg_tables WHERE schemaname='public' "+
     "AND tablename NOT IN ('flyway_schema_history','protocolia_nest_migration_history',"+
-    "'protocolia_audit_event') ORDER BY tablename LIMIT 1";
+    "'protocolia_audit_event','protocolia_migration_handoff_v1') ORDER BY tablename LIMIT 1";
   if(kind==="create"){
     if(!secret||!hex.test(secret.reader)||!hex.test(secret.writer))
       fail("Only generated test secrets may be used in SQL");
@@ -67,7 +67,7 @@ export function roleSQL(kind,secret){
     "DO "+String.fromCharCode(36,36)+" DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE "+
       "schemaname='public' AND tablename NOT IN "+
       "('flyway_schema_history','protocolia_nest_migration_history',"+
-      "'protocolia_audit_event') LOOP "+
+      "'protocolia_audit_event','protocolia_migration_handoff_v1') LOOP "+
       "EXECUTE format('GRANT SELECT ON public.%I TO "+reader+"',t.tablename); "+
       "EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON public.%I TO "+writer+"',t.tablename); "+
       "END LOOP; END; "+String.fromCharCode(36,36),
