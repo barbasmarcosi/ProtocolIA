@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-21/22 UTC. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft. **Release:** immutable v1.0.0 on main, unchanged.
 
-**Functional integration status:** [v1.1j Spring/Nest PostgreSQL/Chromium CI #39713726285](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713726285) — **RUNNING / NOT YET ACCEPTED** at the time this evidence was written. The checkpoint and runtime integration oracles must not be marked PASS unless both matrix jobs complete successfully and their expected markers appear. **Unit and quality checks:** [quality #39713726208](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713726208) and [#39713730869](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713730869) — **SUCCESS**.
+**Functional integration status:** [v1.1j Spring/Nest PostgreSQL/Chromium CI #39713726285](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713726285) — **SUCCESS**, independently verified on modular Spring Boot and NestJS with real PostgreSQL/Chromium. Both matrix jobs emitted PROTOCOLIA_V11_RUNTIME_STAGE_PASS, PROTOCOLIA_V11_STAGED_RUNTIME_PASS, PROTOCOLIA_V11_FRESHNESS_BEFORE_UPGRADE_PASS, PROTOCOLIA_V11_STALE_SOURCE_REJECTED, PROTOCOLIA_V11_APP_EVOLUTION_PASS and PROTOCOLIA_V11_DB_PREFLIGHT_PASS. The source remained unchanged during staging and the old checkpoint was rejected after the intentional test upgrade. **Unit and quality checks:** [quality #39713726208](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713726208) and [#39713730869](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39713730869) — **SUCCESS**.
 
 ## Gap and bounded approach
 
