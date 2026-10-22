@@ -74,7 +74,7 @@ test("staged app, prior archive, TypeSpec IR, SQL and owner seal bind exactly",(
     rowsAttested:7,tablesAttested:1,
     stagedAppHealthy:true,oldRowsPreserved:true,schemaLedgerAdvanced:true,
     genericReadPassed:true,stagedVolumeDestroyed:true};
-  const imageInspector=id=>id;
+  const imageInspector=id=>id===f.stagedImageId?id:null;
   writeFileSync(f.out,JSON.stringify(receipt),{mode:0o600});
   assert.throws(()=>stageOptions(f.args),/pre-existing receipt destination/);
   assert.deepEqual(stageOptions(f.args,{verify:true}),opts);
