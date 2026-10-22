@@ -44,10 +44,16 @@ export function roleSQL(kind,secret){
     reader+"','"+writer+"') AND rolcanlogin=false AND rolsuper=false AND rolcreatedb=false AND rolcreaterole=false";
   if(kind==="login")return "SELECT count(*) FROM pg_roles WHERE rolname IN ('"+
     reader+"','"+writer+"') AND rolcanlogin=true AND rolsuper=false AND rolcreatedb=false AND rolcreaterole=false";
-  if(kind==="tableCheck")return "SELECT (has_table_privilege('"+reader+"','public.purchase_order','SELECT')"+
-    " AND NOT has_table_privilege('"+reader+"','public.purchase_order','UPDATE')"+
-    " AND has_table_privilege('"+writer+"','public.purchase_order','SELECT')"+
-    " AND has_table_privilege('"+writer+"','public.purchase_order','UPDATE'))::text";
+  if(kind==="tableCheck")return "SELECT COALESCE(bool_and("+ 
+    "has_table_privilege('"+reader+"',format('%I.%I',schemaname,tablename),'SELECT')"+
+    " AND NOT has_table_privilege('"+reader+"',format('%I.%I',schemaname,tablename),'UPDATE')"+
+    " AND has_table_privilege('"+writer+"',format('%I.%I',schemaname,tablename),'SELECT')"+
+    " AND has_table_privilege('"+writer+"',format('%I.%I',schemaname,tablename),'UPDATE')),"+
+    "false)::text FROM pg_tables WHERE schemaname='public' AND tablename NOT IN "+
+    "('flyway_schema_history','protocolia_nest_migration_history','protocolia_audit_event')";
+  if(kind==="firstTable")return "SELECT tablename FROM pg_tables WHERE schemaname='public' "+
+    "AND tablename NOT IN ('flyway_schema_history','protocolia_nest_migration_history',"+
+    "'protocolia_audit_event') ORDER BY tablename LIMIT 1";
   if(kind==="create"){
     if(!secret||!hex.test(secret.reader)||!hex.test(secret.writer))
       fail("Only generated test secrets may be used in SQL");
@@ -58,8 +64,13 @@ export function roleSQL(kind,secret){
     "REVOKE CONNECT ON DATABASE protocolia FROM PUBLIC",
     "GRANT CONNECT ON DATABASE protocolia TO "+reader+","+writer,
     "GRANT USAGE ON SCHEMA public TO "+reader+","+writer,
-    "GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+reader,
-    "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO "+writer,
+    "DO $ DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE "+
+      "schemaname='public' AND tablename NOT IN "+
+      "('flyway_schema_history','protocolia_nest_migration_history',"+
+      "'protocolia_audit_event') LOOP "+
+      "EXECUTE format('GRANT SELECT ON public.%I TO "+reader+"',t.tablename); "+
+      "EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON public.%I TO "+writer+"',t.tablename); "+
+      "END LOOP; END $",
     "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO "+writer
   ];
   if(kind==="activate")return ["ALTER ROLE "+reader+" LOGIN","ALTER ROLE "+writer+" LOGIN"];
@@ -144,10 +155,22 @@ export async function disposableRolePolicy(args,{mode,run=runDocker,
   for(const statement of roleSQL("activate"))psql("postgres",statement);
   if(psql("postgres",roleSQL("login"))!=="2")fail("Could not enable reader/writer after health");
   const readerAttempt=docker([...base,"exec","-T","db","psql","-X","-U",reader,
-    "-d","protocolia","-At","-c","SELECT count(*) FROM public.purchase_order"],{allowFailure:true});
+    "-d","protocolia","-At","-c",
+    "SELECT count(*) FROM public."+
+      psql("protocolia",roleSQL("firstTable"))],{allowFailure:true});
   if(readerAttempt.status!==0)fail("Read-only external reader could not log in after verified health");
+  const domainTable=psql("protocolia",roleSQL("firstTable"));
+  if(!/^[a-z_][a-z0-9_]*$/.test(domainTable))
+    fail("No safe TypeSpec-derived domain table for external privilege check");
+  const firstColumn=psql("protocolia",
+    "SELECT attname FROM pg_attribute WHERE attrelid=('public.'||'"+domainTable+
+      "')::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum LIMIT 1");
+  if(!/^[a-z_][a-z0-9_]*$/.test(firstColumn))
+    fail("No safe generic column for denied UPDATE regression");
   const writeAttempt=docker([...base,"exec","-T","db","psql","-X","-U",reader,
-    "-d","protocolia","-c","UPDATE public.purchase_order SET title=title WHERE false"],{allowFailure:true});
+    "-d","protocolia","-c",
+    "UPDATE public."+domainTable+" SET "+firstColumn+"="+firstColumn+
+      " WHERE false"],{allowFailure:true});
   if(writeAttempt.status===0||!/permission denied/i.test(writeAttempt.stderr))
     fail("Read-only role unexpectedly acquired table UPDATE permission");
   if(original()!==opts.fence.dbId)fail("DB container changed during role activation");
