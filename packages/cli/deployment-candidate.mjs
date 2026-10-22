@@ -4,6 +4,7 @@
 import {spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {existsSync,lstatSync,readFileSync,writeFileSync} from "node:fs";
+import {verifyCheckpoint} from "./database-checkpoint.mjs";
 import {dirname,resolve} from "node:path";
 import {stageOptions,verifyStageReceipt} from "./runtime-stage.mjs";
 import {verifySourceFreshness} from "./source-freshness.mjs";
@@ -141,5 +142,77 @@ export function precheckCandidate(args,{imageInspector,stageImageInspector,verif
     observedAt:source.observedAt,
     warning:"Read-only point-in-time precheck. Caller must keep writes paused and separately authorize, execute and validate any cutover."};
   console.log("PROTOCOLIA_V11_DEPLOYMENT_PRECHECK_PASS "+JSON.stringify(result));
+  return result;
+}
+
+// Post-start observation ONLY. Operators separately perform any deployment.
+// This prevents claiming success if a mutable rebuild replaced the tested image.
+export function postcheckOptions(args){
+  if(args.length!==15||args[1]!=="--checkpoint"||args[3]!=="--report"||
+     args[5]!=="--receipt"||args[7]!=="--candidate"||
+     args[9]!=="--project"||args[11]!=="--env-file"||
+     args[13]!=="--health-url")
+    deny("Usage: app:deploy:postcheck <generated-app> --checkpoint <dump> --report <preflight.json> --receipt <stage.json> --candidate <candidate.json> --project <compose> --env-file <private.env> --health-url http://127.0.0.1:PORT/health");
+  const [dir,,archive,,report,,receipt,,candidate,,project,,envFile,,healthUrl]=args;
+  const stage=privateJson(resolve(candidate));
+  const options=candidateOptions([dir,"--checkpoint",archive,"--report",report,
+    "--receipt",receipt,"--image",stage.imageRef,"--out",candidate],{verify:true});
+  if(!/^[a-z][a-z0-9_-]{1,62}$/.test(project))deny("Invalid explicit original Compose project");
+  const env=resolve(envFile);
+  let st;
+  try{st=lstatSync(env);}catch{deny("Missing explicit Compose environment");}
+  if(!st.isFile()||(st.mode&0o077)!==0)
+    deny("Compose environment must be owner-only regular file");
+  let url;
+  try{url=new URL(healthUrl);}catch{deny("Health URL is invalid");}
+  if(url.protocol!=="http:"||url.hostname!=="127.0.0.1"||
+     !/^[1-9][0-9]{0,4}$/.test(url.port)||Number(url.port)>65535||
+     url.pathname!=="/health"||url.search||url.hash||url.username||url.password)
+    deny("Only explicit HTTP loopback /health on a nonzero port is supported");
+  return {options,project,env,healthUrl:url.toString()};
+}
+function readonlyDocker(args,{cwd}={}){
+  const p=spawnSync("docker",args,{cwd,encoding:"utf8",timeout:30000,maxBuffer:1<<20});
+  if(p.error||p.status!==0)
+    deny("Read-only Compose/container inspection failed: "+(p.stderr??p.error?.message??"").slice(-400));
+  return (p.stdout??"").trim();
+}
+export async function postcheckCandidate(args,{
+  imageInspector,stageImageInspector,
+  runDocker=readonlyDocker,
+  probeHealth=async url=>{
+    const response=await fetch(url,{redirect:"manual",signal:AbortSignal.timeout(4000)});
+    return response.status;
+  }
+}={}){
+  const p=postcheckOptions(args);
+  const adapters={imageInspector,stageImageInspector};
+  const candidate=verifyCandidate(p.options,adapters);
+  const checkpoint=verifyCheckpoint(p.options.archive);
+  if(checkpoint.composeProject!==p.project||
+     !/^[a-f0-9]{12,64}$/i.test(checkpoint.databaseContainerId??""))
+    deny("Original Compose/DB identity does not match the staged checkpoint");
+  const compose=["compose","--project-name",p.project,"--env-file",p.env];
+  runDocker([...compose,"config","--quiet"],{cwd:p.options.dir});
+  const dbId=runDocker([...compose,"ps","--quiet","db"],{cwd:p.options.dir});
+  if(dbId!==checkpoint.databaseContainerId)
+    deny("Original DB container changed since checkpoint");
+  const appId=runDocker([...compose,"ps","--quiet","app"],{cwd:p.options.dir});
+  if(!/^[a-f0-9]{12,64}$/i.test(appId))deny("Generated application is not running");
+  const actualImage=runDocker(["inspect","--format","{{.Image}}",appId],{cwd:p.options.dir});
+  if(actualImage!==candidate.stagedImageId)
+    deny("Running application image differs from the one verified by staging; rebuilds are not automatically approved");
+  const status=await probeHealth(p.healthUrl);
+  if(status!==200)deny("Running generated application failed exact local /health: "+status);
+  const dbAgain=runDocker([...compose,"ps","--quiet","db"],{cwd:p.options.dir});
+  const appAgain=runDocker([...compose,"ps","--quiet","app"],{cwd:p.options.dir});
+  if(dbAgain!==dbId||appAgain!==appId)
+    deny("Application/DB container changed during post-start inspection");
+  verifyCandidate(p.options,adapters);
+  const result={status:"observed-healthy",imageRef:candidate.imageRef,
+    imageId:candidate.stagedImageId,composeProject:p.project,
+    dbContainerId:dbId,appContainerId:appId,observedAt:new Date().toISOString(),
+    warning:"Read-only observation only, not deployment authorization, functional conformance or database rollback."};
+  console.log("PROTOCOLIA_V11_DEPLOYMENT_POSTCHECK_PASS "+JSON.stringify(result));
   return result;
 }
