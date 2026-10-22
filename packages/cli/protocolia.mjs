@@ -135,6 +135,16 @@ try {
   }else if(process.argv[2]==="deploy:precheck"){
     const {precheckCandidate}=await import("./deployment-candidate.mjs");
     precheckCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:recovery:drill"){
+    const {rehearseRecovery}=await import("./cutover-recovery.mjs");
+    await rehearseRecovery(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:recovery:verify"){
+    const {recoveryOptions,verifyRecoveryRecord}=await import("./cutover-recovery.mjs");
+    const verified=verifyRecoveryRecord(recoveryOptions(process.argv.slice(3),{verify:true}));
+    console.log("PROTOCOLIA_V11_RECOVERY_RECEIPT_VERIFIED "+JSON.stringify({
+      oldImageId:verified.oldImageId,stagedImageId:verified.stagedImageId,
+      originalCheckpointSha256:verified.originalCheckpointSha256
+    }));
   }else if(process.argv[2]==="deploy:postcheck"){
     const {postcheckCandidate}=await import("./deployment-candidate.mjs");
     await postcheckCandidate(process.argv.slice(3));
