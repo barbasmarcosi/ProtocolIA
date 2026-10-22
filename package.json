@@ -30,7 +30,9 @@
     "app:deploy:precheck": "node packages/cli/protocolia.mjs deploy:precheck",
     "app:deploy:postcheck": "node packages/cli/protocolia.mjs deploy:postcheck",
     "app:deploy:recovery:drill": "node packages/cli/protocolia.mjs deploy:recovery:drill",
-    "app:deploy:recovery:verify": "node packages/cli/protocolia.mjs deploy:recovery:verify"
+    "app:deploy:recovery:verify": "node packages/cli/protocolia.mjs deploy:recovery:verify",
+    "app:deploy:permit:verify": "node packages/cli/protocolia.mjs deploy:permit:verify",
+    "app:deploy:fence:verify": "node packages/cli/protocolia.mjs deploy:fence:verify"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
