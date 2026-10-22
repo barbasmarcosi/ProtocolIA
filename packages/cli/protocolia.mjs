@@ -138,6 +138,9 @@ try {
   }else if(process.argv[2]==="deploy:permit:verify"){
     const {verifyExternalApproval}=await import("./disposable-approval.mjs");
     verifyExternalApproval(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:migrator:overlay"){
+    const {writeOneShotOverlay}=await import("./disposable-one-shot-migrator.mjs");
+    writeOneShotOverlay(process.argv.slice(3));
   }else if(process.argv[2]==="deploy:runtime:prepare"){
     const {provisionDisposableRuntime}=await import("./disposable-runtime-principal.mjs");
     provisionDisposableRuntime(process.argv.slice(3));
