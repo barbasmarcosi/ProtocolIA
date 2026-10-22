@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-22. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft. **Stable:** `main`/`v1.0.0` unchanged.
 
-**Initial CI run:** [Spring + NestJS #39832058630](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39832058630) — **PENDING** at initial documentation; only mark accepted if both adapters pass the complete real PostgreSQL matrix and emit both `PROTOCOLIA_V11_MIGRATION_FAULTS_REJECTED` and `PROTOCOLIA_V11_MIGRATION_RETRY_SAFE_PASS`. Unit/quality run: [#39832063858](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39832063858).
+**Initial CI run:** [Spring + NestJS #39832058630](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39832058630) — **PARTIAL EVIDENCE**: NestJS completed all functional steps successfully, including `PROTOCOLIA_V11_MIGRATION_FAULTS_REJECTED`, `PROTOCOLIA_V11_MIGRATION_RETRY_SAFE_PASS`, `PROTOCOLIA_V11_RUNTIME_SECRET_ISOLATION_PASS`, `PROTOCOLIA_V11_ROLE_SEPARATION_PASS` and `PROTOCOLIA_V11_APP_EVOLUTION_PASS`. Spring Boot was still installing pinned Chromium at the last check, before its real migration drill; **do not claim v1.1r fully accepted yet**. Unit/quality run: [#39832063858](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39832063858).
 
 ## Gap in v1.1q
 
@@ -59,3 +59,11 @@ The marker is a database-local, non-secret completion gate. It is **not a signed
 - Spring Flyway migration and Nest PostgreSQL DDL are transactional in the tested PostgreSQL adapter and reviewed additive migration profile. These guarantees must not be generalized to arbitrary external migrations/databases.
 
 **Next:** reproducible release profile and stronger interruption drills (SIGKILL/OOM, resumable operator procedures, multi-replica traffic fencing), with explicit production-readiness criteria rather than a production deployment by default.
+
+## Integration defect discovered and addressed
+
+[Initial matrix #39832058630](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39832058630) demonstrated the NestJS rollback, incomplete-handoff rejection and idempotent retry passes, but then failed its existing v1.1o role verification: the newly created `protocolia_migration_handoff_v1` table was incorrectly classified as a business table. It is intentionally a **migration-internal, SELECT-only** table and must **not** receive external reader/writer DML grants.
+
+The role inventory, automatic grants and generic first-table selection now explicitly exclude `protocolia_migration_handoff_v1`. Unit regression asserts all three exclusions. In [corrected matrix #39833203461](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39833203461), NestJS completed the migration fault drill **and** all external role checks successfully. Spring's acceptance remained pending its Chromium setup at the last inspection.
+
+Do not treat a completed Node/Nest job as evidence that the parallel Spring job has passed.
