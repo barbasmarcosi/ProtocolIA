@@ -121,6 +121,9 @@ try {
   }else if(process.argv[2]==="db:stage"){
     const {stageRuntime}=await import("./runtime-stage.mjs");
     await stageRuntime(process.argv.slice(3));
+  }else if(process.argv[2]==="db:source:verify"){
+    const {verifySourceFreshness}=await import("./source-freshness.mjs");
+    verifySourceFreshness(process.argv.slice(3));
   }else if(process.argv[2]==="db:stage:verify"){
     if(process.argv.length!==10)
       throw Error("Usage: protocolia db:stage:verify <generated-dir> --checkpoint <archive.dump> --report <preflight.json> --out <receipt.json>");
