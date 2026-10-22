@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-22 UTC. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft. **Stable:** v1.0.0 on main remains untouched.
 
-**Integration:** [Spring/Nest matrix #39719081726](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39719081726) — **PENDING at documentation time**. Do not mark acceptance until both jobs and recovery/cutover markers succeed.
+**Integration:** [Spring/Nest matrix #39719081726](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39719081726) — **SUCCESS** for independent NestJS and modular Spring Boot jobs. Both emitted PROTOCOLIA_V11_RECOVERY_DRILL_PASS (old runtime restored, outage injected and recovered, isolated volume removed), PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS (same exact staged image, no rebuild, original DB unchanged), PROTOCOLIA_V11_APP_EVOLUTION_PASS and PROTOCOLIA_V11_DB_PREFLIGHT_PASS.
 
 ## What changed
 
