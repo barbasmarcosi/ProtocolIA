@@ -2,7 +2,7 @@
 
 Date: 2026-10-22. Draft PR: https://github.com/barbasmarcosi/ProtocolIA/pull/55
 
-**CI at initial publication:** Spring + NestJS matrix https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39792986722 — PENDING. Do not claim integration acceptance until both jobs complete successfully and the role separation marker is observed.
+**CI at initial publication:** Spring + NestJS matrix https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39792986722 — **SUCCESS for both independent NestJS and modular Spring Boot jobs**. Each emitted PROTOCOLIA_V11_ROLE_SEPARATION_PASS, PROTOCOLIA_V11_EXTERNAL_ROLES_PREPARED, PROTOCOLIA_V11_EXTERNAL_ROLES_BLOCKED, PROTOCOLIA_V11_EXTERNAL_ROLES_ACTIVATED, PROTOCOLIA_V11_SERVER_WRITE_GATE_PASS and PROTOCOLIA_V11_APP_EVOLUTION_PASS. Real PostgreSQL rejected the external writer login after database connections reopened, denied UPDATE to the read-only role, and only activated external logins after pinned-image /health verification.
 
 ## Objective and bounded result
 
