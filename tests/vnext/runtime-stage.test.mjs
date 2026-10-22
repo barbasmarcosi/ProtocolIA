@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {chmodSync,mkdirSync,mkdtempSync,readFileSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,mkdirSync,mkdtempSync,readFileSync,symlinkSync,writeFileSync,statSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {sealApp} from "../../packages/cli/ownership.mjs";
 import {stageOptions,verifyStageInputs,verifyStageReceipt} from "../../packages/cli/runtime-stage.mjs";
 import {sourceOptions,compareSourceSnapshots} from "../../packages/cli/source-freshness.mjs";
+import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candidateOptions,precheckCandidate,precheckOptions} from "../../packages/cli/deployment-candidate.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -149,4 +150,90 @@ test("source snapshot comparison rejects same-row-count alterations, column drif
   const extra=structuredClone(expected);
   extra.snapshot.other_table={columns:["id"],count:0,sha256:sha("")};
   assert.throws(()=>compareSourceSnapshots(expected,extra),/table set differs/);
+});
+
+function makeStageFixture(){
+  const f=fixture(),input=verifyStageInputs(stageOptions(f.args));
+  const stageReceipt={...input.binding,receiptSchema:2,
+    timestamp:new Date().toISOString(),stagedImageId:f.stagedImageId,
+    sourceSnapshot:f.sourceSnapshot,sourceSnapshotSha256:sha(JSON.stringify(f.sourceSnapshot)),
+    rowsAttested:7,tablesAttested:1,
+    stagedAppHealthy:true,oldRowsPreserved:true,schemaLedgerAdvanced:true,
+    genericReadPassed:true,stagedVolumeDestroyed:true};
+  writeFileSync(f.out,JSON.stringify(stageReceipt),{mode:0o600});
+  const candidate=join(f.root,"candidate.json");
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--image",f.stagedImageId,"--out",candidate];
+  const adapters={
+    stageImageInspector:id=>id===f.stagedImageId?id:null,
+    imageInspector:ref=>({Id:f.stagedImageId,RepoDigests:[ref]})
+  };
+  return {...f,candidate,args,adapters,stageReceipt};
+}
+test("deployment candidate refuses mutable tags, unverified registry digests and mismatched local image",()=>{
+  const f=makeStageFixture();
+  for(const input of ["app:latest","docker.io/example/app:latest",
+    "docker.io/example/app@sha256:abcdef","--help","docker.io/../bad@sha256:"+"a".repeat(64)])
+    assert.throws(()=>parseImageRef(input),/Deployment candidate refused/);
+  assert.equal(parseImageRef(f.stagedImageId),"local");
+  const image="docker.io/org/protocolia@sha256:"+"e".repeat(64);
+  assert.equal(parseImageRef(image),"registry");
+  assert.equal(assertCandidateImage(image,f.stagedImageId,()=>({
+    Id:f.stagedImageId,RepoDigests:[image]
+  })),"registry");
+  assert.throws(()=>assertCandidateImage(image,f.stagedImageId,()=>({
+    Id:f.stagedImageId,RepoDigests:["docker.io/org/other@sha256:"+"f".repeat(64)]
+  })),/RepoDigest/);
+  assert.throws(()=>assertCandidateImage(f.stagedImageId,f.stagedImageId,
+    ()=>({Id:"sha256:"+"f".repeat(64)})),/differs from/);
+});
+test("candidate creation and verification bind the exact staged image and receipt bytes",()=>{
+  const f=makeStageFixture();
+  const created=createCandidate(f.args,f.adapters);
+  assert.equal(created.stagedImageId,f.stagedImageId);
+  const opts=candidateOptions(f.args,{verify:true});
+  assert.equal(verifyCandidate(opts,f.adapters).stageReceiptSha256,
+    sha(readFileSync(f.out)));
+  assert.throws(()=>candidateOptions(f.args),/Candidate output/);
+  assert.equal(statSync(f.candidate).mode&0o077,0);
+  const valid=JSON.parse(readFileSync(f.candidate,"utf8"));
+  for(const [key,value] of [
+    ["imageRef","sha256:"+"0".repeat(64)],["stageReceiptSha256","e".repeat(64)],
+    ["stagedImageId","sha256:"+"f".repeat(64)],["migrationSqlSha256","0".repeat(64)],
+    ["status","approved-for-production"]
+  ]){
+    writeFileSync(f.candidate,JSON.stringify({...valid,[key]:value}));
+    assert.throws(()=>verifyCandidate(opts,f.adapters),/Deployment candidate refused/,key);
+  }
+  writeFileSync(f.candidate,JSON.stringify(valid));
+  writeFileSync(f.out,JSON.stringify({...f.stageReceipt,timestamp:"2026-10-22T00:00:00.000Z"}));
+  assert.throws(()=>verifyCandidate(opts,f.adapters),/stageReceiptSha256/);
+});
+test("pre-cutover precheck requires matching explicit image and delegates only read-only source verification",()=>{
+  const f=makeStageFixture();
+  createCandidate(f.args,f.adapters);
+  const env=join(f.root,"private.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=private\n",{mode:0o600});
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,
+    "--project","pia_ckpt_test","--env-file",env,
+    "--assert-writes-paused","--approve-image",f.stagedImageId];
+  assert.equal(precheckOptions(args).options.imageRef,f.stagedImageId);
+  for(const altered of [
+    args.slice(0,-2),[...args.slice(0,-1),"sha256:"+"f".repeat(64)],
+    [...args.slice(0,13),"--skip-write-pause",...args.slice(14)]
+  ])assert.throws(()=>precheckOptions(altered),/Deployment candidate refused/);
+  let calls=0;
+  const result=precheckCandidate(args,{
+    ...f.adapters,
+    verifySource:sourceArgs=>{
+      calls++;
+      assert.equal(sourceArgs.at(-1),"--assert-writes-paused");
+      return {composeProject:"pia_ckpt_test",databaseContainerId:"d".repeat(64),
+        observedAt:"2026-10-22T02:00:00.000Z"};
+    }
+  });
+  assert.equal(calls,1);
+  assert.equal(result.imageId,f.stagedImageId);
+  assert.equal(result.project,"pia_ckpt_test");
 });
