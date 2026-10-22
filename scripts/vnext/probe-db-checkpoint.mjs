@@ -481,6 +481,59 @@ try{
   }));
   // Run the privileged migrator in a SEPARATE ephemeral container, from
   // the SAME staged image. It must exit successfully before starting HTTP.
+  // v1.1r: prove failure before transactional commit leaves no V2 SQL, then
+  // failure AFTER SQL commit but BEFORE handoff leaves a valid ledger without
+  // authorizing the HTTP runtime. Both failures must be retry-safe.
+  const isNest=afterBuild.target==="nestjs";
+  const migrationLedger=isNest?"protocolia_nest_migration_history":"flyway_schema_history";
+  const ledgerVersion=isNest?"version=2":"version='2'";
+  const v2Count=()=>dbSql("protocolia","SELECT count(*) FROM public."+
+    migrationLedger+" WHERE "+ledgerVersion);
+  const v2Column=()=>dbSql("protocolia",
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "+
+    "AND table_name='purchase_order' AND column_name='note'");
+  const handoffTable=()=>dbSql("protocolia",
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' "+
+    "AND table_name='protocolia_migration_handoff_v1'");
+  const assertFailedRun=(args,expect,timeout=600000)=>{
+    const processResult=spawnSync("docker",args,{cwd:generated,encoding:"utf8",
+      timeout,maxBuffer:4*1024*1024});
+    assert.equal(processResult.error,undefined,
+      "A failed migration must terminate; hanging/timeout is not a valid fault result");
+    assert.notEqual(processResult.status,0,"Fault injection must fail closed");
+    assert.match((processResult.stdout??"")+(processResult.stderr??""),expect,
+      "Expected deliberate migration fault, not an unrelated deployment failure");
+  };
+  const beforeFailpoint=isNest?"before-commit":"before-migrate";
+  const afterFailpoint=isNest?"after-commit":"after-migrate";
+  assert.equal(v2Count(),"0","No V2 ledger before migration");
+  assert.equal(v2Column(),"0","No V2 column before migration");
+  assertFailedRun([...pinnedCompose,"run","--rm","--no-deps",
+    "-e","PROTOCOLIA_MIGRATION_FAILPOINT="+beforeFailpoint,"migrate"],
+    /PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_BEFORE_COMMIT/);
+  assert.equal(v2Count(),"0","Aborted uncommitted migration cannot create a V2 ledger row");
+  assert.equal(v2Column(),"0","Aborted uncommitted migration cannot persist V2 SQL");
+  assert.equal(handoffTable(),"0","No migration handoff on pre-commit failure");
+  assert.equal(docker("ps","--quiet","app"),"",
+    "HTTP server must remain stopped after failed one-shot migration");
+  assertFailedRun([...pinnedCompose,"run","--rm","--no-deps",
+    "-e","PROTOCOLIA_MIGRATION_FAILPOINT="+afterFailpoint,"migrate"],
+    /PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT/);
+  assert.equal(v2Count(),"1","Committed V2 ledger must survive a post-commit process failure");
+  assert.equal(v2Column(),"1","Committed V2 DDL must survive a post-commit process failure");
+  assert.equal(handoffTable(),"0",
+    "A committed migration with an interrupted completion signal cannot authorize HTTP");
+  assertFailedRun([...pinnedCompose,"run","--rm","--no-deps","app"],
+    /migration.handoff|handoff_v1|relation .*does not exist|relation .*not exist/i,90000);
+  assert.equal(docker("ps","--quiet","app"),"",
+    "Failed HTTP handoff must not start long-running application service");
+  assert.deepEqual(snapshot("protocolia"),original,
+    "Fault injection and failed HTTP must leave original rows/audit unchanged");
+  console.log("PROTOCOLIA_V11_MIGRATION_FAULTS_REJECTED "+JSON.stringify({
+    target:afterBuild.target,rollbackBeforeCommit:true,
+    committedSchemaWithoutHandoffRejected:true,oldRowsUnchanged:true,
+    httpNotStartedAfterFault:true
+  }));
   const oneShot=run("docker",[...pinnedCompose,"run","--rm","--no-deps","migrate"],
     {cwd:generated,timeout:600000});
   const expectedMigrationMarker=afterBuild.target==="nestjs"?
@@ -488,6 +541,26 @@ try{
     "PROTOCOLIA_SPRING_ONE_SHOT_MIGRATION_PASS";
   assert.match(oneShot,new RegExp(expectedMigrationMarker),
     "Independent migrator must finish before request-serving app starts");
+  assert.equal(v2Count(),"1","Successful retry cannot duplicate the migration ledger");
+  assert.equal(v2Column(),"1","Successful retry cannot duplicate the V2 field");
+  assert.equal(handoffTable(),"1","Successful retry must publish a runtime-readable completion gate");
+  assert.equal(dbSql("protocolia",
+    "SELECT count(*) FROM public.protocolia_migration_handoff_v1 WHERE image_digest='"+
+    receipt.stagedImageId.slice(7)+"'"),"1",
+    "Runtime handoff must bind exactly to the staged immutable image");
+  const retryAgain=run("docker",[...pinnedCompose,"run","--rm","--no-deps","migrate"],
+    {cwd:generated,timeout:600000});
+  assert.match(retryAgain,new RegExp(expectedMigrationMarker));
+  assert.equal(v2Count(),"1","Second successful migrator invocation must be idempotent");
+  assert.equal(dbSql("protocolia",
+    "SELECT count(*) FROM public.protocolia_migration_handoff_v1 WHERE image_digest='"+
+    receipt.stagedImageId.slice(7)+"'"),"1",
+    "Second successful migrator invocation cannot duplicate completed handoff");
+  console.log("PROTOCOLIA_V11_MIGRATION_RETRY_SAFE_PASS "+JSON.stringify({
+    target:afterBuild.target,version2JournalExactlyOnce:true,
+    migrationHandoffBoundToImage:true,
+    retryAfterPostCommitFaultSafe:true,repeatedSuccessfulMigrationNoop:true
+  }));
   assert.equal(docker("ps","--quiet","app"),"",
     "No request-serving app may start before approved one-shot migration exits");
   console.log("PROTOCOLIA_V11_ONE_SHOT_MIGRATION_PASS "+JSON.stringify({
