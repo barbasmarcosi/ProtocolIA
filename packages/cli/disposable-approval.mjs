@@ -35,7 +35,7 @@ export function approvalOptions(args){
   ephemeralCutoverProject(project);
   if(!digest.test(pin))deny("Trusted public key SPKI SHA-256 pin is required");
   const permitPath=resolve(permit),keyPath=resolve(key);
-  const protectedPaths=[permitPath,keyPath].concat([archive,report,receipt,candidate,recovery].map(resolve));
+  const protectedPaths=[permitPath,keyPath].concat([archive,report,receipt,candidate,recovery].map(p=>resolve(p)));
   if(protectedPaths.some((p,i)=>protectedPaths.indexOf(p)!==i)|| 
      [permitPath,keyPath].some(p=>inside(dir,p))||
      !existsSync(dirname(permitPath))||!existsSync(dirname(keyPath)))
