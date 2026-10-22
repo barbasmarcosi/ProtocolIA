@@ -388,6 +388,40 @@ try{
     oldAppActuallyStopped:true,noOtherSqlClientSessions:true,
     freshSourceWhileStopped:true
   }));
+  // v1.1n: server-level DB connection barrier, not merely zero observed SQL
+  // sessions. Its durable ledger in the SEPARATE postgres maintenance DB
+  // consumes a signed nonce once. Only this disposable pia_ckpt_* is allowed.
+  const gateArgs=[...permitArgs,"--env-file",envFile,
+    "--old-app-id",oldAppContainer,"--db-id",dbBefore];
+  const engageGate=run(process.execPath,[appcli,"deploy:db-gate:engage",...gateArgs],
+    {cwd:resolve(".")});
+  assert.match(engageGate,/PROTOCOLIA_V11_DB_GATE_ENGAGED/);
+  const closedStatus=docker("exec","-T","db","psql","-U","protocolia","-d","postgres",
+    "-At","-c","SELECT datallowconn::text FROM pg_database WHERE datname='protocolia'");
+  assert.equal(closedStatus,"false",
+    "PostgreSQL itself must reject all new protocolia DB connections");
+  assert.notEqual(run("docker",[...compose,"exec","-T","db","psql",
+    "-U","protocolia","-d","protocolia","-c","SELECT 1"],
+    {cwd:generated,allowFailure:true}),0,
+    "Even the configured PostgreSQL superuser must not reconnect during server gate");
+  const opened=run(process.execPath,[appcli,"deploy:db-gate:release",...gateArgs],
+    {cwd:resolve(".")});
+  assert.match(opened,/PROTOCOLIA_V11_DB_GATE_RELEASED/);
+  assert.notEqual(run(process.execPath,[appcli,"deploy:db-gate:engage",...gateArgs],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "The same signed nonce must never be spent a second time, even after release");
+  assert.notEqual(run(process.execPath,[appcli,"deploy:db-gate:release",...gateArgs],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "A consumed permit cannot release a second gate");
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original,
+    "Engage/release DB connection gate must not modify domain rows or schema");
+  console.log("PROTOCOLIA_V11_SERVER_WRITE_GATE_PASS "+JSON.stringify({
+    target:afterBuild.target,serverConnectionsBlocked:true,
+    superuserReconnectRejected:true,nonceDurablyConsumed:true,
+    replayEngageRejected:true,replayReleaseRejected:true,
+    originalBusinessRowsUnchanged:true
+  }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
   // NO --build, NO pull, NO mutable tag: start exactly the staged image.
