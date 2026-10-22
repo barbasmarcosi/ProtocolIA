@@ -11,6 +11,7 @@ import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candi
 import {pinnedOverlay,ephemeralCutoverProject,recoveryOptions,verifyRecoveryRecord} from "../../packages/cli/cutover-recovery.mjs";
 import {verifySignedPermit,verifyExternalApproval,approvalOptions} from "../../packages/cli/disposable-approval.mjs";
 import {fenceOptions,verifyDisposableFence} from "../../packages/cli/disposable-fence.mjs";
+import {gateOptions,databaseGate,ledgerSQL,gateDatabaseStatements} from "../../packages/cli/disposable-db-gate.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -428,4 +429,80 @@ test("disposable SQL maintenance fence refuses running app, other sessions and c
   }
   assert.throws(()=>fenceOptions([f.dir,"--project","production",...args.slice(3)]),
     /Recovery rehearsal refused/);
+});
+
+test("PostgreSQL gate statements target only fixed protocolia DB and validate quoted nonce claims",()=>{
+  const sql=gateDatabaseStatements();
+  assert.match(sql.close,/^ALTER DATABASE protocolia WITH ALLOW_CONNECTIONS false$/);
+  assert.match(sql.open,/^ALTER DATABASE protocolia WITH ALLOW_CONNECTIONS true$/);
+  assert.match(sql.terminate,/pg_terminate_backend/);
+  assert.match(sql.verifyClosed,/NOT datallowconn/);
+  const identity={nonce:"a".repeat(40),permitSha256:"b".repeat(64),
+    project:"pia_ckpt_012345abcd",imageId:"sha256:"+"c".repeat(64),
+    dbId:"d".repeat(64)};
+  assert.match(ledgerSQL("consume",identity),/ON CONFLICT \(nonce\) DO NOTHING RETURNING nonce/);
+  assert.match(ledgerSQL("release",identity),/state='released'/);
+  for(const field of ["nonce","permitSha256","project","imageId","dbId"]){
+    assert.throws(()=>ledgerSQL("consume",{...identity,[field]:"'; DROP DATABASE postgres; --"}),
+      /Disposable PostgreSQL gate refused/);
+  }
+});
+test("disposable PG gate closes all DB connections, reopens once, and refuses replay",()=>{
+  const f=makeStageFixture(),env=join(f.root,"fenced.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=test\n",{mode:0o600});
+  const signedArgs=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,"--recovery",join(f.root,"recovery.json"),
+    "--project","pia_ckpt_012345abcd","--permit",join(f.root,"permit.json"),
+    "--public-key",join(f.root,"key.pem"),"--key-sha256","f".repeat(64)];
+  const args=[...signedArgs,"--env-file",env,"--old-app-id","a".repeat(64),
+    "--db-id","b".repeat(64)];
+  assert.equal(gateOptions(args).fence.dbId,"b".repeat(64));
+  assert.throws(()=>gateOptions([...args.slice(0,18),"production",...args.slice(19)]),
+    /Disposable PostgreSQL gate refused|Disposable approval refused|Recovery rehearsal refused/);
+  let closed=false,spent=false,engaged=false,released=false,fenceCalls=0;
+  const nonce="d".repeat(40),permit="e".repeat(64);
+  const inspector=argv=>{
+    const s=argv.join(" ");
+    if(s.includes("ps --quiet db"))return "b".repeat(64);
+    if(s.includes("ps --quiet app"))return "";
+    if(s.includes("inspect --format {{.State.Running}}"))return "false";
+    if(!s.includes(" -d postgres "))throw Error("Unexpected nonmaintenance SQL "+s);
+    const q=argv.at(-1);
+    if(q.startsWith("SELECT datallowconn"))return closed?"false":"true";
+    if(q.startsWith("CREATE TABLE"))return "";
+    if(q.startsWith("INSERT INTO")){
+      if(spent)return "";
+      spent=true;return nonce;
+    }
+    if(q==="ALTER DATABASE protocolia WITH ALLOW_CONNECTIONS false"){
+      closed=true;engaged=true;return "";
+    }
+    if(q.startsWith("SELECT pg_terminate_backend"))return "";
+    if(q.startsWith("SELECT (NOT datallowconn"))return closed?"true":"false";
+    if(q.startsWith("SELECT state FROM"))return engaged&&!released?"engaged":"released";
+    if(q==="ALTER DATABASE protocolia WITH ALLOW_CONNECTIONS true"){
+      closed=false;return "";
+    }
+    if(q.startsWith("UPDATE public.protocolia_disposable_cutover_gate_v1")){
+      if(released)return "";
+      released=true;return nonce;
+    }
+    throw Error("Unexpected SQL "+q);
+  };
+  const adapters={
+    runDocker:inspector,
+    verifyApproval:()=>({project:"pia_ckpt_012345abcd",
+      imageId:"sha256:"+"c".repeat(64),permitSha256:permit,nonce}),
+    verifyStoppedFence:()=>{fenceCalls++;}
+  };
+  assert.equal(databaseGate(args,{mode:"engage",...adapters}).engaged,true);
+  assert.equal(closed,true);
+  assert.equal(fenceCalls,1);
+  assert.equal(databaseGate(args,{mode:"release",...adapters}).released,true);
+  assert.equal(closed,false);
+  assert.equal(released,true);
+  assert.throws(()=>databaseGate(args,{mode:"engage",...adapters}),
+    /replay forbidden/);
+  assert.throws(()=>databaseGate(args,{mode:"release",...adapters}),
+    /already released|reused nonce/);
 });
