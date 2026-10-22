@@ -7,7 +7,6 @@ import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync,openSync,closeS
   appendFileSync,copyFileSync,statSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {tmpdir} from "node:os";
-import {createServer} from "node:net";
 
 const generated=resolve(process.argv[2]??"");
 assert.ok(existsSync(join(generated,"protocolia-build.json")));
@@ -43,10 +42,7 @@ const snapshot=db=>({
   audit:dbSql(db,"SELECT count(*) FROM protocolia_audit_event "+
     "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C')")
 });
-let started=false,stageStarted=false,stageCompose=[];
-const stageDocker=(...args)=>run("docker",[...stageCompose,...args]);
-const stageSql=query=>stageDocker("exec","-T","db","psql",
-  "-U","protocolia","-d","protocolia","-At","-v","ON_ERROR_STOP=1","-c",query);
+let started=false;
 try{
   docker("config","--quiet");
   started=true;
@@ -185,129 +181,70 @@ try{
   if(previousBff!==null)assert.equal(readFileSync(springBffMigration,"utf8"),previousBff,
     "Spring BFF V2 must remain byte-identical after additive V3 migration");
   assert.ok(readFileSync(migrationFiles,"utf8").includes("ALTER TABLE purchase_order"));
-  // v1.1h: A migrated runtime must first prove itself on an entirely
-  // independent restored PostgreSQL volume. The original app remains running
-  // with its old image and old database until the staging oracle passes.
-  const stageProject="pia_stage_"+randomBytes(5).toString("hex");
-  const stageSecret=randomBytes(16).toString("hex");
-  const stagePassword=randomBytes(16).toString("hex");
-  const stageEnvFile=join(scratch,"stage.env");
-  const stagePort=await new Promise((ok,fail)=>{
-    const server=createServer();
-    server.once("error",fail);
-    server.listen(0,"127.0.0.1",()=>{
-      const address=server.address();
-      server.close(error=>error?fail(error):ok(address.port));
+  // v1.1i: exercise exactly the operator-facing staging path. The source DB
+  // is never a recipient of the restored archive or its staged writes.
+  const stageReceipt=join(scratch,"runtime-stage-receipt.json");
+  const stageArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--out",stageReceipt];
+  const {stageRuntime,verifyStageReceipt,stageOptions}=await import(
+    "../../packages/cli/runtime-stage.mjs");
+  const receipt=await stageRuntime(stageArgs,{inspect:async({request:stageRequest,sql:stageSql})=>{
+    const header=await stageRequest("GET","/api/orders/RETAINED");
+    assert.equal(header.status,200,header.body);
+    assert.equal(header.etag,'"2"',
+      "Staged runtime must retain pre-upgrade document ETag");
+    assert.equal(stageSql("SELECT status||':'||document_version::text||':'||title "+
+      "FROM purchase_order WHERE code='RETAINED'"),original.header);
+    assert.equal(stageSql("SELECT string_agg(line_code||':'||product||':'||units::text,',' "+
+      "ORDER BY line_code) FROM order_line WHERE order_code='RETAINED'"),original.rows);
+    assert.equal(stageSql("SELECT count(*) FROM protocolia_audit_event "+
+      "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C')"),original.audit);
+    assert.equal(stageSql("SELECT count(*) FROM information_schema.columns "+
+      "WHERE table_schema='public' AND table_name='purchase_order' "+
+      "AND column_name='note'"),"1",
+      "The staged app must apply its new TypeSpec column");
+    const create=await stageRequest("POST","/api/orders",{
+      code:"STAGED-NEW",title:"Staged new contract",
+      note:"Persisted on isolated restored database",
+      lines:[{lineCode:"STAGED-CHILD",product:"Independent",units:1}]
     });
-  });
-  writeFileSync(stageEnvFile,[
-    "PROTOCOLIA_DB_PASSWORD="+stagePassword,
-    "PROTOCOLIA_ALLOW_DEMO_AUTH=true",
-    "PROTOCOLIA_MANAGER_USERNAME=manager","PROTOCOLIA_MANAGER_PASSWORD="+stageSecret,
-    "PROTOCOLIA_READER_USERNAME=reader",
-    "PROTOCOLIA_READER_PASSWORD="+randomBytes(16).toString("hex"),
-    "PROTOCOLIA_HOST_PORT="+stagePort
-  ].join("\n")+"\n",{mode:0o600});
-  stageCompose=["compose","--project-name",stageProject,"--env-file",stageEnvFile];
-  stageDocker("config","--quiet");
-  stageStarted=true; // Cleanup remains mandatory even if db bootstrap fails.
-  stageDocker("up","--detach","--wait","db");
-  const stageDbBefore=stageDocker("ps","--quiet","db");
-  assert.match(stageDbBefore,/^[0-9a-f]{12,64}$/i);
-  assert.notEqual(stageDbBefore,dbBefore,
-    "Staging must never reuse the original PostgreSQL container");
-  assert.equal(stageSql("SELECT count(*) FROM information_schema.tables "+
-    "WHERE table_schema='public' AND table_name='purchase_order'"),"0",
-    "Staged PostgreSQL must be empty before restore");
-  const stageFd=openSync(archive,"r");
-  try{
-    run("docker",[...stageCompose,"exec","-T","db","pg_restore",
-      "-U","protocolia","-d","protocolia",
-      "--no-owner","--no-acl","--exit-on-error"],{stdin:stageFd});
-  }finally{closeSync(stageFd);}
-  assert.equal(stageSql("SELECT status||':'||document_version::text||':'||title "+
-    "FROM purchase_order WHERE code='RETAINED'"),original.header);
-  assert.equal(stageSql("SELECT string_agg(line_code||':'||product||':'||units::text,',' "+
-    "ORDER BY line_code) FROM order_line WHERE order_code='RETAINED'"),original.rows);
-  assert.equal(stageSql("SELECT count(*) FROM protocolia_audit_event "+
-    "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C')"),original.audit);
-  assert.deepEqual(snapshot("protocolia"),original,
-    "Restoring the staging copy must not change the original database");
-  stageDocker("up","--detach","--build","app");
-  let stageReady=false;
-  for(let i=0;i<135;i++){
-    try{
-      const response=await fetch("http://127.0.0.1:"+stagePort+"/health",
-        {signal:AbortSignal.timeout(2200)});
-      if(response.status===200){stageReady=true;break;}
-    }catch{}
-    await new Promise(ok=>setTimeout(ok,850));
-  }
-  if(!stageReady)throw Error("Staged generated runtime did not start: "+
-    stageDocker("logs","--tail","60","app"));
-  const stageAuth="Basic "+Buffer.from("manager:"+stageSecret).toString("base64");
-  async function stageRequest(method,path,payload,headers={}){
-    const response=await fetch("http://127.0.0.1:"+stagePort+path,{
-      method,
-      headers:{Authorization:stageAuth,
-        ...(payload===undefined?{}:{"Content-Type":"application/json"}),...headers},
-      ...(payload===undefined?{}:{body:JSON.stringify(payload)}),
-      signal:AbortSignal.timeout(25000)
-    });
-    return {status:response.status,body:await response.text(),
-      etag:response.headers.get("etag")};
-  }
-  const stagedParent=await stageRequest("GET","/api/orders/RETAINED");
-  assert.equal(stagedParent.status,200,stagedParent.body);
-  assert.equal(stagedParent.etag,'"2"',
-    "Staged generated HTTP must retain historical document versions");
-  assert.equal(stageSql("SELECT count(*) FROM information_schema.columns "+
-    "WHERE table_schema='public' AND table_name='purchase_order' "+
-    "AND column_name='note'"),"1",
-    "New generated runtime must apply the additive column in staging");
-  const stagedLedger=afterBuild.target==="nestjs"?
-    stageSql("SELECT version::text FROM protocolia_nest_migration_history ORDER BY version"):
-    stageSql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank");
-  assert.equal(stagedLedger,afterBuild.target==="nestjs"?"2":"1\n2\n3",
-    "Restored staging DB must migrate once and preserve its ledger");
-  const stageCreate=await stageRequest("POST","/api/orders",{
-    code:"STAGED-NEW",title:"Staged new contract",
-    note:"Persisted on isolated restored database",
-    lines:[{lineCode:"STAGED-CHILD",product:"Independent",units:1}]
-  });
-  assert.equal(stageCreate.status,201,stageCreate.body);
-  assert.equal(stageSql("SELECT note FROM purchase_order WHERE code='STAGED-NEW'"),
-    "Persisted on isolated restored database");
-  const stageStale=await stageRequest("POST","/api/order-lines",{
-    lineCode:"STAGED-STALE",orderCode:"RETAINED",product:"Rejected",units:1
-  },{"If-Match":'"1"'});
-  assert.equal(stageStale.status,409,
-    "Staged runtime must reject an out-of-date document write");
-  const stageAppend=await stageRequest("POST","/api/order-lines",{
-    lineCode:"STAGED-APPEND",orderCode:"RETAINED",product:"Audited",units:1
-  },{"If-Match":'"2"'});
-  assert.equal(stageAppend.status,201,stageAppend.body);
-  assert.equal((await stageRequest("GET","/api/orders/RETAINED")).etag,'"3"');
-  assert.equal(stageSql("SELECT document_version::text FROM purchase_order "+
-    "WHERE code='RETAINED'"),"3");
-  assert.ok(Number(stageSql("SELECT count(*) FROM protocolia_audit_event "+
-    "WHERE resource_id='STAGED-APPEND'"))>=1,
-    "Staged mutation must write to its isolated audit journal");
-  assert.equal(stageSql("SELECT count(*) FROM order_line "+
-    "WHERE line_code='STAGED-STALE'"),"0");
+    assert.equal(create.status,201,create.body);
+    assert.equal(stageSql("SELECT note FROM purchase_order WHERE code='STAGED-NEW'"),
+      "Persisted on isolated restored database");
+    const stale=await stageRequest("POST","/api/order-lines",{
+      lineCode:"STAGED-STALE",orderCode:"RETAINED",product:"Rejected",units:1
+    },{"If-Match":'"1"'});
+    assert.equal(stale.status,409);
+    const appended=await stageRequest("POST","/api/order-lines",{
+      lineCode:"STAGED-APPEND",orderCode:"RETAINED",product:"Audited",units:1
+    },{"If-Match":'"2"'});
+    assert.equal(appended.status,201,appended.body);
+    assert.equal((await stageRequest("GET","/api/orders/RETAINED")).etag,'"3"');
+    assert.equal(stageSql("SELECT document_version::text FROM purchase_order "+
+      "WHERE code='RETAINED'"),"3");
+    assert.ok(Number(stageSql("SELECT count(*) FROM protocolia_audit_event "+
+      "WHERE resource_id='STAGED-APPEND'"))>=1);
+    assert.equal(stageSql("SELECT count(*) FROM order_line "+
+      "WHERE line_code='STAGED-STALE'"),"0");
+    assert.equal(docker("ps","--quiet","db"),dbBefore);
+    assert.deepEqual(snapshot("protocolia"),original,
+      "Staging mutations must not reach the original test database");
+  }});
+  assert.equal(receipt.stagedVolumeDestroyed,true);
+  assert.equal(verifyStageReceipt(stageOptions(stageArgs)).evolvedIrSha256,
+    summary.proposedIrSha256);
+  const verifiedStage=run(process.execPath,[
+    appcli,"db:stage:verify",...stageArgs],{cwd:resolve(".")});
+  assert.match(verifiedStage,/PROTOCOLIA_V11_RUNTIME_STAGE_RECEIPT_VERIFIED/);
   assert.equal(docker("ps","--quiet","db"),dbBefore);
-  assert.deepEqual(snapshot("protocolia"),original,
-    "Staging mutations must never affect the original Compose database");
-  stageDocker("down","--volumes","--remove-orphans");
-  stageStarted=false;
-  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original);
   console.log("PROTOCOLIA_V11_STAGED_RUNTIME_PASS "+JSON.stringify({
     target:afterBuild.target,checkpointRestored:true,
     originalDatabaseIsolated:true,stagedAppHealthy:true,
     historicalRowsPreserved:true,migrationLedgerValidated:true,
     newContractFieldPersisted:true,staleWriteRejected:true,
     versionEtagsContinue:true,auditWritesContinue:true,
-    stageVolumeDestroyed:true
+    stageVolumeDestroyed:true,reusableStageCli:true,receiptVerified:true
   }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
@@ -436,8 +373,6 @@ try{
     incompatibleDdlRolledBack:true,sourceUnchanged:true,overwriteRefused:true
   }));
 }finally{
-  if(stageStarted)try{stageDocker("down","--volumes","--remove-orphans");}
-  catch(error){console.error("STAGE_TEST_CLEANUP_FAILED "+error.message);process.exitCode=1;}
   if(started)try{docker("down","--volumes","--remove-orphans");}
   catch(error){console.error("DB_TEST_CLEANUP_FAILED "+error.message);process.exitCode=1;}
   rmSync(scratch,{recursive:true,force:true});
