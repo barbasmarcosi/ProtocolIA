@@ -70,7 +70,7 @@ export function roleSQL(kind,secret){
       "'protocolia_audit_event') LOOP "+
       "EXECUTE format('GRANT SELECT ON public.%I TO "+reader+"',t.tablename); "+
       "EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON public.%I TO "+writer+"',t.tablename); "+
-      "END LOOP; END "+String.fromCharCode(36,36),
+      "END LOOP; END; "+String.fromCharCode(36,36),
     "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO "+writer
   ];
   if(kind==="activate")return ["ALTER ROLE "+reader+" LOGIN","ALTER ROLE "+writer+" LOGIN"];
