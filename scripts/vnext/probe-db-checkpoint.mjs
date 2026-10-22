@@ -231,7 +231,7 @@ try{
       "Staging mutations must not reach the original test database");
   }});
   assert.equal(receipt.stagedVolumeDestroyed,true);
-  assert.equal(verifyStageReceipt(stageOptions(stageArgs)).evolvedIrSha256,
+  assert.equal(verifyStageReceipt(stageOptions(stageArgs,{verify:true})).evolvedIrSha256,
     summary.proposedIrSha256);
   const verifiedStage=run(process.execPath,[
     appcli,"db:stage:verify",...stageArgs],{cwd:resolve(".")});
