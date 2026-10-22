@@ -118,6 +118,18 @@ try {
   }else if(process.argv[2]==="db:preflight"){
     const {preflightMigration}=await import("./database-preflight.mjs");
     await preflightMigration(process.argv.slice(3));
+  }else if(process.argv[2]==="db:stage"){
+    const {stageRuntime}=await import("./runtime-stage.mjs");
+    await stageRuntime(process.argv.slice(3));
+  }else if(process.argv[2]==="db:stage:verify"){
+    if(process.argv.length!==10)
+      throw Error("Usage: protocolia db:stage:verify <generated-dir> --checkpoint <archive.dump> --report <preflight.json> --out <receipt.json>");
+    const {verifyStageReceipt,stageOptions}=await import("./runtime-stage.mjs");
+    const receipt=verifyStageReceipt(stageOptions(process.argv.slice(3)));
+    console.log("PROTOCOLIA_V11_RUNTIME_STAGE_RECEIPT_VERIFIED "+JSON.stringify({
+      target:receipt.target,evolvedIrSha256:receipt.evolvedIrSha256,
+      checkpointSha256:receipt.checkpointSha256
+    }));
   }else if(process.argv[2]==="db:checkpoint"){
     const {createCheckpoint}=await import("./database-checkpoint.mjs");
     createCheckpoint(process.argv.slice(3));
