@@ -2,7 +2,7 @@
 // Verify immutable archive, restore into isolated DB, and rehearse additive DDL.
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {randomBytes} from "node:crypto";
+import {randomBytes,generateKeyPairSync,sign,createHash} from "node:crypto";
 import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync,openSync,closeSync,
   appendFileSync,copyFileSync,statSync} from "node:fs";
 import {join,resolve} from "node:path";
@@ -318,6 +318,75 @@ try{
     target:afterBuild.target,oldImageRestored:true,
     injectedOutageRecovered:true,noSourceDatabaseMutation:true,
     recoveryVolumeDestroyed:true,exactCandidatePinned:true
+  }));
+  // v1.1m: a separately generated test signer authorizes ONLY this
+  // uniquely named disposable CI project, exact candidate and successful
+  // old-runtime recovery. Product tooling never issues/private-keys permits.
+  const {publicKey:operatorKey,privateKey:operatorSecret}=generateKeyPairSync("ed25519");
+  const operatorPublic=join(scratch,"trusted-operator.pem");
+  writeFileSync(operatorPublic,operatorKey.export({format:"pem",type:"spki"}),
+    {mode:0o644,flag:"wx"});
+  const hash=b=>createHash("sha256").update(b).digest("hex");
+  const keyPin=hash(operatorKey.export({format:"der",type:"spki"}));
+  const issued=Date.now();
+  const permitClaims={
+    audience:"protocolia-disposable-cutover-v1",project,
+    imageId:receipt.stagedImageId,checkpointSha256:receipt.checkpointSha256,
+    candidateSha256:hash(readFileSync(candidatePath)),
+    recoverySha256:hash(readFileSync(recoveryReport)),
+    issuedAt:new Date(issued).toISOString(),
+    expiresAt:new Date(issued+12*60_000).toISOString(),
+    nonce:randomBytes(20).toString("hex")
+  };
+  const permitPath=join(scratch,"signed-disposable-approval.json");
+  writeFileSync(permitPath,JSON.stringify({schema:1,algorithm:"Ed25519",
+    claims:permitClaims,
+    signature:sign(null,Buffer.from(JSON.stringify(permitClaims)),
+      operatorSecret).toString("base64")
+  }),{mode:0o600,flag:"wx"});
+  const permitArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--candidate",candidatePath,
+    "--recovery",recoveryReport,"--project",project,
+    "--permit",permitPath,"--public-key",operatorPublic,"--key-sha256",keyPin];
+  assert.notEqual(run(process.execPath,[appcli,"deploy:permit:verify",
+    ...permitArgs.slice(0,-1),"f".repeat(64)],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "Wrong out-of-band signer SPKI fingerprint must fail closed");
+  assert.notEqual(run(process.execPath,[appcli,"deploy:permit:verify",
+    ...permitArgs.slice(0,12),"pia_ckpt_deadbeef00",...permitArgs.slice(13)],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "Cross-project signed approval reuse must fail closed");
+  const verifiedPermit=run(process.execPath,[appcli,"deploy:permit:verify",...permitArgs],
+    {cwd:resolve(".")});
+  assert.match(verifiedPermit,/PROTOCOLIA_V11_DISPOSABLE_PERMIT_PASS/,
+    "Test cutover requires independently signed scoped permit");
+  // A stopped app cannot accept new writes via its HTTP API. This limits
+  // the bounded CI project; NOT a durable PostgreSQL write lock in prod.
+  const oldAppContainer=docker("ps","--quiet","app");
+  assert.match(oldAppContainer,/^[a-f0-9]{12,64}$/i);
+  docker("stop","app");
+  assert.equal(docker("ps","--quiet","app"),"");
+  const fenceArgs=[generated,"--project",project,"--env-file",envFile,
+    "--old-app-id",oldAppContainer,"--db-id",dbBefore];
+  let fenced=false;
+  for(let attempt=0;attempt<12;attempt++){
+    const ok=run(process.execPath,[appcli,"deploy:fence:verify",...fenceArgs],
+      {cwd:resolve("."),allowFailure:true});
+    if(ok===0){fenced=true;break;}
+    await new Promise(ok=>setTimeout(ok,300));
+  }
+  assert.equal(fenced,true,
+    "Old app must be stopped and all other SQL client sessions gone");
+  const fencedFreshness=run(process.execPath,[appcli,"deploy:precheck",...checkArgs],
+    {cwd:resolve(".")});
+  assert.match(fencedFreshness,/PROTOCOLIA_V11_DEPLOYMENT_PRECHECK_PASS/);
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original);
+  console.log("PROTOCOLIA_V11_SIGNED_FENCED_CUTOVER_READY "+JSON.stringify({
+    target:afterBuild.target,independentSignedEd25519Permit:true,
+    pinnedSignerKey:true,disposableProjectOnly:true,
+    oldAppActuallyStopped:true,noOtherSqlClientSessions:true,
+    freshSourceWhileStopped:true
   }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
