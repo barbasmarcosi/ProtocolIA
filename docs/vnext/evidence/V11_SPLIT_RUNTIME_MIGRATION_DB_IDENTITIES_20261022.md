@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-22. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft. **Main/v1.0.0:** unchanged.
 
-**Integration evidence:** [Spring + Nest matrix #39827128499](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39827128499) — **PENDING at initial documentation; acceptance requires both generated backends PASS**. Quality: [#39827128377](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39827128377).
+**Integration evidence:** [Spring + Nest matrix #39827128499](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39827128499) — **SUCCESS for both NestJS and modular Spring Boot** on real PostgreSQL. Each independent matrix job emitted PROTOCOLIA_V11_SQL_PRINCIPALS_PREPARED, PROTOCOLIA_V11_SPLIT_DB_PRINCIPALS_PASS and PROTOCOLIA_V11_APP_EVOLUTION_PASS. The configured request-time user was non-superuser, could not CREATE a table or read the migration ledger, yet completed audited application writes after the additive TypeSpec migration applied using separate privileged credentials. Quality: [#39827128377](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39827128377).
 
 ## Gap closed
 
