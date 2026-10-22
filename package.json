@@ -27,7 +27,8 @@
     "app:db:source:verify": "node packages/cli/protocolia.mjs db:source:verify",
     "app:deploy:candidate": "node packages/cli/protocolia.mjs deploy:candidate",
     "app:deploy:candidate:verify": "node packages/cli/protocolia.mjs deploy:candidate:verify",
-    "app:deploy:precheck": "node packages/cli/protocolia.mjs deploy:precheck"
+    "app:deploy:precheck": "node packages/cli/protocolia.mjs deploy:precheck",
+    "app:deploy:postcheck": "node packages/cli/protocolia.mjs deploy:postcheck"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
