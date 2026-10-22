@@ -2,7 +2,7 @@
 
 Date: 2026-10-22. PR: https://github.com/barbasmarcosi/ProtocolIA/pull/55 (Draft).
 
-**Acceptance:** https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39784367643 — **PENDING at initial publication**. Spring and Nest must independently pass the full PostgreSQL matrix including PROTOCOLIA_V11_SERVER_WRITE_GATE_PASS before v1.1n is accepted.
+**Acceptance:** https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39784367643 — **SUCCESS for both modular Spring Boot and NestJS**. Both jobs independently emitted PROTOCOLIA_V11_SERVER_WRITE_GATE_PASS and PROTOCOLIA_V11_APP_EVOLUTION_PASS against real PostgreSQL: datallowconn=false rejected a fresh superuser connection, after release the same signed nonce was rejected by both second engagement and release, old business rows stayed unchanged and the exact staged image ran correctly.
 
 ## Problem being solved
 
