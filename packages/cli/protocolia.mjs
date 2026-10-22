@@ -125,7 +125,7 @@ try {
     if(process.argv.length!==10)
       throw Error("Usage: protocolia db:stage:verify <generated-dir> --checkpoint <archive.dump> --report <preflight.json> --out <receipt.json>");
     const {verifyStageReceipt,stageOptions}=await import("./runtime-stage.mjs");
-    const receipt=verifyStageReceipt(stageOptions(process.argv.slice(3)));
+    const receipt=verifyStageReceipt(stageOptions(process.argv.slice(3),{verify:true}));
     console.log("PROTOCOLIA_V11_RUNTIME_STAGE_RECEIPT_VERIFIED "+JSON.stringify({
       target:receipt.target,evolvedIrSha256:receipt.evolvedIrSha256,
       checkpointSha256:receipt.checkpointSha256
