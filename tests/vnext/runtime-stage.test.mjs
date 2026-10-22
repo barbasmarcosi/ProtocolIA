@@ -7,7 +7,7 @@ import {join} from "node:path";
 import {sealApp} from "../../packages/cli/ownership.mjs";
 import {stageOptions,verifyStageInputs,verifyStageReceipt} from "../../packages/cli/runtime-stage.mjs";
 import {sourceOptions,compareSourceSnapshots} from "../../packages/cli/source-freshness.mjs";
-import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candidateOptions,precheckCandidate,precheckOptions} from "../../packages/cli/deployment-candidate.mjs";
+import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candidateOptions,precheckCandidate,precheckOptions,postcheckCandidate,postcheckOptions} from "../../packages/cli/deployment-candidate.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -236,4 +236,42 @@ test("pre-cutover precheck requires matching explicit image and delegates only r
   assert.equal(calls,1);
   assert.equal(result.imageId,f.stagedImageId);
   assert.equal(result.project,"pia_ckpt_test");
+});
+
+test("post-start guard accepts only the exactly staged running image with healthy loopback service",async()=>{
+  const f=makeStageFixture();
+  createCandidate(f.args,f.adapters);
+  const env=join(f.root,"private.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=private\n",{mode:0o600});
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,
+    "--project","pia_ckpt_test","--env-file",env,
+    "--health-url","http://127.0.0.1:24189/health"];
+  assert.equal(postcheckOptions(args).healthUrl,"http://127.0.0.1:24189/health");
+  const fakeDocker=(argv)=>{
+    const action=argv.join(" ");
+    if(action.includes("config --quiet"))return "";
+    if(action.includes("ps --quiet db"))return "d".repeat(64);
+    if(action.includes("ps --quiet app"))return "a".repeat(64);
+    if(action.includes("inspect --format {{.Image}}"))return f.stagedImageId;
+    throw Error("Unexpected Docker call "+action);
+  };
+  const checked=await postcheckCandidate(args,{
+    ...f.adapters,runDocker:fakeDocker,probeHealth:async()=>200
+  });
+  assert.equal(checked.status,"observed-healthy");
+  assert.equal(checked.imageId,f.stagedImageId);
+  await assert.rejects(postcheckCandidate(args,{
+    ...f.adapters,runDocker:argv=>argv.includes("{{.Image}}")?
+      "sha256:"+"e".repeat(64):fakeDocker(argv),probeHealth:async()=>200
+  }),/running application image differs/i);
+  await assert.rejects(postcheckCandidate(args,{
+    ...f.adapters,runDocker:fakeDocker,probeHealth:async()=>503
+  }),/exact local \/health/);
+  for(const unsafe of [
+    "https://127.0.0.1:24189/health","http://example.org:24189/health",
+    "http://127.0.0.1:24189/health?target=x",
+    "http://127.0.0.1:24189/other","http://127.0.0.1:0/health"
+  ])assert.throws(()=>postcheckOptions([...args.slice(0,-1),unsafe]),
+    /Deployment candidate refused/);
 });
