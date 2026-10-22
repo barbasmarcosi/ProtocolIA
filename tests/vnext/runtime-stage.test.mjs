@@ -97,6 +97,7 @@ test("reject changed generated contract or source-backed report without refreshi
   const g=fixture(),gopts=stageOptions(g.args);
   writeFileSync(g.report,JSON.stringify({...g.passed,proposedIrSha256:"0".repeat(64)}));
   assert.throws(()=>verifyStageInputs(gopts),/Evolved app does not match/);
+  writeFileSync(g.report,JSON.stringify(g.passed),{mode:0o600});
   const alias=g.out+".symlink";
   writeFileSync(g.out,JSON.stringify({...verifyStageInputs(stageOptions(g.args)).binding}),
     {mode:0o600});
