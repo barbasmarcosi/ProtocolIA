@@ -131,7 +131,8 @@ try {
     const receipt=verifyStageReceipt(stageOptions(process.argv.slice(3),{verify:true}));
     console.log("PROTOCOLIA_V11_RUNTIME_STAGE_RECEIPT_VERIFIED "+JSON.stringify({
       target:receipt.target,evolvedIrSha256:receipt.evolvedIrSha256,
-      checkpointSha256:receipt.checkpointSha256
+      checkpointSha256:receipt.checkpointSha256,
+      stagedImageId:receipt.stagedImageId
     }));
   }else if(process.argv[2]==="db:checkpoint"){
     const {createCheckpoint}=await import("./database-checkpoint.mjs");
