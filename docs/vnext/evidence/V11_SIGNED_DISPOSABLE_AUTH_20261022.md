@@ -2,7 +2,7 @@
 
 Date: 2026-10-22. PR: https://github.com/barbasmarcosi/ProtocolIA/pull/55 (Draft). Stable main/v1.0.0 must remain untouched.
 
-Integration evidence: https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39781303084 — IN PROGRESS at initial publication; do not claim PASS before both Spring/Nest jobs complete.
+Integration evidence: https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39781303084 — **SUCCESS** in both independent modular Spring Boot and NestJS PostgreSQL/Chromium jobs. Each emitted PROTOCOLIA_V11_SIGNED_FENCED_CUTOVER_READY, PROTOCOLIA_V11_RECOVERY_DRILL_PASS, PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS and PROTOCOLIA_V11_APP_EVOLUTION_PASS. The test signer is ephemeral within CI, not a verified external person.
 
 ## Goal and boundaries
 
