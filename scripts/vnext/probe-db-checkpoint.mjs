@@ -260,6 +260,34 @@ try{
     target:afterBuild.target,readOnlySourceVerified:true,
     stagedImageIdentityBound:true,pausedWritesOperatorAsserted:true
   }));
+  // v1.1k: an immutable candidate MUST be bound to the tested image and
+  // preflight inputs. The precheck is read-only and does not deploy it.
+  const candidatePath=join(scratch,"deployment-candidate.json");
+  const candidateArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--image",receipt.stagedImageId,
+    "--out",candidatePath];
+  assert.match(run(process.execPath,[appcli,"deploy:candidate",...candidateArgs],
+    {cwd:resolve(".")}),/PROTOCOLIA_V11_DEPLOYMENT_CANDIDATE_PASS/);
+  assert.match(run(process.execPath,[appcli,"deploy:candidate:verify",...candidateArgs],
+    {cwd:resolve(".")}),/PROTOCOLIA_V11_DEPLOYMENT_CANDIDATE_VERIFIED/);
+  const checkArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--candidate",candidatePath,
+    "--project",project,"--env-file",envFile,
+    "--assert-writes-paused","--approve-image",receipt.stagedImageId];
+  assert.notEqual(run(process.execPath,[appcli,"deploy:precheck",
+    ...checkArgs.slice(0,-1),"sha256:"+"f".repeat(64)],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "A mismatched, explicitly approved image must fail closed");
+  const precheck=run(process.execPath,[appcli,"deploy:precheck",...checkArgs],
+    {cwd:resolve(".")});
+  assert.match(precheck,/PROTOCOLIA_V11_DEPLOYMENT_PRECHECK_PASS/);
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original);
+  console.log("PROTOCOLIA_V11_DEPLOY_CANDIDATE_PRECHECK_PASS "+JSON.stringify({
+    target:afterBuild.target,immutableLocalImage:true,
+    sourceCheckpointUnchanged:true,readOnly:true,
+    candidateVerified:true,operatorImageAssertion:true
+  }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
   docker("up","--detach","--build","--force-recreate","--no-deps","app");
@@ -313,6 +341,9 @@ try{
   assert.notEqual(run(process.execPath,[appcli,"db:source:verify",...sourceArgs],
     {cwd:resolve("."),allowFailure:true}),0,
     "After the schema upgrade and new writes, the original checkpoint must be stale");
+  assert.notEqual(run(process.execPath,[appcli,"deploy:precheck",...checkArgs],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "Previously approved deployment candidate must reject the changed original database");
   console.log("PROTOCOLIA_V11_STALE_SOURCE_REJECTED "+JSON.stringify({
     target:afterBuild.target,postUpgradeDriftDetected:true
   }));
