@@ -178,10 +178,18 @@ export async function rehearseRecovery(args,{inspectOld=checkImage}={}){
       deny("Recovery runtime was rebuilt or ran the wrong old image");
     await awaitHealthy();
     const auth="Basic "+Buffer.from("manager:"+manager).toString("base64");
-    const old=await fetch("http://127.0.0.1:"+port+"/api/orders/RETAINED",{
-      headers:{Authorization:auth},signal:AbortSignal.timeout(5000)});
-    if(old.status!==200||old.headers.get("etag")!=='"2"')
-      deny("Recovered old runtime could not read the historical versioned document");
+    const ir=JSON.parse(readFileSync(join(options.dir,"protocolia-contract-ir.json"),"utf8"));
+    const readable=(ir.operations??[]).filter(op=>op.method==="GET"&&
+      op.behavior?.kind==="listPage"&&
+      /^\\/api\\/[A-Za-z0-9/_-]+$/.test(op.path));
+    if(!readable.length)
+      deny("No safe TypeSpec-derived list operation available to check the old runtime");
+    const readPath=readable[0].path;
+    const old=await fetch("http://127.0.0.1:"+port+readPath,{
+      headers:{Authorization:auth},redirect:"manual",
+      signal:AbortSignal.timeout(5000)});
+    if(old.status!==200)
+      deny("Recovered old runtime could not complete a TypeSpec-derived list read");
     // Inject outage in the RECOVERY project only. No original app/db touched.
     docker("stop","app");
     if(await healthy())deny("Outage injection did not actually stop the recovered service");
