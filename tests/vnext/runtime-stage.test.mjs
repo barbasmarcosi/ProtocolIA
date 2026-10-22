@@ -66,7 +66,10 @@ test("staged app, prior archive, TypeSpec IR, SQL and owner seal bind exactly",(
     stagedAppHealthy:true,oldRowsPreserved:true,schemaLedgerAdvanced:true,
     genericReadPassed:true,stagedVolumeDestroyed:true};
   writeFileSync(f.out,JSON.stringify(receipt),{mode:0o600});
-  assert.equal(verifyStageReceipt(opts).evolvedIrSha256,f.passed.proposedIrSha256);
+  assert.throws(()=>stageOptions(f.args),/pre-existing receipt destination/);
+  assert.deepEqual(stageOptions(f.args,{verify:true}),opts);
+  assert.equal(verifyStageReceipt(stageOptions(f.args,{verify:true})).evolvedIrSha256,
+    f.passed.proposedIrSha256);
   for(const [key,value] of [
     ["stagedVolumeDestroyed",false],["checkpointSha256","f".repeat(64)],
     ["migrationSqlSha256","f".repeat(64)],["sourceContractSha256","f".repeat(64)],
