@@ -28,7 +28,9 @@
     "app:deploy:candidate": "node packages/cli/protocolia.mjs deploy:candidate",
     "app:deploy:candidate:verify": "node packages/cli/protocolia.mjs deploy:candidate:verify",
     "app:deploy:precheck": "node packages/cli/protocolia.mjs deploy:precheck",
-    "app:deploy:postcheck": "node packages/cli/protocolia.mjs deploy:postcheck"
+    "app:deploy:postcheck": "node packages/cli/protocolia.mjs deploy:postcheck",
+    "app:deploy:recovery:drill": "node packages/cli/protocolia.mjs deploy:recovery:drill",
+    "app:deploy:recovery:verify": "node packages/cli/protocolia.mjs deploy:recovery:verify"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
