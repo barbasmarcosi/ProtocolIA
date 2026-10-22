@@ -64,13 +64,13 @@ export function roleSQL(kind,secret){
     "REVOKE CONNECT ON DATABASE protocolia FROM PUBLIC",
     "GRANT CONNECT ON DATABASE protocolia TO "+reader+","+writer,
     "GRANT USAGE ON SCHEMA public TO "+reader+","+writer,
-    "DO $ DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE "+
+    "DO "+String.fromCharCode(36,36)+" DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE "+
       "schemaname='public' AND tablename NOT IN "+
       "('flyway_schema_history','protocolia_nest_migration_history',"+
       "'protocolia_audit_event') LOOP "+
       "EXECUTE format('GRANT SELECT ON public.%I TO "+reader+"',t.tablename); "+
       "EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON public.%I TO "+writer+"',t.tablename); "+
-      "END LOOP; END $",
+      "END LOOP; END "+String.fromCharCode(36,36),
     "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO "+writer
   ];
   if(kind==="activate")return ["ALTER ROLE "+reader+" LOGIN","ALTER ROLE "+writer+" LOGIN"];
