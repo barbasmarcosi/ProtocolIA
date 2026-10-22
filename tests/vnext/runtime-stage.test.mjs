@@ -616,6 +616,9 @@ test("one-shot migration uses immutable pinned image and removes privileged vars
     assert.match(yaml,/  migrate:\n    image: sha256:/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: migrate/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: runtime/);
+    assert.match(yaml,/      PROTOCOLIA_MIGRATION_HANDOFF_ID: e{64}/);
+    assert.match(yaml,/      PROTOCOLIA_MIGRATION_FAILPOINT: !reset null/);
+    assert.match(yaml,/      PROTOCOLIA_HANDOFF_RUNTIME_USER: /);
     assert.match(yaml,/      PROTOCOLIA_MIGRATION_JDBC_USER: !reset null/);
     assert.match(yaml,/      PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null/);
     assert.match(yaml,/    pull_policy: never/);
@@ -636,4 +639,19 @@ test("one-shot migration uses immutable pinned image and removes privileged vars
     /outside generated app/);
   assert.throws(()=>oneShotOverlayOptions([...args.slice(0,6),"production",...args.slice(7)]),
     /Recovery rehearsal refused/);
+});
+
+test("one-shot template sources refuse incomplete image migration handoffs and expose transactional failpoints",()=>{
+  const spring=readFileSync("packages/adapters/modular/templates/ContractApplication.java","utf8");
+  const nest=readFileSync("packages/adapters/nest/templates/main.ts","utf8");
+  assert.match(spring,/PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_BEFORE_COMMIT/);
+  assert.match(spring,/PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT/);
+  assert.match(spring,/PROTOCOLIA_MIGRATION_HANDOFF_ID/);
+  assert.match(spring,/protocolia_migration_handoff_v1/);
+  assert.match(spring,/GRANT SELECT ON public\.protocolia_migration_handoff_v1/);
+  assert.match(nest,/PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_BEFORE_COMMIT/);
+  assert.match(nest,/PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT/);
+  assert.match(nest,/protocolia_migration_handoff_v1/);
+  assert.match(nest,/if\(execution==="runtime"\)await engine.verifyRuntimeReady\(\)/);
+  assert.match(nest,/ON CONFLICT \(image_digest\) DO NOTHING/);
 });
