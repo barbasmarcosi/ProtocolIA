@@ -135,6 +135,9 @@ try {
   }else if(process.argv[2]==="deploy:precheck"){
     const {precheckCandidate}=await import("./deployment-candidate.mjs");
     precheckCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:postcheck"){
+    const {postcheckCandidate}=await import("./deployment-candidate.mjs");
+    await postcheckCandidate(process.argv.slice(3));
   }else if(process.argv[2]==="db:source:verify"){
     const {verifySourceFreshness}=await import("./source-freshness.mjs");
     verifySourceFreshness(process.argv.slice(3));
