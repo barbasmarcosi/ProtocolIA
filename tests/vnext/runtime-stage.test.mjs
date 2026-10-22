@@ -393,7 +393,7 @@ test("approved permit binds recovery evidence, trusted SPKI key fingerprint, ori
   assert.equal(verifyExternalApproval(args,adapters).signerKeySha256,pin);
   assert.throws(()=>verifyExternalApproval([...args.slice(0,-1),"0".repeat(64)],adapters),
     /key differs/);
-  assert.throws(()=>verifyExternalApproval([...args.slice(0,14),"production",...args.slice(15)],adapters),
+  assert.throws(()=>verifyExternalApproval([...args.slice(0,12),"production",...args.slice(13)],adapters),
     /Recovery rehearsal refused|Disposable approval refused/);
   const altered={...evidence,originalRowsSha256:"f".repeat(64)};
   writeFileSync(recovery,JSON.stringify(altered));
