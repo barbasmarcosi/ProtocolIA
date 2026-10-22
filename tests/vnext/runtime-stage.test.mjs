@@ -14,6 +14,7 @@ import {fenceOptions,verifyDisposableFence} from "../../packages/cli/disposable-
 import {gateOptions,databaseGate,ledgerSQL,gateDatabaseStatements} from "../../packages/cli/disposable-db-gate.mjs";
 import {roleSQL,roleOptions,disposableRolePolicy} from "../../packages/cli/disposable-role-policy.mjs";
 import {runtimeRoleStatements,runtimePrincipalOptions,readRuntimeCredentials} from "../../packages/cli/disposable-runtime-principal.mjs";
+import {oneShotOverlay,oneShotOverlayOptions,writeOneShotOverlay} from "../../packages/cli/disposable-one-shot-migrator.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -606,4 +607,33 @@ test("disposable runtime credentials are bound to a stopped disposable project a
   assert.throws(()=>runtimePrincipalOptions(args),/credential output/);
   chmodSync(args.at(-1),0o644);
   assert.throws(()=>runtimePrincipalOptions(args,{verify:true}),/owner-only/);
+});
+
+test("one-shot migration uses immutable pinned image and removes privileged vars from runtime",()=>{
+  const staged="sha256:"+"e".repeat(64);
+  for(const target of ["nestjs","modular-spring"]){
+    const yaml=oneShotOverlay(staged,target);
+    assert.match(yaml,/  migrate:\n    image: sha256:/);
+    assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: migrate/);
+    assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: runtime/);
+    assert.match(yaml,/      PROTOCOLIA_MIGRATION_JDBC_USER: !reset null/);
+    assert.match(yaml,/      PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null/);
+    assert.match(yaml,/    pull_policy: never/);
+    assert.match(yaml,/    build: !reset null/);
+    assert.doesNotMatch(yaml,/ports:/);
+  }
+  for(const invalid of ["latest","registry/app@sha256:"+"b".repeat(64)])
+    assert.throws(()=>oneShotOverlay(invalid,"nestjs"),/Disposable one-shot migrator refused/);
+  assert.throws(()=>oneShotOverlay(staged,"unsupported"),/Disposable one-shot migrator refused/);
+  const f=makeStageFixture(),output=join(f.root,"pinned-migrator.yaml");
+  const args=[f.dir,"--target","nestjs","--image",staged,
+    "--project","pia_ckpt_012345abcd","--out",output];
+  assert.equal(oneShotOverlayOptions(args).target,"nestjs");
+  writeOneShotOverlay(args);
+  assert.equal(statSync(output).mode&0o077,0);
+  assert.throws(()=>writeOneShotOverlay(args),/outside generated app/);
+  assert.throws(()=>oneShotOverlayOptions([...args.slice(0,-1),join(f.dir,"cutover.yaml")]),
+    /outside generated app/);
+  assert.throws(()=>oneShotOverlayOptions([...args.slice(0,6),"production",...args.slice(7)]),
+    /Recovery rehearsal refused/);
 });
