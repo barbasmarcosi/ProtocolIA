@@ -402,6 +402,44 @@ try{
     {cwd:resolve(".")});
   assert.match(prepared,/PROTOCOLIA_V11_EXTERNAL_ROLES_PREPARED/);
   assert.equal(docker("ps","--quiet","db"),dbBefore);
+  // v1.1p: runtime application SQL identity MUST be separate from the
+  // privileged migration connection. Generate and grant a non-superuser
+  // role only in this disposable, signed and stopped-app Compose project.
+  const runtimeCredentialsPath=join(scratch,"app-runtime-credentials.json");
+  const runtimePrepareArgs=[...permitArgs,"--env-file",envFile,
+    "--old-app-id",oldAppContainer,"--db-id",dbBefore,
+    "--credentials",runtimeCredentialsPath];
+  const runtimeReady=run(process.execPath,[appcli,"deploy:runtime:prepare",...runtimePrepareArgs],
+    {cwd:resolve(".")});
+  assert.match(runtimeReady,/PROTOCOLIA_V11_RUNTIME_PRINCIPAL_READY/);
+  const runtimeCredential=JSON.parse(readFileSync(runtimeCredentialsPath,"utf8"));
+  assert.equal(runtimeCredential.role,"protocolia_app_runtime");
+  assert.equal(statSync(runtimeCredentialsPath).mode&0o077,0);
+  // Only subsequent starts read these new env values; the original app has
+  // been stopped and the DB is not yet changed. Flyway and Nest migrate with
+  // their own explicit principal and the same reviewed TypeSpec SQL.
+  appendFileSync(envFile,[
+    "PROTOCOLIA_RUNTIME_DB_USER="+runtimeCredential.role,
+    "PROTOCOLIA_RUNTIME_DB_PASSWORD="+runtimeCredential.password,
+    "PROTOCOLIA_MIGRATION_DB_USER=protocolia",
+    "PROTOCOLIA_MIGRATION_DB_PASSWORD="+
+      readFileSync(envFile,"utf8").match(/^PROTOCOLIA_DB_PASSWORD=(.+)$/m)[1]
+  ].join("\n")+"\n");
+  const runtimeRoleState=dbSql("postgres",
+    "SELECT (NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb)::text FROM pg_roles "+
+    "WHERE rolname='protocolia_app_runtime'");
+  assert.equal(runtimeRoleState,"true",
+    "Request-time SQL principal must not be a PostgreSQL superuser");
+  assert.notEqual(run("docker",[...compose,"exec","-T","db","psql","-X",
+    "-U","protocolia_app_runtime","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c","CREATE TABLE public.disallowed_runtime_ddl(id int)"],
+    {cwd:generated,allowFailure:true}),0,
+    "Runtime account must not have CREATE privilege on application schema");
+  console.log("PROTOCOLIA_V11_SQL_PRINCIPALS_PREPARED "+JSON.stringify({
+    target:afterBuild.target,runtimeRole:"protocolia_app_runtime",
+    runtimeNonSuperuser:true,ddlDenied:true,
+    privilegedMigrationPrincipal:"protocolia"
+  }));
   const gateArgs=[...permitArgs,"--env-file",envFile,
     "--old-app-id",oldAppContainer,"--db-id",dbBefore];
   const engageGate=run(process.execPath,[appcli,"deploy:db-gate:engage",...gateArgs],
@@ -443,6 +481,12 @@ try{
   // NO --build, NO pull, NO mutable tag: start exactly the staged image.
   run("docker",[...pinnedCompose,"up","--detach","--no-build",
     "--no-deps","--force-recreate","app"]);
+  // Verify actual generated app environment, not merely a successful DML.
+  const appForPrincipal=docker("ps","--quiet","app");
+  const envProof=run("docker",["inspect","--format","{{range .Config.Env}}{{println .}}{{end}}",appForPrincipal]);
+  assert.match(envProof,/PROTOCOLIA_JDBC_USER=protocolia_app_runtime/);
+  assert.match(envProof,/PROTOCOLIA_MIGRATION_JDBC_USER=protocolia/);
+  assert.match(envProof,/PROTOCOLIA_MIGRATION_JDBC_PASSWORD=/);
   assert.equal(docker("ps","--quiet","db"),dbBefore,
     "The existing database container must remain unchanged during upgrade");
   let upgraded=false;
@@ -516,6 +560,21 @@ try{
     "--health-url","http://127.0.0.1:"+port+"/health"],{cwd:resolve(".")}),
     /PROTOCOLIA_V11_EXTERNAL_ROLES_ACTIVATED/,
     "External DB clients must be activated only after exact-image health and permission checks");
+  // The request-time user must be unable to modify migration journals,
+  // despite supporting writes/audited mutations through the generated APIs.
+  const roleHistory=afterBuild.target==="nestjs"?
+    "protocolia_nest_migration_history":"flyway_schema_history";
+  assert.notEqual(run("docker",[...compose,"exec","-T","db","psql","-X",
+    "-U","protocolia_app_runtime","-d","protocolia",
+    "-v","ON_ERROR_STOP=1","-c","SELECT * FROM public."+roleHistory],
+    {cwd:generated,allowFailure:true}),0,
+    "Runtime role must never access the migration ledger");
+  console.log("PROTOCOLIA_V11_SPLIT_DB_PRINCIPALS_PASS "+JSON.stringify({
+    target:afterBuild.target,runtimePrincipal:"protocolia_app_runtime",
+    migrationPrincipal:"protocolia",runtimeIsNonSuperuser:true,
+    runtimeDdlRejected:true,runtimeMigrationJournalReadRejected:true,
+    additiveMigrationApplied:true,newBusinessWritesAudited:true
+  }));
   console.log("PROTOCOLIA_V11_ROLE_SEPARATION_PASS "+JSON.stringify({
     target:afterBuild.target,externalReaderSelectOnly:true,
     readerDmlRejected:true,externalWriterBlockedAfterDbReopen:true,
