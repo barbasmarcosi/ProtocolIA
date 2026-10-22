@@ -36,6 +36,7 @@
     "app:deploy:db-gate:engage": "node packages/cli/protocolia.mjs deploy:db-gate:engage",
     "app:deploy:db-gate:release": "node packages/cli/protocolia.mjs deploy:db-gate:release",
     "app:deploy:runtime:prepare": "node packages/cli/protocolia.mjs deploy:runtime:prepare",
+    "app:deploy:migrator:overlay": "node packages/cli/protocolia.mjs deploy:migrator:overlay",
     "app:deploy:roles:prepare": "node packages/cli/protocolia.mjs deploy:roles:prepare",
     "app:deploy:roles:blocked": "node packages/cli/protocolia.mjs deploy:roles:blocked",
     "app:deploy:roles:activate": "node packages/cli/protocolia.mjs deploy:roles:activate"
