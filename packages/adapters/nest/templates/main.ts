@@ -156,6 +156,7 @@ function equalSecrets(a:string,b:string):boolean{
 @Injectable()
 class RuntimeService{
   private readonly pool:Pool;
+  private readonly migrationPool:Pool|null;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
   private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean;requireIdToken?:boolean};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
@@ -168,6 +169,18 @@ class RuntimeService{
     if(!connection.password)connection.password=process.env.PROTOCOLIA_JDBC_PASSWORD??"";
     if(!connection.username)throw Error("PostgreSQL username must be explicit");
     this.pool=new Pool({connectionString:connection.toString(),max:20});
+    const migrationUser=process.env.PROTOCOLIA_MIGRATION_JDBC_USER??"";
+    const migrationPassword=process.env.PROTOCOLIA_MIGRATION_JDBC_PASSWORD??"";
+    if(Boolean(migrationUser)!==Boolean(migrationPassword))
+      throw Error("Both explicit migration DB user and password must be configured together");
+    if(migrationUser){
+      if(migrationUser===connection.username)
+        throw Error("Explicit migration DB principal must differ from runtime principal");
+      const migration=new URL(source);
+      migration.username=migrationUser;
+      migration.password=migrationPassword;
+      this.migrationPool=new Pool({connectionString:migration.toString(),max:2});
+    }else this.migrationPool=null;
     const mode=process.env.PROTOCOLIA_AUTH_MODE??"demo";
     if(!["demo","jwt"].includes(mode))throw Error("Unsupported ProtocolIA authentication mode");
     if(mode==="jwt"){
@@ -276,7 +289,7 @@ class RuntimeService{
   }
   async init():Promise<void>{
     await this.verifyOidcDiscovery();
-    const connection=await this.pool.connect();
+    const connection=await (this.migrationPool??this.pool).connect();
     try{
       await connection.query("BEGIN");
       await connection.query("SELECT pg_advisory_xact_lock(7219, 3006)");
@@ -319,7 +332,19 @@ class RuntimeService{
       }
       await connection.query("COMMIT");
     }catch(e){await connection.query("ROLLBACK");throw e;}
-    finally{connection.release();}
+    finally{
+      connection.release();
+      if(this.migrationPool)await this.migrationPool.end();
+    }
+    if(this.migrationPool){
+      const runtime=await this.pool.connect();
+      try{
+        const who=await runtime.query("SELECT current_user AS principal");
+        if(who.rows[0]?.principal===process.env.PROTOCOLIA_MIGRATION_JDBC_USER)
+          throw Error("Runtime DB principal must never equal migration principal");
+        console.log("PROTOCOLIA_NEST_SPLIT_DB_PRINCIPALS_OK");
+      }finally{runtime.release();}
+    }
   }
   private browserAuthConfig(mode:string):typeof this.browserAuth{
     if(mode!=="jwt")return {mode:"demo",enabled:false};
