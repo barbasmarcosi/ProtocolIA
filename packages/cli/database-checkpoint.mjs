@@ -76,6 +76,13 @@ export function createCheckpoint(args){
   const db=boundedCommand([...compose,"ps","--quiet","db"],{cwd:dir,timeout:20000});
   if(!/^[a-f0-9]{12,64}$/i.test(db))
     abort("Expected a single already-running database in the explicitly named project");
+  const originalApp=boundedCommand([...compose,"ps","--quiet","app"],{cwd:dir,timeout:15000});
+  if(!/^[a-f0-9]{12,64}$/i.test(originalApp))
+    abort("Checkpoint requires the original app container to be running");
+  const sourceAppImageId=boundedCommand(["inspect","--format","{{.Image}}",originalApp],
+    {cwd:dir,timeout:15000});
+  if(!/^sha256:[a-f0-9]{64}$/.test(sourceAppImageId))
+    abort("Unable to establish immutable image ID of the old running app");
   boundedCommand([...compose,"exec","-T","db","pg_isready","-U","protocolia","-d","protocolia"],
     {cwd:dir,timeout:15000});
   const temporary=join(dirname(archive),".protocolia-backup-"+randomBytes(10).toString("hex")+".tmp");
@@ -100,7 +107,7 @@ export function createCheckpoint(args){
     const metadata={version:1,format:"pg_dump-custom",target:build.target,
       contractSha256:build.contractSha256,
       archiveSha256:hash,archiveBytes:size,
-      composeProject:project,databaseContainerId:db,
+      composeProject:project,databaseContainerId:db,sourceAppImageId,
       createdAt:new Date().toISOString(),
       note:"Consistent pg_dump snapshot; verify full restoration into an isolated database before any production upgrade."};
     // Hard links never replace a pre-existing destination, unlike rename().
