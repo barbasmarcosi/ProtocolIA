@@ -21,7 +21,9 @@
     "app:evolve:verified": "node packages/cli/protocolia.mjs evolve:verified",
     "app:db:checkpoint": "node packages/cli/protocolia.mjs db:checkpoint",
     "app:db:verify": "node packages/cli/protocolia.mjs db:verify",
-    "app:db:preflight": "node packages/cli/protocolia.mjs db:preflight"
+    "app:db:preflight": "node packages/cli/protocolia.mjs db:preflight",
+    "app:db:stage": "node packages/cli/protocolia.mjs db:stage",
+    "app:db:stage:verify": "node packages/cli/protocolia.mjs db:stage:verify"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
