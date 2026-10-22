@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createHash} from "node:crypto";
+import {createHash,generateKeyPairSync,sign} from "node:crypto";
 import {chmodSync,mkdirSync,mkdtempSync,readFileSync,symlinkSync,writeFileSync,statSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -9,6 +9,8 @@ import {stageOptions,verifyStageInputs,verifyStageReceipt} from "../../packages/
 import {sourceOptions,compareSourceSnapshots} from "../../packages/cli/source-freshness.mjs";
 import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candidateOptions,precheckCandidate,precheckOptions,postcheckCandidate,postcheckOptions} from "../../packages/cli/deployment-candidate.mjs";
 import {pinnedOverlay,ephemeralCutoverProject,recoveryOptions,verifyRecoveryRecord} from "../../packages/cli/cutover-recovery.mjs";
+import {verifySignedPermit,verifyExternalApproval,approvalOptions} from "../../packages/cli/disposable-approval.mjs";
+import {fenceOptions,verifyDisposableFence} from "../../packages/cli/disposable-fence.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -324,4 +326,106 @@ test("isolated recovery receipt binds checkpoint, old image and pinned candidate
   chmodSync(destination,0o644);
   assert.throws(()=>verifyRecoveryRecord(recoveryOptions(args,{verify:true}),adapters),
     /owner-only/);
+});
+
+test("externally signed disposable Ed25519 approval is time-limited, project-scoped and rejects tampering",()=>{
+  const {publicKey,privateKey}=generateKeyPairSync("ed25519");
+  const claims={audience:"protocolia-disposable-cutover-v1",
+    project:"pia_ckpt_012345abcd",imageId:"sha256:"+"a".repeat(64),
+    checkpointSha256:"b".repeat(64),candidateSha256:"c".repeat(64),
+    recoverySha256:"d".repeat(64),issuedAt:"2026-10-22T09:00:00.000Z",
+    expiresAt:"2026-10-22T09:10:00.000Z",nonce:"e".repeat(32)};
+  const issue=obj=>({schema:1,algorithm:"Ed25519",claims:obj,
+    signature:sign(null,Buffer.from(JSON.stringify(obj)),privateKey).toString("base64")});
+  const time=Date.parse("2026-10-22T09:05:00.000Z");
+  assert.deepEqual(verifySignedPermit(issue(claims),publicKey,{now:time}),claims);
+  assert.throws(()=>verifySignedPermit(issue(claims),publicKey,{now:time+600001}),
+    /expired, premature/);
+  const swapped={...claims,project:"pia_ckpt_ffffffffcc"};
+  assert.throws(()=>verifySignedPermit({...issue(claims),claims:swapped},publicKey,{now:time}),
+    /Invalid Ed25519 signature/);
+  assert.throws(()=>verifySignedPermit(issue({...claims,expiresAt:"2026-10-22T10:01:00.000Z"}),
+    publicKey,{now:time}),/15 minutes/);
+  assert.throws(()=>verifySignedPermit(issue({...claims,audience:"protocolia-production"}),
+    publicKey,{now:time}),/audience/);
+  const second=generateKeyPairSync("ed25519").publicKey;
+  assert.throws(()=>verifySignedPermit(issue(claims),second,{now:time}),/Invalid Ed25519 signature/);
+  assert.throws(()=>verifySignedPermit({...issue(claims),unexpected:true},publicKey,{now:time}),
+    /Unexpected|Unsigned|unexpected signed claims/);
+});
+test("approved permit binds recovery evidence, trusted SPKI key fingerprint, original checkpoint and project",()=>{
+  const f=makeStageFixture();
+  const sourceMeta=JSON.parse(readFileSync(f.archive+".json","utf8"));
+  const project="pia_ckpt_012345abcd";
+  writeFileSync(f.archive+".json",JSON.stringify({...sourceMeta,composeProject:project}),
+    {mode:0o600});
+  createCandidate(f.args,f.adapters);
+  const recovery=join(f.root,"recovery.json");
+  const evidence={schema:1,status:"pass",oldImageId:"sha256:"+"e".repeat(64),
+    stagedImageId:f.stagedImageId,originalCheckpointSha256:sha(readFileSync(f.archive)),
+    candidateSha256:sha(readFileSync(f.candidate)),
+    originalRowsSha256:sha(JSON.stringify(f.sourceSnapshot)),
+    restoredOldSchema:true,restoredOldRows:true,originalRuntimeHealthy:true,
+    recoveredFromInjectedOutage:true,isolatedVolumeDestroyed:true,
+    completedAt:"2026-10-22T09:00:00.000Z"};
+  writeFileSync(recovery,JSON.stringify(evidence),{mode:0o600});
+  const {publicKey,privateKey}=generateKeyPairSync("ed25519");
+  const keyFile=join(f.root,"trusted.pem"),permit=join(f.root,"approval.json");
+  writeFileSync(keyFile,publicKey.export({type:"spki",format:"pem"}));
+  const pin=sha(publicKey.export({type:"spki",format:"der"}));
+  const claims={audience:"protocolia-disposable-cutover-v1",project,
+    imageId:f.stagedImageId,checkpointSha256:sha(readFileSync(f.archive)),
+    candidateSha256:sha(readFileSync(f.candidate)),recoverySha256:sha(readFileSync(recovery)),
+    issuedAt:"2026-10-22T09:00:00.000Z",expiresAt:"2026-10-22T09:14:00.000Z",
+    nonce:"a".repeat(32)};
+  const signed={schema:1,algorithm:"Ed25519",claims,
+    signature:sign(null,Buffer.from(JSON.stringify(claims)),privateKey).toString("base64")};
+  writeFileSync(permit,JSON.stringify(signed),{mode:0o600});
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,"--recovery",recovery,
+    "--project",project,"--permit",permit,"--public-key",keyFile,"--key-sha256",pin];
+  const opts=approvalOptions(args);
+  assert.equal(opts.project,project);
+  const adapters={imageInspector:f.adapters.imageInspector,
+    stageImageInspector:f.adapters.stageImageInspector,
+    oldImageInspector:id=>id,
+    now:Date.parse("2026-10-22T09:06:00.000Z")};
+  assert.equal(verifyExternalApproval(args,adapters).signerKeySha256,pin);
+  assert.throws(()=>verifyExternalApproval([...args.slice(0,-1),"0".repeat(64)],adapters),
+    /key differs/);
+  assert.throws(()=>verifyExternalApproval([...args.slice(0,14),"production",...args.slice(15)],adapters),
+    /Recovery rehearsal refused|Disposable approval refused/);
+  const altered={...evidence,originalRowsSha256:"f".repeat(64)};
+  writeFileSync(recovery,JSON.stringify(altered));
+  assert.throws(()=>verifyExternalApproval(args,adapters),/Recovery rehearsal refused/);
+  writeFileSync(recovery,JSON.stringify(evidence));
+  chmodSync(permit,0o644);
+  assert.throws(()=>verifyExternalApproval(args,adapters),/owner-only/);
+});
+test("disposable SQL maintenance fence refuses running app, other sessions and changed containers",()=>{
+  const f=makeStageFixture(),env=join(f.root,"guard.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=test\n",{mode:0o600});
+  const args=[f.dir,"--project","pia_ckpt_012345abcd","--env-file",env,
+    "--old-app-id","a".repeat(64),"--db-id","b".repeat(64)];
+  assert.equal(fenceOptions(args).project,"pia_ckpt_012345abcd");
+  const pass=argv=>{
+    const str=argv.join(" ");
+    if(str.includes("config --quiet"))return "";
+    if(str.includes("ps --quiet db"))return "b".repeat(64);
+    if(str.includes("ps --quiet app"))return "";
+    if(str.includes("inspect --format {{.State.Running}}"))return "false";
+    if(str.includes("pg_stat_activity"))return "0";
+    throw Error("Unexpected fence Docker query "+str);
+  };
+  assert.equal(verifyDisposableFence(args,{runDocker:pass}).otherSqlClientSessions,0);
+  for(const [match,value] of [["ps --quiet app","a".repeat(64)],
+    ["ps --quiet db","f".repeat(64)],["pg_stat_activity","1"],
+    ["inspect --format {{.State.Running}}","true"]]){
+    assert.throws(()=>verifyDisposableFence(args,{runDocker:argv=>{
+      const str=argv.join(" ");
+      return str.includes(match)?value:pass(argv);
+    }}),/Disposable write-fence refused/);
+  }
+  assert.throws(()=>fenceOptions([f.dir,"--project","production",...args.slice(3)]),
+    /Recovery rehearsal refused/);
 });
