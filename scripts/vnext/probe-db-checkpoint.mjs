@@ -308,9 +308,12 @@ try{
   ephemeralCutoverProject(project);
   assert.throws(()=>ephemeralCutoverProject("production"),/Recovery rehearsal refused/);
   assert.throws(()=>pinnedOverlay("latest"),/Recovery rehearsal refused/);
-  const cutoverOverlay=join(scratch,"pinned-cutover.yaml");
-  writeFileSync(cutoverOverlay,pinnedOverlay(receipt.stagedImageId),
-    {mode:0o600,flag:"wx"});
+  const cutoverOverlay=join(scratch,"one-shot-pinned-cutover.yaml");
+  assert.match(run(process.execPath,[appcli,"deploy:migrator:overlay",
+    generated,"--target",afterBuild.target,"--image",receipt.stagedImageId,
+    "--project",project,"--out",cutoverOverlay],{cwd:resolve(".")}),
+    /PROTOCOLIA_V11_ONE_SHOT_OVERLAY_READY/);
+  assert.equal(statSync(cutoverOverlay).mode&0o077,0);
   const pinnedCompose=[...compose,"-f",join(generated,"compose.yaml"),
     "-f",cutoverOverlay];
   run("docker",[...pinnedCompose,"config","--quiet"]);
@@ -476,6 +479,21 @@ try{
     replayEngageRejected:true,replayReleaseRejected:true,
     originalBusinessRowsUnchanged:true
   }));
+  // Run the privileged migrator in a SEPARATE ephemeral container, from
+  // the SAME staged image. It must exit successfully before starting HTTP.
+  const oneShot=run("docker",[...pinnedCompose,"run","--rm","--no-deps","migrate"],
+    {cwd:generated,timeout:600000});
+  const expectedMigrationMarker=afterBuild.target==="nestjs"?
+    "PROTOCOLIA_NEST_ONE_SHOT_MIGRATION_PASS":
+    "PROTOCOLIA_SPRING_ONE_SHOT_MIGRATION_PASS";
+  assert.match(oneShot,new RegExp(expectedMigrationMarker),
+    "Independent migrator must finish before request-serving app starts");
+  assert.equal(docker("ps","--quiet","app"),"",
+    "No request-serving app may start before approved one-shot migration exits");
+  console.log("PROTOCOLIA_V11_ONE_SHOT_MIGRATION_PASS "+JSON.stringify({
+    target:afterBuild.target,exactStagedImage:receipt.stagedImageId,
+    separateContainerCompleted:true,appStayedStoppedDuringMigration:true
+  }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
   // NO --build, NO pull, NO mutable tag: start exactly the staged image.
@@ -485,8 +503,13 @@ try{
   const appForPrincipal=docker("ps","--quiet","app");
   const envProof=run("docker",["inspect","--format","{{range .Config.Env}}{{println .}}{{end}}",appForPrincipal]);
   assert.match(envProof,/PROTOCOLIA_JDBC_USER=protocolia_app_runtime/);
-  assert.match(envProof,/PROTOCOLIA_MIGRATION_JDBC_USER=protocolia/);
-  assert.match(envProof,/PROTOCOLIA_MIGRATION_JDBC_PASSWORD=/);
+  assert.match(envProof,/PROTOCOLIA_EXECUTION_MODE=runtime/);
+  assert.doesNotMatch(envProof,/PROTOCOLIA_MIGRATION_JDBC_USER=protocolia(?:\\r?\\n|$)/,
+    "Runtime must not receive migration SQL user");
+  assert.doesNotMatch(envProof,/PROTOCOLIA_MIGRATION_JDBC_PASSWORD=[^\\r\\n]+/,
+    "Runtime must not receive a privileged migration SQL password");
+  assert.doesNotMatch(envProof,/PROTOCOLIA_JDBC_USER=protocolia(?:\\r?\\n|$)/,
+    "Runtime cannot use privileged migration role");
   assert.equal(docker("ps","--quiet","db"),dbBefore,
     "The existing database container must remain unchanged during upgrade");
   let upgraded=false;
@@ -569,6 +592,11 @@ try{
     "-v","ON_ERROR_STOP=1","-c","SELECT * FROM public."+roleHistory],
     {cwd:generated,allowFailure:true}),0,
     "Runtime role must never access the migration ledger");
+  console.log("PROTOCOLIA_V11_RUNTIME_SECRET_ISOLATION_PASS "+JSON.stringify({
+    target:afterBuild.target,oneShotMigrationExitedBeforeRuntime:true,
+    privilegedMigrationCredentialsAbsentFromRuntime:true,
+    dbRoleNonSuperuser:true,originalDbContainerPreserved:true
+  }));
   console.log("PROTOCOLIA_V11_SPLIT_DB_PRINCIPALS_PASS "+JSON.stringify({
     target:afterBuild.target,runtimePrincipal:"protocolia_app_runtime",
     migrationPrincipal:"protocolia",runtimeIsNonSuperuser:true,
