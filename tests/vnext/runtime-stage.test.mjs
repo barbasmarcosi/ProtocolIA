@@ -13,6 +13,7 @@ import {verifySignedPermit,verifyExternalApproval,approvalOptions} from "../../p
 import {fenceOptions,verifyDisposableFence} from "../../packages/cli/disposable-fence.mjs";
 import {gateOptions,databaseGate,ledgerSQL,gateDatabaseStatements} from "../../packages/cli/disposable-db-gate.mjs";
 import {roleSQL,roleOptions,disposableRolePolicy} from "../../packages/cli/disposable-role-policy.mjs";
+import {runtimeRoleStatements,runtimePrincipalOptions,readRuntimeCredentials} from "../../packages/cli/disposable-runtime-principal.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -578,4 +579,31 @@ test("external PostgreSQL roles have separate read/write privileges and cannot l
   chmodSync(credentials,0o644);
   await assert.rejects(disposableRolePolicy(args,{mode:"blocked",...adapters}),
     /owner-only/);
+});
+
+test("disposable runtime credentials are bound to a stopped disposable project and never privileged",()=>{
+  const f=makeStageFixture(),env=join(f.root,"db.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=test\n",{mode:0o600});
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",join(f.root,"candidate.json"),
+    "--recovery",join(f.root,"recovery.json"),"--project","pia_ckpt_012345abcd",
+    "--permit",join(f.root,"approval.json"),"--public-key",join(f.root,"trusted.pem"),
+    "--key-sha256","a".repeat(64),"--env-file",env,
+    "--old-app-id","b".repeat(64),"--db-id","c".repeat(64),
+    "--credentials",join(f.root,"app-sql-runtime.json")];
+  assert.equal(runtimePrincipalOptions(args).fence.project,"pia_ckpt_012345abcd");
+  const secret="c".repeat(48),statements=runtimeRoleStatements(secret);
+  assert.ok(statements.some(s=>s.startsWith("CREATE ROLE protocolia_app_runtime LOGIN NOSUPERUSER")));
+  assert.ok(statements.some(s=>s.includes("GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES")));
+  assert.ok(statements.some(s=>s.includes("REVOKE ALL")&&s.includes("flyway_schema_history")));
+  assert.ok(statements.every(s=>!s.includes("GRANT CREATE ON SCHEMA")));
+  assert.throws(()=>runtimeRoleStatements("' DROP DATABASE postgres; --"),/Invalid generated SQL secret/);
+  const cred={schema:1,project:"pia_ckpt_012345abcd",
+    role:"protocolia_app_runtime",password:secret};
+  writeFileSync(args.at(-1),JSON.stringify(cred),{mode:0o600});
+  assert.equal(readRuntimeCredentials(args.at(-1),cred.project).password,secret);
+  assert.throws(()=>readRuntimeCredentials(args.at(-1),"production"),/binding is invalid/);
+  assert.throws(()=>runtimePrincipalOptions(args),/credential output/);
+  chmodSync(args.at(-1),0o644);
+  assert.throws(()=>runtimePrincipalOptions(args,{verify:true}),/owner-only/);
 });
