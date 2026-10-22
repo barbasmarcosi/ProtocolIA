@@ -13,6 +13,7 @@ export function oneShotOverlay(imageId,target){
     reject("Only supported generated contract adapters allowed");
   const jdbc=target==="nestjs"?"postgresql://db:5432/protocolia":
     "jdbc:postgresql://db:5432/protocolia";
+  const handoff=imageId.slice(7);
   return [
     "services:",
     "  app:",
@@ -21,6 +22,8 @@ export function oneShotOverlay(imageId,target){
     "    build: !reset null",
     "    environment:",
     "      PROTOCOLIA_EXECUTION_MODE: runtime",
+    "      PROTOCOLIA_MIGRATION_HANDOFF_ID: "+handoff,
+    "      PROTOCOLIA_MIGRATION_FAILPOINT: !reset null",
     "      PROTOCOLIA_MIGRATION_JDBC_USER: !reset null",
     "      PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null",
     "  migrate:",
@@ -28,6 +31,8 @@ export function oneShotOverlay(imageId,target){
     "    pull_policy: never",
     "    environment:",
     "      PROTOCOLIA_EXECUTION_MODE: migrate",
+    "      PROTOCOLIA_MIGRATION_HANDOFF_ID: "+handoff,
+    '      PROTOCOLIA_HANDOFF_RUNTIME_USER: ${PROTOCOLIA_RUNTIME_DB_USER:-protocolia}',
     "      PROTOCOLIA_JDBC_URL: "+jdbc,
     "      PROTOCOLIA_JDBC_USER: protocolia",
     "      PROTOCOLIA_JDBC_PASSWORD: \${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}",
