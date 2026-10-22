@@ -138,6 +138,15 @@ try {
   }else if(process.argv[2]==="deploy:permit:verify"){
     const {verifyExternalApproval}=await import("./disposable-approval.mjs");
     verifyExternalApproval(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:roles:prepare"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"prepare"});
+  }else if(process.argv[2]==="deploy:roles:blocked"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"blocked"});
+  }else if(process.argv[2]==="deploy:roles:activate"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"activate"});
   }else if(process.argv[2]==="deploy:db-gate:engage"){
     const {databaseGate}=await import("./disposable-db-gate.mjs");
     databaseGate(process.argv.slice(3),{mode:"engage"});
