@@ -24,7 +24,7 @@ function privateJson(path){
   if(!st.isFile()||(st.mode&0o077)!==0)refuse("JSON must be owner-only regular file (no symlinks)");
   try{return JSON.parse(readFileSync(path,"utf8"));}catch{refuse("Invalid JSON document");}
 }
-export function stageOptions(args){
+export function stageOptions(args,{verify=false}={}){
   if(args.length!==7||args[1]!=="--checkpoint"||
      args[3]!=="--report"||args[5]!=="--out")
     refuse("Usage: app:db:stage <evolved-generated-dir> --checkpoint <old.dump> --report <preflight.json> --out <new-receipt.json>");
@@ -32,7 +32,8 @@ export function stageOptions(args){
     report=resolve(args[4]),out=resolve(args[6]);
   if(!existsSync(dir)||!archive.endsWith(".dump")||!report.endsWith(".json")||
      !out.endsWith(".json")||inside(dir,out)||out===report||
-     out===archive+".json"||existsSync(out)||!existsSync(dirname(out)))
+     out===archive+".json"||(!verify&&existsSync(out))||
+     (verify&&!existsSync(out))||!existsSync(dirname(out)))
     refuse("Invalid or pre-existing receipt destination; it must be outside the generated app");
   return {dir,archive,report,out};
 }
