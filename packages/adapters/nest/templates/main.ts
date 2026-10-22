@@ -346,6 +346,32 @@ class RuntimeService{
       }finally{runtime.release();}
     }
   }
+  async verifyRuntimeReady():Promise<void>{
+    if(this.migrationPool||
+       (process.env.PROTOCOLIA_MIGRATION_JDBC_USER??"")!==""||
+       (process.env.PROTOCOLIA_MIGRATION_JDBC_PASSWORD??"")!=="")
+      throw Error("HTTP runtime must never receive privileged migration credentials");
+    const db=await this.pool.connect();
+    try{
+      const who=await db.query("SELECT rolsuper FROM pg_roles WHERE rolname=current_user");
+      if(who.rows.length!==1||who.rows[0].rolsuper!==false)
+        throw Error("HTTP runtime SQL principal must not be a superuser");
+      for(const entity of spec.entities){
+        const result=await db.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+          [entity.table]);
+        const columns=new Set(result.rows.map((row:{column_name:string})=>row.column_name));
+        for(const field of entity.fields)
+          if(!columns.has(field.column))
+            throw Error("Runtime schema is not migrated for "+entity.table+"."+field.column);
+      }
+      console.log("PROTOCOLIA_NEST_RUNTIME_SCHEMA_READY");
+    }finally{db.release();}
+  }
+  async closePools():Promise<void>{
+    if(this.migrationPool)await this.migrationPool.end();
+    await this.pool.end();
+  }
   private browserAuthConfig(mode:string):typeof this.browserAuth{
     if(mode!=="jwt")return {mode:"demo",enabled:false};
     const keys=["PROTOCOLIA_OIDC_AUTHORIZATION_ENDPOINT","PROTOCOLIA_OIDC_TOKEN_ENDPOINT",
@@ -1408,11 +1434,23 @@ function operationController(op:Operation):any{
 })
 class ContractModule{}
 async function bootstrap(){
+  const execution=process.env.PROTOCOLIA_EXECUTION_MODE??"legacy";
+  if(!["legacy","migrate","runtime"].includes(execution))
+    throw Error("Unsupported ProtocolIA execution mode");
+  if(execution==="migrate"){
+    const runner=new RuntimeService();
+    try{
+      await runner.init();
+      console.log("PROTOCOLIA_NEST_ONE_SHOT_MIGRATION_PASS");
+    }finally{await runner.closePools();}
+    return;
+  }
   const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"]});
   installBffSecurityHeaders(app);
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
-  await engine.init();
+  if(execution==="runtime")await engine.verifyRuntimeReady();
+  else await engine.init();
   await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
   if(spec.hasOverdueRules && process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"){
