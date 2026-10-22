@@ -32,7 +32,9 @@
     "app:deploy:recovery:drill": "node packages/cli/protocolia.mjs deploy:recovery:drill",
     "app:deploy:recovery:verify": "node packages/cli/protocolia.mjs deploy:recovery:verify",
     "app:deploy:permit:verify": "node packages/cli/protocolia.mjs deploy:permit:verify",
-    "app:deploy:fence:verify": "node packages/cli/protocolia.mjs deploy:fence:verify"
+    "app:deploy:fence:verify": "node packages/cli/protocolia.mjs deploy:fence:verify",
+    "app:deploy:db-gate:engage": "node packages/cli/protocolia.mjs deploy:db-gate:engage",
+    "app:deploy:db-gate:release": "node packages/cli/protocolia.mjs deploy:db-gate:release"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
