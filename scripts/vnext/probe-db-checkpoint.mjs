@@ -246,6 +246,20 @@ try{
     versionEtagsContinue:true,auditWritesContinue:true,
     stageVolumeDestroyed:true,reusableStageCli:true,receiptVerified:true
   }));
+  // v1.1j: reject an image ID or source DB that does not exactly match the
+  // snapshot staged in an isolated Compose volume. This is *read only*.
+  const sourceArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--project",project,"--env-file",envFile,
+    "--assert-writes-paused"];
+  const sourceCheck=run(process.execPath,[appcli,"db:source:verify",...sourceArgs],
+    {cwd:resolve(".")});
+  assert.match(sourceCheck,/PROTOCOLIA_V11_SOURCE_FRESHNESS_PASS/);
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original);
+  console.log("PROTOCOLIA_V11_FRESHNESS_BEFORE_UPGRADE_PASS "+JSON.stringify({
+    target:afterBuild.target,readOnlySourceVerified:true,
+    stagedImageIdentityBound:true,pausedWritesOperatorAsserted:true
+  }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
   docker("up","--detach","--build","--force-recreate","--no-deps","app");
@@ -296,6 +310,12 @@ try{
     "WHERE resource_id IN ('BEFORE-A','BEFORE-B','BEFORE-C','AFTER-V2-CHILD')"))>
     Number(original.audit));
   const postEvolveSnapshot=snapshot("protocolia");
+  assert.notEqual(run(process.execPath,[appcli,"db:source:verify",...sourceArgs],
+    {cwd:resolve("."),allowFailure:true}),0,
+    "After the schema upgrade and new writes, the original checkpoint must be stale");
+  console.log("PROTOCOLIA_V11_STALE_SOURCE_REJECTED "+JSON.stringify({
+    target:afterBuild.target,postUpgradeDriftDetected:true
+  }));
   const evolutionEvidence={
     generatedTarget:afterBuild.target,
     typeSpecMigrationAfterExistingHistory:true,
