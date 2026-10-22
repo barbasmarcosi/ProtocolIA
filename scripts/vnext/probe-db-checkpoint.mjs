@@ -344,6 +344,30 @@ try{
   assert.notEqual(run(process.execPath,[appcli,"deploy:precheck",...checkArgs],
     {cwd:resolve("."),allowFailure:true}),0,
     "Previously approved deployment candidate must reject the changed original database");
+  // Observe the *actually running* post-upgrade image, without deploying or
+  // restarting it. A rebuild may differ from the staged image and MUST NOT
+  // be treated as an approved cutover merely because /health is green.
+  const appContainer=docker("ps","--quiet","app");
+  assert.match(appContainer,/^[0-9a-f]{12,64}$/i);
+  const runningImage=run("docker",["inspect","--format","{{.Image}}",appContainer]);
+  const postArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--candidate",candidatePath,
+    "--project",project,"--env-file",envFile,
+    "--health-url","http://127.0.0.1:"+port+"/health"];
+  const observed=run(process.execPath,[appcli,"deploy:postcheck",...postArgs],
+    {cwd:resolve("."),allowFailure:runningImage!==receipt.stagedImageId});
+  if(runningImage===receipt.stagedImageId)
+    assert.match(observed,/PROTOCOLIA_V11_DEPLOYMENT_POSTCHECK_PASS/,
+      "Exact staged image must be healthy after original test-app restart");
+  else
+    assert.notEqual(observed,0,
+      "A rebuilt image not identical to the staged image must fail closed");
+  console.log("PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS "+JSON.stringify({
+    target:afterBuild.target,
+    runningImageEqualsStaged:runningImage===receipt.stagedImageId,
+    actualImageChecked:true,unapprovedRebuildRejected:runningImage!==receipt.stagedImageId,
+    sourceDatabaseContainerUnchanged:docker("ps","--quiet","db")===dbBefore
+  }));
   console.log("PROTOCOLIA_V11_STALE_SOURCE_REJECTED "+JSON.stringify({
     target:afterBuild.target,postUpgradeDriftDetected:true
   }));
