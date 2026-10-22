@@ -8,6 +8,7 @@ import {sealApp} from "../../packages/cli/ownership.mjs";
 import {stageOptions,verifyStageInputs,verifyStageReceipt} from "../../packages/cli/runtime-stage.mjs";
 import {sourceOptions,compareSourceSnapshots} from "../../packages/cli/source-freshness.mjs";
 import {parseImageRef,assertCandidateImage,createCandidate,verifyCandidate,candidateOptions,precheckCandidate,precheckOptions,postcheckCandidate,postcheckOptions} from "../../packages/cli/deployment-candidate.mjs";
+import {pinnedOverlay,ephemeralCutoverProject,recoveryOptions,verifyRecoveryRecord} from "../../packages/cli/cutover-recovery.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -38,6 +39,7 @@ function fixture(){
     version:1,format:"pg_dump-custom",target:"nestjs",
     contractSha256:oldContract,archiveBytes:bytes.length,
     composeProject:"pia_ckpt_test",databaseContainerId:"d".repeat(64),
+    sourceAppImageId:"sha256:"+"e".repeat(64),
     archiveSha256:sha(bytes)
   }),{mode:0o600});
   const passed={schema:2,status:"pass",target:"nestjs",
@@ -274,4 +276,52 @@ test("post-start guard accepts only the exactly staged running image with health
     "http://127.0.0.1:24189/other","http://127.0.0.1:0/health"
   ])assert.throws(()=>postcheckOptions([...args.slice(0,-1),unsafe]),
     /Deployment candidate refused/);
+});
+
+test("pinned Compose overlay and CI project fence refuse mutable image and non-ephemeral targets",()=>{
+  assert.equal(ephemeralCutoverProject("pia_ckpt_012345abcd"),"pia_ckpt_012345abcd");
+  for(const unsafe of ["production","pia_ckpt_abc","pia_ckpt_012345abcd_extra","../pia_ckpt_012345abcd"])
+    assert.throws(()=>ephemeralCutoverProject(unsafe),/Recovery rehearsal refused/);
+  assert.match(pinnedOverlay("sha256:"+"c".repeat(64)),/pull_policy: never/);
+  assert.match(pinnedOverlay("sha256:"+"c".repeat(64)),/build: !reset null/);
+  for(const unsafe of ["app:latest","registry/app@sha256:"+"f".repeat(64)])
+    assert.throws(()=>pinnedOverlay(unsafe),/Recovery rehearsal refused/);
+});
+test("isolated recovery receipt binds checkpoint, old image and pinned candidate without running Docker",()=>{
+  const f=makeStageFixture();
+  createCandidate(f.args,f.adapters);
+  const destination=join(f.root,"recovery.json");
+  const args=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,"--out",destination];
+  assert.equal(recoveryOptions(args).recoveryPath,destination);
+  for(const unsafe of [
+    [...args.slice(0,-1),f.out],[...args.slice(0,-1),join(f.dir,"recovery.json")],
+    args.slice(0,-1)
+  ])assert.throws(()=>recoveryOptions(unsafe),/Recovery rehearsal refused/);
+  const expect={schema:1,status:"pass",oldImageId:"sha256:"+"e".repeat(64),
+    stagedImageId:f.stagedImageId,
+    originalCheckpointSha256:sha(readFileSync(f.archive)),
+    candidateSha256:sha(readFileSync(f.candidate)),
+    originalRowsSha256:sha(JSON.stringify(f.sourceSnapshot)),
+    restoredOldSchema:true,restoredOldRows:true,
+    originalRuntimeHealthy:true,recoveredFromInjectedOutage:true,
+    isolatedVolumeDestroyed:true,completedAt:"2026-10-22T00:00:00.000Z"};
+  const adapters={candidateInspector:f.adapters.imageInspector,
+    stageImageInspector:f.adapters.stageImageInspector,oldImageInspector:id=>id};
+  writeFileSync(destination,JSON.stringify(expect),{mode:0o600});
+  assert.equal(verifyRecoveryRecord(recoveryOptions(args,{verify:true}),adapters).oldImageId,
+    expect.oldImageId);
+  for(const [key,value] of [["oldImageId",f.stagedImageId],
+    ["candidateSha256","f".repeat(64)],["recoveredFromInjectedOutage",false],
+    ["isolatedVolumeDestroyed",false],["originalRowsSha256","0".repeat(64)]]){
+    writeFileSync(destination,JSON.stringify({...expect,[key]:value}));
+    assert.throws(()=>verifyRecoveryRecord(recoveryOptions(args,{verify:true}),adapters),
+      /Recovery rehearsal refused/,key);
+  }
+  writeFileSync(destination,JSON.stringify(expect));
+  assert.throws(()=>verifyRecoveryRecord(recoveryOptions(args,{verify:true}),
+    {...adapters,oldImageInspector:()=>null}),/original immutable application image/);
+  chmodSync(destination,0o644);
+  assert.throws(()=>verifyRecoveryRecord(recoveryOptions(args,{verify:true}),adapters),
+    /owner-only/);
 });
