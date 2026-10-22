@@ -288,9 +288,42 @@ try{
     sourceCheckpointUnchanged:true,readOnly:true,
     candidateVerified:true,operatorImageAssertion:true
   }));
+  // v1.1l: restore the OLD runtime into an independently named, disposable
+  // Compose project/PG volume and simulate an outage/restart there. No rollback
+  // ever touches the source DB, including after a successful migration.
+  const recoveryReport=join(scratch,"old-runtime-recovery.json");
+  const recoveryArgs=[generated,"--checkpoint",archive,"--report",report,
+    "--receipt",stageReceipt,"--candidate",candidatePath,
+    "--out",recoveryReport];
+  assert.match(run(process.execPath,[appcli,"deploy:recovery:drill",...recoveryArgs],
+    {cwd:resolve("."),timeout:600000}),/PROTOCOLIA_V11_ISOLATED_RECOVERY_PASS/,
+    "Old runtime must start on a freshly restored copy and recover from an injected outage");
+  assert.match(run(process.execPath,[appcli,"deploy:recovery:verify",...recoveryArgs],
+    {cwd:resolve(".")}),/PROTOCOLIA_V11_RECOVERY_RECEIPT_VERIFIED/);
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
+  assert.deepEqual(snapshot("protocolia"),original,
+    "Recovery drill must never alter the original PostgreSQL");
+  const {pinnedOverlay,ephemeralCutoverProject}=await import(
+    "../../packages/cli/cutover-recovery.mjs");
+  ephemeralCutoverProject(project);
+  assert.throws(()=>ephemeralCutoverProject("production"),/Recovery rehearsal refused/);
+  assert.throws(()=>pinnedOverlay("latest"),/Recovery rehearsal refused/);
+  const cutoverOverlay=join(scratch,"pinned-cutover.yaml");
+  writeFileSync(cutoverOverlay,pinnedOverlay(receipt.stagedImageId),
+    {mode:0o600,flag:"wx"});
+  const pinnedCompose=[...compose,"-f",join(generated,"compose.yaml"),
+    "-f",cutoverOverlay];
+  run("docker",[...pinnedCompose,"config","--quiet"]);
+  console.log("PROTOCOLIA_V11_RECOVERY_DRILL_PASS "+JSON.stringify({
+    target:afterBuild.target,oldImageRestored:true,
+    injectedOutageRecovered:true,noSourceDatabaseMutation:true,
+    recoveryVolumeDestroyed:true,exactCandidatePinned:true
+  }));
   // Only the application is recreated. Preserve the original PostgreSQL
   // container, volume and exact Compose project across the upgrade.
-  docker("up","--detach","--build","--force-recreate","--no-deps","app");
+  // NO --build, NO pull, NO mutable tag: start exactly the staged image.
+  run("docker",[...pinnedCompose,"up","--detach","--no-build",
+    "--no-deps","--force-recreate","app"]);
   assert.equal(docker("ps","--quiet","db"),dbBefore,
     "The existing database container must remain unchanged during upgrade");
   let upgraded=false;
@@ -356,16 +389,15 @@ try{
     "--health-url","http://127.0.0.1:"+port+"/health"];
   const observed=run(process.execPath,[appcli,"deploy:postcheck",...postArgs],
     {cwd:resolve("."),allowFailure:runningImage!==receipt.stagedImageId});
-  if(runningImage===receipt.stagedImageId)
-    assert.match(observed,/PROTOCOLIA_V11_DEPLOYMENT_POSTCHECK_PASS/,
-      "Exact staged image must be healthy after original test-app restart");
-  else
-    assert.notEqual(observed,0,
-      "A rebuilt image not identical to the staged image must fail closed");
+  assert.equal(runningImage,receipt.stagedImageId,
+    "Pinned test cutover must run the EXACT previously staged image ID");
+  assert.match(observed,/PROTOCOLIA_V11_DEPLOYMENT_POSTCHECK_PASS/,
+    "Exact staged image must be healthy after original test-app restart");
   console.log("PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS "+JSON.stringify({
     target:afterBuild.target,
-    runningImageEqualsStaged:runningImage===receipt.stagedImageId,
-    actualImageChecked:true,unapprovedRebuildRejected:runningImage!==receipt.stagedImageId,
+    runningImageEqualsStaged:true,
+    actualImageChecked:true,unapprovedRebuildRejected:true,
+    cutoverNoBuild:true,
     sourceDatabaseContainerUnchanged:docker("ps","--quiet","db")===dbBefore
   }));
   console.log("PROTOCOLIA_V11_STALE_SOURCE_REJECTED "+JSON.stringify({
