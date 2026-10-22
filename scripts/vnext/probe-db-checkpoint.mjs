@@ -391,6 +391,17 @@ try{
   // v1.1n: server-level DB connection barrier, not merely zero observed SQL
   // sessions. Its durable ledger in the SEPARATE postgres maintenance DB
   // consumes a signed nonce once. Only this disposable pia_ckpt_* is allowed.
+  // v1.1o: only the temporary CI project obtains distinct external SQL
+  // reader/writer identities. Both start NOLOGIN. The app's privileged
+  // migration account remains unchanged until a later dedicated milestone.
+  const externalCredentials=join(scratch,"disposable-external-roles.json");
+  const roleArgs=[...permitArgs,"--env-file",envFile,
+    "--old-app-id",oldAppContainer,"--db-id",dbBefore,
+    "--credentials",externalCredentials];
+  const prepared=run(process.execPath,[appcli,"deploy:roles:prepare",...roleArgs],
+    {cwd:resolve(".")});
+  assert.match(prepared,/PROTOCOLIA_V11_EXTERNAL_ROLES_PREPARED/);
+  assert.equal(docker("ps","--quiet","db"),dbBefore);
   const gateArgs=[...permitArgs,"--env-file",envFile,
     "--old-app-id",oldAppContainer,"--db-id",dbBefore];
   const engageGate=run(process.execPath,[appcli,"deploy:db-gate:engage",...gateArgs],
@@ -416,6 +427,11 @@ try{
   assert.equal(docker("ps","--quiet","db"),dbBefore);
   assert.deepEqual(snapshot("protocolia"),original,
     "Engage/release DB connection gate must not modify domain rows or schema");
+  // After re-opening the DB for migration, an independent EXTERNAL writer
+  // still cannot authenticate: NOLOGIN survives the gate release until the
+  // exact-image new app is independently healthy and verified.
+  assert.match(run(process.execPath,[appcli,"deploy:roles:blocked",...roleArgs],
+    {cwd:resolve(".")}),/PROTOCOLIA_V11_EXTERNAL_ROLES_BLOCKED/);
   console.log("PROTOCOLIA_V11_SERVER_WRITE_GATE_PASS "+JSON.stringify({
     target:afterBuild.target,serverConnectionsBlocked:true,
     superuserReconnectRejected:true,nonceDurablyConsumed:true,
@@ -496,6 +512,16 @@ try{
     "Pinned test cutover must run the EXACT previously staged image ID");
   assert.match(observed,/PROTOCOLIA_V11_DEPLOYMENT_POSTCHECK_PASS/,
     "Exact staged image must be healthy after original test-app restart");
+  assert.match(run(process.execPath,[appcli,"deploy:roles:activate",...roleArgs,
+    "--health-url","http://127.0.0.1:"+port+"/health"],{cwd:resolve(".")}),
+    /PROTOCOLIA_V11_EXTERNAL_ROLES_ACTIVATED/,
+    "External DB clients must be activated only after exact-image health and permission checks");
+  console.log("PROTOCOLIA_V11_ROLE_SEPARATION_PASS "+JSON.stringify({
+    target:afterBuild.target,externalReaderSelectOnly:true,
+    readerDmlRejected:true,externalWriterBlockedAfterDbReopen:true,
+    writerActivatedOnlyAfterVerifiedHealth:true,oldDbContainerPreserved:true,
+    generatedAppStillUsesPrivilegedMigrationAccount:true
+  }));
   console.log("PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS "+JSON.stringify({
     target:afterBuild.target,
     runningImageEqualsStaged:true,
