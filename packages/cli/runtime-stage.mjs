@@ -101,17 +101,57 @@ async function freePort(){
     });
   });
 }
-export function verifyStageReceipt(options){
+export function inspectLocalImage(imageId){
+  if(typeof imageId!=="string"||!/^sha256:[a-f0-9]{64}$/.test(imageId))
+    refuse("Missing content-addressed local Docker image ID");
+  const p=spawnSync("docker",["image","inspect","--format","{{.Id}}",imageId],
+    {encoding:"utf8",timeout:15000,maxBuffer:4096});
+  if(p.error||p.status!==0||p.stdout?.trim()!==imageId)
+    refuse("Staged Docker image no longer exists with its exact content ID");
+  return imageId;
+}
+export function validateSnapshot(snapshot){
+  if(!snapshot||typeof snapshot!=="object"||Array.isArray(snapshot)||
+     !snapshot.snapshot||typeof snapshot.snapshot!=="object"||
+     Array.isArray(snapshot.snapshot)||!Number.isSafeInteger(snapshot.totalRows)||
+     snapshot.totalRows<0)refuse("Invalid historic source database snapshot");
+  const names=Object.keys(snapshot.snapshot);
+  if(!names.length||names.some(n=>!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(n)))
+    refuse("Invalid historic table names");
+  let count=0;
+  for(const name of names){
+    const item=snapshot.snapshot[name];
+    if(!item||!Number.isSafeInteger(item.count)||item.count<0||
+       !/^[a-f0-9]{64}$/.test(item.sha256)||
+       !Array.isArray(item.columns)||!item.columns.length||
+       item.columns.some(n=>typeof n!=="string"||!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(n))||
+       new Set(item.columns).size!==item.columns.length)
+      refuse("Invalid historic table digest or column definition");
+    count+=item.count;
+  }
+  if(count!==snapshot.totalRows)refuse("Historic snapshot row counts do not add up");
+  return snapshot;
+}
+export function verifyStageReceipt(options,{imageInspector=inspectLocalImage}={}){
   const {binding}=verifyStageInputs(options);
   const receipt=privateJson(options.out);
   for(const [key,value] of Object.entries(binding))
     if(receipt[key]!==value)refuse("Staged runtime receipt binding changed: "+key);
-  if(receipt.stagedAppHealthy!==true||
+  if(receipt.receiptSchema!==2||receipt.stagedAppHealthy!==true||
      receipt.oldRowsPreserved!==true||receipt.schemaLedgerAdvanced!==true||
      receipt.genericReadPassed!==true||receipt.stagedVolumeDestroyed!==true)
     refuse("Staging receipt lacks verified runtime acceptance");
   if(typeof receipt.timestamp!=="string"||Number.isNaN(Date.parse(receipt.timestamp)))
     refuse("Staging receipt missing timestamp");
+  if(typeof receipt.stagedImageId!=="string"||
+     !/^sha256:[0-9a-f]{64}$/.test(receipt.stagedImageId)||
+     imageInspector(receipt.stagedImageId)!==receipt.stagedImageId)
+    refuse("Staged container image identity differs from the local tested image");
+  validateSnapshot(receipt.sourceSnapshot);
+  if(receipt.sourceSnapshotSha256!==sha(JSON.stringify(receipt.sourceSnapshot))||
+     receipt.rowsAttested!==receipt.sourceSnapshot.totalRows||
+     receipt.tablesAttested!==Object.keys(receipt.sourceSnapshot.snapshot).length)
+    refuse("Historic backup snapshot or digest differs from staged receipt");
   return receipt;
 }
 export async function stageRuntime(args,{inspect}={}){
@@ -172,6 +212,10 @@ export async function stageRuntime(args,{inspect}={}){
         "AND table_name='protocolia_nest_migration_history'":
       "SELECT count(*) FROM flyway_schema_history WHERE success");
     call("up","--detach","--build","app");
+    const appId=call("ps","--quiet","app");
+    if(!/^[0-9a-f]{12,64}$/i.test(appId))refuse("No single staged application container");
+    const stagedImageId=composeExec(["inspect","--format","{{.Image}}",appId],{cwd:dir,env});
+    inspectLocalImage(stagedImageId);
     let healthy=false;
     for(let i=0;i<135;i++){
       try{
@@ -211,11 +255,12 @@ export async function stageRuntime(args,{inspect}={}){
     const response=await request("GET",reads[0].path);
     if(response.status!==200)refuse("Staged contract-derived HTTP list read failed: "+response.status);
     if(typeof inspect==="function")await inspect({request,sql,build:binding});
-    receipt={...binding,timestamp:new Date().toISOString(),
+    receipt={...binding,receiptSchema:2,timestamp:new Date().toISOString(),
+      stagedImageId,sourceSnapshot:before,sourceSnapshotSha256:sha(JSON.stringify(before)),
       stagedAppHealthy:true,oldRowsPreserved:true,
       schemaLedgerAdvanced:true,genericReadPassed:true,stagedVolumeDestroyed:true,
-      rowsAttested:retained.totalRows,tablesAttested:Object.keys(oldTables).length,
-      note:"Local isolated runtime rehearsal. Unsigned, not production authorization, not a live-DB freshness proof."};
+      rowsAttested:before.totalRows,tablesAttested:Object.keys(before.snapshot).length,
+      note:"Local content-addressed Docker image ID and restored DB row digests; unsigned, not a registry OCI digest, not production authorization or live-DB freshness."};
     complete=true;
   }finally{
     let cleanupError;
@@ -231,6 +276,7 @@ export async function stageRuntime(args,{inspect}={}){
     target:receipt.target,checkpointSha256:receipt.checkpointSha256,
     evolvedIrSha256:receipt.evolvedIrSha256,
     rowsAttested:receipt.rowsAttested,
+    stagedImageId:receipt.stagedImageId,
     stageVolumeDestroyed:true,receipt:out
   }));
   return receipt;
