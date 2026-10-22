@@ -121,6 +121,20 @@ try {
   }else if(process.argv[2]==="db:stage"){
     const {stageRuntime}=await import("./runtime-stage.mjs");
     await stageRuntime(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:candidate"){
+    const {createCandidate}=await import("./deployment-candidate.mjs");
+    createCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:candidate:verify"){
+    const {candidateOptions,verifyCandidate}=await import("./deployment-candidate.mjs");
+    const options=candidateOptions(process.argv.slice(3),{verify:true});
+    const candidate=verifyCandidate(options);
+    console.log("PROTOCOLIA_V11_DEPLOYMENT_CANDIDATE_VERIFIED "+JSON.stringify({
+      imageRef:candidate.imageRef,imageMode:candidate.imageMode,
+      stagedImageId:candidate.stagedImageId
+    }));
+  }else if(process.argv[2]==="deploy:precheck"){
+    const {precheckCandidate}=await import("./deployment-candidate.mjs");
+    precheckCandidate(process.argv.slice(3));
   }else if(process.argv[2]==="db:source:verify"){
     const {verifySourceFreshness}=await import("./source-freshness.mjs");
     verifySourceFreshness(process.argv.slice(3));
