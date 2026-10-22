@@ -12,16 +12,16 @@ import {verifyDisposableFence} from "./disposable-fence.mjs";
 const refuse=why=>{throw Error("Disposable runtime principal refused: "+why);};
 const role="protocolia_app_runtime";
 const secretPattern=/^[a-f0-9]{48}$/;
-function outside(root,p){
+function inside(root,p){
   const rel=relative(root,p);
-  return rel!=="."&&rel!==""&&rel!==".."&&!rel.startsWith(".."+sep)&&!isAbsolute(rel);
+  return rel===""||(rel!==".."&&!rel.startsWith(".."+sep)&&!isAbsolute(rel));
 }
 export function runtimePrincipalOptions(args,{verify=false}={}){
   if(args.length!==27||args[25]!=="--credentials")
     refuse("Usage: <25 signed disposable gate arguments> --credentials <private-runtime-credentials.json>");
   const gate=gateOptions(args.slice(0,25));
   const file=resolve(args[26]);
-  if(!file.endsWith(".json")||!existsSync(dirname(file))||!outside(gate.approval.dir,file)||
+  if(!file.endsWith(".json")||!existsSync(dirname(file))||inside(gate.approval.dir,file)||
      (verify&&!existsSync(file))||(!verify&&existsSync(file)))
     refuse("Runtime credential output must be new, private, and outside generated app");
   if(verify){
