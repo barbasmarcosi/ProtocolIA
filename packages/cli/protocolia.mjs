@@ -138,6 +138,12 @@ try {
   }else if(process.argv[2]==="deploy:permit:verify"){
     const {verifyExternalApproval}=await import("./disposable-approval.mjs");
     verifyExternalApproval(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:db-gate:engage"){
+    const {databaseGate}=await import("./disposable-db-gate.mjs");
+    databaseGate(process.argv.slice(3),{mode:"engage"});
+  }else if(process.argv[2]==="deploy:db-gate:release"){
+    const {databaseGate}=await import("./disposable-db-gate.mjs");
+    databaseGate(process.argv.slice(3),{mode:"release"});
   }else if(process.argv[2]==="deploy:fence:verify"){
     const {verifyDisposableFence}=await import("./disposable-fence.mjs");
     verifyDisposableFence(process.argv.slice(3));
