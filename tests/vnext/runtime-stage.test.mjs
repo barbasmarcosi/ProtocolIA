@@ -527,6 +527,9 @@ test("external PostgreSQL roles have separate read/write privileges and cannot l
     /generated test secrets/);
   assert.match(roleSQL("grants").join("\n"),/GRANT SELECT,INSERT,UPDATE,DELETE/);
   assert.match(roleSQL("grants").join("\n"),/protocolia_audit_event/);
+  assert.match(roleSQL("grants").join("\n"),/protocolia_migration_handoff_v1/);
+  assert.match(roleSQL("tableCheck"),/protocolia_migration_handoff_v1/);
+  assert.match(roleSQL("firstTable"),/protocolia_migration_handoff_v1/);
   let created=false,login=false,healthy=0;
   const mockDocker=(argv,{allowFailure=false}={})=>{
     const s=argv.join(" ");
