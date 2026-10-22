@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-22 UTC. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft. **v1.0.0/main:** unchanged.
 
-**Integration:** [Spring/Nest matrix #39716672309](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716672309) — **PENDING/RUNNING at the time of writing; do not claim ACCEPTED until both jobs conclude SUCCESS**. **Quality:** [#39716672306](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716672306) and [#39716677759](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716677759) — **SUCCESS**.
+**Integration:** [Spring/Nest matrix #39716672309](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716672309) — **SUCCESS** in both independent NestJS and modular Spring Boot matrix jobs. Both verified an immutable local candidate, read-only precheck, unchanged original DB before upgrade, exact tested image in the post-start Compose app, loopback health and failure of stale-source checks after test migration. The CI logs include PROTOCOLIA_V11_DEPLOY_CANDIDATE_PRECHECK_PASS, PROTOCOLIA_V11_DEPLOY_POSTCHECK_GUARD_PASS, PROTOCOLIA_V11_APP_EVOLUTION_PASS and PROTOCOLIA_V11_STALE_SOURCE_REJECTED. **Quality:** [#39716672306](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716672306) and [#39716677759](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39716677759) — **SUCCESS**.
 
 ## What changed
 
