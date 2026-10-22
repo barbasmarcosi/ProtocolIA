@@ -330,7 +330,25 @@ class RuntimeService{
           console.log("PROTOCOLIA_NEST_MIGRATION_APPLIED "+migration.version);
         }
       }
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="before-commit")
+        throw Error("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_BEFORE_COMMIT");
       await connection.query("COMMIT");
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="after-commit")
+        throw Error("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT");
+      const handoff=(process.env.PROTOCOLIA_MIGRATION_HANDOFF_ID??"");
+      if(handoff){
+        if(!/^[0-9a-f]{64}$/.test(handoff))
+          throw Error("Invalid one-shot handoff digest");
+        const runtimeUser=process.env.PROTOCOLIA_HANDOFF_RUNTIME_USER??"";
+        if(!/^[a-z][a-z0-9_]{1,62}$/.test(runtimeUser))
+          throw Error("Invalid SQL runtime handoff principal");
+        await connection.query("CREATE TABLE IF NOT EXISTS public.protocolia_migration_handoff_v1 "+
+          "(image_digest varchar(64) PRIMARY KEY, completed_at timestamptz NOT NULL DEFAULT NOW())");
+        await connection.query("INSERT INTO public.protocolia_migration_handoff_v1 (image_digest) "+
+          "VALUES ($1) ON CONFLICT (image_digest) DO NOTHING",[handoff]);
+        await connection.query("GRANT SELECT ON public.protocolia_migration_handoff_v1 TO "+runtimeUser);
+        console.log("PROTOCOLIA_NEST_MIGRATION_HANDOFF_PUBLISHED");
+      }
     }catch(e){await connection.query("ROLLBACK");throw e;}
     finally{
       connection.release();
@@ -356,6 +374,14 @@ class RuntimeService{
       const who=await db.query("SELECT rolsuper FROM pg_roles WHERE rolname=current_user");
       if(who.rows.length!==1||who.rows[0].rolsuper!==false)
         throw Error("HTTP runtime SQL principal must not be a superuser");
+      const handoff=process.env.PROTOCOLIA_MIGRATION_HANDOFF_ID??"";
+      if(!/^[0-9a-f]{64}$/.test(handoff))
+        throw Error("Runtime missing exact staged image migration handoff");
+      const release=await db.query(
+        "SELECT image_digest FROM public.protocolia_migration_handoff_v1 WHERE image_digest=$1",
+        [handoff]);
+      if(release.rows.length!==1)
+        throw Error("Runtime refused incomplete or different migration handoff");
       for(const entity of spec.entities){
         const result=await db.query(
           "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
@@ -1438,6 +1464,8 @@ async function bootstrap(){
   if(!["legacy","migrate","runtime"].includes(execution))
     throw Error("Unsupported ProtocolIA execution mode");
   if(execution==="migrate"){
+    if(!["","before-commit","after-commit"].includes(process.env.PROTOCOLIA_MIGRATION_FAILPOINT??""))
+      throw Error("Invalid migration failpoint");
     const runner=new RuntimeService();
     try{
       await runner.init();
