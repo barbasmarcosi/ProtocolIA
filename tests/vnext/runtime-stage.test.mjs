@@ -12,6 +12,7 @@ import {pinnedOverlay,ephemeralCutoverProject,recoveryOptions,verifyRecoveryReco
 import {verifySignedPermit,verifyExternalApproval,approvalOptions} from "../../packages/cli/disposable-approval.mjs";
 import {fenceOptions,verifyDisposableFence} from "../../packages/cli/disposable-fence.mjs";
 import {gateOptions,databaseGate,ledgerSQL,gateDatabaseStatements} from "../../packages/cli/disposable-db-gate.mjs";
+import {roleSQL,roleOptions,disposableRolePolicy} from "../../packages/cli/disposable-role-policy.mjs";
 
 const sha=value=>createHash("sha256").update(value).digest("hex");
 function fixture(){
@@ -505,4 +506,76 @@ test("disposable PG gate closes all DB connections, reopens once, and refuses re
     /replay forbidden/);
   assert.throws(()=>databaseGate(args,{mode:"release",...adapters}),
     /already released|reused nonce/);
+});
+
+test("external PostgreSQL roles have separate read/write privileges and cannot log in before health",async()=>{
+  const f=makeStageFixture(),env=join(f.root,"roles.env");
+  writeFileSync(env,"PROTOCOLIA_DB_PASSWORD=test\n",{mode:0o600});
+  const gateArgs=[f.dir,"--checkpoint",f.archive,"--report",f.report,
+    "--receipt",f.out,"--candidate",f.candidate,"--recovery",join(f.root,"recovery.json"),
+    "--project","pia_ckpt_012345abcd","--permit",join(f.root,"permit.json"),
+    "--public-key",join(f.root,"key.pem"),"--key-sha256","f".repeat(64),
+    "--env-file",env,"--old-app-id","a".repeat(64),"--db-id","b".repeat(64)];
+  const credentials=join(f.root,"external.json");
+  const args=[...gateArgs,"--credentials",credentials];
+  assert.equal(roleOptions(args,{mode:"prepare"}).file,credentials);
+  assert.throws(()=>roleOptions([...args.slice(0,-1),join(f.dir,"bad.json")],
+    {mode:"prepare"}),/Disposable role policy refused/);
+  assert.throws(()=>roleSQL("create",{reader:"abc",writer:"f".repeat(48)}),
+    /generated test secrets/);
+  assert.match(roleSQL("grants").join("\n"),/GRANT SELECT,INSERT,UPDATE,DELETE/);
+  assert.match(roleSQL("grants").join("\n"),/protocolia_audit_event/);
+  let created=false,login=false,healthy=0;
+  const mockDocker=(argv,{allowFailure=false}={})=>{
+    const s=argv.join(" ");
+    if(s.includes("ps --quiet db"))return "b".repeat(64);
+    if(s.includes("ps --quiet app"))return "";
+    const sql=argv.at(-1);
+    if(sql===roleSQL("existing"))return created?"2":"0";
+    if(sql===roleSQL("nonlogin"))return created&&!login?"2":"0";
+    if(sql===roleSQL("login"))return created&&login?"2":"0";
+    if(sql===roleSQL("tableCheck"))return "true";
+    if(sql===roleSQL("firstTable"))return "purchase_order";
+    if(sql.startsWith("SELECT attname FROM pg_attribute"))return "code";
+    if(sql.startsWith("CREATE ROLE protocolia_ci_")){created=true;return "";}
+    if(sql.startsWith("ALTER ROLE protocolia_ci_")&&sql.endsWith(" LOGIN")){
+      login=true;return "";
+    }
+    if(sql.startsWith("GRANT ")||sql.startsWith("REVOKE ")||
+       sql.startsWith("DO $$"))return "";
+    if(allowFailure&&s.includes("-U protocolia_ci_writer")){
+      return {status:login?0:1,stderr:login?"":"FATAL: role is not permitted to log in"};
+    }
+    if(allowFailure&&s.includes("-U protocolia_ci_reader")){
+      return s.includes("UPDATE ")?
+        {status:1,stderr:"ERROR: permission denied for table purchase_order"}:
+        {status:0,stderr:""};
+    }
+    throw Error("Unexpected role SQL "+s);
+  };
+  const adapters={
+    run:mockDocker,
+    verifyApproval:()=>({project:"pia_ckpt_012345abcd",
+      imageId:f.stagedImageId,permitSha256:"a".repeat(64)}),
+    verifyHealth:async()=>{
+      healthy++;return {imageId:f.stagedImageId,dbContainerId:"b".repeat(64)};
+    }
+  };
+  assert.deepEqual(await disposableRolePolicy(args,{mode:"prepare",...adapters}),
+    {prepared:true});
+  assert.equal(statSync(credentials).mode&0o077,0);
+  assert.equal((await disposableRolePolicy(args,{mode:"blocked",...adapters})).blocked,true);
+  assert.equal(login,false);
+  assert.equal(healthy,0);
+  assert.deepEqual(await disposableRolePolicy([...args,"--health-url",
+    "http://127.0.0.1:21456/health"],{mode:"activate",...adapters}),{activated:true});
+  assert.equal(login,true);
+  assert.equal(healthy,1);
+  await assert.rejects(disposableRolePolicy(args,{mode:"blocked",...adapters}),
+    /remain NOLOGIN/);
+  await assert.rejects(disposableRolePolicy(args,{mode:"prepare",...adapters}),
+    /Role credentials must be private/);
+  chmodSync(credentials,0o644);
+  await assert.rejects(disposableRolePolicy(args,{mode:"blocked",...adapters}),
+    /owner-only/);
 });
