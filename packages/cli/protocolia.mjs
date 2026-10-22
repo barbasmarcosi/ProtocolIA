@@ -135,6 +135,12 @@ try {
   }else if(process.argv[2]==="deploy:precheck"){
     const {precheckCandidate}=await import("./deployment-candidate.mjs");
     precheckCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:permit:verify"){
+    const {verifyExternalApproval}=await import("./disposable-approval.mjs");
+    verifyExternalApproval(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:fence:verify"){
+    const {verifyDisposableFence}=await import("./disposable-fence.mjs");
+    verifyDisposableFence(process.argv.slice(3));
   }else if(process.argv[2]==="deploy:recovery:drill"){
     const {rehearseRecovery}=await import("./cutover-recovery.mjs");
     await rehearseRecovery(process.argv.slice(3));
