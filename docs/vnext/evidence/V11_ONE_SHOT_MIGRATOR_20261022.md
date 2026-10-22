@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-22. **PR:** [#55](https://github.com/barbasmarcosi/ProtocolIA/pull/55), Draft.
 
-**Integration:** [Spring/Nest PostgreSQL matrix #39829681526](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39829681526) — **PENDING at initial publication**; do not claim PASS until both independent jobs finish and `PROTOCOLIA_V11_ONE_SHOT_MIGRATION_PASS` and `PROTOCOLIA_V11_RUNTIME_SECRET_ISOLATION_PASS` are observed.
+**Integration:** [Spring/Nest PostgreSQL matrix #39829681526](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/39829681526) — **SUCCESS for both modular Spring Boot and NestJS** against independent disposable PostgreSQL databases. Each job emitted `PROTOCOLIA_V11_ONE_SHOT_MIGRATION_PASS`, `PROTOCOLIA_V11_RUNTIME_SECRET_ISOLATION_PASS` and `PROTOCOLIA_V11_APP_EVOLUTION_PASS`: the exact staged image completed a separate one-shot migration before the HTTP container started, the latter had no privileged migration user or password, the original database container was preserved and audited business writes remained correct.
 
 ## Why this milestone
 
