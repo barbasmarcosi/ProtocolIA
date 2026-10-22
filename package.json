@@ -34,7 +34,10 @@
     "app:deploy:permit:verify": "node packages/cli/protocolia.mjs deploy:permit:verify",
     "app:deploy:fence:verify": "node packages/cli/protocolia.mjs deploy:fence:verify",
     "app:deploy:db-gate:engage": "node packages/cli/protocolia.mjs deploy:db-gate:engage",
-    "app:deploy:db-gate:release": "node packages/cli/protocolia.mjs deploy:db-gate:release"
+    "app:deploy:db-gate:release": "node packages/cli/protocolia.mjs deploy:db-gate:release",
+    "app:deploy:roles:prepare": "node packages/cli/protocolia.mjs deploy:roles:prepare",
+    "app:deploy:roles:blocked": "node packages/cli/protocolia.mjs deploy:roles:blocked",
+    "app:deploy:roles:activate": "node packages/cli/protocolia.mjs deploy:roles:activate"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",
