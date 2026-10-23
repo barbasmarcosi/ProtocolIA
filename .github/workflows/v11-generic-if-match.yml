@@ -1,0 +1,68 @@
+name: v1.1-generic-if-match-conformance
+on:
+  push:
+    branches: [feature/v1.1-generic-if-match-conformance-20261020]
+    paths:
+      - 'packages/cli/**'
+      - 'packages/adapters/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'examples/vnext/dynamic-order-versioned/**'
+      - 'examples/vnext/dynamic-order-versioned-additive/**'
+      - 'examples/vnext/dynamic-order-versioned-breaking/**'
+      - '.github/workflows/v11-generic-if-match.yml'
+      - 'scripts/vnext/probe-versioned-order-http.mjs'
+      - 'scripts/vnext/probe-db-checkpoint.mjs'
+      - 'tests/vnext/database-checkpoint.test.mjs'
+      - 'tests/vnext/database-preflight.test.mjs'
+      - 'tests/vnext/evolution-approval.test.mjs'
+      - 'tests/vnext/runtime-stage.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: v11-if-match-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  version-aware-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Test DB checkpoint CLI guardrails and SHA-256 verification
+        run: node --test tests/vnext/database-checkpoint.test.mjs tests/vnext/database-preflight.test.mjs tests/vnext/evolution-approval.test.mjs tests/vnext/runtime-stage.test.mjs
+      - name: Build generated versioned application
+        run: npm run app:build -- examples/vnext/dynamic-order-versioned --target ${{ matrix.target }} --out "${{ runner.temp }}/v11-ifmatch-app"
+      - name: Verify generic CLI accepts versioned documents on isolated PostgreSQL
+        run: npm run app:test -- "${{ runner.temp }}/v11-ifmatch-app"
+      - name: Install pinned Chromium for full-collection React acceptance
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify generated batch-editor, audit and concurrency on PostgreSQL
+        run: node scripts/vnext/probe-versioned-order-http.mjs "${{ runner.temp }}/v11-ifmatch-app"
+      - name: Build non-versioned compatibility fixture
+        run: npm run app:build -- examples/vnext/dynamic-order-audited-append --target ${{ matrix.target }} --out "${{ runner.temp }}/v11-legacy-app"
+      - name: Confirm historical generic conformance still passes
+        run: npm run app:test -- "${{ runner.temp }}/v11-legacy-app"
+      - name: Remove transient Chromium screenshot outside the sealed app tree
+        run: rm -f "${{ runner.temp }}/v11-ifmatch-app/b17-versioned-mobile.png"
+      - name: Verify checkpoint and isolated PostgreSQL restore with old rows and audit
+        run: node scripts/vnext/probe-db-checkpoint.mjs "${{ runner.temp }}/v11-ifmatch-app"
