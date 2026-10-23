@@ -486,9 +486,16 @@ try{
   // authorizing the HTTP runtime. Both failures must be retry-safe.
   const isNest=afterBuild.target==="nestjs";
   const migrationLedger=isNest?"protocolia_nest_migration_history":"flyway_schema_history";
-  const ledgerVersion=isNest?"version=2":"version='2'";
+  // Nest has an additive V2; Spring preserves baseline V1 and BFF V2,
+  // so its NEXT additive migration is V3, not the existing V2.
+  const additiveVersion=isNest?"2":"3";
+  const ledgerVersion=isNest?"version=2":"version='3' AND success=true";
   const v2Count=()=>dbSql("protocolia","SELECT count(*) FROM public."+
     migrationLedger+" WHERE "+ledgerVersion);
+  if(!isNest)
+    assert.equal(dbSql("protocolia",
+      "SELECT count(*) FROM flyway_schema_history WHERE version='2' AND success"),"1",
+      "Spring historical BFF V2 migration must exist before applying additive V3");
   const v2Column=()=>dbSql("protocolia",
     "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "+
     "AND table_name='purchase_order' AND column_name='note'");
