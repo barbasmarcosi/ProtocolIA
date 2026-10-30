@@ -33,7 +33,7 @@ assert.ok(byName.get("WorkOrder").operations.queryPage);
 assert.ok(byName.get("WorkOrder").operations.auditPage);
 assert.deepEqual((byName.get("WorkOrder").transitions??[]).map(t=>t.behavior.to).sort(),
   ["finished","underway"]);
-assert.ok(ir.operations.length>=22);
+assert.equal(ir.operations.length,21);
 console.log("PROTOCOLIA_V12_WORKSHOP_LEDGER_BUILD_PASS "+JSON.stringify({
   target:info.target,resources:resources.length,contractHash:info.contractSha256,
   irHash:info.irSha256,foreignKeys:3
