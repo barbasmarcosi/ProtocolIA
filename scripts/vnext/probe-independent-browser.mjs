@@ -55,6 +55,19 @@ async function waitHealth(base){
   throw Error("Generated CommunityArchive HTTP health did not become ready");
 }
 const auth=(name,password)=>"Basic "+Buffer.from(name+":"+password).toString("base64");
+const cases=[];
+function accepted(id){cases.push(id);console.log("PROTOCOLIA_V12_BLACKBOX_CASE_PASS "+id);}
+async function http(base,path,{method="GET",identity="manager",body}={}){
+  const [name,password]=identity==="manager"?
+    [data.PROTOCOLIA_MANAGER_USERNAME,pass]:
+    [data.PROTOCOLIA_READER_USERNAME,data.PROTOCOLIA_READER_PASSWORD];
+  const res=await fetch(base+path,{method,headers:{
+    Authorization:auth(name,password),
+    ...(body===undefined?{}:{"Content-Type":"application/json"})},
+    ...(body===undefined?{}:{body:JSON.stringify(body)})});
+  return {status:res.status,body:res.status===204?null:await res.json().catch(()=>null)};
+}
+
 try{
   const listenPort=await port();
   data.PROTOCOLIA_HOST_PORT=String(listenPort);
@@ -79,6 +92,16 @@ try{
   await room.locator('[data-testid="create-label"]').fill("Colección comunitaria");
   await room.getByRole("button",{name:"Crear"}).click();
   await page.locator('[data-testid="open-detail-ROOM-A1"]').waitFor({timeout:20000});
+  const registeredRoom=await http(base,"/api/archive-rooms/ROOM-A1");
+  assert.equal(registeredRoom.status,200);
+  assert.equal(registeredRoom.body.label,"Colección comunitaria");
+  accepted("CA-01");
+  const duplicateRoom=await http(base,"/api/archive-rooms",{method:"POST",body:{
+    roomCode:"ROOM-A1",label:"Must not overwrite"
+  }});
+  assert.equal(duplicateRoom.status,409);
+  assert.equal((await http(base,"/api/archive-rooms/ROOM-A1")).body.label,"Colección comunitaria");
+  accepted("CA-02");
   await page.getByRole("navigation",{name:"Secciones de la aplicación"})
     .getByRole("button",{name:"Cajas documentales"}).click();
   await page.locator('[data-testid="open-create"]').click();
@@ -98,6 +121,73 @@ try{
   assert.equal(item.roomCode,"ROOM-A1");
   assert.equal(item.pagesDigitized,4);
   assert.equal(item.description,"Actas comunitarias");
+  accepted("CA-03");
+  const orphan=await http(base,"/api/record-boxes",{method:"POST",body:{
+    reference:"BOX-ORPHAN",roomCode:"ROOM-MISSING",
+    description:"Must be rejected",pagesDigitized:0
+  }});
+  assert.equal(orphan.status,400);
+  assert.equal((await http(base,"/api/record-boxes/BOX-ORPHAN")).status,404);
+  accepted("CA-04");
+  let browserBoxPosts=0;
+  page.on("request",request=>{
+    if(request.method()==="POST"&&
+      new URL(request.url()).pathname==="/api/record-boxes")browserBoxPosts++;
+  });
+  await page.locator('[data-testid="open-create"]').click();
+  const unsaved=page.locator('[data-testid="create-form-RecordBox"]');
+  await unsaved.locator('[data-testid="create-reference"]').fill("BOX-UNSAVED");
+  await unsaved.getByRole("button",{name:"Cancelar"}).click();
+  await page.locator('[data-testid="unsaved-changes-confirmation"]').waitFor();
+  await page.getByRole("button",{name:"Seguir editando"}).click();
+  assert.equal(await unsaved.locator('[data-testid="create-reference"]').inputValue(),"BOX-UNSAVED");
+  await unsaved.getByRole("button",{name:"Cancelar"}).click();
+  await page.locator('[data-testid="unsaved-changes-confirmation"]').waitFor();
+  await page.getByRole("button",{name:"Descartar cambios"}).click();
+  await page.locator('[data-testid="create-dialog"]').waitFor({state:"hidden"});
+  assert.equal(browserBoxPosts,0,"Draft cancellation must never POST");
+  assert.equal((await http(base,"/api/record-boxes/BOX-UNSAVED")).status,404);
+  accepted("CA-05");
+  await page.locator('[data-testid="open-detail-BOX-A1"]').click();
+  const detail=page.locator('[data-testid="detail-dialog"]');
+  await detail.locator('[data-testid="rename"]').fill("Actas restauradas");
+  const patchWait=page.waitForResponse(res=>
+    new URL(res.url()).pathname==="/api/record-boxes/BOX-A1/description"&&
+    res.request().method()==="PATCH");
+  await detail.getByRole("button",{name:"Guardar cambios"}).click();
+  assert.equal((await patchWait).status(),200);
+  await page.waitForFunction(async ()=>{
+    const dialog=document.querySelector('[data-testid="detail-dialog"]');
+    return dialog?.textContent?.includes("Actas restauradas");
+  });
+  const afterEdit=await http(base,"/api/record-boxes/BOX-A1");
+  assert.equal(afterEdit.status,200);
+  assert.equal(afterEdit.body.description,"Actas restauradas");
+  assert.equal(afterEdit.body.roomCode,"ROOM-A1");
+  assert.equal(afterEdit.body.pagesDigitized,4);
+  accepted("CA-06");
+  const writerHeaders={Authorization:auth(data.PROTOCOLIA_MANAGER_USERNAME,pass),
+    "Content-Type":"application/json"};
+  const increments=await Promise.all(Array.from({length:10},()=>fetch(
+    base+"/api/record-boxes/BOX-A1/scanned",{
+      method:"PATCH",headers:writerHeaders,body:JSON.stringify({delta:1})
+    })));
+  assert.ok(increments.every(res=>res.status===200),
+    "Ten independent concurrent increments must all commit");
+  const afterIncrement=await http(base,"/api/record-boxes/BOX-A1");
+  assert.equal(afterIncrement.body.pagesDigitized,14);
+  accepted("CA-07");
+  const badIncrement=await http(base,"/api/record-boxes/BOX-A1/scanned",{
+    method:"PATCH",body:{delta:0}});
+  assert.equal(badIncrement.status,400);
+  assert.equal((await http(base,"/api/record-boxes/BOX-A1")).body.pagesDigitized,14);
+  accepted("CA-08");
+  const forbiddenDelete=await http(base,"/api/archive-rooms/ROOM-A1",{
+    method:"DELETE"});
+  assert.equal(forbiddenDelete.status,409);
+  assert.equal((await http(base,"/api/archive-rooms/ROOM-A1")).status,200);
+  assert.equal((await http(base,"/api/record-boxes/BOX-A1")).status,200);
+  accepted("CA-09");
   const image=await page.screenshot({fullPage:true});
   await page.getByRole("button",{name:"Cerrar sesión"}).click();
   await page.locator('[data-testid="username"]').fill(data.PROTOCOLIA_READER_USERNAME);
@@ -106,13 +196,37 @@ try{
   await page.locator('[data-testid="open-detail-BOX-A1"]').waitFor({timeout:20000});
   assert.equal(await page.locator('[data-testid="open-create"]').count(),0,
     "Reader cannot see mutation buttons");
+  await page.locator('[data-testid="open-detail-BOX-A1"]').click();
+  const readerDetail=page.locator('[data-testid="detail-dialog"]');
+  await readerDetail.waitFor();
+  assert.equal(await readerDetail.getByRole("button",{name:"Guardar cambios"}).count(),0);
+  assert.equal(await readerDetail.getByRole("button",{name:"Incrementar"}).count(),0);
   const denied=await fetch(base+"/api/record-boxes",{
     method:"POST",headers:{"Content-Type":"application/json",
       Authorization:auth(data.PROTOCOLIA_READER_USERNAME,data.PROTOCOLIA_READER_PASSWORD)},
     body:JSON.stringify({reference:"FORBIDDEN",roomCode:"ROOM-A1",
       description:"Must not persist",pagesDigitized:0})});
   assert.equal(denied.status,403);
+  const deniedPatch=await http(base,"/api/record-boxes/BOX-A1/description",{
+    method:"PATCH",identity:"reader",body:{description:"Malicious edit"}
+  });
+  assert.equal(deniedPatch.status,403);
+  assert.equal((await http(base,"/api/record-boxes/BOX-A1")).body.description,"Actas restauradas");
+  accepted("CA-10");
+  await page.reload({waitUntil:"domcontentloaded"});
+  await page.locator('[data-testid="open-detail-BOX-A1"]').waitFor({timeout:20000});
+  assert.equal((await http(base,"/api/record-boxes/BOX-A1",{identity:"reader"})).body.description,
+    "Actas restauradas");
+  assert.equal((await http(base,"/api/record-boxes/BOX-A1",{identity:"reader"})).body.pagesDigitized,14);
+  accepted("CA-11");
   assert.deepEqual(errors,[],"No uncaught browser JavaScript errors");
+  accepted("CA-12");
+  assert.deepEqual(cases,Array.from({length:12},(_,i)=>
+    "CA-"+String(i+1).padStart(2,"0")));
+  console.log("PROTOCOLIA_V12_BLACKBOX_CUSTOMER_RUBRIC_PASS "+JSON.stringify({
+    target:info.target,cases:cases.length,caseIds:cases,
+    browserErrors:errors.length,finalDigitizedPages:14
+  }));
   console.log("PROTOCOLIA_V12_COMMUNITY_ARCHIVE_MOBILE_CHROMIUM_PASS "+JSON.stringify({
     target:info.target,viewport:"390x844",relatedRecordCreated:true,
     serverReadMatchesUi:true,readerWriteDenied:true,pageErrors:errors.length,
