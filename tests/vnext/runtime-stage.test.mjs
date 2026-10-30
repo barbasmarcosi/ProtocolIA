@@ -656,7 +656,7 @@ test("one-shot template sources refuse incomplete image migration handoffs and e
   assert.match(nest,/PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT/);
   assert.match(nest,/protocolia_migration_handoff_v1/);
   assert.match(nest,/if\(execution==="runtime"\)await engine.verifyRuntimeReady\(\)/);
-  assert.match(nest,/ON CONFLICT \\(image_digest\\) DO NOTHING/);
+  assert.match(nest,/ON CONFLICT \(image_digest\) DO NOTHING/);
   // The pause is only accepted in one-shot migrate mode; it fails closed if
   // the disposable Docker test does not send SIGKILL before its timeout.
   assert.match(spring,/pause-after-migrate/);
