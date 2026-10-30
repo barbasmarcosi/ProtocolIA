@@ -5,6 +5,7 @@ on:
     paths:
       - 'examples/vnext/workshop-payment-guard/**'
       - 'scripts/vnext/probe-workshop-payment-guard.mjs'
+      - 'scripts/vnext/probe-charge-source-negative.mjs'
       - '.github/workflows/v12d-exact-workshop-payment.yml'
       - 'packages/cli/**'
       - 'packages/compiler/**'
@@ -41,6 +42,8 @@ jobs:
       - run: npm ci
       - name: Generate checked-payment workshop app solely from TypeSpec
         run: npm run app:build -- examples/vnext/workshop-payment-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/v12d-workshop-app"
+      - name: Prove fail-closed compiler rejection of unsafe charge-source contracts
+        run: node scripts/vnext/probe-charge-source-negative.mjs
       - name: Generic HTTP/DB conformance against isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/v12d-workshop-app"
       - name: Frozen independent financial guard, concurrent overpay, reversal and reconciliation
