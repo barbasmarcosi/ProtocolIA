@@ -335,6 +335,13 @@ class RuntimeService{
       await connection.query("COMMIT");
       if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="after-commit")
         throw Error("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT");
+      // Disposable CI SIGKILL barrier after the schema transaction is durable.
+      // Timeout must fail without issuing a runtime handoff if no kill arrives.
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="pause-after-commit"){
+        console.log("PROTOCOLIA_TEST_MIGRATION_PAUSED_AFTER_COMMIT");
+        await new Promise<void>(ok=>setTimeout(ok,120000));
+        throw Error("PROTOCOLIA_TEST_MIGRATION_PAUSE_NOT_INTERRUPTED");
+      }
       const handoff=(process.env.PROTOCOLIA_MIGRATION_HANDOFF_ID??"");
       if(handoff){
         if(!/^[0-9a-f]{64}$/.test(handoff))
@@ -1464,7 +1471,7 @@ async function bootstrap(){
   if(!["legacy","migrate","runtime"].includes(execution))
     throw Error("Unsupported ProtocolIA execution mode");
   if(execution==="migrate"){
-    if(!["","before-commit","after-commit"].includes(process.env.PROTOCOLIA_MIGRATION_FAILPOINT??""))
+    if(!["","before-commit","after-commit","pause-after-commit"].includes(process.env.PROTOCOLIA_MIGRATION_FAILPOINT??""))
       throw Error("Invalid migration failpoint");
     const runner=new RuntimeService();
     try{
