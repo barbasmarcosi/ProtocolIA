@@ -250,7 +250,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed")
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge")
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;
