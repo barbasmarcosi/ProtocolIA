@@ -108,10 +108,22 @@ try{
   await status("/api/vehicles",201,{method:"POST",body:{
     plate:"AA123BB",customerCode:"C-001",modelName:"Modelo ficticio",mileageKm:0
   }});
+  await status("/api/work-orders",400,{method:"POST",body:{
+    ...orderBody("OT-FORGED","20.00"),laborCharge:"10.00"
+  }});
+  await status("/api/work-orders/OT-FORGED",404);
+  console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-01");
+  await status("/api/work-orders",400,{method:"POST",body:{
+    ...orderBody("OT-SKEWED","10.00"),available:"9.00"
+  }});
+  await status("/api/work-orders/OT-SKEWED",404);
+  console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-02");
   await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-10","10.00")});
   const initial=await balance("OT-10");
   assert.equal(cents(initial.record.openingBalance),1000n);
   assert.equal(cents(initial.record.available),1000n);
+  assert.equal(cents(initial.record.laborCharge),1000n);
+  console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-03");
   assert.equal(cents(initial.snapshot.postedTotal),0n);
   pass("PG-01");
 
@@ -180,6 +192,7 @@ try{
   assert.equal(typeof build.irSha256,"string");
   assert.equal(ir.operations.some(x=>x.behavior.kind==="reconcileExact"),true);
   pass("PG-11");
+  console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-04");
   assert.deepEqual(cases,Array.from({length:11},(_,i)=>"PG-"+String(i+1).padStart(2,"0")));
   console.log("PROTOCOLIA_V12D_EXACT_PAYMENT_GUARD_PASS "+JSON.stringify({
     target:build.target,passedCases:cases.length,irHash:build.irSha256,
