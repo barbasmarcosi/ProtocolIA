@@ -1,27 +1,20 @@
 # ProtocolIA — Guidance for coding agents
 
-## Current priority (2026-10-13)
+## Current priority (2026-10-30)
 
-The primary engineering mission is **contract-to-working-app vNext**, not
-token savings, P4 benchmarks, repeated process reviews or a Java-only demo.
-An application is successful only when its API, persistence, business
-operations, server-side authorization and real browser UI work directly
-from the supported reviewed contracts **without application-specific code
-written after the contracts are finalized**.
+The central mission is **reviewed TypeSpec contracts → complete working applications**. Evidence of a functioning API, persistent PostgreSQL, server-side authorization and generated browser UI matters more than additional deployment infrastructure, model-token ROI or ornamental planning.
 
-**Read before making implementation changes:**
+**Repository reality (not historical plans):**
+- `main` is the immutable `v1.0.0` baseline at `cf4f768a`: functional modular Spring Boot, NestJS, PostgreSQL, generated React and bounded B17 collection behavior.
+- Draft [PR #55](https://github.com/barbasmarcosi/ProtocolIA/pull/55) is the unreleased v1.1 line: generic If-Match conformance, generated batch editor, checkpoint/preflight, additive evolution and disposable one-shot migrator recovery. Exact-image SIGKILL recovery was verified in both generated adapters on real GitHub-hosted PostgreSQL/Chromium, but **no production release or live cutover is certified**. Main and v1.0.0 tag must not be rewritten.
+- `feature/v1.2-independent-contract-acceptance-20261030` is a **separate, experimental successor** based on the latest v1.1 draft. The CommunityArchive contract is deliberately independent from Taller/Books/Maintenance; acceptance is **NOT VERIFIED** until actual CI logs for this branch show both targets passing. Do not retrospectively change the frozen A13 13/16 score.
+- Historic branches A14 `@filterBy` and UX6 are superseded by integrated `@queryFilter`/`@queryOrder` and unsaved-form guards; do not cherry-pick their old implementations. Preserve divergence and comparison oracles.
 
-1. [docs/vnext/README.md](docs/vnext/README.md)
-2. [Product requirements](docs/vnext/00_PRODUCT_REQUIREMENTS.md)
-3. [Architecture/ADR-004](docs/vnext/01_ARCHITECTURE_ADR.md)
-4. [Implementation plan A0–A5](docs/vnext/02_IMPLEMENTATION_PLAN.md)
-5. [Conformance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md)
-6. [Runbook](docs/vnext/04_EXECUTION_RUNBOOK.md)
+**Immediate objective:** prove the clean-room CommunityArchive project on both generated Spring and Nest targets with untouched TypeSpec input, generated artifacts, real isolated PostgreSQL, HTTP behavior, FK restrictions, concurrency and read/write roles. After this baseline, add browser/mobile and stronger independent customer requirements before proclaiming a general product acceptance.
 
-**Verified vNext outcomes:** A0 TypeSpec/IR and modular fallback PASS (JHipster stock NO-GO); A1 backend/HTTP/DB/auth PASS acotado; A4 multi-entity FK + browser PASS acotado; A5 additive Flyway V1→V2 on a populated PostgreSQL DB PASS acotado (see `docs/vnext/evidence/A5.md`). A2 complete generated Docker Compose lifecycle is still **NOT RUN** due unavailable Docker Engine. A3 NestJS/Spring **PASS bounded HTTP/PostgreSQL/Chromium parity** for unchanged Taller/Gauge contracts; P-06 in-place Nest evolution remains unsupported ([A3 evidence](docs/vnext/evidence/A3.md)). All stages are profile-scoped and do not imply production security.
+**Read before making changes:** [normative product requirements](docs/vnext/00_PRODUCT_REQUIREMENTS.md), [architecture](docs/vnext/01_ARCHITECTURE_ADR.md), [acceptance matrix](docs/vnext/03_ACCEPTANCE_MATRIX.md), [v1 scope](docs/releases/v1.0.0.md), [v1.1 SIGKILL evidence](docs/vnext/evidence/V11_REAL_SIGKILL_RECOVERY_20261029.md).
 
-**Next useful work:** (1) validate the generated Compose stack on an actual engine without mutating consumer volumes; (2) extend NestJS safe in-place evolution only with actual persisted PostgreSQL tests (P-06), then test multi-entity Nest parity; (3) expand A5 compatibility only with new real DB preservation tests. No parallel planning document is needed. TypeSpec remains the authority. The sandbox Render service publishes a **marker only**, not the generated app.
-
+Never equate historical A0–A5 plans or prior NOT RUN statements with the current repository status; always cite exact applicable, successfully completed CI run.
 
 ## Invariants
 
