@@ -41,9 +41,7 @@ export function compileExactReconciliations(ir){
     const invalidCharge=cfg.chargeSource!==undefined&&(
       !charge||charge===opening||charge===available||
       charge.type!=="decimal"||!charge.required||charge.nullable||
-      !charge.decimal||charge.decimal.min===undefined||
-      units(charge.decimal.min,charge.decimal.scale)===null||
-      units(charge.decimal.min,charge.decimal.scale)<0n||
+      !charge.decimal||charge.decimal.min!=="0"||
       charge.decimal.scale!==b?.scale||charge.decimal.precision>b?.precision||
       ir.operations.some(x=>x.entity===parent?.name&&
         (x.behavior.kind==="patchFields"&&
