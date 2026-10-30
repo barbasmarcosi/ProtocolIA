@@ -45,3 +45,9 @@ jobs:
         run: node scripts/vnext/probe-workshop-ledger-build.mjs "${{ runner.temp }}/v12-workshop-app"
       - name: Run generic conformance on actual isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/v12-workshop-app"
+      - name: Install pinned Chromium for mobile workshop business flows
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Validate frozen workshop business cases on mobile Chromium and real PostgreSQL
+        run: node scripts/vnext/probe-workshop-ledger-blackbox.mjs "${{ runner.temp }}/v12-workshop-app"
