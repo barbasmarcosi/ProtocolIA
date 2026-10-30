@@ -5,6 +5,7 @@ on:
     paths:
       - 'examples/vnext/community-archive/**'
       - 'scripts/vnext/probe-independent-contract-build.mjs'
+      - 'scripts/vnext/probe-independent-browser.mjs'
       - '.github/workflows/v12-independent-contract-acceptance.yml'
       - 'packages/cli/**'
       - 'packages/compiler/**'
@@ -45,3 +46,9 @@ jobs:
         run: node scripts/vnext/probe-independent-contract-build.mjs "${{ runner.temp }}/v12-independent-app"
       - name: Exercise real isolated PostgreSQL HTTP, auth, FK, validation and atomic operations
         run: npm run app:test -- "${{ runner.temp }}/v12-independent-app"
+      - name: Install pinned Chromium browser
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Prove generated mobile React FK picker, creation and reader isolation
+        run: node scripts/vnext/probe-independent-browser.mjs "${{ runner.temp }}/v12-independent-app"
