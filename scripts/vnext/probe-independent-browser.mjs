@@ -216,16 +216,19 @@ try{
   assert.equal((await http(base,"/api/record-boxes/BOX-A1")).body.description,"Actas restauradas");
   accepted("CA-10");
   await page.reload({waitUntil:"domcontentloaded"});
+  // React boot is asynchronous. Never treat zero login/nav elements during
+  // initial hydration as evidence that a prior demo session survived reload.
+  await page.locator('[data-testid="username"], nav.resource-nav')
+    .first().waitFor({state:"visible",timeout:20000});
   // Persistence after refresh is mandatory; retention of a demo-auth session is not.
-  if(await page.locator('[data-testid="username"]').count()){
+  if(await page.locator('[data-testid="username"]').isVisible()){
     await page.locator('[data-testid="username"]').fill(data.PROTOCOLIA_READER_USERNAME);
     await page.locator('[data-testid="password"]').fill(data.PROTOCOLIA_READER_PASSWORD);
     await page.getByRole("button",{name:"Entrar"}).click();
   }
-  if(await page.getByRole("navigation",{name:"Secciones de la aplicación"})
-    .getByRole("button",{name:"Cajas documentales"}).count())
-    await page.getByRole("navigation",{name:"Secciones de la aplicación"})
-      .getByRole("button",{name:"Cajas documentales"}).click();
+  const resourceNav=page.getByRole("navigation",{name:"Secciones de la aplicación"});
+  await resourceNav.waitFor({state:"visible",timeout:20000});
+  await resourceNav.getByRole("button",{name:"Cajas documentales"}).click();
   await page.locator('[data-testid="open-detail-BOX-A1"]').waitFor({timeout:20000});
   assert.equal((await http(base,"/api/record-boxes/BOX-A1",{identity:"reader"})).body.description,
     "Actas restauradas");
