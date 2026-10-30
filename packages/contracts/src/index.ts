@@ -42,7 +42,7 @@ export const $lib = createTypeSpecLibrary({
     reverseUnits: {description:"Exactly-once guarded reversal of a journalled transfer"},
     debitExact: {description:"Atomic exact decimal debit and durable child posting"},
     reverseExact: {description:"Exactly-once guarded reversal and exact decimal credit"},
-    reconcileExact: {description:"Authorized single-snapshot reconciliation of opening, balance and exact ledger postings"},
+    reconcileExact: {description:"Authorized snapshot reconciliation with optional typed charge-source initialization guard"},
     release: {description:"Exactly-once guarded cancellation and transactional stock restoration"},
     relatedSum: {description:"Read-only MVCC snapshot of active quantities in a related entity"},
     audit: {description:"Auditable, explicitly allowlisted business fields; no request payload logging"},
@@ -151,9 +151,10 @@ function transition(context: DecoratorContext, target: Operation, from: string, 
 
 function reconcileExact(context: DecoratorContext, target: Operation, openingField: string,
   availableField: string, childEntity: string, referenceField: string, amountField: string,
-  stateField: string, postedState: string, reversedState: string): void {
+  stateField: string, postedState: string, reversedState: string, chargeSource?: string): void {
   context.program.stateMap($lib.stateKeys.reconcileExact).set(target,
-    {openingField,availableField,childEntity,referenceField,amountField,stateField,postedState,reversedState});
+    {openingField,availableField,childEntity,referenceField,amountField,stateField,postedState,reversedState,
+     ...(chargeSource!==undefined?{chargeSource}:{})});
 }
 function reverseExact(context: DecoratorContext, target: Operation, balanceEntity: string,
   availableField: string, referenceField: string, amountField: string): void {
