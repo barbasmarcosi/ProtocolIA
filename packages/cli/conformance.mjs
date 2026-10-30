@@ -498,9 +498,21 @@ async function runMulti(){
     const closed=plan?.closeField&&plan?.closeState&&typeof parentKey==="string"&&
       (await run(versionedParent,"get",writer,{key:parentKey})).data?.[plan.closeField]===
         plan.closeState;
-    if(closed){
+    // Some contracts deliberately make journal children immutable: a posted
+    // debit can be reversed but its row cannot be deleted. The physical FK
+    // must continue to RESTRICT parents at *every* level of the hierarchy.
+    const liveChild=await Promise.all(resources.flatMap(child=>
+      child.entity.fields.filter(f=>f.reference?.target===resource.entity.name)
+        .map(async field=>{
+          const fixture=createBodies.get(child.entity.name);
+          const childKey=keys.get(child.entity.name);
+          if(!fixture||fixture[field.name]!==key||!childKey||!child.operations.get)
+            return false;
+          return (await run(child,"get",reader,{key:childKey})).status===200;
+        })));
+    if(closed||liveChild.includes(true)){
       assert.equal((await run(resource,"delete",writer,{key})).status,409,
-        "A closed versioned parent must reject child cleanup mutation");
+        "A referenced/closed parent must reject deletion while child rows survive");
       assert.equal((await run(resource,"get",reader,{key})).status,200);
     }else{
       assert.equal((await run(resource,"delete",writer,{key})).status,204);
