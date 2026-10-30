@@ -523,6 +523,60 @@ try{
   assert.equal(handoffTable(),"0","No migration handoff on pre-commit failure");
   assert.equal(docker("ps","--quiet","app"),"",
     "HTTP server must remain stopped after failed one-shot migration");
+
+  // v1.1s: a real SIGKILL, not a catchable exception. Pause the exact pinned
+  // migrator AFTER its first additive PostgreSQL commit and BEFORE any handoff.
+  // Only the disposable pia_ckpt_<random> Compose project is exercised.
+  const pausePoint=isNest?"pause-after-commit":"pause-after-migrate";
+  let killContainer=null;
+  try{
+    killContainer=run("docker",[...pinnedCompose,"run","--detach","--no-deps",
+      "-e","PROTOCOLIA_MIGRATION_FAILPOINT="+pausePoint,"migrate"],
+    {cwd:generated,timeout:60000});
+    assert.match(killContainer,/^[0-9a-f]{12,64}$/i,
+      "Detached disposable migrator must return its unique container ID");
+    assert.equal(run("docker",["inspect","--format","{{.Image}}",killContainer]),
+      receipt.stagedImageId,"SIGKILL target must be the exact previously staged Docker image");
+    let paused=false;
+    for(let attempt=0;attempt<180;attempt++){
+      const log=run("docker",["logs",killContainer],{timeout:30000});
+      if(log.includes("PROTOCOLIA_TEST_MIGRATION_PAUSED_AFTER_COMMIT")){
+        paused=true;break;
+      }
+      assert.equal(run("docker",["inspect","--format","{{.State.Running}}",killContainer]),
+        "true","Migrator exited before the safe post-commit SIGKILL barrier");
+      await new Promise(ok=>setTimeout(ok,500));
+    }
+    assert.ok(paused,"Disposable migrator did not reach the post-commit SIGKILL barrier");
+    assert.equal(v2Count(),"1","First additive migration must commit before SIGKILL");
+    assert.equal(v2Column(),"1","Additive column must be durable before SIGKILL");
+    assert.equal(handoffTable(),"0","No migration handoff may precede SIGKILL");
+    assert.equal(docker("ps","--quiet","app"),"",
+      "HTTP must remain down while the migrator is paused");
+    run("docker",["kill","--signal=KILL",killContainer],{timeout:30000});
+    assert.equal(run("docker",["wait",killContainer],{timeout:30000}),"137",
+      "The migrator must terminate via real SIGKILL, not a handled failure");
+    assert.doesNotMatch(run("docker",["logs",killContainer]),
+      /MIGRATION_HANDOFF_PUBLISHED/,
+      "No migration release may be published by the killed container");
+    assert.equal(v2Count(),"1","Committed SQL must survive abrupt process death");
+    assert.equal(handoffTable(),"0","SIGKILL must not leave a runtime handoff");
+    assert.deepEqual(snapshot("protocolia"),original,
+      "SIGKILL must not change historical business records or audit");
+    assertFailedRun([...pinnedCompose,"run","--rm","--no-deps","app"],
+      /migration.handoff|handoff_v1|relation .*does not exist|relation .*not exist/i,90000);
+    assert.equal(docker("ps","--quiet","app"),"",
+      "HTTP must refuse startup following unacknowledged SIGKILL");
+  }finally{
+    // Do not leak a paused or killed container, even if any assertion fails.
+    if(killContainer)
+      run("docker",["rm","--force",killContainer],{timeout:30000,allowFailure:true});
+  }
+  console.log("PROTOCOLIA_V11_SIGKILL_HANDOFF_BLOCKED "+JSON.stringify({
+    target:afterBuild.target,realSignal:"SIGKILL",exitCode:137,
+    committedSqlPreserved:true,noHandoff:true,httpRefused:true
+  }));
+
   assertFailedRun([...pinnedCompose,"run","--rm","--no-deps",
     "-e","PROTOCOLIA_MIGRATION_FAILPOINT="+afterFailpoint,"migrate"],
     /PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT/);
@@ -563,6 +617,11 @@ try{
     "SELECT count(*) FROM public.protocolia_migration_handoff_v1 WHERE image_digest='"+
     receipt.stagedImageId.slice(7)+"'"),"1",
     "Second successful migrator invocation cannot duplicate completed handoff");
+  console.log("PROTOCOLIA_V11_SIGKILL_RECOVERY_PASS "+JSON.stringify({
+    target:afterBuild.target,firstAdditiveCommitSurvivedKill:true,
+    releaseWithheldUntilRetry:true,migrationLedgerExactlyOnce:true,
+    imageBoundHandoffExactlyOnce:true,noHistoricalRowLoss:true
+  }));
   console.log("PROTOCOLIA_V11_MIGRATION_RETRY_SAFE_PASS "+JSON.stringify({
     target:afterBuild.target,version2JournalExactlyOnce:true,
     migrationHandoffBoundToImage:true,
