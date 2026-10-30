@@ -24,7 +24,7 @@ type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type ExactReconciliation=RelatedSum&{openingField:string;availableField:string};
+type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSource?:string};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
@@ -775,6 +775,16 @@ class RuntimeService{
       const opening=decimalUnits(input[reconciled.openingField] as string,open.decimal!.scale);
       const available=decimalUnits(input[reconciled.availableField] as string,open.decimal!.scale);
       if(opening!==available)throw invalidField(e.fields.find(f=>f.name===reconciled.availableField)!,"invalid_comparison");
+      // Fail before INSERT: the client's ledger ceiling must equal the declared
+      // source charge. Compare exact integer minor units, not JS floating-point.
+      if(reconciled.chargeSource){
+        const charge=e.fields.find(f=>f.name===reconciled.chargeSource)!;
+        const amount=decimalUnits(input[charge.name] as string,charge.decimal!.scale);
+        if(opening!==amount)
+          throw invalidField(e.fields.find(f=>f.name===reconciled.openingField)!,"invalid_comparison");
+        input[reconciled.openingField]=input[charge.name];
+        input[reconciled.availableField]=input[charge.name];
+      }
     }
     const persisted=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
     const cols=persisted.map(f=>f.column);
