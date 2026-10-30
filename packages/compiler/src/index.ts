@@ -573,11 +573,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const unsafeCharge=!!reconciliation?.chargeSource&&(
         !chargeSource||chargeSource===opening||chargeSource===balance||
         chargeSource.type!=="decimal"||!chargeSource.required||chargeSource.nullable||
-        !chargeSource.decimal||chargeSource.decimal.min===undefined||
-        decimalUnits(chargeSource.decimal.min,chargeSource.decimal.scale)===undefined||
-        decimalUnits(chargeSource.decimal.min,chargeSource.decimal.scale)!<0n||
+        !chargeSource.decimal||chargeSource.decimal.min!=="0"||
         chargeSource.decimal.scale!==opening?.decimal?.scale||
-        chargeSource.decimal.precision!>opening?.decimal?.precision||
+        chargeSource.decimal.precision>(opening?.decimal?.precision??0)||
         chargeSource.reference!==undefined||chargeSource.initial!==undefined||
         operations.some(x=>x.entity===entity.name&&
           (x.behavior.kind==="patchFields"&&
