@@ -565,6 +565,30 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const foreign=child?.fields.find(x=>x.name===reconciliation?.referenceField);
       const amount=child?.fields.find(x=>x.name===reconciliation?.amountField);
       const status=child?.fields.find(x=>x.name===reconciliation?.stateField);
+      const chargeSource=reconciliation?.chargeSource===undefined?undefined:
+        entity.fields.find(x=>x.name===reconciliation.chargeSource);
+      // A bound charge source is required, exact decimal, and cannot be patched
+      // after the ledger is opened. It constrains a configured balance, it does
+      // not silently synthesize a trustworthy price from arbitrary data.
+      const unsafeCharge=!!reconciliation?.chargeSource&&(
+        !chargeSource||chargeSource===opening||chargeSource===balance||
+        chargeSource.type!=="decimal"||!chargeSource.required||chargeSource.nullable||
+        !chargeSource.decimal||chargeSource.decimal.min===undefined||
+        decimalUnits(chargeSource.decimal.min,chargeSource.decimal.scale)===undefined||
+        decimalUnits(chargeSource.decimal.min,chargeSource.decimal.scale)!<0n||
+        chargeSource.decimal.scale!==opening?.decimal?.scale||
+        chargeSource.decimal.precision!>opening?.decimal?.precision||
+        chargeSource.reference!==undefined||chargeSource.initial!==undefined||
+        operations.some(x=>x.entity===entity.name&&
+          (x.behavior.kind==="patchFields"&&
+            [chargeSource.name,opening?.name,balance?.name].includes(x.behavior.field)||
+           x.behavior.kind==="patchTogether"||
+           x.behavior.kind==="delete")));
+      if(unsafeCharge){
+        reject("invalid-exact-charge-source",op.name+
+          " requires one immutable nonnegative exact decimal charge with compatible scale; no balance/source patches",op);
+        continue;
+      }
       if(!reconciliation||!opening||!balance||opening===balance||
         opening.type!=="decimal"||balance.type!=="decimal"||!opening.decimal||!balance.decimal||
         !opening.required||opening.nullable||!balance.required||balance.nullable||
@@ -1504,7 +1528,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
           amountField:String(reconciliation.amountField),
           stateField:String(reconciliation.stateField),
           postedState:String(reconciliation.postedState),
-          reversedState:String(reconciliation.reversedState)
+          reversedState:String(reconciliation.reversedState),
+          ...(reconciliation.chargeSource!==undefined?
+            {chargeSource:String(reconciliation.chargeSource)}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),
