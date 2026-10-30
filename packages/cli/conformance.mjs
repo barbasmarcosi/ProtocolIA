@@ -30,6 +30,13 @@ const writer=b64(managerName,managerPassword), reader=b64(readerName,readerPassw
 const uuid=randomBytes(9).toString("hex");
 function valueFor(field, identity=false){
   if(field.initial!==undefined)return field.initial;
+  if(field.choices!==undefined){
+    assert.ok(field.type==="string"&&Array.isArray(field.choices)&&field.choices.length>0,
+      "Unsupported or empty contract enum fixture "+field.name);
+    const allowed=field.choices.find(choice=>typeof choice.value==="string"&&choice.value.length>0);
+    assert.ok(allowed,"No valid enum fixture for "+field.name);
+    return allowed.value;
+  }
   if(field.type==="utcDateTime")return "2026-10-13T00:00:00Z";
   if(field.type==="int32")return Math.max(field.min??0, identity?0:2);
   if(field.type==="decimal"){
