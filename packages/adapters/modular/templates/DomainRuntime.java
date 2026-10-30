@@ -546,6 +546,15 @@ public class DomainRuntime {
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
       if(opening.compareTo(available)!=0)
         throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
+      if(reconciliation.chargeSource()!=null){
+        BigDecimal charge=new BigDecimal((String)body.get(reconciliation.chargeSource()));
+        if(opening.compareTo(charge)!=0)
+          throw new InvalidInputField(reconciliation.openingField(),"invalid_comparison");
+        // Persist the source value as the actual opening/balance. Do not trust
+        // independently supplied client duplicates even when numerically equal.
+        body.put(reconciliation.openingField(),body.get(reconciliation.chargeSource()));
+        body.put(reconciliation.availableField(),body.get(reconciliation.chargeSource()));
+      }
     }
     if(op.moveBatch()!=null){
       var batch=op.moveBatch();
