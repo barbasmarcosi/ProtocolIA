@@ -59,7 +59,7 @@ async function ready(base){for(let i=0;i<120;i++){
   await new Promise(r=>setTimeout(r,1000));
 }throw Error("Generated application not healthy");}
 function cents(x){assert.equal(typeof x,"string","Decimal must be an exact JSON string");
-  assert.match(x,/^(0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?$/);
+  assert.match(x,/^(0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$/);
   const [whole,fraction=""]=x.split(".");
   return BigInt(whole)*100n+BigInt(fraction.padEnd(2,"0"));
 }
