@@ -215,10 +215,7 @@ namespace TallerPaymentGuard {
     @query @minValue(0) @maxValue(1000000) offset?: int32 = 0
   ): WorkOrderPage | BadRequest | Unauthorized | Forbidden;
 
-  @route("/api/work-orders/{number}")
-  @delete @behavior("delete","WorkOrder") @capability("orders.write")
-  op deleteWorkOrder(@path number: string):
-    { @statusCode _: 204; } | NotFound | Conflict | Unauthorized | Forbidden;
+  // Financial work orders are immutable once registered; do not offer generic DELETE.
 
   @route("/api/payments")
   @post @behavior("create","Payment")
