@@ -1,0 +1,47 @@
+name: v1.2-independent-contract-acceptance
+on:
+  push:
+    branches: [feature/v1.2-independent-contract-acceptance-20261030]
+    paths:
+      - 'examples/vnext/community-archive/**'
+      - 'scripts/vnext/probe-independent-contract-build.mjs'
+      - '.github/workflows/v12-independent-contract-acceptance.yml'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: v12-greenfield-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  independently-generated-app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Generate clean independent CommunityArchive app from TypeSpec only
+        run: npm run app:build -- examples/vnext/community-archive --target ${{ matrix.target }} --out "${{ runner.temp }}/v12-independent-app"
+      - name: Verify target-independent domain structure, FK and behavior from owned manifests
+        run: node scripts/vnext/probe-independent-contract-build.mjs "${{ runner.temp }}/v12-independent-app"
+      - name: Exercise real isolated PostgreSQL HTTP, auth, FK, validation and atomic operations
+        run: npm run app:test -- "${{ runner.temp }}/v12-independent-app"
