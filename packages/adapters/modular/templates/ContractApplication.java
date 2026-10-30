@@ -58,7 +58,7 @@ public class ContractApplication {
           pass==null||pass.isBlank())
         throw new IllegalStateException("Explicit one-shot PostgreSQL migration credentials required");
       String failpoint=System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_FAILPOINT","");
-      if(!failpoint.equals("")&&!failpoint.equals("before-migrate")&&!failpoint.equals("after-migrate"))
+      if(!failpoint.equals("")&&!failpoint.equals("before-migrate")&&!failpoint.equals("after-migrate")&&!failpoint.equals("pause-after-migrate"))
         throw new IllegalStateException("Invalid one-shot migration fault injection");
       handoff();
       if(failpoint.equals("before-migrate"))
@@ -70,6 +70,14 @@ public class ContractApplication {
       flyway.migrate();
       if(failpoint.equals("after-migrate"))
         throw new IllegalStateException("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT");
+      // Disposable CI SIGKILL barrier: Flyway has committed, handoff is not published.
+      // Never continue publishing if a test orchestration fails to kill the process.
+      if(failpoint.equals("pause-after-migrate")) {
+        System.out.println("PROTOCOLIA_TEST_MIGRATION_PAUSED_AFTER_COMMIT");
+        System.out.flush();
+        Thread.sleep(120000);
+        throw new IllegalStateException("PROTOCOLIA_TEST_MIGRATION_PAUSE_NOT_INTERRUPTED");
+      }
       publishHandoff(jdbc,user,pass);
       System.out.println("PROTOCOLIA_SPRING_ONE_SHOT_MIGRATION_PASS");
       return;
