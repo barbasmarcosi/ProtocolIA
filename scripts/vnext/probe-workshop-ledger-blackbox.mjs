@@ -114,7 +114,7 @@ try{
   await vehicleForm.locator('[data-testid="create-modelName"]').fill("Modelo ficticio");
   await vehicleForm.locator('[data-testid="create-mileageKm"]').fill("153000");
   await vehicleForm.locator('[data-testid="create-customerCode"]').click();
-  await page.getByRole("option",{name:/C-001/}).click();
+  await page.getByRole("option",{name:"Cliente sintético"}).click();
   assert.equal(await vehicleForm.locator('[data-testid="create-customerCode"]')
     .getAttribute("data-selected-key"),"C-001");
   await vehicleForm.getByRole("button",{name:"Crear"}).click();
