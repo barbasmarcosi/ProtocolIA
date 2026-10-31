@@ -239,6 +239,44 @@ async function previewMobileSmoke(){
       "Unknown or rejected result must preserve the idempotency key");
     assert.equal(freshWrite.status(),201);
     assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),108n);
+    // Simulate a server-side COMMIT whose HTTP response is lost in transit.
+    // The client must consult the immutable journal rather than POST again.
+    await page.getByTestId("exact-adjustment-toggle").click();
+    const lostForm=page.getByTestId("exact-adjustment-form");
+    await lostForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await lostForm.getByTestId("exact-adjustment-amount").fill("0.03");
+    await lostForm.getByTestId("exact-adjustment-reason").fill(
+      "Confirmación registrada con respuesta HTTP perdida");
+    await lostForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    let lostWriteStatus=null,lostWriteId=null;
+    const lostRoute="**/api/work-orders/OT-UI-ADJUST/adjustments";
+    await page.route(lostRoute,async route=>{
+      if(route.request().method()!=="POST"){await route.continue();return;}
+      lostWriteId=route.request().postDataJSON().adjustmentId;
+      const upstream=await route.fetch();
+      lostWriteStatus=upstream.status();
+      await route.abort("failed");
+    });
+    await page.getByTestId("exact-adjustment-confirm").click();
+    await page.getByTestId("exact-adjustment-refresh-required").waitFor({timeout:15000});
+    await page.unroute(lostRoute);
+    assert.equal(lostWriteStatus,201,"Synthetic response loss must occur AFTER real commit");
+    assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),111n);
+    const journalBeforeRecovery=sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'");
+    const [lookupResponse]=await Promise.all([
+      page.waitForResponse(r=>r.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments/"+lostWriteId)&&
+        r.request().method()==="GET",{timeout:20000}),
+      page.getByTestId("exact-adjustment-check-outcome").click()
+    ]);
+    assert.equal(lookupResponse.status(),200);
+    await page.getByTestId("exact-adjustment-outcome-committed").waitFor({timeout:10000});
+    assert.equal(sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'"),journalBeforeRecovery,
+      "Outcome recovery must never issue another correction");
+    console.log("PROTOCOLIA_S2C1B5_MOBILE_LOST_RESPONSE_PASS "+build.target);
     console.log("PROTOCOLIA_S2C1B3_MOBILE_CAS_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
     console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
