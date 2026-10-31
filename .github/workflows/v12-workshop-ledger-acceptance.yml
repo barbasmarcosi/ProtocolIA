@@ -1,0 +1,53 @@
+name: v1.2-workshop-ledger-acceptance
+on:
+  push:
+    branches: [feature/v1.2-independent-contract-acceptance-20261030]
+    paths:
+      - 'examples/vnext/workshop-ledger/**'
+      - 'scripts/vnext/probe-workshop-ledger-*.mjs'
+      - '.github/workflows/v12-workshop-ledger-acceptance.yml'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: v12-workshop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workshop-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Build unrelated workshop contract to complete real generated application
+        run: npm run app:build -- examples/vnext/workshop-ledger --target ${{ matrix.target }} --out "${{ runner.temp }}/v12-workshop-app"
+      - name: Prove contract/IR/manifest includes four resources and exact money
+        run: node scripts/vnext/probe-workshop-ledger-build.mjs "${{ runner.temp }}/v12-workshop-app"
+      - name: Run generic conformance on actual isolated PostgreSQL
+        run: npm run app:test -- "${{ runner.temp }}/v12-workshop-app"
+      - name: Install pinned Chromium for mobile workshop business flows
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Validate frozen workshop business cases on mobile Chromium and real PostgreSQL
+        run: node scripts/vnext/probe-workshop-ledger-blackbox.mjs "${{ runner.temp }}/v12-workshop-app"
