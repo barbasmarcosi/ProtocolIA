@@ -6,7 +6,7 @@ import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,as
 import {compileRelatedSums} from "../related-sum.mjs";
 import {compileDetailSums} from "../detail-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
-import {compileExactReconciliations} from "../exact-reconciliation.mjs";
+import {compileExactReconciliations,exactAdjustmentJournalSql} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
@@ -481,6 +481,7 @@ export function generate(ir,spec,out){
     "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
     "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
+  schema.push(...exactAdjustmentJournalSql(exactReconciliations));
   schema.push(...recipientInboxSql(inboxes));
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),

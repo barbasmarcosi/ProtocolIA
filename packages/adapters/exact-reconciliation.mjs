@@ -62,7 +62,7 @@ export function compileExactReconciliations(ir){
       throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
       ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
-        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview").map(([,v])=>v)].every(ident)||
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview"&&k!=="adjustmentJournal").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
@@ -110,22 +110,41 @@ export function compileExactReconciliations(ir){
       !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(total.decimal.max)||
       cfg.serverOnly!==true||cfg.lifecycle!==true))
       throw Error("Invalid exact repricing preview "+op.name);
+    if(cfg.adjustmentJournal!==undefined&&cfg.adjustmentJournal!==true ||
+      cfg.adjustmentJournal===true&&(
+        cfg.adjustmentPreview!==true||!source||!total?.decimal?.max||
+        !Number.isInteger(total.decimal.precision)||
+        !Number.isInteger(total.decimal.scale)||
+        total.decimal.precision<1||total.decimal.precision>38||
+        total.decimal.scale<0||total.decimal.scale>total.decimal.precision))
+      throw Error("Invalid exact adjustment journal "+op.name);
+    const journalTable=cfg.adjustmentJournal===true?
+      "protocolia_exact_adjustment_"+snake(parent.name):null;
+    const sourceTotal=journalTable?
+      "(COALESCE(s.line_total,0)+COALESCE(a.adjustment_total,0))":
+      "COALESCE(s.line_total,0)";
     const sourceGood=source?
       "(COALESCE(s.line_count,0) BETWEEN 1 AND 20 AND "+
-      "COALESCE(s.line_total,0)=p."+snake(source.chargeTotalField)+
+      sourceTotal+"=p."+snake(source.chargeTotalField)+
+      (journalTable?" AND COALESCE(a.adjustment_count,0) BETWEEN 0 AND 100":"")+
       " AND p."+snake(cfg.openingField)+"=p."+snake(source.chargeTotalField)+")":null;
     const sourceJoin=source?
       " LEFT JOIN LATERAL (SELECT COUNT(*) AS line_count, "+
       "SUM(d."+snake(source.chargeAmountField)+") AS line_total FROM "+
       snake(line.name)+" d WHERE d."+snake(source.parentField)+
       "=p."+snake(parent.publicIdentity)+") s ON TRUE":"";
+    const journalJoin=journalTable?
+      " LEFT JOIN LATERAL (SELECT COUNT(*) AS adjustment_count, "+
+      "SUM(a0.delta) AS adjustment_total FROM "+journalTable+
+      " a0 WHERE a0.parent_id=p."+snake(parent.publicIdentity)+") a ON TRUE":"";
     const pt=snake(parent.name),ct=snake(child.name),pk=snake(parent.publicIdentity);
     const fkCol=snake(cfg.referenceField),amountCol=snake(cfg.amountField),stateCol=snake(cfg.stateField);
     const oc=snake(cfg.openingField),bc=snake(cfg.availableField);
     const calc="(p."+oc+"-COALESCE(j.posted,0))";
     const balanced="(p."+bc+"="+calc+(sourceGood?" AND "+sourceGood:"")+")";
     const previewEligible=cfg.adjustmentPreview===true?
-      "("+balanced+" AND COALESCE(s.line_count,0)<20)":null;
+      "("+balanced+" AND COALESCE(s.line_count,0)<20"+
+      (journalTable?" AND COALESCE(a.adjustment_count,0)<100":"")+")":null;
     const previewSql=previewEligible?
       ", "+previewEligible+" AS \"adjustmentPreviewEligible\""+
       ", CASE WHEN "+previewEligible+" THEN p."+bc+
@@ -151,15 +170,54 @@ export function compileExactReconciliations(ir){
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' THEN c."+amountCol+" ELSE 0 END) AS posted, "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
       "COUNT(*) AS posting_count FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
-      ") j ON TRUE"+sourceJoin+" WHERE p."+pk+"=";
+      ") j ON TRUE"+sourceJoin+journalJoin+" WHERE p."+pk+"=";
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
       ...(cfg.serverOnly===true?{serverOnly:true}:{}),
       ...(cfg.lifecycle===true?{lifecycle:true}:{}),
-      ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{})});
+      ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{}),
+      ...(journalTable?{adjustmentJournal:{
+        table:journalTable,parentTable:pt,parentColumn:pk,
+        precision:total.decimal.precision,scale:total.decimal.scale
+      }}:{})});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))
     throw Error("Orphan exact reconciliation metadata");
   return plans;
+}
+
+
+// Only plans derived from checked canonical IR may provision this schema.
+// Signed adjustments are an immutable journal; no client-facing write operation
+// is generated in the S2c-1b0 foundation milestone.
+export function exactAdjustmentJournalSql(plans){
+  const journals=[...plans.values()].map(x=>x.adjustmentJournal).filter(Boolean);
+  const tableSet=new Set();
+  const ddl=[];
+  for(const j of journals){
+    if(tableSet.has(j.table))throw Error("Duplicate exact adjustment journal");
+    tableSet.add(j.table);
+    const safe=x=>typeof x==="string"&&/^[a-z][a-z0-9_]*$/.test(x);
+    if(![j.table,j.parentTable,j.parentColumn].every(safe)||
+       !Number.isInteger(j.precision)||j.precision<1||j.precision>38||
+       !Number.isInteger(j.scale)||j.scale<0||j.scale>j.precision)
+      throw Error("Invalid exact journal schema");
+    const func="protocolia_immutable_"+j.parentTable+"_adjustment";
+    ddl.push("CREATE TABLE "+j.table+" ("+
+      "parent_id VARCHAR(255) NOT NULL REFERENCES "+j.parentTable+
+      " ("+j.parentColumn+") ON DELETE RESTRICT, "+
+      "adjustment_id VARCHAR(64) NOT NULL CHECK (length(btrim(adjustment_id)) BETWEEN 8 AND 64), "+
+      "delta NUMERIC("+j.precision+","+j.scale+") NOT NULL CHECK (delta <> 0), "+
+      "reason VARCHAR(240) NOT NULL CHECK (char_length(btrim(reason)) BETWEEN 12 AND 240), "+
+      "actor VARCHAR(255) NOT NULL CHECK (char_length(btrim(actor)) > 0), "+
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, "+
+      "PRIMARY KEY (parent_id, adjustment_id));");
+    ddl.push("CREATE FUNCTION "+func+"() RETURNS trigger LANGUAGE plpgsql AS "+
+      "$$ BEGIN RAISE EXCEPTION 'Exact adjustment journal is append-only' "+
+      "USING ERRCODE = '23514'; END $$;");
+    ddl.push("CREATE TRIGGER "+func+"_guard BEFORE UPDATE OR DELETE ON "+j.table+
+      " FOR EACH ROW EXECUTE FUNCTION "+func+"();");
+  }
+  return ddl;
 }

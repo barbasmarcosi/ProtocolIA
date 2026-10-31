@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync,cpSync,mkdtempSync,rmSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 import {assertCreateDetails} from "../../packages/adapters/create-details.mjs";
-import {compileExactReconciliations} from "../../packages/adapters/exact-reconciliation.mjs";
+import {compileExactReconciliations,exactAdjustmentJournalSql} from "../../packages/adapters/exact-reconciliation.mjs";
 
 const fixture=resolve("examples/vnext/workshop-itemized-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
@@ -37,13 +37,24 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   // persisted but no longer matching child-row sum.
   const sql=compileExactReconciliations(ir).get("reconcileWorkOrder");
   assert.equal(recon.behavior.reconcileExact.adjustmentPreview,true);
+  assert.equal(recon.behavior.reconcileExact.adjustmentJournal,true);
+  const journal=exactAdjustmentJournalSql(compileExactReconciliations(ir));
+  assert.equal(journal.length,3);
+  assert.match(journal[0],/CREATE TABLE protocolia_exact_adjustment_work_order/);
+  assert.match(journal[0],/delta NUMERIC\(14,2\) NOT NULL CHECK \(delta <> 0\)/);
+  assert.match(journal[0],/PRIMARY KEY \(parent_id, adjustment_id\)/);
+  assert.match(journal[1],/RAISE EXCEPTION/);
+  assert.match(journal[2],/BEFORE UPDATE OR DELETE/);
   assert.ok(sql&&sql.sqlNest===sql.sqlSpring.replace(":identity","$1"));
   assert.match(sql.sqlNest,/LEFT JOIN LATERAL \(SELECT COUNT\(\*\) AS line_count/);
   assert.match(sql.sqlNest,/SUM\(d\.amount\) AS line_total FROM charge_line/);
   assert.match(sql.sqlNest,/COALESCE\(s\.line_count,0\) BETWEEN 1 AND 20/);
-  assert.match(sql.sqlNest,/COALESCE\(s\.line_total,0\)=p\.charge_total/);
+  assert.match(sql.sqlNest,/\(COALESCE\(s\.line_total,0\)\+COALESCE\(a\.adjustment_total,0\)\)=p\.charge_total/);
   assert.match(sql.sqlNest,/p\.opening_balance=p\.charge_total/);
   assert.match(sql.sqlNest,/CASE WHEN NOT/);
+  assert.match(sql.sqlNest,/SUM\(a0\.delta\) AS adjustment_total/);
+  assert.match(sql.sqlNest,/COALESCE\(a.adjustment_count,0\) BETWEEN 0 AND 100/);
+  assert.match(sql.sqlNest,/COALESCE\(s.line_total,0\)\+COALESCE\(a.adjustment_total,0\)/);
   assert.match(sql.sqlNest,/AS "maxSafeDecrease"/);
   assert.match(sql.sqlNest,/AS "maxSafeIncrease"/);
   assert.match(sql.sqlNest,/AS "adjustmentPreviewEligible"/);
@@ -82,8 +93,16 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("disabled adjustment journal",s=>s.replace(
+    '"reversed","chargeTotal", true, true, true, true)',
+    '"reversed","chargeTotal", true, true, true, false)'),
+    /protocolia-invalid-exact-adjustment-journal/);
+  negative("journal without preview",s=>s.replace(
+    '"reversed","chargeTotal", true, true, true, true)',
+    '"reversed","chargeTotal", true, true, false, true)'),
+    /protocolia-invalid-exact-adjustment-journal/);
   negative("disabled repricing preview",s=>s.replace(
-    '"reversed","chargeTotal", true, true, true)',
+    '"reversed","chargeTotal", true, true, true, true)',
     '"reversed","chargeTotal", true, true, false)'),
     /protocolia-invalid-exact-adjustment-preview/);
   negative("missing amount ceiling",s=>s.replace(
