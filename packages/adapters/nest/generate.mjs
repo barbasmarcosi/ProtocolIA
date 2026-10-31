@@ -505,7 +505,8 @@ export function generate(ir,spec,out){
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
     operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments,
     fieldReadCapabilities,
-    hasOverdueRules:overdueRules.length>0};
+    hasOverdueRules:overdueRules.length>0,
+    providerInboxEnabled:[...exactReconciliations.values()].some(x=>x.unverifiedProofField)};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
