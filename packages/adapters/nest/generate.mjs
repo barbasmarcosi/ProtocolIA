@@ -400,7 +400,7 @@ export function generate(ir,spec,out){
     copyFileSync(source,full);contents.push(p);
   };
   for(const op of ir.operations.filter(o=>o.behavior.kind==="create"))
-    assertDecimalWireSchema(spec,op,ir.entities.find(e=>e.name===op.entity));
+    assertDecimalWireSchema(spec,op,ir.entities.find(e=>e.name===op.entity),ir);
   const overdueRules=compileOverduePolicies(ir);
   const schema=[];
   for(const e of ir.entities){
