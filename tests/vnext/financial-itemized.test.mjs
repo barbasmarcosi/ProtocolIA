@@ -31,6 +31,16 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   const recon=ir.operations.find(x=>x.name==="reconcileWorkOrder");
   assert.deepEqual(recon.behavior.reconcileExact.chargeSource,"chargeTotal");
   const child=ir.entities.find(x=>x.name==="ChargeLine");
+  const payment=ir.entities.find(x=>x.name==="Payment");
+  const providerState=payment?.fields.find(x=>x.name==="providerSettlementState");
+  assert.equal(providerState?.initial,"unverified");
+  assert.equal(providerState?.type,"string");
+  assert.equal(providerState?.minLength,10);
+  assert.equal(providerState?.maxLength,10);
+  assert.ok(!ir.operations.some(op=>op.entity==="Payment"&&
+    ["patchFields","patchTogether","transition","delete"].includes(op.behavior.kind)&&
+    (op.behavior.field==="providerSettlementState"||op.behavior.kind==="delete")),
+    "External settlement must have no writable lifecycle before provider integration");
   assert.ok(!ir.operations.some(op=>op.entity==="ChargeLine"&&
     ["patchFields","delete","replaceDetails","reassignReference"].includes(op.behavior.kind)));
   assert.ok(child.fields.find(x=>x.name==="amount")?.decimal);
