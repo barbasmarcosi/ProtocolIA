@@ -194,7 +194,7 @@ function appendProviderCandidate(plans,ddl){
     );`,
     `CREATE FUNCTION protocolia_record_provider_lifecycle_observation(
       v_provider TEXT,v_event TEXT,v_digest TEXT,v_candidate_event TEXT,
-      v_receipt TEXT,v_order TEXT,v_amount NUMERIC,v_sequence BIGINT,v_phase TEXT
+      v_receipt TEXT,v_order TEXT,v_amount NUMERIC,v_sequence NUMERIC,v_phase TEXT
     ) RETURNS TEXT LANGUAGE plpgsql AS $lifecycle_observation$
     DECLARE old_digest TEXT;old_candidate TEXT;old_receipt TEXT;old_order TEXT;
       old_amount NUMERIC;old_sequence BIGINT;old_phase TEXT;
@@ -214,6 +214,7 @@ function appendProviderCandidate(plans,ddl){
          v_amount IS NULL OR v_amount<=0 OR v_amount>${b.max}::NUMERIC OR
          v_amount<>ROUND(v_amount,${b.scale}) OR
          v_sequence IS NULL OR v_sequence NOT BETWEEN 1 AND 2147483647 OR
+         v_sequence<>TRUNC(v_sequence) OR
          v_phase IS NULL OR v_phase NOT IN
            ('reported_pending','reported_success','reported_failure','reported_reversal')
       THEN RAISE EXCEPTION 'Invalid synthetic lifecycle observation'
