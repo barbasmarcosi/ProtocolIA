@@ -1218,12 +1218,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
         const prop=props?.get(name);
         if(!prop||prop.optional)return false;
         const value=field(p,prop),wire=getEncode(p,prop);
-        return value.type==="decimal"&&value.decimal?.precision===charge?.decimal?.precision&&
+        return value?.type==="decimal"&&value.decimal?.precision===charge?.decimal?.precision&&
           value.decimal?.scale===charge?.decimal?.scale&&
           value.decimal?.min==="0.00"&&value.decimal?.max===charge?.decimal?.max&&
           wire?.type.name==="string"&&wire.encoding===undefined;
       });
-      const countFields=[["expectedPostingCount",16],["expectedAdjustmentCount",3]];
+      const countFields:[string,number][]=[["expectedPostingCount",16],["expectedAdjustmentCount",3]];
       const expectedCountValid=countFields.every(([name,max])=>{
         const prop=props?.get(name);
         return !!prop&&!prop.optional&&typeOfField(prop)?.type==="string"&&
