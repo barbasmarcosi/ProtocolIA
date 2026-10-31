@@ -34,6 +34,18 @@ const temp=mkdtempSync(resolve("examples/vnext/.multi-charge-negative-"));
 try{
   mkdirSync(join(temp,"contracts"),{recursive:true});
   writeFileSync(join(temp,"tspconfig.yaml"),config);
+  // The opt-in must not break the original exact eight-field snapshot contract.
+  const previous=source.replace(annotation,annotation.replace(", true, true)",", true"))
+    .replace("    coverageState: string;\n","");
+  assert.notEqual(previous,source);
+  writeFileSync(join(temp,"contracts/main.tsp"),previous);
+  const legacy=spawnSync(resolve("node_modules/.bin/tsp"),["compile",temp],{
+    encoding:"utf8",timeout:90000,maxBuffer:4*1024*1024
+  });
+  assert.equal(legacy.status,0,
+    "Legacy opt-out exact snapshot must still compile: "+
+    ((legacy.stdout??"")+"\n"+(legacy.stderr??"")).slice(-1200));
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_LEGACY_OPTOUT_PASS");
   for(const [name,invalid] of cases){
     assert.notEqual(invalid,source,"Fixture mutation must change TypeSpec: "+name);
     writeFileSync(join(temp,"contracts/main.tsp"),invalid);
