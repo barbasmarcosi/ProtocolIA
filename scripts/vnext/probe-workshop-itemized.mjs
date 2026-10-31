@@ -150,6 +150,15 @@ async function previewMobileSmoke(){
     await page.getByTestId("exact-adjustment-preview").waitFor({timeout:15000});
     assert.equal(await page.getByTestId("max-safe-decrease").textContent(),"0.30");
     assert.equal(await page.getByTestId("max-safe-increase").textContent(),"999999999999.69");
+    await page.getByTestId("external-proof-boundary").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("unverified-posted-total").textContent(),"0");
+    await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-OT-PROVIDER-PROOF").click();
+    await page.getByTestId("external-proof-boundary").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("unverified-posted-total").textContent(),"2.00");
+    assert.equal(await page.getByTestId("unverified-posting-count").textContent(),"2");
+    assert.match(await page.getByTestId("external-proof-boundary").textContent(),
+      /No acredita liquidación/);
     await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
     await page.getByTestId("open-detail-OT-UI-ADJUST").click();
     await page.getByTestId("exact-adjustment-composer").waitFor({timeout:15000});
@@ -351,12 +360,24 @@ try{
   assert.equal(proofCovered.snapshot.coverageState,"covered",
     "Coverage is internal ledger coverage, not provider clearing");
   assert.equal(proofCovered.record.available,"0.00");
+  assert.equal(proofCovered.snapshot.unverifiedPostedTotal,"3.00");
+  assert.equal(proofCovered.snapshot.unverifiedPostingCount,"3");
+  assert.equal(proofCovered.snapshot.postedTotal,"3.00");
+  assert.equal(proofCovered.snapshot.balanced,true);
+  // This is a read-only projection, never an externally settled amount.
+  assert.equal(sql("SELECT SUM(amount) FROM payment WHERE order_number='OT-PROVIDER-PROOF' "+
+    "AND status='posted' AND provider_settlement_state='unverified'"),"3.00");
   const reversedProvider=await status("/api/payments/PROOF-BANK-TRANSFER/reverse",200,
     {method:"POST"});
   assert.equal(reversedProvider.providerSettlementState,"unverified",
     "An internal reversal is not an external refund");
-  assert.equal((await balance("OT-PROVIDER-PROOF")).snapshot.coverageState,"partial");
+  const proofAfterReversal=(await balance("OT-PROVIDER-PROOF")).snapshot;
+  assert.equal(proofAfterReversal.coverageState,"partial");
+  assert.equal(proofAfterReversal.unverifiedPostedTotal,"2.00");
+  assert.equal(proofAfterReversal.unverifiedPostingCount,"2");
+  assert.equal(proofAfterReversal.reversedTotal,"1.00");
   console.log("PROTOCOLIA_S2C1B6_PROVIDER_PROOF_PASS "+build.target);
+  console.log("PROTOCOLIA_S2C1B7_UNVERIFIED_PROJECTION_PASS "+build.target);
   await previewMobileSmoke();
   const audit=await status("/api/work-orders/OT-EXACT/audit",200);
   assert.ok(audit.items.some(row=>row.fieldName==="chargeTotal"&&

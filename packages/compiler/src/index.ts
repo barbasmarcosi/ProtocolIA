@@ -566,6 +566,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const foreign=child?.fields.find(x=>x.name===reconciliation?.referenceField);
       const amount=child?.fields.find(x=>x.name===reconciliation?.amountField);
       const status=child?.fields.find(x=>x.name===reconciliation?.stateField);
+      // A read-only provider-proof projection is permitted only when the child
+      // has a mandatory server-fixed "unverified" value. It never asserts settlement.
+      const proofField=child?.fields.find(x=>x.name===reconciliation?.unverifiedProofField);
+      if(reconciliation?.unverifiedProofField!==undefined&&
+        (typeof reconciliation.unverifiedProofField!=="string"||
+         !/^[A-Za-z][A-Za-z0-9_]*$/.test(reconciliation.unverifiedProofField)||
+         !proofField||proofField.type!=="string"||!proofField.required||
+         proofField.nullable||proofField.fixedInitial!==true||
+         proofField.initial!=="unverified")){
+        reject("invalid-unverified-proof",op.name+
+          " requires a mandatory server-fixed unverified child field",op);
+        continue;
+      }
       // This CSV is only a bounded list of *field identifiers*. It is not an
       // expression language and cannot inject SQL or runtime JavaScript.
       const chargeText=reconciliation?.chargeSource;
@@ -1342,7 +1355,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
         ...(lifecycle?["coverageState"]:[]),
         ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[]),
-        ...(metadata(p,"reconcileExact",op)?.adjustmentJournal===true?["adjustmentCount"]:[])];
+        ...(metadata(p,"reconcileExact",op)?.adjustmentJournal===true?["adjustmentCount"]:[]),
+        ...(metadata(p,"reconcileExact",op)?.unverifiedProofField!==undefined?
+          ["unverifiedPostedTotal","unverifiedPostingCount"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
@@ -1741,7 +1756,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
           ...(reconciliation.serverOnly===true?{serverOnly:true}:{}),
           ...(reconciliation.lifecycle===true?{lifecycle:true}:{}),
           ...(reconciliation.adjustmentPreview===true?{adjustmentPreview:true}:{}),
-          ...(reconciliation.adjustmentJournal===true?{adjustmentJournal:true}:{})
+          ...(reconciliation.adjustmentJournal===true?{adjustmentJournal:true}:{}),
+          ...(reconciliation.unverifiedProofField!==undefined?
+            {unverifiedProofField:String(reconciliation.unverifiedProofField)}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),

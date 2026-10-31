@@ -22,6 +22,10 @@ namespace TallerPaymentGuard {
     expectedAvailable: string;
     difference: string;
     postingCount: string;
+    // Exact INTERNAL receipts without any verified external provider attestation.
+    // This is not a provider-cleared amount or a refund.
+    unverifiedPostedTotal: string;
+    unverifiedPostingCount: string;
     adjustmentCount: string;
     balanced: boolean;
     coverageState: string;
@@ -346,7 +350,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true, true, true)
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true, true, true, "providerSettlementState")
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;

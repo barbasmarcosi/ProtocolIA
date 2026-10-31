@@ -50,6 +50,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   const sql=compileExactReconciliations(ir).get("reconcileWorkOrder");
   assert.equal(recon.behavior.reconcileExact.adjustmentPreview,true);
   assert.equal(recon.behavior.reconcileExact.adjustmentJournal,true);
+  assert.equal(recon.behavior.reconcileExact.unverifiedProofField,"providerSettlementState");
   const journal=exactAdjustmentJournalSql(compileExactReconciliations(ir));
   const adjOp=ir.operations.find(x=>x.name==="adjustWorkOrder");
   assert.ok(adjOp);
@@ -109,6 +110,14 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(sql.sqlNest,/AS "maxSafeIncrease"/);
   assert.match(sql.sqlNest,/AS "adjustmentPreviewEligible"/);
   assert.match(sql.sqlNest,/AS "adjustmentCount"/);
+  assert.match(sql.sqlNest,/AS "unverifiedPostedTotal"/);
+  assert.match(sql.sqlNest,/AS "unverifiedPostingCount"/);
+  assert.match(sql.sqlNest,/c\.provider_settlement_state='unverified'/);
+  const proofTamper=structuredClone(ir);
+  proofTamper.entities.find(x=>x.name==="Payment").fields
+    .find(x=>x.name==="providerSettlementState").fixedInitial=false;
+  assert.throws(()=>compileExactReconciliations(proofTamper),
+    /Invalid unverified provider proof binding/);
   const poisonedMax=structuredClone(ir);
   poisonedMax.entities.find(x=>x.name==="WorkOrder").fields
     .find(x=>x.name==="chargeTotal").decimal.max="0;DROP TABLE payment";
@@ -144,8 +153,16 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("unverified projection requires immutable proof",s=>s.replace(
+    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-(?:invalid-unverified-proof|orphan-initial)/);
+  negative("unverified projection rejects unrelated child field",s=>s.replace(
+    'true, "providerSettlementState")','true, "destinationAccount")'),
+    /protocolia-invalid-unverified-proof/);
+  negative("unverified projection rejects missing child field",s=>s.replace(
+    'true, "providerSettlementState")','true, "doesNotExist")'),
+    /protocolia-invalid-unverified-proof/);
   negative("fixed provider proof cannot be ordinary state",s=>s.replace(
-    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-orphan-initial/);
+    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-(?:invalid-unverified-proof|orphan-initial)/);
   negative("provider proof cannot be a client lifecycle",s=>s.replace(
     '  @route("/health")',
     '  @route("/api/payments/{receipt}/provider-settle")\n'+
@@ -183,17 +200,17 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     '@behavior("adjustExact","WorkOrder") @capability("orders.read")'),
     /protocolia-invalid-exact-adjustment/);
   negative("disabled adjustment journal",s=>s.replace(
-    '"reversed","chargeTotal", true, true, true, true)',
-    '"reversed","chargeTotal", true, true, true, false)'),
+    '"reversed","chargeTotal", true, true, true, true, "providerSettlementState")',
+    '"reversed","chargeTotal", true, true, true, false, "providerSettlementState")'),
     /protocolia-invalid-exact-adjustment-journal/);
   negative("journal without preview",s=>s.replace(
-    '"reversed","chargeTotal", true, true, true, true)',
-    '"reversed","chargeTotal", true, true, false, true)'),
+    '"reversed","chargeTotal", true, true, true, true, "providerSettlementState")',
+    '"reversed","chargeTotal", true, true, false, true, "providerSettlementState")'),
     /protocolia-invalid-exact-adjustment-journal/);
   negative("disabled repricing preview",s=>s.replace(
-    '"reversed","chargeTotal", true, true, true, true)',
-    '"reversed","chargeTotal", true, true, false)'),
-    /protocolia-invalid-exact-adjustment-preview/);
+    '"reversed","chargeTotal", true, true, true, true, "providerSettlementState")',
+    '"reversed","chargeTotal", true, true, false, false, "providerSettlementState")'),
+    /protocolia-invalid-exact-adjustment-(?:preview|journal)/);
   negative("missing amount ceiling",s=>s.replace(
     '@exactDecimal(14,2,"0","999999999999.99")\n    chargeTotal',
     '@exactDecimal(14,2,"0")\n    chargeTotal'),
