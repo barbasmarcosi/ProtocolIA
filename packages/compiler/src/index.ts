@@ -1445,8 +1445,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         metadata(p,"reconcileExact",candidate)?.serverOnly===true);
       const serverOnlyLedger=sourceBoundReconcile?
         metadata(p,"reconcileExact",sourceBoundReconcile):undefined;
+      const declaredLines=metadata(p,"createDetails",op);
       const serverOnlyFields=new Set<string>(serverOnlyLedger?
-        [String(serverOnlyLedger.openingField),String(serverOnlyLedger.availableField)]:[]);
+        [String(serverOnlyLedger.openingField),String(serverOnlyLedger.availableField),
+          ...(declaredLines?.chargeTotalField!==undefined?
+            [String(declaredLines.chargeTotalField)]:[])]:[]);
       if(serverOnlyLedger&&[...serverOnlyFields].some(name=>props?.has(name))){
         reject("server-only-request-spoof",op.name+" must omit both server-derived balances from CREATE DTO",op);
         continue;
