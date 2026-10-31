@@ -1217,7 +1217,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const encoding=delta?getEncode(p,delta):undefined;
       const roles=relevant.filter(candidate=>
         metadata(p,"behavior",candidate)?.entity===entity.name&&
-        ["create","get","auditPage"].includes(metadata(p,"behavior",candidate)?.kind))
+        ["create","get","auditPage"].includes(String(metadata(p,"behavior",candidate)?.kind)))
         .map(candidate=>metadata(p,"capability",candidate)?.name);
       const count=relevant.filter(candidate=>
         metadata(p,"behavior",candidate)?.entity===entity.name&&
