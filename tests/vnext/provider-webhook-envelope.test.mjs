@@ -37,6 +37,8 @@ test("strict timestamp window, no milliseconds, no newline or ambiguous identifi
     {nowSeconds:-1},{nowSeconds:1.5},
     {timestamp:"1793440000000"},{timestamp:"01793440000"},
     {timestamp:"1793440000\n"},{eventId:"evt_bad\nline"},
+    {eventId:"evt_12345678\n"},{keyId:"sandbox_1\n"},
+    {signature:signature+"\n"},
     {eventId:"short"},{keyId:"bad\nheader"},
     {keyId:"../sandbox_1"}
   ])assert.equal(verify(change),null);
