@@ -525,11 +525,27 @@ try{
   assert.equal(sameId.filter(x=>x.status===201).length,1);
   assert.equal(sameId.filter(x=>x.status===409).length,4);
   const afterRace=await balance("OT-ADJ-RACE");
-  assert.equal(cents(afterRace.record.chargeTotal),10n);
-  assert.equal(cents(afterRace.record.available),10n);
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
+  assert.equal(cents(afterRace.record.chargeTotal),210n);
+  assert.equal(cents(afterRace.record.available),210n);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"2");
   assert.throws(()=>sql("UPDATE "+jtable+" SET delta=9.00 "+
     "WHERE adjustment_id='AR-SAME-ID'"),/append-only|Compose/i);
+  const beforeAba=reviewedFields(afterRace.snapshot);
+  assert.equal((await apply("OT-ADJ-RACE","AR-ABA-UP","0.10")).status,201);
+  assert.equal((await apply("OT-ADJ-RACE","AR-ABA-DN","-0.10")).status,201);
+  const afterAba=await balance("OT-ADJ-RACE");
+  assert.equal(afterAba.snapshot.openingBalance,afterRace.snapshot.openingBalance);
+  assert.equal(afterAba.snapshot.available,afterRace.snapshot.available);
+  assert.equal(afterAba.snapshot.adjustmentCount,"4");
+  const auditBeforeStale=sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-ADJ-RACE'");
+  const staleAba=await apply("OT-ADJ-RACE","AR-ABA-OLD","0.01",
+    "Intento de confirmación con saldo anterior",beforeAba);
+  assert.equal(staleAba.status,409,JSON.stringify(staleAba.data));
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-ADJ-RACE'"),auditBeforeStale);
+  console.log("PROTOCOLIA_S2C1B3_CAS_PASS stale and ABA-safe reviewed snapshot "+build.target);
   console.log("PROTOCOLIA_S2C1B1_ADJUST_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1B0_JOURNAL_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_ALL_PASS "+build.target);
