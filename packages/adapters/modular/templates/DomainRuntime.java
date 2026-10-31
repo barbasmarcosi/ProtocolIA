@@ -235,6 +235,7 @@ public class DomainRuntime {
     }
     int status = Set.of("create","adjustExact").contains(matched.kind()) ? 201 : matched.kind().equals("delete") ? 204 : 200;
     var response=ResponseEntity.status(status);
+    if(matched.kind().equals("lookupExactAdjustment"))response.header("Cache-Control","no-store");
     if(result instanceof Map<?,?> v && v.get("documentVersion") instanceof Number number)
       response.header("ETag","\""+number.intValue()+"\"");
     return response.body(result);
