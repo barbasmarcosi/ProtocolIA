@@ -1355,7 +1355,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
         ...(lifecycle?["coverageState"]:[]),
         ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[]),
-        ...(metadata(p,"reconcileExact",op)?.adjustmentJournal===true?["adjustmentCount"]:[])];
+        ...(metadata(p,"reconcileExact",op)?.adjustmentJournal===true?["adjustmentCount"]:[]),
+        ...(metadata(p,"reconcileExact",op)?.unverifiedProofField!==undefined?
+          ["unverifiedPostedTotal","unverifiedPostingCount"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
