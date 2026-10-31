@@ -340,7 +340,7 @@ try{
   await status("/api/payments",201,{method:"POST",body:
     pay("J-POSTED-1","OT-ADJ-NEG","1.00")});
   sql(directInsert("OT-ADJ-NEG","J-NEG-0001","-0.50"));
-  const journalDrift=(await balance("OT-ADJ-NEG")).snapshot;
+  const journalDrift=await status("/api/work-orders/OT-ADJ-NEG/reconciliation",200);
   assert.equal(journalDrift.balanced,false);
   assert.equal(journalDrift.coverageState,"inconsistent");
   assert.equal(journalDrift.adjustmentPreviewEligible,false);
