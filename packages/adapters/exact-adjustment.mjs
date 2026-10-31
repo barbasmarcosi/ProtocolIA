@@ -47,6 +47,36 @@ export function assertExactAdjustment(ir,api,op,plans){
 }
 
 
+// A lookup is a read of a COMMITTED journal row, not an idempotent write retry.
+// Never reveal a correction on a different parent, even if its ID is globally unique.
+export function assertExactAdjustmentLookup(ir,api,op,plans){
+  const parent=ir.entities.find(e=>e.name===op?.entity);
+  const writer=ir.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="adjustExact");
+  const rec=ir.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="reconcileExact");
+  const journal=rec&&plans.get(rec.name)?.adjustmentJournal;
+  const endpoint=api?.paths?.[op?.path]?.get;
+  const response=deref(api,endpoint?.responses?.["200"]);
+  const model=deref(api,response?.content?.["application/json"]?.schema);
+  const props=model?.properties;
+  const keys=["adjustmentId","delta","reason","status"];
+  const types=keys.map(k=>deref(api,props?.[k]));
+  if(!parent||!journal||!writer||!ident(parent.publicIdentity)||
+    !journal.table?.startsWith("protocolia_exact_adjustment_")||
+    op.behavior.kind!=="lookupExactAdjustment"||
+    op.method!=="GET"||op.path!==writer.path+"/{adjustmentId}"||
+    ![200,400,401,403,404].every(code=>op.statuses?.includes(code))||
+    op.capability==="public"||op.capability!==writer.capability||
+    ir.operations.filter(x=>x.entity===parent.name&&x.behavior.kind==="lookupExactAdjustment").length!==1||
+    !endpoint||endpoint.requestBody||!props||Object.keys(props).sort().join(",")!==keys.sort().join(",")||
+    !keys.every(k=>model.required?.includes(k))||
+    types.some(x=>x?.type!=="string")||
+    types[0]?.minLength!==8||types[0]?.maxLength!==64||
+    types[2]?.minLength!==12||types[2]?.maxLength!==240||
+    JSON.stringify(types[3]?.enum)!=='["committed"]')
+    throw Error("Invalid immutable adjustment outcome lookup "+op?.name);
+  return journal;
+}
+
 // An actual authorization check happens in each HTTP adapter. The stored
 // function serializes the parent and rechecks the entire exact money graph
 // in a NEW READ COMMITTED statement before altering any money.
