@@ -65,7 +65,7 @@ function isMonthField(field){
   return field.name.toLowerCase()==="period"&&field.type==="string"&&field.minLength===7&&field.maxLength===7;
 }
 function groupCreateFields(fields){
-  const visible=fields.filter(field=>!field.ownerManaged&&!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&field.initial===undefined);
+  const visible=fields.filter(field=>!field.ownerManaged&&!field.computedSum&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&!field.serverDerived&&field.initial===undefined);
   if(!visible.some(field=>field.uiSection))return [{title:null,fields:visible}];
   const grouped=new Map();
   for(const field of visible){
@@ -102,7 +102,7 @@ function decimalIssue(value,field){
 function validateCreate(fields,values,reconciliation,moveUnits,moveBatch){
   const errors={};
   for(const field of fields){
-    if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
+    if(field.ownerManaged||field.serverDerived||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)continue;
     const value=values[field.name];
     const text=String(value??"").trim();
     if(isRequiredInForm(field,values)&&!text){errors[field.name]="Este campo es obligatorio.";continue;}
@@ -172,7 +172,7 @@ function validateCreate(fields,values,reconciliation,moveUnits,moveBatch){
     }
     if(invalidComparison)errors[field.name]="El valor debe ser mayor que "+fieldLabel(source)+".";
   }
-  if(reconciliation){
+  if(reconciliation&&!reconciliation.serverOnly){
     const opening=fields.find(f=>f.name===reconciliation.openingField);
     const available=fields.find(f=>f.name===reconciliation.availableField);
     if(opening&&available&&!errors[opening.name]&&!errors[available.name]){
@@ -202,13 +202,13 @@ function validateCreate(fields,values,reconciliation,moveUnits,moveBatch){
   return errors;
 }
 function createEmpty(fields){
-  return Object.fromEntries(fields.filter(f=>!f.ownerManaged&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(field=>[field.name,
+  return Object.fromEntries(fields.filter(f=>!f.ownerManaged&&!f.serverDerived&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(field=>[field.name,
     field.initial??(field.type==="int32"&&field.required?0:"")]));
 }
 function normalizePayload(fields,values){
   const result={};
   for(const field of fields){
-    if(field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal)continue;
+    if(field.serverDerived||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal)continue;
     const value=values[field.name];
     if(field.type==="int32"){
       if(!field.required&&(value===undefined||value===null||String(value).trim()===""))continue;
@@ -1075,7 +1075,7 @@ export default function App(){
     detailRows.some(row=>detailFields.some(field=>
       String(row[field.name]??"")!==String(field.type==="int32"&&field.required?0:""))))||
     active?.entity?.fields.some(field=>{
-    if(field.ownerManaged||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
+    if(field.ownerManaged||field.serverDerived||field.computedSum||field.computedProduct||field.computedRoundedProduct||field.computedDiscountedTotal||field.initial!==undefined)return false;
     const initial=field.type==="int32"&&field.required?0:"";
     return String(form[field.name]??"")!==String(initial);
   })));
