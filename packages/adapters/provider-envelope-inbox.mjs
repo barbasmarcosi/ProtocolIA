@@ -82,7 +82,7 @@ function appendProviderCandidate(plans,ddl){
       v_provider TEXT,v_event TEXT,v_digest TEXT,v_receipt TEXT,v_order TEXT,v_amount NUMERIC
     ) RETURNS TEXT LANGUAGE plpgsql AS $receipt_candidate$
     DECLARE actual_order TEXT;actual_amount NUMERIC;actual_state TEXT;actual_proof TEXT;
-      outcome TEXT;old_receipt TEXT;old_order TEXT;old_amount NUMERIC;
+      outcome TEXT;old_receipt TEXT;old_order TEXT;old_amount NUMERIC;old_digest TEXT;
     BEGIN
       IF v_receipt IS NULL OR length(v_receipt) NOT BETWEEN 1 AND 255 OR
          v_order IS NULL OR length(v_order) NOT BETWEEN 1 AND 255 OR
@@ -90,6 +90,23 @@ function appendProviderCandidate(plans,ddl){
          v_amount<>ROUND(v_amount,${b.scale})
       THEN RAISE EXCEPTION 'Invalid exact receipt candidate'
         USING ERRCODE='23514'; END IF;
+      -- A committed event is an immutable historical fact. Its identical replay
+      -- must remain idempotent even if the receipt was subsequently reversed.
+      -- Lock the inbox row to wait for a concurrent first delivery to commit.
+      -- An unbound digest-only envelope must NEVER gain receipt authority.
+      SELECT payload_sha256 INTO old_digest
+        FROM protocolia_provider_envelope_inbox
+        WHERE provider_id=v_provider AND event_id=v_event FOR UPDATE;
+      IF FOUND THEN
+        IF old_digest IS DISTINCT FROM v_digest THEN RETURN 'conflict'; END IF;
+        SELECT receipt_id,order_id,amount INTO old_receipt,old_order,old_amount
+          FROM protocolia_provider_receipt_candidate
+          WHERE provider_id=v_provider AND event_id=v_event;
+        IF NOT FOUND THEN RETURN 'conflict'; END IF;
+        IF old_receipt=v_receipt AND old_order=v_order AND old_amount=v_amount
+        THEN RETURN 'duplicate'; END IF;
+        RETURN 'conflict';
+      END IF;
       SELECT p.${b.referenceColumn},p.${b.amountColumn},p.${b.stateColumn},p.${b.proofColumn}
         INTO actual_order,actual_amount,actual_state,actual_proof
         FROM ${b.childTable} p WHERE p.${b.receiptColumn}=v_receipt FOR UPDATE;
