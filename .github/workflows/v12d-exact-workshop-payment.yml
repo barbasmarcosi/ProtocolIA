@@ -46,5 +46,11 @@ jobs:
         run: node scripts/vnext/probe-charge-source-negative.mjs
       - name: Generic HTTP/DB conformance against isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/v12d-workshop-app"
-      - name: Frozen independent financial guard, concurrent overpay, reversal and reconciliation
+      - name: Install deterministic Chromium for generated mobile acceptance
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Frozen independent financial + mobile form/HTTP acceptance
+        env:
+          PROTOCOLIA_BROWSER_VERIFY: 'true'
         run: node scripts/vnext/probe-workshop-payment-guard.mjs "${{ runner.temp }}/v12d-workshop-app"
