@@ -770,14 +770,17 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       if(!response.ok)throw Error("No se pudo verificar la conciliación actual.");
       const latest=await response.json();
       if(!latest.balanced||!latest.adjustmentPreviewEligible||
-        ["openingBalance","available","postedTotal","reversedTotal","maxSafeDecrease","maxSafeIncrease"]
+        ["openingBalance","available","postedTotal","reversedTotal","postingCount","adjustmentCount","maxSafeDecrease","maxSafeIncrease"]
           .some(k=>latest[k]!==report[k]))
         throw Error("Los cargos o cobros cambiaron. Actualizá la conciliación antes de continuar.");
       const freshLimit=signedAdjustmentUnits(direction==="decrease"?
         latest.maxSafeDecrease:latest.maxSafeIncrease,scale);
       if(freshLimit===null||magnitude>freshLimit)
         throw Error("El importe supera el máximo permitido actualmente.");
-      setConfirmed({delta:signedAdjustmentString(delta,scale),
+      setConfirmed({expectedOpening:latest.openingBalance,
+        expectedAvailable:latest.available,expectedPostingCount:latest.postingCount,
+        expectedReversedTotal:latest.reversedTotal,expectedAdjustmentCount:latest.adjustmentCount,
+        delta:signedAdjustmentString(delta,scale),
         before:latest.openingBalance,after:signedAdjustmentString(candidate,scale),
         available:latest.available,afterAvailable:signedAdjustmentString(nextAvailable,scale),
         reason:reason.trim(),adjustmentId});
@@ -791,7 +794,11 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       const response=await authenticatedFetch(route(operation,identity),{
         method:"POST",headers:{Authorization:auth,"Content-Type":"application/json"},
         body:JSON.stringify({adjustmentId:confirmed.adjustmentId,
-          delta:confirmed.delta,reason:confirmed.reason})
+          delta:confirmed.delta,reason:confirmed.reason,
+          expectedOpening:confirmed.expectedOpening,expectedAvailable:confirmed.expectedAvailable,
+          expectedPostingCount:confirmed.expectedPostingCount,
+          expectedReversedTotal:confirmed.expectedReversedTotal,
+          expectedAdjustmentCount:confirmed.expectedAdjustmentCount})
       });
       if(!response.ok){
         if(response.status===409)throw Error(
