@@ -9,7 +9,7 @@ import {join,resolve} from "node:path";
 const fixture=resolve("examples/vnext/workshop-payment-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
 const config=readFileSync(join(fixture,"tspconfig.yaml"),"utf8");
-const annotation='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true)';
+const annotation='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true, true)';
 assert.ok(source.includes(annotation),"Expected frozen multi-source contract");
 const column='@encode(string) @exactDecimal(14,2,"0","999999999999.99")\n    partsCharge: decimal;\n    // Exact opening';
 assert.ok(source.includes(column),"Expected source field with exact decimal constraints");
@@ -24,7 +24,11 @@ const cases=[
   ["computed-source",source.replace(column,column.replace('    partsCharge: decimal;', '    @computedRoundedProduct("laborCharge","laborCharge","half_up") partsCharge: decimal;'))],
   ["duplicate-source",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,laborCharge"))],
   ["too-many-sources",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,partsCharge,symptom,status,number"))],
-  ["spoofed-create-dto",source.replace("model WorkOrderRequest {",'model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;')]
+  ["spoofed-create-dto",source.replace("model WorkOrderRequest {",'model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;')],
+  ["coverage-no-optin",source.replace(annotation,annotation.replace(", true, true)",", true)"))],
+  ["coverage-no-field",source.replace("    coverageState: string;\n","")],
+  ["coverage-without-server-only",source.replace(annotation,annotation.replace(", true, true)",", false, true)"))],
+  ["coverage-wrong-type",source.replace("    coverageState: string;","    coverageState: int32;")]
 ];
 const temp=mkdtempSync(resolve("examples/vnext/.multi-charge-negative-"));
 try{
@@ -39,7 +43,10 @@ try{
     const output=(test.stdout??"")+"\n"+(test.stderr??"");
     assert.equal(test.status,1,"Unsafe source must be rejected: "+name+" "+output.slice(-900));
     const expected=name==="spoofed-create-dto"?
-      /protocolia-server-only-request-spoof/:/protocolia-invalid-exact-charge-source/;
+      /protocolia-server-only-request-spoof/:
+      name==="coverage-without-server-only"?/protocolia-invalid-exact-lifecycle/:
+      name.startsWith("coverage-")?/protocolia-exact-reconciliation-http/:
+      /protocolia-invalid-exact-charge-source/;
     assert.match(output,expected,"Wrong diagnostic for "+name+" "+output.slice(-1100));
     console.log("PROTOCOLIA_MULTICHARGE_COMPILE_REJECT_PASS "+name);
   }
