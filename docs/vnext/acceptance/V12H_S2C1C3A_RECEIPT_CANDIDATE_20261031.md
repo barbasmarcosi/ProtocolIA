@@ -14,7 +14,13 @@ The function is an **internal database primitive only**. It does not authenticat
 
 The existing provider workflow regenerates NestJS and modular Spring from the identical TypeSpec, runs generic PostgreSQL/HTTP conformance, HMAC cross-language vectors, inbox concurrency and HTTP replay tests. `scripts/vnext/probe-provider-inbox.mjs` now additionally creates a synthetic customer/vehicle/order/payment in the generated PostgreSQL schema, verifies exact receipt matching, 10 concurrent same-event requests (one stored/nine duplicates), changed digest and claims, no row on invalid/missing receipt, rollback-before-commit, append-only protections and unchanged internal money/proof state.
 
-**Evidence status: PENDING CI.** Do not claim acceptance or merge before successful dual-target PostgreSQL tests and quality/regression checks. Any failing test must be fixed and rerun.
+**Evidence status: VERIFIED on functional SHA `77ab19212ba9fd5e66c734fb2101848f952b06a6` (2026-10-31).**
+- [Provider envelope + receipt candidate + signed HTTP #41207727225](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41207727225): SUCCESS NestJS and modular Spring; job logs contain `PROTOCOLIA_S2C1C3A_RECEIPT_CANDIDATE_PASS` for each independently generated target, 1 stored/9 duplicates, negative amounts, unbound and reversed receipt rejection, rollback and append-only enforcement. Existing signed HTTP sandbox regression also passed in both.
+- [General quality #41207727244](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41207727244): SUCCESS.
+- [Exact drift-safe receipts #41207727310](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41207727310): SUCCESS.
+- [Immutable itemized finance #41207727246](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41207727246): SUCCESS NestJS and modular Spring.
+
+These tests validate a database-only candidate, **not** an authenticated receipt-linked HTTP settlement. All test data are synthetic. No financial release or production deployment is approved.
 
 ## Next
 
