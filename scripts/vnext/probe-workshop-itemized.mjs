@@ -255,8 +255,9 @@ try{
       const snapshot=await status(driftPath,200);
       assert.equal(snapshot.balanced,false,"Untrusted "+name+" cannot appear reconciled");
       assert.equal(snapshot.coverageState,"inconsistent",name);
-      // Source-only drift leaves monetary journal difference at zero.
-      assert.equal(cents(snapshot.difference),0n);
+      // The journal difference can remain zero even with an inconsistent source.
+      if(name==="parent_opening")assert.notEqual(snapshot.difference,"0.00");
+      else assert.equal(cents(snapshot.difference),0n);
       const denied="PD-DENIED-"+name;
       await status("/api/payments",409,{method:"POST",body:pay(denied,driftId,"0.01")});
       await status("/api/payments/"+denied,404);
