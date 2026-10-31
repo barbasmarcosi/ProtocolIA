@@ -19,12 +19,14 @@ public final class ProviderWebhookVerifier {
   private static final Pattern KEY=Pattern.compile("[A-Za-z0-9_-]{1,32}");
   private static final Pattern EVENT=Pattern.compile("[A-Za-z0-9_-]{8,128}");
   private static final Pattern SECONDS=Pattern.compile("[1-9][0-9]{9}");
-  private static final Pattern SIGNATURE=Pattern.compile("v1=[0-9a-f]{64}");
-  private static final String DOMAIN="protocolia-provider-proof-v1\n";
+  private static final Pattern SIGNATURE=Pattern.compile("v2=[0-9a-f]{64}");
+  private static final String DOMAIN="protocolia-provider-proof-v2\n";
 
-  public static Verified verify(String keyId,String timestamp,String eventId,
+  public static Verified verify(String purpose,String keyId,String timestamp,String eventId,
       String signature,byte[] rawBody,Map<String,byte[]> trustedKeys,long nowSeconds) {
-    if(keyId==null||!KEY.matcher(keyId).matches()||
+    if(purpose==null||!(purpose.equals("inbox")||purpose.equals("receipt-candidate")||
+       purpose.equals("lifecycle-observation"))||
+       keyId==null||!KEY.matcher(keyId).matches()||
        timestamp==null||!SECONDS.matcher(timestamp).matches()||
        eventId==null||!EVENT.matcher(eventId).matches()||
        signature==null||!SIGNATURE.matcher(signature).matches()||
@@ -41,7 +43,7 @@ public final class ProviderWebhookVerifier {
     try {
       Mac mac=Mac.getInstance("HmacSHA256");
       mac.init(new SecretKeySpec(secret,"HmacSHA256"));
-      mac.update((DOMAIN+keyId+"\n"+timestamp+"\n"+eventId+"\n")
+      mac.update((DOMAIN+purpose+"\n"+keyId+"\n"+timestamp+"\n"+eventId+"\n")
         .getBytes(StandardCharsets.UTF_8));
       byte[] expected=mac.doFinal(rawBody);
       byte[] received=HexFormat.of().parseHex(signature.substring(3));

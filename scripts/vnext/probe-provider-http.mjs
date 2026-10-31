@@ -44,14 +44,14 @@ writeFileSync(join(scratch,"env"),Object.entries(env).map(([k,v])=>k+"="+v).join
 const base="http://127.0.0.1:"+port;
 const path="/api/_protocolia/provider/sandbox/inbox";
 const body=Buffer.from('{"sandbox":"test","amount":"1.00"}');
-function signed(event,raw=body,timestamp=String(Math.floor(Date.now()/1000))){
+function signed(event,raw=body,timestamp=String(Math.floor(Date.now()/1000)),purpose="inbox"){
   const keyId="sandbox_1";
   const mac=createHmac("sha256",key)
-    .update("protocolia-provider-proof-v1\n"+keyId+"\n"+timestamp+"\n"+event+"\n")
+    .update("protocolia-provider-proof-v2\n"+purpose+"\n"+keyId+"\n"+timestamp+"\n"+event+"\n")
     .update(raw).digest("hex");
   return {"Content-Type":"application/json","X-ProtocolIA-Key-Id":keyId,
     "X-ProtocolIA-Timestamp":timestamp,"X-ProtocolIA-Event-Id":event,
-    "X-ProtocolIA-Signature":"v1="+mac};
+    "X-ProtocolIA-Signature":"v2="+mac};
 }
 async function send(event,raw=body,headers=signed(event,raw),endpoint=path){
   const r=await fetch(base+endpoint,{method:"POST",headers,body:raw,
@@ -87,6 +87,10 @@ try{
   assert.equal(noAuth.status,202,"Valid HMAC must work without human Basic auth");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"2");
   assert.equal(sql("SELECT COUNT(*) FROM payment"),"0");
+  const crossEvent="evt_cross_route_12345678";
+  assert.equal((await send(crossEvent,body,signed(crossEvent,body,undefined,"receipt-candidate"))).status,401);
+  assert.equal((await send(crossEvent,body,signed(crossEvent,body),"/api/_protocolia/provider/sandbox/receipt-candidate")).status,401);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"2");
 
   // S2c-1c3b: synthetic receipt matching over signed sandbox HTTP, never settlement.
   sql("INSERT INTO customer(customer_code,name,contact_note) VALUES "+
@@ -101,7 +105,7 @@ try{
   const claim=(receipt="PAY-HTTP-LINK",order="OT-HTTP-LINK",amount="1.25")=>
     Buffer.from(JSON.stringify({version:"receipt-candidate.v1",
       receiptId:receipt,orderId:order,amount}));
-  const linked=(event,raw=claim(),headers=signed(event,raw))=>
+  const linked=(event,raw=claim(),headers=signed(event,raw,undefined,"receipt-candidate"))=>
     send(event,raw,headers,linkedPath);
   const eventLinked="evt_http_link_12345678";
   const linkedResponses=await Promise.all(Array.from({length:10},()=>linked(eventLinked)));
@@ -123,7 +127,7 @@ try{
       version:"lifecycle-observation.v1",candidateEventId,receiptId,
       orderId,amount,sequence,phase
     }));
-  const lifecycle=(event,raw=lifeClaim(),headers=signed(event,raw))=>
+  const lifecycle=(event,raw=lifeClaim(),headers=signed(event,raw,undefined,"lifecycle-observation"))=>
     send(event,raw,headers,lifecyclePath);
   const lifeEvent="evt_life_http_00000003";
   const lifeResponses=await Promise.all(Array.from({length:10},()=>lifecycle(lifeEvent)));
@@ -165,10 +169,10 @@ try{
   ])assert.equal((await lifecycle(event,raw)).status,400,event);
   const tamperedLife=lifeClaim("4");
   assert.equal((await lifecycle("evt_life_tampered_12",tamperedLife,
-    signed("evt_life_tampered_12",lifeClaim("5")))).status,401);
+    signed("evt_life_tampered_12",lifeClaim("5"),undefined,"lifecycle-observation"))).status,401);
   assert.equal((await lifecycle("evt_life_expired_123",lifeClaim("4"),
     signed("evt_life_expired_123",lifeClaim("4"),
-      String(Math.floor(Date.now()/1000)-400)))).status,401);
+      String(Math.floor(Date.now()/1000)-400),"lifecycle-observation"))).status,401);
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
     "WHERE event_id LIKE 'evt_life_%'"),"3");
@@ -202,9 +206,9 @@ try{
     '{"version":"receipt-candidate.v1","receiptId":"PAY-HTTP-LINK","orderId":"OT-HTTP-LINK","amount":"1.25","settled":true}'))).status,400);
   const tampered=claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26");
   assert.equal((await linked("evt_http_tamper_12",tampered,
-    signed("evt_http_tamper_12",claim()))).status,401);
+    signed("evt_http_tamper_12",claim(),undefined,"receipt-candidate"))).status,401);
   assert.equal((await linked("evt_http_expired12",claim(),
-    signed("evt_http_expired12",claim(),String(Math.floor(Date.now()/1000)-400)))).status,401);
+    signed("evt_http_expired12",claim(),String(Math.floor(Date.now()/1000)-400),"receipt-candidate"))).status,401);
   const unboundEvent="evt_http_unbound_12";
   assert.equal((await send(unboundEvent,claim(),signed(unboundEvent,claim()))).status,202);
   assert.equal((await linked(unboundEvent)).status,409,
