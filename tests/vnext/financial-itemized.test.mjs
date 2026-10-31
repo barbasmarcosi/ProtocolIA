@@ -49,7 +49,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(sql.sqlNest,/LEFT JOIN LATERAL \(SELECT COUNT\(\*\) AS line_count/);
   assert.match(sql.sqlNest,/SUM\(d\.amount\) AS line_total FROM charge_line/);
   assert.match(sql.sqlNest,/COALESCE\(s\.line_count,0\) BETWEEN 1 AND 20/);
-  assert.match(sql.sqlNest,/COALESCE\(s\.line_total,0\)=p\.charge_total/);
+  assert.match(sql.sqlNest,/\(COALESCE\(s\.line_total,0\)\+COALESCE\(a\.adjustment_total,0\)\)=p\.charge_total/);
   assert.match(sql.sqlNest,/p\.opening_balance=p\.charge_total/);
   assert.match(sql.sqlNest,/CASE WHEN NOT/);
   assert.match(sql.sqlNest,/SUM\(a0\.delta\) AS adjustment_total/);
@@ -102,7 +102,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     '"reversed","chargeTotal", true, true, false, true)'),
     /protocolia-invalid-exact-adjustment-journal/);
   negative("disabled repricing preview",s=>s.replace(
-    '"reversed","chargeTotal", true, true, true)',
+    '"reversed","chargeTotal", true, true, true, true)',
     '"reversed","chargeTotal", true, true, false)'),
     /protocolia-invalid-exact-adjustment-preview/);
   negative("missing amount ceiling",s=>s.replace(
