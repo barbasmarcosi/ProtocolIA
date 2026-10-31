@@ -67,7 +67,7 @@ test("verification does not parse payload semantics or claim settlement",()=>{
 test("v2 purpose binding rejects signed bytes on the wrong endpoint",()=>{
   for(const purpose of ["inbox","receipt-candidate","lifecycle-observation"]){
     const sig="v2="+createHmac("sha256",secret)
-      .update("protocolia-provider-proof-v2\\n"+purpose+"\\n"+keyId+"\\n"+timestamp+"\\n"+eventId+"\\n")
+      .update("protocolia-provider-proof-v2\n"+purpose+"\n"+keyId+"\n"+timestamp+"\n"+eventId+"\n")
       .update(rawBody).digest("hex");
     assert.ok(verify({purpose,signature:sig}));
     for(const other of ["inbox","receipt-candidate","lifecycle-observation"].filter(x=>x!==purpose))
