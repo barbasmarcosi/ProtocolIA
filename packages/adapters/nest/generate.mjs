@@ -1,3 +1,4 @@
+import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
@@ -497,7 +498,7 @@ export function generate(ir,spec,out){
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   schema.push(...exactAdjustmentJournalSql(exactReconciliations),
     ...exactAdjustmentWriteSql(ir,exactReconciliations));
-  schema.push(...recipientInboxSql(inboxes));
+  schema.push(...recipientInboxSql(inboxes),...providerEnvelopeInboxSql(exactReconciliations));
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
     ...(ownerScopes.get(e.name)?.relation?{ownerRelation:ownerScopes.get(e.name).relation}:{}),

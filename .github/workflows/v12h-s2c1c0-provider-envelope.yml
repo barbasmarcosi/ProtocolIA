@@ -6,6 +6,9 @@ on:
       - 'packages/adapters/nest/**'
       - 'packages/adapters/modular/**'
       - 'tests/vnext/provider-webhook-envelope.test.mjs'
+      - 'tests/vnext/provider-envelope-inbox.test.mjs'
+      - 'packages/adapters/provider-envelope-inbox.mjs'
+      - 'scripts/vnext/probe-provider-inbox.mjs'
       - 'tests/vnext/ProviderWebhookVerifierTest.java'
       - '.github/workflows/v12h-s2c1c0-provider-envelope.yml'
   workflow_dispatch:
@@ -46,7 +49,11 @@ jobs:
             tests/vnext/ProviderWebhookVerifierTest.java
           java -cp "${{ runner.temp }}/provider-proof-classes" \
             dev.protocolia.modular.ProviderWebhookVerifierTest
+      - name: Unit-check opt-in provider inbox schema and fail-closed contracts
+        run: node --test tests/vnext/provider-envelope-inbox.test.mjs
       - name: Generate independent target from unchanged canonical workshop TypeSpec
         run: npm run app:build -- examples/vnext/workshop-itemized-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/provider-preflight-app"
       - name: Real PostgreSQL and HTTP generated conformance, no provider calls
         run: npm run app:test -- "${{ runner.temp }}/provider-preflight-app"
+      - name: Real PostgreSQL concurrent replay and rollback in generated target
+        run: node scripts/vnext/probe-provider-inbox.mjs "${{ runner.temp }}/provider-preflight-app"
