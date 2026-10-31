@@ -372,7 +372,8 @@ try{
   const directInsert=(orderNo,id,delta)=>
     "INSERT INTO "+jtable+" (parent_id,adjustment_id,delta,reason,actor) VALUES ("+
     "'"+orderNo+"','"+id+"',"+delta+",'Ajuste firmado de ensayo','fixture_qa')";
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable),"0");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-ADJ-NEG'"),"0");
   await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-NEG",[
     charge("J-ORIG-L","2.00"),charge("J-ORIG-P","1.00","parts")
   ])});
