@@ -291,6 +291,24 @@ public class DomainRuntime {
     return converted;
   }
 
+  // Serialize exact-ledger writes on the balance parent, THEN read the
+  // journal in a separate READ COMMITTED statement after the lock. A stale
+  // statement-level subquery cannot validate a concurrent committed receipt.
+  private void requireConsistentExactLedger(String table,String balanceKey,String id){
+    var parent=Manifest.ENTITIES.stream().filter(e->e.table().equals(table))
+      .findFirst().orElse(null);
+    if(parent==null)return;
+    var plan=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x->x.parentEntity().equals(parent.name())).findFirst().orElse(null);
+    if(plan==null)return; // Legacy standalone exact debit/reverse unchanged.
+    var lock=jdbc.queryForList("SELECT "+balanceKey+" FROM "+table+
+      " WHERE "+balanceKey+"=:identity FOR UPDATE",Map.of("identity",id),String.class);
+    if(lock.size()!=1)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Balance resource not found");
+    var snapshot=jdbc.queryForList(plan.sql(),Map.of("identity",id));
+    if(snapshot.size()!=1||!Boolean.TRUE.equals(snapshot.get(0).get("balanced")))
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Exact ledger reconciliation conflict");
+  }
   private Map<String,Object> reconcileExact(Manifest.Op op,String id){
     if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     var plan=Manifest.EXACT_RECONCILIATIONS.get(op.name());
@@ -676,6 +694,7 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact debit input");
       BigDecimal amount=new BigDecimal(wire);
       if(amount.signum()<=0)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Nonpositive debit");
+      requireConsistentExactLedger(debit.balanceTable(),debit.balanceKey(),key);
       int changed=jdbc.update("UPDATE "+debit.balanceTable()+" SET "+
           debit.balanceColumn()+"="+debit.balanceColumn()+"-:amount WHERE "+
           debit.balanceKey()+"=:key AND "+debit.balanceColumn()+">=:amount",
@@ -1268,6 +1287,12 @@ public class DomainRuntime {
     }
     if(op.exactReverse()!=null){
       var reverse=op.exactReverse();
+      var before=jdbc.queryForList("SELECT "+reverse.referenceColumn()+
+        " AS ledger_reference FROM "+e.table()+" WHERE "+e.identityColumn()+
+        "=:key",Map.of("key",id));
+      if(before.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      requireConsistentExactLedger(reverse.balanceTable(),reverse.balanceKey(),
+        (String)before.get(0).get("ledger_reference"));
       var rows=jdbc.queryForList("UPDATE "+e.table()+" SET "+col+"=:target WHERE "+
         e.identityColumn()+"=:key AND "+col+"=:source RETURNING "+
         reverse.referenceColumn()+", "+reverse.amountColumn(),
