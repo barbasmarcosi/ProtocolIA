@@ -605,6 +605,25 @@ export function compileDomain(p: Program): IrDocument | undefined {
           " lifecycle snapshot requires true server-only exact charge-source initialization",op);
         continue;
       }
+      if(reconciliation?.adjustmentPreview!==undefined&&reconciliation.adjustmentPreview!==true){
+        reject("invalid-exact-adjustment-preview",op.name+" preview must be explicit true on a reviewed itemized ledger",op);
+        continue;
+      }
+      if(reconciliation?.adjustmentPreview===true){
+        const creators=ops.filter(candidate=>
+          metadata(p,"behavior",candidate)?.entity===entity.name&&
+          metadata(p,"behavior",candidate)?.kind==="create"&&
+          !!metadata(p,"createDetails",candidate)?.chargeAmountField);
+        const financial=creators.length===1?metadata(p,"createDetails",creators[0]):undefined;
+        const total=entity.fields.find(x=>x.name===financial?.chargeTotalField);
+        if(!financial||creators.length!==1||!total?.decimal?.max||
+           financial.chargeTotalField!==reconciliation.chargeSource||
+           reconciliation.serverOnly!==true||reconciliation.lifecycle!==true){
+          reject("invalid-exact-adjustment-preview",op.name+
+            " requires one immutable itemized source with bounded exact maximum and lifecycle",op);
+          continue;
+        }
+      }
       if(unsafeCharge){
         reject("invalid-exact-charge-source",op.name+
           " requires one immutable nonnegative exact decimal charge with compatible scale; no balance/source patches",op);
@@ -620,7 +639,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
         !status||status.initial!==reconciliation.postedState||
         reconciliation.postedState===reconciliation.reversedState||
-        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource"&&k!=="lifecycle")
+        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource"&&k!=="lifecycle"&&k!=="adjustmentPreview")
           .every(([,x])=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
         f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
         metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
@@ -1219,13 +1238,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if(kind==="reconcileExact"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const lifecycle=metadata(p,"reconcileExact",op)?.lifecycle===true;
+      const preview=metadata(p,"reconcileExact",op)?.adjustmentPreview===true;
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
-        ...(lifecycle?["coverageState"]:[])];
+        ...(lifecycle?["coverageState"]:[]),
+        ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
           const prop=v.properties.get(n),type=prop?.type;
-          return !!prop&&!prop.optional&&(n==="balanced"?
+          return !!prop&&!prop.optional&&(n==="balanced"||n==="adjustmentPreviewEligible"?
             type?.kind==="Scalar"&&type.name==="boolean":typeOfField(prop)?.type==="string");
         }));
       if(http.verb!=="get"||http.parameters.body||keys.length!==1||
@@ -1617,7 +1638,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
               {chargeSources:String(reconciliation.chargeSource).split(",").map(v=>v.trim())}:
               {chargeSource:String(reconciliation.chargeSource)}):{}),
           ...(reconciliation.serverOnly===true?{serverOnly:true}:{}),
-          ...(reconciliation.lifecycle===true?{lifecycle:true}:{})
+          ...(reconciliation.lifecycle===true?{lifecycle:true}:{}),
+          ...(reconciliation.adjustmentPreview===true?{adjustmentPreview:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),

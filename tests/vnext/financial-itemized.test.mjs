@@ -36,6 +36,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   // One source-backed snapshot must reject a journal balanced against a
   // persisted but no longer matching child-row sum.
   const sql=compileExactReconciliations(ir).get("reconcileWorkOrder");
+  assert.equal(recon.behavior.reconcileExact.adjustmentPreview,true);
   assert.ok(sql&&sql.sqlNest===sql.sqlSpring.replace(":identity","$1"));
   assert.match(sql.sqlNest,/LEFT JOIN LATERAL \(SELECT COUNT\(\*\) AS line_count/);
   assert.match(sql.sqlNest,/SUM\(d\.amount\) AS line_total FROM charge_line/);
@@ -43,6 +44,18 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(sql.sqlNest,/COALESCE\(s\.line_total,0\)=p\.charge_total/);
   assert.match(sql.sqlNest,/p\.opening_balance=p\.charge_total/);
   assert.match(sql.sqlNest,/CASE WHEN NOT/);
+  assert.match(sql.sqlNest,/AS "maxSafeDecrease"/);
+  assert.match(sql.sqlNest,/AS "maxSafeIncrease"/);
+  assert.match(sql.sqlNest,/AS "adjustmentPreviewEligible"/);
+  const poisonedMax=structuredClone(ir);
+  poisonedMax.entities.find(x=>x.name==="WorkOrder").fields
+    .find(x=>x.name==="chargeTotal").decimal.max="0;DROP TABLE payment";
+  assert.throws(()=>compileExactReconciliations(poisonedMax),
+    /Invalid exact repricing preview/);
+  const noPreview=structuredClone(ir);
+  noPreview.operations.find(x=>x.name==="createWorkOrder")
+    .behavior.createDetails.chargeAmountField=undefined;
+  assert.throws(()=>compileExactReconciliations(noPreview),/Invalid exact repricing preview/);
   const sourceTampering=structuredClone(ir);
   sourceTampering.operations.find(x=>x.name==="createWorkOrder")
     .behavior.createDetails.chargeTotalField="available";
@@ -69,6 +82,14 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("disabled repricing preview",s=>s.replace(
+    '"reversed","chargeTotal", true, true, true)',
+    '"reversed","chargeTotal", true, true, false)'),
+    /protocolia-invalid-exact-adjustment-preview/);
+  negative("missing amount ceiling",s=>s.replace(
+    '@exactDecimal(14,2,"0","999999999999.99")\n    chargeTotal',
+    '@exactDecimal(14,2,"0")\n    chargeTotal'),
+    /protocolia-invalid-exact-adjustment-preview/);
   negative("wrong child amount",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"description","chargeTotal"')),/protocolia-invalid-create-details/);
   negative("wrong parent total",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"amount","symptom"')),/protocolia-invalid-create-details/);
   negative("client forged total",s=>s.replace('    // No scalar amount is accepted from the client.','    @encode(string) @exactDecimal(14,2,"0","999999999999.99") chargeTotal: decimal;\n    // No scalar amount is accepted from the client.'),/protocolia-invalid-create-details|protocolia-server-only-request-spoof/);

@@ -62,7 +62,7 @@ export function compileExactReconciliations(ir){
       throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
       ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
-        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle").map(([,v])=>v)].every(ident)||
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
@@ -103,6 +103,13 @@ export function compileExactReconciliations(ir){
       total.decimal.precision<lineAmount.decimal.precision||
       cfg.serverOnly!==true||cfg.lifecycle!==true))
       throw Error("Invalid exact itemized source binding "+op.name);
+    if(cfg.adjustmentPreview!==undefined&&cfg.adjustmentPreview!==true)
+      throw Error("Invalid exact repricing preview "+op.name);
+    if(cfg.adjustmentPreview===true&&(!source||
+      typeof total?.decimal?.max!=="string"||
+      !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(total.decimal.max)||
+      cfg.serverOnly!==true||cfg.lifecycle!==true))
+      throw Error("Invalid exact repricing preview "+op.name);
     const sourceGood=source?
       "(COALESCE(s.line_count,0) BETWEEN 1 AND 20 AND "+
       "COALESCE(s.line_total,0)=p."+snake(source.chargeTotalField)+
@@ -117,13 +124,23 @@ export function compileExactReconciliations(ir){
     const oc=snake(cfg.openingField),bc=snake(cfg.availableField);
     const calc="(p."+oc+"-COALESCE(j.posted,0))";
     const balanced="(p."+bc+"="+calc+(sourceGood?" AND "+sourceGood:"")+")";
+    const previewEligible=cfg.adjustmentPreview===true?
+      "("+balanced+" AND COALESCE(s.line_count,0)<20)":null;
+    const previewSql=previewEligible?
+      ", "+previewEligible+" AS \"adjustmentPreviewEligible\""+
+      ", CASE WHEN "+previewEligible+" THEN p."+bc+
+      " ELSE (p."+bc+"-p."+bc+") END::text AS \"maxSafeDecrease\""+
+      ", CASE WHEN "+previewEligible+" THEN ("+total.decimal.max+"::numeric - p."+
+      snake(source.chargeTotalField)+") ELSE (p."+bc+"-p."+bc+
+      ") END::text AS \"maxSafeIncrease\"":"";
+
     const select="SELECT p."+oc+"::text AS \"openingBalance\", p."+bc+"::text AS \"available\", "+
       "COALESCE(j.posted,0)::text AS \"postedTotal\", "+
       "COALESCE(j.reversed,0)::text AS \"reversedTotal\", "+
       calc+"::text AS \"expectedAvailable\", "+
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
-      balanced+" AS \"balanced\""+
+      balanced+" AS \"balanced\""+previewSql+
       (cfg.lifecycle===true?
         ", CASE WHEN NOT "+balanced+" THEN 'inconsistent'"+
         " WHEN p."+oc+"=0 THEN 'no_charge'"+
@@ -139,7 +156,8 @@ export function compileExactReconciliations(ir){
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
       ...(cfg.serverOnly===true?{serverOnly:true}:{}),
-      ...(cfg.lifecycle===true?{lifecycle:true}:{})});
+      ...(cfg.lifecycle===true?{lifecycle:true}:{}),
+      ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{})});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))
     throw Error("Orphan exact reconciliation metadata");

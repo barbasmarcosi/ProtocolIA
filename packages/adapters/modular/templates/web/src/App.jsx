@@ -730,6 +730,11 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
           !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount"].every(key=>
             typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[key])))
           throw Error("El servidor devolvió una conciliación inválida.");
+        if(operation.behavior?.reconcileExact?.adjustmentPreview&&
+          (typeof data.adjustmentPreviewEligible!=="boolean"||
+           !["maxSafeDecrease","maxSafeIncrease"].every(name=>
+             typeof data[name]==="string"&&/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[name]))))
+          throw Error("La vista previa de ajustes no es válida.");
         return data;
       }).then(data=>{if(!controller.signal.aborted)setState({loading:false,data,error:""});})
         .catch(error=>{if(!controller.signal.aborted)setState({loading:false,data:null,error:error.message});});
@@ -752,6 +757,22 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
           ["Saldo esperado",report.expectedAvailable],["Diferencia",report.difference],
           ["Movimientos",report.postingCount]
         ].map(([name,value])=><React.Fragment key={name}><dt>{name}</dt><dd>{value}</dd></React.Fragment>)}</dl>
+        {operation.behavior?.reconcileExact?.adjustmentPreview&&
+          <section data-testid="exact-adjustment-preview" aria-label="Vista previa de ajustes" className="related-summary">
+            <h4>Vista previa de ajustes</h4>
+            {report.adjustmentPreviewEligible?
+              <dl className="ledger-values">
+                <dt>Máxima reducción aritmética</dt><dd data-testid="max-safe-decrease">{report.maxSafeDecrease}</dd>
+                <dt>Máximo aumento aritmético</dt><dd data-testid="max-safe-increase">{report.maxSafeIncrease}</dd>
+              </dl>:
+              <p data-testid="adjustment-preview-unavailable" role="status">
+                No disponible: conciliación inconsistente o límite de renglones alcanzado.
+              </p>}
+            <p className="related-summary-hint">
+              Solo cálculo informativo. No autoriza ni aplica cambios de precios.
+              Cualquier ajuste deberá volver a validar cobros, permisos y saldo.
+            </p>
+          </section>}
       </div>}
   </section>;
 }

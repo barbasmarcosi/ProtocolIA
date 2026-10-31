@@ -24,6 +24,10 @@ namespace TallerPaymentGuard {
     postingCount: string;
     balanced: boolean;
     coverageState: string;
+    // S2c-1a: advisory exact headroom, NEVER authority to mutate.
+    adjustmentPreviewEligible: boolean;
+    maxSafeDecrease: string;
+    maxSafeIncrease: string;
   }
   @error model BadRequest { @statusCode _: 400; message: string; }
   @error model Unauthorized { @statusCode _: 401; message: string; }
@@ -302,7 +306,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true)
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true, true)
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;
