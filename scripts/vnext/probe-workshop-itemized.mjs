@@ -148,6 +148,42 @@ async function previewMobileSmoke(){
     await page.getByTestId("exact-adjustment-preview").waitFor({timeout:15000});
     assert.equal(await page.getByTestId("max-safe-decrease").textContent(),"0.30");
     assert.equal(await page.getByTestId("max-safe-increase").textContent(),"999999999999.69");
+    await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-OT-UI-ADJUST").click();
+    await page.getByTestId("exact-adjustment-composer").waitFor({timeout:15000});
+    await page.getByTestId("exact-adjustment-toggle").click();
+    const form=page.getByTestId("exact-adjustment-form");
+    await form.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await form.getByTestId("exact-adjustment-amount").fill("0.05");
+    await form.getByTestId("exact-adjustment-reason").fill(
+      "Corrección autorizada y aprobada en navegador móvil");
+    const original=await status("/api/work-orders/OT-UI-ADJUST",200);
+    assert.equal(cents(original.chargeTotal),100n);
+    assert.equal(await page.getByTestId("exact-adjustment-confirm").count(),0,
+      "A financial write is never shown as an initial one-click button");
+    await form.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-after").textContent(),"1.05");
+    assert.equal(cents((await status("/api/work-orders/OT-UI-ADJUST",200)).chargeTotal),100n,
+      "Preview and explicit review must not mutate the ledger");
+    const width=await page.getByTestId("exact-adjustment-confirmation").evaluate(
+      el=>({right:el.getBoundingClientRect().right,
+        viewport:document.documentElement.clientWidth}));
+    assert.ok(width.right<=width.viewport+1,"Mobile correction confirmation must not overflow viewport");
+    const [write]=await Promise.all([
+      page.waitForResponse(response=>
+        response.url().includes("/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(write.status(),201,
+      "Generated UI must send one authorized adjustment POST: "+await write.text());
+    const changed=await status("/api/work-orders/OT-UI-ADJUST",200);
+    assert.equal(cents(changed.chargeTotal),105n);
+    assert.equal(cents(changed.available),105n);
+    assert.equal((await balance("OT-UI-ADJUST")).snapshot.balanced,true);
+    assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
+    console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated repricing preview must have zero JS errors");
     console.log("PROTOCOLIA_S2C1A_PREVIEW_MOBILE_PASS "+build.target);
   }finally{await browser.close();}
@@ -170,6 +206,9 @@ try{
     charge("L-001","0.10","labor"),charge("P-001","0.20","parts")
   ]);
   await status("/api/work-orders",201,{method:"POST",body:orderA});
+  await status("/api/work-orders",201,{method:"POST",body:order("OT-UI-ADJUST",[
+    charge("UI-CORRECTION-LINE","1.00")
+  ])});
   const baseline=await balance("OT-EXACT");
   for(const field of ["openingBalance","available","chargeTotal"])
     assert.equal(cents(baseline.record[field]),30n,field+" must equal exact line sum");
@@ -333,7 +372,8 @@ try{
   const directInsert=(orderNo,id,delta)=>
     "INSERT INTO "+jtable+" (parent_id,adjustment_id,delta,reason,actor) VALUES ("+
     "'"+orderNo+"','"+id+"',"+delta+",'Ajuste firmado de ensayo','fixture_qa')";
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable),"0");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-ADJ-NEG'"),"0");
   await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-NEG",[
     charge("J-ORIG-L","2.00"),charge("J-ORIG-P","1.00","parts")
   ])});
