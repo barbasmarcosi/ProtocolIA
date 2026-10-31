@@ -79,7 +79,8 @@ function field(p: Program, prop: ModelProperty): IrField | null {
     ...(metadata(p,"uiControl",prop) ? {uiControl:String(metadata(p,"uiControl",prop)?.control) as "month"|"textarea"} : {}),
     ...(metadata(p,"uiSection",prop) ? {uiSection:String(metadata(p,"uiSection",prop)?.section)} : {}),
     ...(metadata(p,"uiPlaceholder",prop) ? {uiPlaceholder:String(metadata(p,"uiPlaceholder",prop)?.placeholder)} : {}),
-    ...(metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
+    ...(metadata(p,"fixedInitial",prop) ? {initial:String(metadata(p,"fixedInitial",prop)?.value),fixedInitial:true} :
+      metadata(p,"initial",prop) ? {initial:String(metadata(p,"initial",prop)?.value)} : {}),
     ...(metadata(p,"computedSum",prop) ? {computedSum:String(metadata(p,"computedSum",prop)?.fields).split(",").map(s=>s.trim())} : {}),
     ...(metadata(p,"computedProduct",prop) ? {computedProduct:[
       String(metadata(p,"computedProduct",prop)?.left),
@@ -2057,6 +2058,24 @@ export function compileDomain(p: Program): IrDocument | undefined {
     for (const state of entity.fields.filter((x)=>x.initial !== undefined)) {
       const transitions=operations.filter((o)=>o.entity===entity.name &&
         o.behavior.kind==="transition" && o.behavior.field===state.name);
+      if(state.fixedInitial){
+        const mutation=operations.some(o=>o.entity===entity.name&&
+          (o.behavior.kind==="transition"&&o.behavior.field===state.name||
+           o.behavior.kind==="patchFields"&&o.behavior.field===state.name||
+           o.behavior.kind==="patchTogether"||
+           o.behavior.kind==="delete"));
+        if(state.type!=="string"||!state.required||state.nullable||state.unique||
+          state.reference!==undefined||state.ownerManaged||state.computedSum||
+          state.computedProduct||state.computedRoundedProduct||state.computedDiscountedTotal||
+          state.initial===undefined||!/^[a-z][a-z0-9_-]{0,63}$/.test(state.initial)||
+          state.initial.length<(state.minLength??1)||
+          state.initial.length>(state.maxLength??255)||
+          mutation||transitions.length||
+          metadata(p,"initial",models.find(m=>m.name===entity.name)!.properties.get(state.name)!)!==undefined)
+          reject("invalid-fixed-initial",entity.name+"."+state.name+
+            " requires an immutable server-only constant without transitions or patch/delete",models.find((m)=>m.name===entity.name)!);
+        continue;
+      }
       if (!transitions.length) {
         reject("orphan-initial",entity.name+"."+state.name+" has @initial but no transitions",models.find((m)=>m.name===entity.name)!);
       }
