@@ -26,7 +26,7 @@ public final class ProviderWebhookVerifierTest {
   private static void check(boolean ok,String message){
     if(!ok)throw new AssertionError(message);
   }
-  public static void main(String[] args) {
+  public static void main(String[] args) throws Exception {
     var accepted=base();
     check(accepted!=null,"valid raw-byte signature must verify");
     check(accepted.keyId().equals("sandbox_1"),"key identity");
@@ -73,6 +73,13 @@ public final class ProviderWebhookVerifierTest {
     check(rotated!=null&&rotated.size()==2,"overlapping keys");
     check(verify("sandbox_1","1793440000","evt_12345678",SIG,BODY,rotated,NOW)!=null,
       "old key during rotation");
+    var mac=javax.crypto.Mac.getInstance("HmacSHA256");
+    mac.init(new javax.crypto.spec.SecretKeySpec(HexFormat.of().parseHex(two),"HmacSHA256"));
+    var prefix="protocolia-provider-proof-v2\\ninbox\\nsandbox_2\\n1793440000\\nevt_12345678\\n";
+    mac.update(prefix.getBytes(StandardCharsets.UTF_8));
+    var newSig="v2="+HexFormat.of().formatHex(mac.doFinal(BODY));
+    check(verify("sandbox_2","1793440000","evt_12345678",newSig,BODY,rotated,NOW)!=null,
+      "new key authenticates during overlap");
     var revoked=ProviderWebhookVerifier.parseSandboxKeys("","sandbox_2="+two);
     check(revoked!=null&&verify("sandbox_1","1793440000","evt_12345678",
       SIG,BODY,revoked,NOW)==null,"retired key revoked");
