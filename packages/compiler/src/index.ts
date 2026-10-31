@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["adjustExact","create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
