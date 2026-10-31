@@ -70,7 +70,7 @@ export function parseSandboxProviderKeys(
   const keys:Record<string,Uint8Array>=Object.create(null);
   const secrets=new Set<string>();
   for(const entry of entries){
-    const match=/^([A-Za-z0-9_-]{1,32})=([0-9a-f]{64})$/.exec(entry);
+    const match=/^([A-Za-z0-9_-]{1,32})=([0-9a-f]{64})(?![\s\S])/.exec(entry);
     if(!match||Object.hasOwn(keys,match[1])||secrets.has(match[2]))return null;
     keys[match[1]]=Buffer.from(match[2],"hex");
     secrets.add(match[2]);
