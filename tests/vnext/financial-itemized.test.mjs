@@ -5,6 +5,7 @@ import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 import {assertCreateDetails} from "../../packages/adapters/create-details.mjs";
 import {compileExactReconciliations,exactAdjustmentJournalSql} from "../../packages/adapters/exact-reconciliation.mjs";
+import {exactAdjustmentWriteSql,assertExactAdjustment} from "../../packages/adapters/exact-adjustment.mjs";
 
 const fixture=resolve("examples/vnext/workshop-itemized-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
@@ -39,6 +40,17 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.equal(recon.behavior.reconcileExact.adjustmentPreview,true);
   assert.equal(recon.behavior.reconcileExact.adjustmentJournal,true);
   const journal=exactAdjustmentJournalSql(compileExactReconciliations(ir));
+  const adjOp=ir.operations.find(x=>x.name==="adjustWorkOrder");
+  assert.ok(adjOp);
+  assert.equal(adjOp.behavior.kind,"adjustExact");
+  assert.equal(adjOp.capability,"orders.adjust");
+  const writeSql=exactAdjustmentWriteSql(ir,compileExactReconciliations(ir));
+  assert.equal(writeSql.length,1);
+  assert.match(writeSql[0],/FOR UPDATE/);
+  assert.match(writeSql[0],/IF NOT COALESCE\(v_balanced,false\)/);
+  assert.match(writeSql[0],/INSERT INTO protocolia_exact_adjustment_work_order/);
+  assert.match(writeSql[0],/UPDATE work_order SET charge_total=v_new_charge/);
+  assert.match(writeSql[0],/INSERT INTO protocolia_audit_event/);
   assert.equal(journal.length,3);
   assert.match(journal[0],/CREATE TABLE protocolia_exact_adjustment_work_order/);
   assert.match(journal[0],/delta NUMERIC\(14,2\) NOT NULL CHECK \(delta <> 0\)/);
@@ -93,6 +105,14 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("forged adjustment actor",s=>s.replace(
+    '    @minLength(12) @maxLength(240) reason: string;',
+    '    @minLength(12) @maxLength(240) reason: string;\n    actor: string;'),
+    /protocolia-invalid-exact-adjustment/);
+  negative("adjustment authority reuses read",s=>s.replace(
+    '@behavior("adjustExact","WorkOrder") @capability("orders.adjust")',
+    '@behavior("adjustExact","WorkOrder") @capability("orders.read")'),
+    /protocolia-invalid-exact-adjustment/);
   negative("disabled adjustment journal",s=>s.replace(
     '"reversed","chargeTotal", true, true, true, true)',
     '"reversed","chargeTotal", true, true, true, false)'),

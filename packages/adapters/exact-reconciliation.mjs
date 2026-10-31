@@ -179,7 +179,7 @@ export function compileExactReconciliations(ir){
       ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{}),
       ...(journalTable?{adjustmentJournal:{
         table:journalTable,parentTable:pt,parentColumn:pk,
-        precision:total.decimal.precision,scale:total.decimal.scale
+        precision:total.decimal.precision,scale:total.decimal.scale,max:total.decimal.max
       }}:{})});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))

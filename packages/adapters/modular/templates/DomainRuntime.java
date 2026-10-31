@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -169,6 +170,7 @@ public class DomainRuntime {
       case "sumRelated" -> result = sumRelated(matched,publicKey);
       case "sumDetails" -> result = sumDetails(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
+      case "adjustExact" -> result = adjustExact(entity,publicKey,body,user);
       case "listPage" -> result = page(entity, query, matched, user.getName());
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
@@ -220,14 +222,14 @@ public class DomainRuntime {
           return record;
         }).toList());
         result=page;
-      }else if(Set.of("create","get","patchFields","patchTogether").contains(matched.kind())){
+      }else if(Set.of("create","adjustExact","get","patchFields","patchTogether").contains(matched.kind())){
         var record=new LinkedHashMap<String,Object>();
         raw.forEach((key,val)->record.put(String.valueOf(key),val));
         sensitive.forEach(record::remove);
         result=record;
       }
     }
-    int status = matched.kind().equals("create") ? 201 : matched.kind().equals("delete") ? 204 : 200;
+    int status = Set.of("create","adjustExact").contains(matched.kind()) ? 201 : matched.kind().equals("delete") ? 204 : 200;
     var response=ResponseEntity.status(status);
     if(result instanceof Map<?,?> v && v.get("documentVersion") instanceof Number number)
       response.header("ETag","\""+number.intValue()+"\"");
@@ -308,6 +310,54 @@ public class DomainRuntime {
     var snapshot=jdbc.queryForList(plan.sql(),Map.of("identity",id));
     if(snapshot.size()!=1||!Boolean.TRUE.equals(snapshot.get(0).get("balanced")))
       throw new ResponseStatusException(HttpStatus.CONFLICT,"Exact ledger reconciliation conflict");
+  }
+  // S2c-1b1: independent capability is checked by dispatch; the common
+  // PostgreSQL function serializes parent, revalidates the ledger and inserts
+  // one immutable signed correction + exact balances + audit atomically.
+  private Map<String,Object> adjustExact(Manifest.Entity e,String id,
+      Map<String,Object> body,Authentication actor) {
+    var plan=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x->x.parentEntity().equals(e.name())).findFirst().orElse(null);
+    if(id==null||plan==null||body==null||body.size()!=3||
+        !body.keySet().equals(Set.of("adjustmentId","delta","reason")))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact adjustment request");
+    var field=e.fields().stream()
+      .filter(f->plan.chargeSources().contains(f.name())).findFirst().orElse(null);
+    if(field==null||field.scale()==null||field.precision()==null||
+      field.decimalMax()==null||!(body.get("adjustmentId") instanceof String aid)||
+      aid.length()<8||aid.length()>64||aid.isBlank()||
+      !(body.get("reason") instanceof String reason)||
+      reason.trim().length()<12||reason.trim().length()>240||
+      !(body.get("delta") instanceof String raw)||
+      !raw.matches("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?"))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid signed adjustment payload");
+    BigDecimal delta,max;
+    try{
+      delta=new BigDecimal(raw).setScale(field.scale(),java.math.RoundingMode.UNNECESSARY);
+      max=new BigDecimal(field.decimalMax());
+    }catch(ArithmeticException|NumberFormatException ex){
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact decimal precision");
+    }
+    if(delta.signum()==0||delta.abs().compareTo(max)>0||
+      raw.replaceFirst("^-","").split("\\.")[0].replaceFirst("^0+","").length()>
+        field.precision()-field.scale())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Adjustment out of range");
+    var args=new MapSqlParameterSource().addValue("identity",id)
+      .addValue("adj",aid).addValue("delta",delta)
+      .addValue("reason",reason).addValue("actor",actor.getName());
+    try{
+      jdbc.queryForList("SELECT protocolia_apply_exact_adjustment_"+e.table()+
+        "(:identity,:adj,:delta,:reason,:actor)",args);
+    }catch(DataAccessException ex){
+      if(constraintSqlState(ex,"PZ409")||constraintSqlState(ex,"23505"))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Exact adjustment conflict",ex);
+      if(constraintSqlState(ex,"P0002"))
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Work order not found",ex);
+      if(constraintSqlState(ex,"23514")||constraintSqlState(ex,"22003"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact adjustment",ex);
+      throw ex;
+    }
+    return row(e,id,actor.getName());
   }
   private Map<String,Object> reconcileExact(Manifest.Op op,String id){
     if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);

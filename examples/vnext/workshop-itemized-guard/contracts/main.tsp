@@ -304,6 +304,20 @@ namespace TallerPaymentGuard {
   op reversePayment(@path receipt: string):
     Payment | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;
 
+  // S2c-1b1: authenticated, append-only signed correction, not a charge PATCH.
+  model ExactAdjustmentRequest {
+    @minLength(8) @maxLength(64) adjustmentId: string;
+    @encode(string) @exactDecimal(14,2,"-999999999999.99","999999999999.99")
+    delta: decimal;
+    @minLength(12) @maxLength(240) reason: string;
+  }
+
+  @route("/api/work-orders/{number}/adjustments")
+  @post @behavior("adjustExact","WorkOrder") @capability("orders.adjust")
+  op adjustWorkOrder(@path number: string, @body input: ExactAdjustmentRequest):
+    { @statusCode _: 201; @body item: WorkOrder; }
+    | Conflict | BadRequest | NotFound | Unauthorized | Forbidden;
+
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
   @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true, true, true)

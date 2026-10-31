@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["adjustExact","create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -1198,6 +1198,55 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if(kind==="adjustExact"){
+      const recons=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="reconcileExact"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name);
+      const ledger=recons.length===1?metadata(p,"reconcileExact",recons[0]):undefined;
+      const creators=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="create"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        !!metadata(p,"createDetails",candidate)?.chargeAmountField);
+      const detail=creators.length===1?metadata(p,"createDetails",creators[0]):undefined;
+      const charge=entity.fields.find(x=>x.name===detail?.chargeTotalField);
+      const request=op.parameters.properties.get("input")?.type;
+      const props=request?.kind==="Model"?request.properties:undefined;
+      const id=props?.get("adjustmentId"),delta=props?.get("delta"),reason=props?.get("reason");
+      const exact=delta?field(p,delta):undefined;
+      const encoding=delta?getEncode(p,delta):undefined;
+      const roles=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        ["create","get","auditPage"].includes(String(metadata(p,"behavior",candidate)?.kind)))
+        .map(candidate=>metadata(p,"capability",candidate)?.name);
+      const count=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        metadata(p,"behavior",candidate)?.kind==="adjustExact").length;
+      if(!ledger||ledger.adjustmentJournal!==true||!detail||creators.length!==1||
+        detail.chargeTotalField!==ledger.chargeSource||!charge?.decimal?.max||
+        count!==1||cap.name==="public"||roles.includes(cap.name)||
+        http.verb!=="post"||http.parameters.body?.bodyKind!=="single"||
+        !http.path.endsWith("/{"+entity.publicIdentity+"}/adjustments")||
+        [...http.path.matchAll(/\{([^}]+)\}/g)].length!==1||
+        ![201,400,401,403,404,409].every(x=>statuses.includes(x))||
+        !props||props.size!==3||
+        !id||id.optional||typeOfField(id)?.type!=="string"||
+        getMinLength(p,id)!==8||getMaxLength(p,id)!==64||
+        !reason||reason.optional||typeOfField(reason)?.type!=="string"||
+        getMinLength(p,reason)!==12||getMaxLength(p,reason)!==240||
+        !delta||delta.optional||exact?.type!=="decimal"||!exact.decimal||
+        exact.decimal.precision!==charge.decimal.precision||
+        exact.decimal.scale!==charge.decimal.scale||
+        exact.decimal.min!=="-"+charge.decimal.max||
+        exact.decimal.max!==charge.decimal.max||
+        encoding?.type.name!=="string"||encoding.encoding!==undefined||
+        f!==undefined||input!==undefined||auditMeta||metadata(p,"transition",op)||
+        metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
+        metadata(p,"reverseExact",op)||metadata(p,"release",op)){
+        reject("invalid-exact-adjustment",op.name+
+          " requires reviewed itemized journal, independent capability and strict signed DTO",op);
+        continue;
+      }
     }
     if(details&&(http.verb!=="post"||http.parameters.body?.bodyKind!=="single"||
       ![201,400,401,403,409].every(x=>statuses.includes(x)))){
