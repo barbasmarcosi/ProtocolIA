@@ -319,11 +319,11 @@ try{
     charge("PROOF-LABOR","3.00")
   ])});
   const proofBefore=await balance("OT-PROVIDER-PROOF");
-  const forged=await request("/api/payments",{method:"POST",body:{
+  const forgedProof=await request("/api/payments",{method:"POST",body:{
     ...pay("PROOF-FORGE","OT-PROVIDER-PROOF","1.00"),
     method:"card",providerSettlementState:"settled"
   }});
-  assert.equal(forged.status,400,"A caller must not claim provider settlement");
+  assert.equal(forgedProof.status,400,"A caller must not claim provider settlement");
   await status("/api/payments/PROOF-FORGE",404);
   await status("/api/payments",400,{method:"POST",body:{
     ...pay("PROOF-FORGE-SAME","OT-PROVIDER-PROOF","1.00"),
