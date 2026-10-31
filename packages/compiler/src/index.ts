@@ -1213,6 +1213,22 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       const id=props?.get("adjustmentId"),delta=props?.get("delta"),reason=props?.get("reason");
+      const expectedDecimalNames=["expectedOpening","expectedAvailable","expectedReversedTotal"];
+      const expectedDecimalValid=expectedDecimalNames.every(name=>{
+        const prop=props?.get(name);
+        if(!prop||prop.optional)return false;
+        const value=field(p,prop),wire=getEncode(p,prop);
+        return value.type==="decimal"&&value.decimal?.precision===charge?.decimal?.precision&&
+          value.decimal?.scale===charge?.decimal?.scale&&
+          value.decimal?.min==="0.00"&&value.decimal?.max===charge?.decimal?.max&&
+          wire?.type.name==="string"&&wire.encoding===undefined;
+      });
+      const countFields=[["expectedPostingCount",16],["expectedAdjustmentCount",3]];
+      const expectedCountValid=countFields.every(([name,max])=>{
+        const prop=props?.get(name);
+        return !!prop&&!prop.optional&&typeOfField(prop)?.type==="string"&&
+          getMinLength(p,prop)===1&&getMaxLength(p,prop)===max;
+      });
       const exact=delta?field(p,delta):undefined;
       const encoding=delta?getEncode(p,delta):undefined;
       const roles=relevant.filter(candidate=>
@@ -1229,7 +1245,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !http.path.endsWith("/{"+entity.publicIdentity+"}/adjustments")||
         [...http.path.matchAll(/\{([^}]+)\}/g)].length!==1||
         ![201,400,401,403,404,409].every(x=>statuses.includes(x))||
-        !props||props.size!==3||
+        !props||props.size!==8||!expectedDecimalValid||!expectedCountValid||
         !id||id.optional||typeOfField(id)?.type!=="string"||
         getMinLength(p,id)!==8||getMaxLength(p,id)!==64||
         !reason||reason.optional||typeOfField(reason)?.type!=="string"||
@@ -1296,7 +1312,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const preview=metadata(p,"reconcileExact",op)?.adjustmentPreview===true;
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
         ...(lifecycle?["coverageState"]:[]),
-        ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[])];
+        ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[]),
+        ...(metadata(p,"reconcileExact",op)?.adjustmentJournal===true?["adjustmentCount"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
