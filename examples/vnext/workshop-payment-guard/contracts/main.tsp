@@ -3,8 +3,9 @@ import "@protocolia/domain";
 using TypeSpec.Http;
 using ProtocolIA.Domain;
 
-// Financial safety acceptance freeze: docs/vnext/acceptance/WORKSHOP_EXACT_PAYMENT_GUARD_20261030.md.
-// A bounded checked receipt ledger; initial opening-balance correctness remains UNSUPPORTED.
+// Financial acceptance: bounded exact multi-charge + authoritative PostgreSQL
+// receipt-coverage snapshot (v1.2h-S1), not real payment-provider settlement.
+// Frozen scope: docs/vnext/acceptance/V12H_S1_LEDGER_COVERAGE_20261030.md.
 @service(#{ title: "Taller Ledger — contract-only workshop operations" })
 namespace TallerPaymentGuard {
   enum PaymentMethod {
@@ -22,6 +23,7 @@ namespace TallerPaymentGuard {
     difference: string;
     postingCount: string;
     balanced: boolean;
+    coverageState: string;
   }
   @error model BadRequest { @statusCode _: 400; message: string; }
   @error model Unauthorized { @statusCode _: 401; message: string; }
@@ -247,7 +249,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true)
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true, true)
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;

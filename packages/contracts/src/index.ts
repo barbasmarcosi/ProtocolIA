@@ -152,11 +152,12 @@ function transition(context: DecoratorContext, target: Operation, from: string, 
 function reconcileExact(context: DecoratorContext, target: Operation, openingField: string,
   availableField: string, childEntity: string, referenceField: string, amountField: string,
   stateField: string, postedState: string, reversedState: string, chargeSource?: string,
-  serverOnly?: boolean): void {
+  serverOnly?: boolean, lifecycle?: boolean): void {
   context.program.stateMap($lib.stateKeys.reconcileExact).set(target,
     {openingField,availableField,childEntity,referenceField,amountField,stateField,postedState,reversedState,
      ...(chargeSource!==undefined?{chargeSource}:{}),
-     ...(serverOnly!==undefined?{serverOnly}:{})});
+     ...(serverOnly!==undefined?{serverOnly}:{}),
+     ...(lifecycle!==undefined?{lifecycle}:{})});
 }
 function reverseExact(context: DecoratorContext, target: Operation, balanceEntity: string,
   availableField: string, referenceField: string, amountField: string): void {

@@ -597,6 +597,14 @@ export function compileDomain(p: Program): IrDocument | undefined {
         reject("invalid-server-only-balance",op.name+" serverOnly requires an immutable source-declared charge",op);
         continue;
       }
+      if(reconciliation?.lifecycle!==undefined&&
+        reconciliation.lifecycle!==true&&reconciliation.lifecycle!==false||
+        reconciliation?.lifecycle===true&&
+          (reconciliation.serverOnly!==true||chargeNames.length===0)){
+        reject("invalid-exact-lifecycle",op.name+
+          " lifecycle snapshot requires true server-only exact charge-source initialization",op);
+        continue;
+      }
       if(unsafeCharge){
         reject("invalid-exact-charge-source",op.name+
           " requires one immutable nonnegative exact decimal charge with compatible scale; no balance/source patches",op);
@@ -612,7 +620,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
         !status||status.initial!==reconciliation.postedState||
         reconciliation.postedState===reconciliation.reversedState||
-        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource")
+        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource"&&k!=="lifecycle")
           .every(([,x])=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
         f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
         metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
@@ -1168,7 +1176,9 @@ export function compileDomain(p: Program): IrDocument | undefined {
     }
     if(kind==="reconcileExact"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
-      const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced"];
+      const lifecycle=metadata(p,"reconcileExact",op)?.lifecycle===true;
+      const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
+        ...(lifecycle?["coverageState"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
@@ -1561,7 +1571,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
             (String(reconciliation.chargeSource).includes(",")?
               {chargeSources:String(reconciliation.chargeSource).split(",").map(v=>v.trim())}:
               {chargeSource:String(reconciliation.chargeSource)}):{}),
-          ...(reconciliation.serverOnly===true?{serverOnly:true}:{})
+          ...(reconciliation.serverOnly===true?{serverOnly:true}:{}),
+          ...(reconciliation.lifecycle===true?{lifecycle:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),
