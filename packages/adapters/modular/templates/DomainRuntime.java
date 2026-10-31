@@ -81,17 +81,23 @@ public class DomainRuntime {
   @PostMapping("/api/_protocolia/provider/sandbox/inbox")
   public ResponseEntity<Map<String,String>> receiveSandboxProvider(
       HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    return processSandboxProvider(request,rawBody,false);
+    return processSandboxProvider(request,rawBody,0);
   }
 
   @PostMapping("/api/_protocolia/provider/sandbox/receipt-candidate")
   public ResponseEntity<Map<String,String>> receiveSandboxReceiptCandidate(
       HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    return processSandboxProvider(request,rawBody,true);
+    return processSandboxProvider(request,rawBody,1);
+  }
+
+  @PostMapping("/api/_protocolia/provider/sandbox/lifecycle-observation")
+  public ResponseEntity<Map<String,String>> receiveSandboxLifecycle(
+      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
+    return processSandboxProvider(request,rawBody,2);
   }
 
   private ResponseEntity<Map<String,String>> processSandboxProvider(
-      HttpServletRequest request,byte[] rawBody,boolean linkReceipt){
+      HttpServletRequest request,byte[] rawBody,int mode){
     if(!Manifest.PROVIDER_INBOX_ENABLED||!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
     if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
@@ -121,7 +127,7 @@ public class DomainRuntime {
       String query="SELECT protocolia_record_provider_envelope_digest(:provider,:event,:digest)";
       var args=new MapSqlParameterSource().addValue("provider","sandbox_provider")
         .addValue("event",verified.eventId()).addValue("digest",verified.payloadSha256());
-      if(linkReceipt){
+      if(mode==1){
         // Strict canonical signed ASCII JSON prevents duplicate keys and ambiguous claims.
         String raw=new String(rawBody,StandardCharsets.UTF_8);
         var matcher=Pattern.compile(
@@ -133,6 +139,20 @@ public class DomainRuntime {
           ":provider,:event,:digest,:receipt,:orderId,CAST(:amount AS NUMERIC))";
         args.addValue("receipt",matcher.group(1)).addValue("orderId",matcher.group(2))
           .addValue("amount",matcher.group(3));
+      }
+      if(mode==2){
+        // Exact signed canonical ASCII JSON; no duplicate or injected keys.
+        // Reported phases are observations, not verified bank settlement.
+        String raw=new String(rawBody,StandardCharsets.UTF_8);
+        var matcher=Pattern.compile("\\{\"version\":\"lifecycle-observation\\.v1\",\"candidateEventId\":\"([A-Za-z0-9_-]{8,128})\",\"receiptId\":\"([A-Za-z0-9_-]{1,128})\",\"orderId\":\"([A-Za-z0-9_-]{1,128})\",\"amount\":\"((?:0|[1-9][0-9]{0,11})\\.[0-9]{2})\",\"sequence\":\"([1-9][0-9]{0,9})\",\"phase\":\"(reported_pending|reported_success|reported_failure|reported_reversal)\"\\}").matcher(raw);
+        if(!matcher.matches()||"0.00".equals(matcher.group(4)))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid canonical lifecycle observation");
+        query="SELECT protocolia_record_provider_lifecycle_observation("+
+          ":provider,:event,:digest,:candidate,:receipt,:orderId,"+
+          "CAST(:amount AS NUMERIC),CAST(:sequence AS NUMERIC),:phase)";
+        args.addValue("candidate",matcher.group(1)).addValue("receipt",matcher.group(2))
+          .addValue("orderId",matcher.group(3)).addValue("amount",matcher.group(4))
+          .addValue("sequence",matcher.group(5)).addValue("phase",matcher.group(6));
       }
       outcome=jdbc.queryForObject(query,args,String.class);
     }catch(DataAccessException error){

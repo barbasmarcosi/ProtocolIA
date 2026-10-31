@@ -113,6 +113,70 @@ try{
     "PAY-HTTP-LINK/OT-HTTP-LINK/1.25");
   const before=sql("SELECT charge_total::text||'/'||available::text "+
     "FROM work_order WHERE number='OT-HTTP-LINK'");
+
+  // S2c-1c4c: a separate versioned, strictly signed lifecycle HTTP route.
+  // Reports may arrive out of order, but they never change ledger authority.
+  const lifecyclePath="/api/_protocolia/provider/sandbox/lifecycle-observation";
+  const lifeClaim=(sequence="3",phase="reported_success",
+    candidateEventId=eventLinked,receiptId="PAY-HTTP-LINK",
+    orderId="OT-HTTP-LINK",amount="1.25")=>Buffer.from(JSON.stringify({
+      version:"lifecycle-observation.v1",candidateEventId,receiptId,
+      orderId,amount,sequence,phase
+    }));
+  const lifecycle=(event,raw=lifeClaim(),headers=signed(event,raw))=>
+    send(event,raw,headers,lifecyclePath);
+  const lifeEvent="evt_life_http_00000003";
+  const lifeResponses=await Promise.all(Array.from({length:10},()=>lifecycle(lifeEvent)));
+  assert.equal(lifeResponses.filter(x=>x.status===202).length,1,JSON.stringify(lifeResponses));
+  assert.equal(lifeResponses.filter(x=>x.status===200).length,9,JSON.stringify(lifeResponses));
+  assert.equal((await lifecycle("evt_life_http_00000001",
+    lifeClaim("1","reported_pending"))).status,202);
+  assert.equal((await lifecycle("evt_life_http_00000002",
+    lifeClaim("2","reported_failure"))).status,202);
+  assert.equal(sql("SELECT string_agg(event_sequence::text,',' ORDER BY event_sequence) "+
+    "FROM protocolia_provider_lifecycle_observation"),"1,2,3");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
+  assert.equal((await lifecycle("evt_life_seq_conflict",lifeClaim("2"))).status,409);
+  assert.equal((await lifecycle(lifeEvent,lifeClaim("3","reported_reversal"))).status,409);
+  assert.equal((await lifecycle("evt_life_missing_cand",
+    lifeClaim("4","reported_pending","evt_not_a_candidate_12"))).status,404);
+  assert.equal((await lifecycle("evt_life_wrong_receipt",
+    lifeClaim("4","reported_pending",eventLinked,"OTHER-RECEIPT"))).status,404);
+  assert.equal((await lifecycle("evt_life_wrong_order",
+    lifeClaim("4","reported_pending",eventLinked,"PAY-HTTP-LINK","OTHER-ORDER"))).status,409);
+  assert.equal((await lifecycle("evt_life_wrong_amount",
+    lifeClaim("4","reported_pending",eventLinked,"PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
+  for(const [event,raw] of [
+    ["evt_life_bad_seq_zero",lifeClaim("0")],
+    ["evt_life_bad_seq_lead",lifeClaim("03")],
+    ["evt_life_bad_seq_big",lifeClaim("2147483648")],
+    ["evt_life_bad_seq_float",lifeClaim("1.5")],
+    ["evt_life_bad_amount",lifeClaim("4","reported_pending",eventLinked,
+      "PAY-HTTP-LINK","OT-HTTP-LINK","1.251")],
+    ["evt_life_bad_phase",lifeClaim("4","settled")],
+    ["evt_life_bad_version",Buffer.from(lifeClaim("4").toString().replace(
+      "lifecycle-observation.v1","lifecycle-observation.v2"))],
+    ["evt_life_extra_field",Buffer.from(lifeClaim("4").toString().replace(
+      '"phase":"reported_success"}','"phase":"reported_success","settled":true}'))],
+    ["evt_life_duplicate_key",Buffer.from(lifeClaim("4").toString().replace(
+      '"sequence":"4",','"sequence":"4","sequence":"4",'))],
+    ["evt_life_json_number",Buffer.from(lifeClaim("4").toString().replace(
+      '"sequence":"4"','"sequence":4'))]
+  ])assert.equal((await lifecycle(event,raw)).status,400,event);
+  const tamperedLife=lifeClaim("4");
+  assert.equal((await lifecycle("evt_life_tampered_12",tamperedLife,
+    signed("evt_life_tampered_12",lifeClaim("5")))).status,401);
+  assert.equal((await lifecycle("evt_life_expired_123",lifeClaim("4"),
+    signed("evt_life_expired_123",lifeClaim("4"),
+      String(Math.floor(Date.now()/1000)-400)))).status,401);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id LIKE 'evt_life_%'"),"3");
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  assert.equal(sql("SELECT charge_total::text||'/'||available::text "+
+    "FROM work_order WHERE number='OT-HTTP-LINK'"),before);
+
   assert.equal((await linked("evt_http_missing_1234",claim("MISSING-RECEIPT"))).status,404);
   assert.equal((await linked("evt_http_wrongorder",claim("PAY-HTTP-LINK","WRONG-ORDER"))).status,409);
   assert.equal((await linked("evt_http_wrongamt_1",claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
@@ -162,6 +226,13 @@ try{
   assert.equal(sql("SELECT available::text FROM work_order WHERE number='OT-HTTP-LINK'"),"1.25");
   assert.equal((await linked(eventLinked)).status,200,
     "Identical signed event must remain a duplicate after reversal");
+  assert.equal((await lifecycle(lifeEvent)).status,200,
+    "Signed lifecycle replay remains idempotent after internal reversal");
+  assert.equal((await lifecycle("evt_life_after_reversal",lifeClaim("4"))).status,409,
+    "New lifecycle observations must reject reversed receipts");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id='evt_life_after_reversal'"),"0");
   assert.equal((await linked("evt_http_after_reverse_12")).status,409,
     "A new signed event cannot attach to an already reversed receipt");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate"),"1");
@@ -169,6 +240,8 @@ try{
     "WHERE event_id='evt_http_after_reverse_12'"),"0");
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
+    " 1 stored/9 duplicate, out-of-order 3-1-2, no settlement");
   console.log("PROTOCOLIA_S2C1C4A_HTTP_UNIQUE_BINDING_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3C_SIGNED_REVERSAL_REPLAY_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3B_SIGNED_RECEIPT_HTTP_PASS "+build.target+
