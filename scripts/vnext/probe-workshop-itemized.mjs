@@ -150,6 +150,15 @@ async function previewMobileSmoke(){
     await page.getByTestId("exact-adjustment-preview").waitFor({timeout:15000});
     assert.equal(await page.getByTestId("max-safe-decrease").textContent(),"0.30");
     assert.equal(await page.getByTestId("max-safe-increase").textContent(),"999999999999.69");
+    await page.getByTestId("external-proof-boundary").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("unverified-posted-total").textContent(),"0");
+    await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-OT-PROVIDER-PROOF").click();
+    await page.getByTestId("external-proof-boundary").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("unverified-posted-total").textContent(),"2.00");
+    assert.equal(await page.getByTestId("unverified-posting-count").textContent(),"2");
+    assert.match(await page.getByTestId("external-proof-boundary").textContent(),
+      /No acredita liquidación/);
     await page.getByTestId("detail-dialog").getByRole("button",{name:"Cerrar detalle"}).click();
     await page.getByTestId("open-detail-OT-UI-ADJUST").click();
     await page.getByTestId("exact-adjustment-composer").waitFor({timeout:15000});
