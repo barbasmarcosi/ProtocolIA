@@ -70,7 +70,7 @@ export function exactAdjustmentWriteSql(ir,plans){
       !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(journal.max))
       throw Error("Invalid signed adjustment SQL plan "+op.name);
     ddl.push("CREATE FUNCTION "+func+
-      "(v_parent VARCHAR,v_id VARCHAR,v_delta NUMERIC,v_reason VARCHAR,v_actor VARCHAR) "+
+      "(v_parent VARCHAR,v_id VARCHAR,v_delta NUMERIC,v_reason VARCHAR,v_actor VARCHAR,v_expected_open NUMERIC,v_expected_available NUMERIC) "+
       "RETURNS VOID LANGUAGE plpgsql AS $pia_adjust$ DECLARE "+
       "v_balanced BOOLEAN;v_eligible BOOLEAN;v_charge NUMERIC;"+
       "v_opening NUMERIC;v_available NUMERIC;v_new_charge NUMERIC;"+
