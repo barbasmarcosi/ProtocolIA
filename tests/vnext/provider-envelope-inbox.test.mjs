@@ -31,6 +31,20 @@ test("provider envelope replay key excludes rotating signing key and is append-o
   assert.match(ddl,/actual_proof<>\x27unverified\x27/);
   assert.match(ddl,/FOREIGN KEY\(provider_id,event_id\)/);
   assert.match(ddl,/protocolia_provider_receipt_candidate_immutable_guard/);
+  // S2c-1c4a: a receipt has one candidate binding across providers/events.
+  // Subsequent lifecycle events must reference the existing candidate.
+  assert.match(ddl,/UNIQUE \(receipt_id\)/);
+  assert.match(ddl,/SELECT provider_id,event_id INTO bound_provider,bound_event/);
+  // An in-flight first delivery may commit while another waits for the
+  // receipt lock; the second must recheck and return duplicate, not conflict.
+  assert.equal(ddl.split("SELECT payload_sha256 INTO old_digest").length-1,2);
+  assert.ok(ddl.indexOf("SELECT p.order_number,p.amount,p.status,p.provider_settlement_state")<
+    ddl.lastIndexOf("SELECT payload_sha256 INTO old_digest"));
+
+  assert.match(ddl,/WHERE receipt_id=v_receipt;[\s\S]*IF FOUND THEN RETURN 'conflict'/);
+  assert.ok(ddl.indexOf("WHERE receipt_id=v_receipt;")<
+    ddl.lastIndexOf("SELECT protocolia_record_provider_envelope_digest(v_provider,v_event,v_digest)"));
+
   // Historical authenticated replay is classified before mutable receipt status.
   assert.match(ddl,/SELECT payload_sha256 INTO old_digest[\s\S]*FOR UPDATE/);
   assert.match(ddl,/old_digest IS DISTINCT FROM v_digest/);
