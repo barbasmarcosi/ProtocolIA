@@ -505,7 +505,8 @@ export function generate(ir,spec,out){
     fields:e.fields.map(f=>({...f,column:snake(f.name)}))})),
     operations:compiled,readCapabilities:reads,writeCapabilities:writes,auditCapabilities:audits,assignmentCapabilities:assignments,
     fieldReadCapabilities,
-    hasOverdueRules:overdueRules.length>0};
+    hasOverdueRules:overdueRules.length>0,
+    providerInboxEnabled:[...exactReconciliations.values()].some(x=>x.unverifiedProofField)};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
@@ -635,6 +636,8 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_SCOPED_USERNAME: ${PROTOCOLIA_SCOPED_USERNAME:-}',
     '      PROTOCOLIA_SCOPED_PASSWORD: ${PROTOCOLIA_SCOPED_PASSWORD:-}',
     '      PROTOCOLIA_SCOPED_CAPABILITIES: ${PROTOCOLIA_SCOPED_CAPABILITIES:-}',
+    '      PROTOCOLIA_PROVIDER_SANDBOX_ENABLED: ${PROTOCOLIA_PROVIDER_SANDBOX_ENABLED:-false}',
+    '      PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX: ${PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX:-}',
     "volumes:","  protocolia_nest_data:",""
   ].join("\n"));
   const result={adapter:"nestjs",irVersion:ir.irVersion,

@@ -348,6 +348,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
+    "  public static final boolean PROVIDER_INBOX_ENABLED="+([...exactReconciliations.values()].some(x=>x.unverifiedProofField)?"true":"false")+";",
     "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean fixedInitial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField,String readCapability) {}",
     "  public record OwnerRelation(String field,String parentTable,String parentKey,String parentOwnerColumn,String parentReadCapability) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,OwnerRelation ownerRelation,List<Field> fields) {}",

@@ -27,6 +27,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -75,6 +76,55 @@ public class DomainRuntime {
 
   @GetMapping("/health")
   public Map<String, String> health() { return Map.of("status", "UP"); }
+
+  // Deliberately demo-only. This records authenticated envelope digests, not money.
+  @PostMapping("/api/_protocolia/provider/sandbox/inbox")
+  public ResponseEntity<Map<String,String>> receiveSandboxProvider(
+      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
+    if(!Manifest.PROVIDER_INBOX_ENABLED||!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
+    if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox forbidden outside demo");
+    String hex=System.getenv().getOrDefault("PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX","");
+    if(!hex.matches("[0-9a-f]{64}"))
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox key unavailable");
+    if(!"application/json".equals(request.getContentType())||
+       rawBody==null||rawBody.length<1||rawBody.length>65536)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid raw provider body");
+    String[] names={"X-ProtocolIA-Key-Id","X-ProtocolIA-Timestamp",
+      "X-ProtocolIA-Event-Id","X-ProtocolIA-Signature"};
+    for(String name:names){
+      var values=java.util.Collections.list(request.getHeaders(name));
+      if(values.size()!=1)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Missing or duplicate provider header");
+    }
+    var verified=ProviderWebhookVerifier.verify(
+      request.getHeader(names[0]),request.getHeader(names[1]),
+      request.getHeader(names[2]),request.getHeader(names[3]),rawBody,
+      Map.of("sandbox_1",java.util.HexFormat.of().parseHex(hex)),
+      java.time.Instant.now().getEpochSecond());
+    if(verified==null)
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid provider signature");
+    String outcome;
+    try{
+      outcome=jdbc.queryForObject(
+        "SELECT protocolia_record_provider_envelope_digest(:provider,:event,:digest)",
+        Map.of("provider","sandbox_provider","event",verified.eventId(),
+          "digest",verified.payloadSha256()),String.class);
+    }catch(DataAccessException error){
+      if(constraintSqlState(error,"40001"))
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Retry provider inbox",error);
+      throw error;
+    }
+    HttpStatus status=switch(outcome){
+      case "stored" -> HttpStatus.ACCEPTED;
+      case "duplicate" -> HttpStatus.OK;
+      case "conflict" -> HttpStatus.CONFLICT;
+      default -> throw new IllegalStateException("Unexpected provider inbox outcome");
+    };
+    return ResponseEntity.status(status).header("Cache-Control","no-store")
+      .body(Map.of("outcome",outcome));
+  }
 
   // Platform-authenticated capability discovery; only server authorities are trusted.
   @GetMapping("/api/_protocolia/me")

@@ -1,4 +1,4 @@
-import {Controller,Get,Inject,Injectable,Module,NestModule,RequestMapping,RequestMethod,Req,Res} from "@nestjs/common";
+import {Controller,Get,Post,Inject,Injectable,Module,NestModule,RequestMapping,RequestMethod,Req,Res} from "@nestjs/common";
 import {NestFactory} from "@nestjs/core";
 import {NestExpressApplication} from "@nestjs/platform-express";
 import {createHash,timingSafeEqual} from "node:crypto";
@@ -7,6 +7,7 @@ import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
 import {installBff,installBffSecurityHeaders} from "./BffSession";
+import {verifyProviderEnvelope} from "./ProviderWebhookVerifier";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
@@ -27,7 +28,7 @@ type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSources:string[];serverOnly?:boolean;
   adjustmentJournal?:{table:string;parentTable:string;parentColumn:string;precision:number;scale:number;max:string}};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean;providerInboxEnabled?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
 class Problem extends Error{
@@ -1525,6 +1526,51 @@ class RuntimeService{
       throw error;
     }finally{client.release();}
   }
+  // Test-only sandbox ingress: authenticates ORIGINAL HTTP bytes, never a settlement.
+  async receiveSandboxProvider(req:any,res:any):Promise<void>{
+    try{
+      if(!spec.providerInboxEnabled||process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true")
+        throw new Problem(404,"Sandbox provider ingress disabled");
+      if(process.env.PROTOCOLIA_AUTH_MODE!=="demo")
+        throw new Problem(503,"Sandbox ingress forbidden outside demo mode");
+      const hex=process.env.PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX??"";
+      if(!/^[0-9a-f]{64}$/.test(hex))
+        throw new Problem(503,"Sandbox signing key not configured");
+      const header=(name:string):string=>{
+        const matches=(req.rawHeaders as string[]).filter((x,i)=>i%2===0&&x.toLowerCase()===name);
+        if(matches.length!==1)throw new Problem(400,"Missing or duplicate provider header");
+        const value=req.headers[name];
+        if(typeof value!=="string")throw new Problem(400,"Invalid provider header");
+        return value;
+      };
+      if(req.headers["content-type"]!=="application/json"||
+        !Buffer.isBuffer(req.rawBody)||req.rawBody.length<1||req.rawBody.length>65536)
+        throw new Problem(400,"Invalid raw provider body");
+      const verified=verifyProviderEnvelope({
+        keyId:header("x-protocolia-key-id"),
+        timestamp:header("x-protocolia-timestamp"),
+        eventId:header("x-protocolia-event-id"),
+        signature:header("x-protocolia-signature"),
+        rawBody:req.rawBody,
+        keys:{sandbox_1:Buffer.from(hex,"hex")},
+        nowSeconds:Math.floor(Date.now()/1000)
+      });
+      if(!verified)throw new Problem(401,"Invalid provider signature");
+      const result=await this.pool.query(
+        "SELECT protocolia_record_provider_envelope_digest($1,$2,$3) AS outcome",
+        ["sandbox_provider",verified.eventId,verified.payloadSha256]);
+      const outcome=result.rows[0]?.outcome;
+      if(!["stored","duplicate","conflict"].includes(outcome))
+        throw new Error("Unexpected provider inbox outcome");
+      res.setHeader("Cache-Control","no-store");
+      res.status(outcome==="stored"?202:outcome==="duplicate"?200:409)
+        .json({outcome});
+    }catch(error){
+      if((error as {code?:string})?.code==="40001")
+        sendProblem(res,new Problem(503,"Provider inbox retry required"));
+      else sendProblem(res,error);
+    }
+  }
   async dispatch(op:Operation,req:any,res:any):Promise<void>{
     try{
       const session=await this.login(req);
@@ -1604,6 +1650,14 @@ class RuntimeService{
     }
   }
 }
+@Controller("api/_protocolia/provider/sandbox")
+class SandboxProviderController{
+  constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
+  @Post("inbox")
+  async receive(@Req() req:any,@Res() res:any):Promise<void>{
+    await this.service.receiveSandboxProvider(req,res);
+  }
+}
 @Controller()
 class MetadataController{
   constructor(@Inject(RuntimeService)private readonly service:RuntimeService){}
@@ -1624,7 +1678,7 @@ function operationController(op:Operation):any{
   return GeneratedOperationController;
 }
 @Module({
-  controllers:[MetadataController,...spec.operations.filter(o=>o.kind!=="health").map(operationController)],
+  controllers:[MetadataController,SandboxProviderController,...spec.operations.filter(o=>o.kind!=="health").map(operationController)],
   providers:[RuntimeService]
 })
 class ContractModule{}
@@ -1642,7 +1696,7 @@ async function bootstrap(){
     }finally{await runner.closePools();}
     return;
   }
-  const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"]});
+  const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"],rawBody:true});
   installBffSecurityHeaders(app);
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
