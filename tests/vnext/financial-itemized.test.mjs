@@ -9,7 +9,7 @@ const fixture=resolve("examples/vnext/workshop-itemized-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
 const decorator='@createDetails("ChargeLine","orderNumber","charges","amount","chargeTotal")';
 function compile(folder){
-  return spawnSync(resolve("node_modules/.bin/tsp"),["compile",folder],
+  return spawnSync(resolve("node_modules/.bin/tsp"),["compile",folder,"--pretty","false"],
     {encoding:"utf8",timeout:90000,maxBuffer:4*1024*1024});
 }
 test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative source",()=>{
