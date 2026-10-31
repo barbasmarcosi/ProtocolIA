@@ -16,7 +16,7 @@ type Entity={name:string;table:string;publicIdentity:string;identityColumn:strin
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
 type MoveUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceField:string;targetField:string;quantityField:string;maxBalance:number;parentWriteCapability:string};
 type MoveBatch={stockTable:string;stockKeyColumn:string;availableColumn:string;maxBalance:number;parentWriteCapability:string;legs:{sourceField:string;targetField:string;quantityField:string}[]};
-type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean;closeField?:string;closeState?:string};
+type CreateDetails={childEntity:string;parentField:string;rowsField:string;maxRows:number;childWriteCapability:string;versioned?:boolean;closeField?:string;closeState?:string;chargeAmountField?:string;chargeTotalField?:string};
 type ReverseUnits={stockTable:string;stockKeyColumn:string;availableColumn:string;sourceColumn:string;targetColumn:string;amountColumn:string;maxBalance:number;parentWriteCapability:string};
 type ExactDebit={balanceTable:string;balanceKey:string;balanceColumn:string;referenceField:string;amountField:string;parentWriteCapability:string};
 type ExactReverse=ExactDebit&{referenceColumn:string;amountColumn:string;maxBalance:string};
@@ -756,6 +756,11 @@ class RuntimeService{
     }
   }
   private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown):Promise<Record<string,unknown>>{
+    // Financial detail rows may only be inserted atomically by their header.
+    // A separate child POST would alter the amount after payment initialization.
+    if(spec.operations.some(x=>x.createDetails?.childEntity===e.name&&
+      x.createDetails.chargeAmountField))
+      throw new Problem(409,"Exact charge rows are immutable after order creation");
     const plan=op.createDetails;
     let detailRows:Record<string,unknown>[]|undefined;
     let child:Entity|undefined;
@@ -777,6 +782,16 @@ class RuntimeService{
     }
     const plain=plan?{...(body as Record<string,unknown>)}:body;
     if(plan)delete (plain as Record<string,unknown>)[plan.rowsField];
+    if(plan?.chargeAmountField&&plan.chargeTotalField&&detailRows){
+      if(!isRecord(plain)||Object.hasOwn(plain,plan.chargeTotalField))
+        throw new Problem(400,"Client cannot provide an exact charge total");
+      const total=e.fields.find(x=>x.name===plan.chargeTotalField);
+      if(!total?.decimal)throw new Error("Missing reviewed exact total field");
+      const scale=total.decimal.scale;
+      const units=detailRows.reduce((acc,line)=>
+        acc+decimalUnits(line[plan.chargeAmountField!] as string,scale),0n);
+      plain[plan.chargeTotalField]=exactStringFromUnits(units,scale);
+    }
     body=plain;
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&(!isRecord(body)||Object.hasOwn(body,owner.name)))throw new Problem(400,"Server-managed owner must not be supplied");
