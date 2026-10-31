@@ -89,7 +89,9 @@ namespace TallerPaymentGuard {
     symptom: string;
     @encode(string) @exactDecimal(14,2,"0","999999999999.99")
     laborCharge: decimal;
-    // Explicit configured ceiling: cross-field equality not yet enforced.
+    @encode(string) @exactDecimal(14,2,"0","999999999999.99")
+    partsCharge: decimal;
+    // Exact opening and availability are derived from both immutable charges.
     @encode(string) @exactDecimal(14,2,"0","999999999999.99")
     openingBalance: decimal;
     @encode(string) @exactDecimal(14,2,"0","999999999999.99")
@@ -105,8 +107,9 @@ namespace TallerPaymentGuard {
     @minLength(1) @maxLength(160) symptom: string;
     @encode(string) @exactDecimal(14,2,"0","999999999999.99")
     laborCharge: decimal;
-    // Explicit configured ceiling: cross-field equality not yet enforced.
-    // Starting balances are server-derived from the declared exact laborCharge.
+    @encode(string) @exactDecimal(14,2,"0","999999999999.99")
+    partsCharge: decimal;
+    // The opening/available amount is not a client CREATE field.
     @minLength(1) @maxLength(20) status: string;
     openedAt?: utcDateTime | null;
   }
@@ -244,7 +247,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge", true)
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true)
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;
