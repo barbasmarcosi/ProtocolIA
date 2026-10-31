@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
-import {verifyProviderEnvelope} from "../../packages/adapters/nest/templates/ProviderWebhookVerifier.ts";
+import {verifyProviderEnvelope,parseSandboxProviderKeys} from "../../packages/adapters/nest/templates/ProviderWebhookVerifier.ts";
 
 const secret=Buffer.alloc(32,0x11);
 const rawBody=Buffer.from('{"provider":"sandbox","amount":"1.00","event":"settled"}');
@@ -73,4 +73,32 @@ test("v2 purpose binding rejects signed bytes on the wrong endpoint",()=>{
     for(const other of ["inbox","receipt-candidate","lifecycle-observation"].filter(x=>x!==purpose))
       assert.equal(verify({purpose:other,signature:sig}),null,purpose+" -> "+other);
   }
+});
+
+test("server keyring rotates without fallback, and revokes removed key IDs",()=>{
+  const one="11".repeat(32),two="22".repeat(32),three="33".repeat(32);
+  const legacy=parseSandboxProviderKeys(one,undefined);
+  assert.deepEqual(Object.keys(legacy),["sandbox_1"]);
+  assert.ok(verify({keys:legacy}));
+  const rotated=parseSandboxProviderKeys("",`sandbox_1=${one},sandbox_2=${two}`);
+  assert.deepEqual(Object.keys(rotated).sort(),["sandbox_1","sandbox_2"]);
+  assert.ok(verify({keys:rotated}));
+  const revoked=parseSandboxProviderKeys("",`sandbox_2=${two}`);
+  assert.equal(verify({keys:revoked}),null,"removed key ID cannot authenticate");
+  const newSignature="v2="+createHmac("sha256",Buffer.from(two,"hex"))
+    .update("protocolia-provider-proof-v2\\ninbox\\nsandbox_2\\n"+timestamp+"\\n"+eventId+"\\n")
+    .update(rawBody).digest("hex");
+  assert.ok(verify({keyId:"sandbox_2",signature:newSignature,keys:rotated}));
+  assert.ok(verify({keyId:"sandbox_2",signature:newSignature,keys:revoked}));
+  assert.equal(verify({keyId:"sandbox_2",signature:newSignature,keys:legacy}),null);
+  for(const [old,ring] of [
+    ["",""],[one,`sandbox_2=${two}`],["BAD",""],
+    ["",`sandbox_1=${one},sandbox_1=${two}`],
+    ["",`sandbox_1=${one},sandbox_2=${one}`],
+    ["",`sandbox_1=${one},`],
+    ["",`sandbox_1=${one},sandbox_2=${two},sandbox_3=${three},sandbox_4=${one}`],
+    ["",`sandbox_1=${one.toUpperCase()}`],
+    ["",`sandbox_1=${one} `],
+    ["",`__proto__=${one},__proto__=${two}`]
+  ])assert.equal(parseSandboxProviderKeys(old,ring),null);
 });
