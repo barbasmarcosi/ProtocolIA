@@ -466,3 +466,21 @@ button.discard-button:hover:not(:disabled){background:#79262a}
 .detail-bulk .modal-actions{flex-wrap:wrap}
 @media(max-width:520px){.detail-bulk{padding:13px}.detail-bulk-row{padding:12px}
   .detail-bulk-intro>button{width:100%}}
+
+/* S2c-1b2 exact signed finance adjustment: contained, thumb-friendly and
+   keyboard accessible in the existing detail scroll surface. */
+.exact-adjustment-composer{margin-top:1rem;padding:1rem;border:1px solid var(--border,#d4dae2);border-radius:12px;max-width:100%;min-width:0}
+.exact-adjustment-composer .related-summary-head{align-items:flex-start;gap:.75rem;flex-wrap:wrap}
+.exact-adjustment-form{display:grid;gap:.8rem;margin-top:.8rem;min-width:0}
+.exact-adjustment-form .field{min-width:0;display:flex;flex-direction:column;gap:.3rem}
+.exact-adjustment-form input,.exact-adjustment-form select,.exact-adjustment-form textarea{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.exact-adjustment-form .ledger-values{overflow-wrap:anywhere;min-width:0}
+.exact-adjustment-confirmation{border:1px solid var(--border,#d4dae2);padding:.8rem;border-radius:10px;min-width:0}
+.exact-adjustment-actions{display:flex;gap:.65rem;flex-wrap:wrap;margin-top:.8rem}
+.exact-adjustment-actions button{min-height:44px;flex:1 1 135px}
+@media(max-width:480px){
+  .exact-adjustment-composer{padding:.65rem}
+  .exact-adjustment-form>button{width:100%;min-height:44px}
+  .exact-adjustment-actions{flex-direction:column}
+  .exact-adjustment-actions button{width:100%}
+}
