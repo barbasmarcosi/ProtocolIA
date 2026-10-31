@@ -174,7 +174,7 @@ public class DomainRuntime {
       case "sumDetails" -> result = sumDetails(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
       case "adjustExact" -> result = adjustExact(entity,publicKey,body,user);
-      case "lookupExactAdjustment" -> result = lookupExactAdjustment(entity,publicKey,adjustmentKey);
+      case "lookupExactAdjustment" -> result = lookupExactAdjustment(entity,publicKey,adjustmentKey,user.getName());
       case "listPage" -> result = page(entity, query, matched, user.getName());
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
@@ -400,7 +400,7 @@ public class DomainRuntime {
     }
     return row(e,id,actor.getName());
   }
-  private Map<String,Object> lookupExactAdjustment(Manifest.Entity e,String id,String adjustmentId){
+  private Map<String,Object> lookupExactAdjustment(Manifest.Entity e,String id,String adjustmentId,String actor){
     var plan=Manifest.EXACT_RECONCILIATIONS.values().stream()
       .filter(x->x.parentEntity().equals(e.name())).findFirst().orElse(null);
     if(plan==null||id==null||adjustmentId==null||adjustmentId.length()<8||
@@ -409,8 +409,8 @@ public class DomainRuntime {
     var rows=jdbc.queryForList("SELECT adjustment_id AS \"adjustmentId\","+
       "delta::text AS \"delta\",reason,'committed'::text AS \"status\" FROM "+
       "protocolia_exact_adjustment_"+e.table()+
-      " WHERE parent_id=:identity AND adjustment_id=:adjustmentId",
-      Map.of("identity",id,"adjustmentId",adjustmentId));
+      " WHERE parent_id=:identity AND adjustment_id=:adjustmentId AND actor=:actor",
+      Map.of("identity",id,"adjustmentId",adjustmentId,"actor",actor));
     if(rows.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,
       "Committed adjustment not found for order");
     return rows.get(0);
