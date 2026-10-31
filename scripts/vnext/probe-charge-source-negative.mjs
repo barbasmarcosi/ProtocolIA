@@ -14,7 +14,7 @@ const cases=[
   ["missing",exact.replace('"laborCharge", true)','"noSuchSource", true)')],
   ["wrong-type",exact.replace('"laborCharge", true)','"symptom", true)')],
   ["self-alias",exact.replace('"laborCharge", true)','"openingBalance", true)')],
-  ["server-only-without-source",exact.replace('"laborCharge", true)', '"", true')],
+  ["nullable-source",null],
   ["spoofed-create-dto",null]
 ];
 const tmp=mkdtempSync(resolve("examples/vnext/.charge-source-negative-"));
@@ -22,7 +22,10 @@ try{
   mkdirSync(join(tmp,"contracts"),{recursive:true});
   writeFileSync(join(tmp,"tspconfig.yaml"),config);
   for(const [name,replacement] of cases){
-    const invalid=name==="spoofed-create-dto"?
+    const invalid=name==="nullable-source"?
+      source.replace('laborCharge: decimal;\n    // Explicit configured ceiling',
+        'laborCharge?: decimal;\n    // Explicit configured ceiling'):
+      name==="spoofed-create-dto"?
       source.replace('model WorkOrderRequest {','model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;'):
       source.replace(exact,replacement);
     writeFileSync(join(tmp,"contracts/main.tsp"),invalid);
@@ -32,8 +35,7 @@ try{
     assert.equal(run.status,1,"Invalid source must be rejected: "+name+
       " "+(run.stdout??"").slice(-700));
     const output=(run.stdout??"")+"\n"+(run.stderr??"");
-    assert.match(output,name==="server-only-without-source"?
-      /protocolia-invalid-server-only-balance/:name==="spoofed-create-dto"?
+    assert.match(output,name==="spoofed-create-dto"?
       /protocolia-server-only-request-spoof/:/protocolia-invalid-exact-charge-source/,
       "Wrong reason for source rejection "+name+" "+output.slice(-1200));
     console.log("PROTOCOLIA_EXACT_SOURCE_COMPILE_REJECT_PASS "+name);
