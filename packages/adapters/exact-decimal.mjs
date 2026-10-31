@@ -124,7 +124,9 @@ export function assertDecimalWireSchema(spec,op,entity,ir){
   const ledger=ir?.operations?.find(x=>x.entity===entity.name&&
     x.behavior?.kind==="reconcileExact")?.behavior?.reconcileExact;
   const derived=ledger?.serverOnly===true?
-    [ledger.openingField,ledger.availableField]:[];
+    [ledger.openingField,ledger.availableField,
+      ...(op.behavior?.createDetails?.chargeTotalField?
+        [op.behavior.createDetails.chargeTotalField]:[])]:[];
   for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&!derived.includes(f.name))){
     const property=deref(model?.properties?.[f.name]);
     // A required/optional decimal must be a JSON string (and never a JSON number).
