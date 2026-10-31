@@ -107,7 +107,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
   assert.ok(source.includes(decorator));
   negative("forged adjustment actor",s=>s.replace(
     '    @minLength(12) @maxLength(240) reason: string;',
-    '    @minLength(12) @maxLength(240) reason: string;\\n    actor: string;'),
+    '    @minLength(12) @maxLength(240) reason: string;\n    actor: string;'),
     /protocolia-invalid-exact-adjustment/);
   negative("adjustment authority reuses read",s=>s.replace(
     '@behavior("adjustExact","WorkOrder") @capability("orders.adjust")',
