@@ -131,7 +131,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
   negative("lookup cannot leak extra route parameter",s=>s.replace(
     'adjustments/{adjustmentId}")',
     'adjustments/{adjustmentId}/{actor}")'),
-    /protocolia-invalid-exact-adjustment-lookup|missing-route-param/);
+    /protocolia-invalid-exact-adjustment-lookup|missing-(?:route|uri)-param/);
   negative("missing reviewed adjustment count",s=>s.replace(
     '    @minLength(1) @maxLength(3) expectedAdjustmentCount: string;',
     ''),/protocolia-invalid-exact-adjustment/);
