@@ -1527,7 +1527,7 @@ class RuntimeService{
     }finally{client.release();}
   }
   // Test-only sandbox ingress: authenticates ORIGINAL HTTP bytes, never a settlement.
-  async receiveSandboxProvider(req:any,res:any):Promise<void>{
+  async receiveSandboxProvider(req:any,res:any,linkReceipt=false):Promise<void>{
     try{
       if(!spec.providerInboxEnabled||process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true")
         throw new Problem(404,"Sandbox provider ingress disabled");
@@ -1556,18 +1556,31 @@ class RuntimeService{
         nowSeconds:Math.floor(Date.now()/1000)
       });
       if(!verified)throw new Problem(401,"Invalid provider signature");
-      const result=await this.pool.query(
-        "SELECT protocolia_record_provider_envelope_digest($1,$2,$3) AS outcome",
-        ["sandbox_provider",verified.eventId,verified.payloadSha256]);
+      // A sandbox candidate is a signed, canonical claim; never an external settlement.
+      // Exact bytes and key order rule out duplicate JSON keys and parser ambiguity.
+      let statement="SELECT protocolia_record_provider_envelope_digest($1,$2,$3) AS outcome";
+      let params:unknown[]=["sandbox_provider",verified.eventId,verified.payloadSha256];
+      if(linkReceipt){
+        const raw=req.rawBody.toString("utf8");
+        const match=/^\{"version":"receipt-candidate\.v1","receiptId":"([A-Za-z0-9_-]{1,128})","orderId":"([A-Za-z0-9_-]{1,128})","amount":"((?:0|[1-9][0-9]{0,11})\.[0-9]{2})"\}(?![\s\S])/.exec(raw);
+        if(!match||match[3]==="0.00")throw new Problem(400,"Invalid canonical receipt candidate");
+        statement="SELECT protocolia_record_provider_receipt_candidate($1,$2,$3,$4,$5,$6::numeric) AS outcome";
+        params=[...params,match[1],match[2],match[3]];
+      }
+      const result=await this.pool.query(statement,params);
       const outcome=result.rows[0]?.outcome;
-      if(!["stored","duplicate","conflict"].includes(outcome))
+      if(!["stored","duplicate","conflict","missing","mismatch"].includes(outcome))
         throw new Error("Unexpected provider inbox outcome");
       res.setHeader("Cache-Control","no-store");
-      res.status(outcome==="stored"?202:outcome==="duplicate"?200:409)
+      res.status(outcome==="stored"?202:outcome==="duplicate"?200:
+        outcome==="missing"?404:409)
         .json({outcome});
     }catch(error){
       if((error as {code?:string})?.code==="40001")
         sendProblem(res,new Problem(503,"Provider inbox retry required"));
+      else if((error as {code?:string})?.code==="23514"||
+        (error as {code?:string})?.code==="22003")
+        sendProblem(res,new Problem(400,"Invalid provider receipt candidate"));
       else sendProblem(res,error);
     }
   }
@@ -1656,6 +1669,10 @@ class SandboxProviderController{
   @Post("inbox")
   async receive(@Req() req:any,@Res() res:any):Promise<void>{
     await this.service.receiveSandboxProvider(req,res);
+  }
+  @Post("receipt-candidate")
+  async candidate(@Req() req:any,@Res() res:any):Promise<void>{
+    await this.service.receiveSandboxProvider(req,res,true);
   }
 }
 @Controller()

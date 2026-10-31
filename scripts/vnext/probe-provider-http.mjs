@@ -53,8 +53,8 @@ function signed(event,raw=body,timestamp=String(Math.floor(Date.now()/1000))){
     "X-ProtocolIA-Timestamp":timestamp,"X-ProtocolIA-Event-Id":event,
     "X-ProtocolIA-Signature":"v1="+mac};
 }
-async function send(event,raw=body,headers=signed(event,raw)){
-  const r=await fetch(base+path,{method:"POST",headers,body:raw,
+async function send(event,raw=body,headers=signed(event,raw),endpoint=path){
+  const r=await fetch(base+endpoint,{method:"POST",headers,body:raw,
     signal:AbortSignal.timeout(20000)});
   return {status:r.status,body:await r.text()};
 }
@@ -87,6 +87,68 @@ try{
   assert.equal(noAuth.status,202,"Valid HMAC must work without human Basic auth");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"2");
   assert.equal(sql("SELECT COUNT(*) FROM payment"),"0");
+
+  // S2c-1c3b: synthetic receipt matching over signed sandbox HTTP, never settlement.
+  sql("INSERT INTO customer(customer_code,name,contact_note) VALUES "+
+    "('C-HTTP-LINK','Synthetic Customer','Sandbox proof only');");
+  sql("INSERT INTO vehicle(plate,customer_code,model_name,mileage_km) VALUES "+
+    "('CAR-HTTP-LINK','C-HTTP-LINK','Synthetic vehicle',0);");
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-HTTP-LINK','CAR-HTTP-LINK','Synthetic order',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-HTTP-LINK','OT-HTTP-LINK',1.25,'card','Synthetic account','posted','unverified');");
+  const linkedPath="/api/_protocolia/provider/sandbox/receipt-candidate";
+  const claim=(receipt="PAY-HTTP-LINK",order="OT-HTTP-LINK",amount="1.25")=>
+    Buffer.from(JSON.stringify({version:"receipt-candidate.v1",
+      receiptId:receipt,orderId:order,amount}));
+  const linked=(event,raw=claim(),headers=signed(event,raw))=>
+    send(event,raw,headers,linkedPath);
+  const eventLinked="evt_http_link_12345678";
+  const linkedResponses=await Promise.all(Array.from({length:10},()=>linked(eventLinked)));
+  assert.equal(linkedResponses.filter(x=>x.status===202).length,1,JSON.stringify(linkedResponses));
+  assert.equal(linkedResponses.filter(x=>x.status===200).length,9,JSON.stringify(linkedResponses));
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate"),"1");
+  assert.equal(sql("SELECT receipt_id||'/'||order_id||'/'||amount::text "+
+    "FROM protocolia_provider_receipt_candidate WHERE event_id='evt_http_link_12345678'"),
+    "PAY-HTTP-LINK/OT-HTTP-LINK/1.25");
+  const before=sql("SELECT charge_total::text||'/'||available::text "+
+    "FROM work_order WHERE number='OT-HTTP-LINK'");
+  assert.equal((await linked("evt_http_missing_1234",claim("MISSING-RECEIPT"))).status,404);
+  assert.equal((await linked("evt_http_wrongorder",claim("PAY-HTTP-LINK","WRONG-ORDER"))).status,409);
+  assert.equal((await linked("evt_http_wrongamt_1",claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
+  assert.equal((await linked(eventLinked,claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
+  assert.equal((await linked("evt_http_badver_12",Buffer.from(JSON.stringify({
+    version:"receipt-candidate.v2",receiptId:"PAY-HTTP-LINK",orderId:"OT-HTTP-LINK",amount:"1.25"
+  })))).status,400);
+  assert.equal((await linked("evt_http_badnum_12",Buffer.from(
+    '{"version":"receipt-candidate.v1","receiptId":"PAY-HTTP-LINK","orderId":"OT-HTTP-LINK","amount":1.25}'))).status,400);
+  assert.equal((await linked("evt_http_badzero12",claim("PAY-HTTP-LINK","OT-HTTP-LINK","0.00"))).status,400);
+  assert.equal((await linked("evt_http_badprec12",claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.251"))).status,400);
+  assert.equal((await linked("evt_http_badkeys12",Buffer.from(
+    '{"version":"receipt-candidate.v1","receiptId":"PAY-HTTP-LINK","receiptId":"PAY-HTTP-LINK","orderId":"OT-HTTP-LINK","amount":"1.25"}'))).status,400);
+  assert.equal((await linked("evt_http_extra_123",Buffer.from(
+    '{"version":"receipt-candidate.v1","receiptId":"PAY-HTTP-LINK","orderId":"OT-HTTP-LINK","amount":"1.25","settled":true}'))).status,400);
+  const tampered=claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26");
+  assert.equal((await linked("evt_http_tamper_12",tampered,
+    signed("evt_http_tamper_12",claim()))).status,401);
+  assert.equal((await linked("evt_http_expired12",claim(),
+    signed("evt_http_expired12",claim(),String(Math.floor(Date.now()/1000)-400)))).status,401);
+  const unboundEvent="evt_http_unbound_12";
+  assert.equal((await send(unboundEvent,claim(),signed(unboundEvent,claim()))).status,202);
+  assert.equal((await linked(unboundEvent)).status,409,
+    "Digest-only replay cannot gain receipt authority");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-HTTP-REVERSED','OT-HTTP-LINK',1.25,'card','Synthetic account','reversed','unverified');");
+  assert.equal((await linked("evt_http_reversed12",claim("PAY-HTTP-REVERSED"))).status,409);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate"),"1");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id LIKE 'evt_http_missing%' OR event_id LIKE 'evt_http_wrong%'"),"0");
+  assert.equal(sql("SELECT charge_total::text||'/'||available::text "+
+    "FROM work_order WHERE number='OT-HTTP-LINK'"),before);
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C3B_SIGNED_RECEIPT_HTTP_PASS "+build.target+
+    " 1 accepted/9 duplicate, signed exact receipt match, no settlement");
   console.log("PROTOCOLIA_S2C1C2_PROVIDER_HTTP_PASS "+build.target+
     " 1 accepted/9 duplicate, signed conflict, tamper, stale, no human auth, no settlement");
 }finally{

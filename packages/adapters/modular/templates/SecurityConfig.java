@@ -347,7 +347,8 @@ public class SecurityConfig {
                 "/api/_protocolia/bff/login","/api/_protocolia/bff/session",
                 "/api/_protocolia/bff/logout","/api/_protocolia/bff/callback",
                 "/oauth2/authorization/**").permitAll()
-            .requestMatchers("/api/_protocolia/provider/sandbox/inbox").permitAll()
+            .requestMatchers("/api/_protocolia/provider/sandbox/inbox",
+                "/api/_protocolia/provider/sandbox/receipt-candidate").permitAll()
             .requestMatchers("/api/**").authenticated()
             .anyRequest().denyAll())
         ;

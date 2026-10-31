@@ -81,6 +81,17 @@ public class DomainRuntime {
   @PostMapping("/api/_protocolia/provider/sandbox/inbox")
   public ResponseEntity<Map<String,String>> receiveSandboxProvider(
       HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
+    return processSandboxProvider(request,rawBody,false);
+  }
+
+  @PostMapping("/api/_protocolia/provider/sandbox/receipt-candidate")
+  public ResponseEntity<Map<String,String>> receiveSandboxReceiptCandidate(
+      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
+    return processSandboxProvider(request,rawBody,true);
+  }
+
+  private ResponseEntity<Map<String,String>> processSandboxProvider(
+      HttpServletRequest request,byte[] rawBody,boolean linkReceipt){
     if(!Manifest.PROVIDER_INBOX_ENABLED||!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
     if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
@@ -107,19 +118,35 @@ public class DomainRuntime {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid provider signature");
     String outcome;
     try{
-      outcome=jdbc.queryForObject(
-        "SELECT protocolia_record_provider_envelope_digest(:provider,:event,:digest)",
-        Map.of("provider","sandbox_provider","event",verified.eventId(),
-          "digest",verified.payloadSha256()),String.class);
+      String query="SELECT protocolia_record_provider_envelope_digest(:provider,:event,:digest)";
+      var args=new MapSqlParameterSource().addValue("provider","sandbox_provider")
+        .addValue("event",verified.eventId()).addValue("digest",verified.payloadSha256());
+      if(linkReceipt){
+        // Strict canonical signed ASCII JSON prevents duplicate keys and ambiguous claims.
+        String raw=new String(rawBody,StandardCharsets.UTF_8);
+        var matcher=Pattern.compile(
+          "\\{\\\"version\\\":\\\"receipt-candidate\\.v1\\\",\\\"receiptId\\\":\\\"([A-Za-z0-9_-]{1,128})\\\",\\\"orderId\\\":\\\"([A-Za-z0-9_-]{1,128})\\\",\\\"amount\\\":\\\"((?:0|[1-9][0-9]{0,11})\\.[0-9]{2})\\\"\\}"
+        ).matcher(raw);
+        if(!matcher.matches()||"0.00".equals(matcher.group(3)))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid canonical receipt candidate");
+        query="SELECT protocolia_record_provider_receipt_candidate("+
+          ":provider,:event,:digest,:receipt,:orderId,CAST(:amount AS NUMERIC))";
+        args.addValue("receipt",matcher.group(1)).addValue("orderId",matcher.group(2))
+          .addValue("amount",matcher.group(3));
+      }
+      outcome=jdbc.queryForObject(query,args,String.class);
     }catch(DataAccessException error){
       if(constraintSqlState(error,"40001"))
         throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Retry provider inbox",error);
+      if(constraintSqlState(error,"23514")||constraintSqlState(error,"22003"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid receipt candidate",error);
       throw error;
     }
     HttpStatus status=switch(outcome){
       case "stored" -> HttpStatus.ACCEPTED;
       case "duplicate" -> HttpStatus.OK;
-      case "conflict" -> HttpStatus.CONFLICT;
+      case "conflict","mismatch" -> HttpStatus.CONFLICT;
+      case "missing" -> HttpStatus.NOT_FOUND;
       default -> throw new IllegalStateException("Unexpected provider inbox outcome");
     };
     return ResponseEntity.status(status).header("Cache-Control","no-store")
