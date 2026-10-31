@@ -24,7 +24,7 @@ const secondsPattern=/^[1-9][0-9]{9}$/;
 const signaturePattern=/^v1=[0-9a-f]{64}$/;
 
 /** Rejects malformed/expired/unsigned bytes; never changes money or records events.
- * The caller MUST atomically deduplicate (provider,keyId,eventId) in PostgreSQL
+ * The caller MUST atomically deduplicate (trustedProviderIdentity,eventId) in PostgreSQL
  * before giving any business meaning to an authenticated event.
  */
 export function verifyProviderEnvelope(input:ProviderEnvelope):VerifiedProviderEnvelope|null{
