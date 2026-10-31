@@ -117,6 +117,19 @@ try{
   assert.equal(value(candidate("evt_cand_badord",digestA,"PAY-CAND","WRONG")),"mismatch");
   assert.equal(value(candidate("evt_cand_badamt",digestA,"PAY-CAND","OT-CAND","1.26")),"mismatch");
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"0");
+  // An earlier digest-only inbox claim cannot be retroactively relabeled as
+  // receipt-linked proof, even with the identical digest.
+  assert.equal(value(call("sandbox_provider","evt_unbound_12345678",digestA)),"stored");
+  assert.equal(value(candidate("evt_unbound_12345678",digestA)),"conflict");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-REVERSED','OT-CAND',1.25,'card','Synthetic account','reversed','unverified');");
+  assert.equal(value(candidate("evt_cand_reversed",digestA,"PAY-REVERSED")),"mismatch");
+  for(const [event,amount] of [
+    ["evt_cand_zero","0.00"],["evt_cand_negative","-1.25"],
+    ["evt_cand_overflow","1000000000000.00"]
+  ])assert.notEqual(sql(candidate(event,digestA,"PAY-CAND","OT-CAND",amount),
+    {allowFail:true}).status,0,"Invalid candidate money must be rejected");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"0");
   const candidateEvent="evt_candidate_12345678";
   const results=await concurrent(Array.from({length:10},()=>candidate(candidateEvent,digestA)));
   assert.equal(results.filter(x=>x==="stored").length,1,JSON.stringify(results));
