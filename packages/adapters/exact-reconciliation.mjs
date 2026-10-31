@@ -105,7 +105,9 @@ export function compileExactReconciliations(ir){
       throw Error("Invalid exact itemized source binding "+op.name);
     if(cfg.adjustmentPreview!==undefined&&cfg.adjustmentPreview!==true)
       throw Error("Invalid exact repricing preview "+op.name);
-    if(cfg.adjustmentPreview===true&&(!source||total?.decimal?.max===undefined||
+    if(cfg.adjustmentPreview===true&&(!source||
+      typeof total?.decimal?.max!=="string"||
+      !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(total.decimal.max)||
       cfg.serverOnly!==true||cfg.lifecycle!==true))
       throw Error("Invalid exact repricing preview "+op.name);
     const sourceGood=source?
