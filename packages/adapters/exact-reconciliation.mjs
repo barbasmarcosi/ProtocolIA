@@ -62,7 +62,7 @@ export function compileExactReconciliations(ir){
       throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
       ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
-        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle").map(([,v])=>v)].every(ident)||
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
