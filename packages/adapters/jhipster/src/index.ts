@@ -29,6 +29,8 @@ export interface IrField {
   greaterThanField?: string;
   reference?: {target: string; onDelete: "restrict"};
   initial?: string;
+  /** Immutable, server-only string constant; checked in SQL and both HTTP adapters. */
+  fixedInitial?: boolean;
   computedSum?: string[];
   /** Database-generated exact product of two required source decimals. */
   computedProduct?: [string,string];
