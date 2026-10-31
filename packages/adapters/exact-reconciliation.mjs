@@ -56,11 +56,13 @@ export function compileExactReconciliations(ir){
           [...chargeNames,cfg.openingField,cfg.availableField].includes(x.behavior.field)||
          x.behavior.kind==="patchTogether"||x.behavior.kind==="delete"));
     if(invalidCharge||cfg.serverOnly===true&&!chargeNames.length||
-      cfg.serverOnly!==undefined&&typeof cfg.serverOnly!=="boolean")
+      cfg.serverOnly!==undefined&&typeof cfg.serverOnly!=="boolean"||
+      cfg.lifecycle!==undefined&&typeof cfg.lifecycle!=="boolean"||
+      cfg.lifecycle===true&&(cfg.serverOnly!==true||!chargeNames.length))
       throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
       ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
-        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources").map(([,v])=>v)].every(ident)||
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
@@ -89,6 +91,12 @@ export function compileExactReconciliations(ir){
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
       "(p."+bc+"="+calc+") AS \"balanced\""+
+      (cfg.lifecycle===true?
+        ", CASE WHEN p."+bc+"<>"+calc+" THEN 'inconsistent'"+
+        " WHEN p."+oc+"=0 THEN 'no_charge'"+
+        " WHEN COALESCE(j.posted,0)=0 THEN 'unpaid'"+
+        " WHEN p."+bc+"=0 THEN 'covered'"+
+        " ELSE 'partial' END AS \"coverageState\"":"")+
       " FROM "+pt+" p LEFT JOIN LATERAL (SELECT "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' THEN c."+amountCol+" ELSE 0 END) AS posted, "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
@@ -97,7 +105,8 @@ export function compileExactReconciliations(ir){
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
-      ...(cfg.serverOnly===true?{serverOnly:true}:{})});
+      ...(cfg.serverOnly===true?{serverOnly:true}:{}),
+      ...(cfg.lifecycle===true?{lifecycle:true}:{})});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))
     throw Error("Orphan exact reconciliation metadata");
