@@ -163,7 +163,7 @@ export function generate(ir, openapi, outDir) {
     }
     const key=bound.publicIdentity;
     const placeholders=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(m=>m[1]);
-    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete"].includes(op.behavior.kind);
+    const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","adjustExact","replaceDetails","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
     if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
