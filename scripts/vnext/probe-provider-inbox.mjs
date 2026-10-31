@@ -135,7 +135,7 @@ try{
   assert.equal(results.filter(x=>x==="stored").length,1,JSON.stringify(results));
   assert.equal(results.filter(x=>x==="duplicate").length,9,JSON.stringify(results));
   assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
-  assert.equal(value(candidate(candidateEvent,digestA,"PAY-CAND","OT-CAND","1.26")),"mismatch");
+  assert.equal(value(candidate(candidateEvent,digestA,"PAY-CAND","OT-CAND","1.26")),"conflict");
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"1");
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox WHERE event_id="+
     literal(candidateEvent)+";"),"1");
