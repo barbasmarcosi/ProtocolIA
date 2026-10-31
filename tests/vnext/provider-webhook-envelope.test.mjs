@@ -86,7 +86,7 @@ test("server keyring rotates without fallback, and revokes removed key IDs",()=>
   const revoked=parseSandboxProviderKeys("",`sandbox_2=${two}`);
   assert.equal(verify({keys:revoked}),null,"removed key ID cannot authenticate");
   const newSignature="v2="+createHmac("sha256",Buffer.from(two,"hex"))
-    .update("protocolia-provider-proof-v2\\ninbox\\nsandbox_2\\n"+timestamp+"\\n"+eventId+"\\n")
+    .update("protocolia-provider-proof-v2\ninbox\nsandbox_2\n"+timestamp+"\n"+eventId+"\n")
     .update(rawBody).digest("hex");
   assert.ok(verify({keyId:"sandbox_2",signature:newSignature,keys:rotated}));
   assert.ok(verify({keyId:"sandbox_2",signature:newSignature,keys:revoked}));
