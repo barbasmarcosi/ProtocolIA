@@ -732,7 +732,7 @@ function signedAdjustmentString(units,scale){
 // S2c-1b2: intentionally no generic PATCH, no client-supplied actor or parent
 // balance, no auto-submit after a preview read. Every write is an explicit
 // confirmation, while PostgreSQL still rechecks balance inside its transaction.
-function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied}){
+function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied,onRefresh}){
   const [open,setOpen]=useState(false);
   const [direction,setDirection]=useState("decrease");
   const [amount,setAmount]=useState("");
@@ -741,6 +741,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [needsRefresh,setNeedsRefresh]=useState(false);
   const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
   const scale=amountField?.decimal?.scale;
   const precision=amountField?.decimal?.precision;
@@ -757,10 +758,10 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
     magnitude.toString().length<=precision&&
     reason.trim().length>=12&&reason.trim().length<=240&&
     report?.balanced===true&&report?.adjustmentPreviewEligible===true;
-  function change(updater){updater();setConfirmed(null);setError("");setNotice("");}
+  function change(updater){if(needsRefresh)return;updater();setConfirmed(null);setError("");setNotice("");}
   async function preview(event){
     event.preventDefault();
-    if(busy)return;
+    if(busy||needsRefresh)return;
     if(!wellFormed){setError("Revisá el importe, el motivo y el límite disponible.");return;}
     setBusy(true);setError("");
     try{
@@ -788,7 +789,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
     finally{setBusy(false);}
   }
   async function apply(){
-    if(!confirmed||busy)return;
+    if(!confirmed||busy||needsRefresh)return;
     setBusy(true);setError("");
     try{
       const response=await authenticatedFetch(route(operation,identity),{
