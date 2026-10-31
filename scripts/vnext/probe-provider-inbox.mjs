@@ -97,6 +97,66 @@ try{
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox;"),"3");
   assert.equal(value("SELECT COUNT(*) FROM payment;"),"0",
     "Recording an envelope must not mutate receipts");
+
+  // S2c-1c3a: correlate a synthetic candidate to an existing exact receipt.
+  // No signature validation happens in SQL and NO payment is ever marked settled.
+  sql("INSERT INTO customer(customer_code,name,contact_note) VALUES "+
+    "('C-CAND','Synthetic Customer','Isolated PostgreSQL proof');");
+  sql("INSERT INTO vehicle(plate,customer_code,model_name,mileage_km) VALUES "+
+    "('CAR-CAND','C-CAND','Synthetic Vehicle',0);");
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-CAND','CAR-CAND','Synthetic receipt proof',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-CAND','OT-CAND',1.25,'card','Synthetic account','posted','unverified');");
+  const candidate=(event,digest,receipt="PAY-CAND",order="OT-CAND",amount="1.25")=>
+    "SELECT protocolia_record_provider_receipt_candidate("+
+    ["sandbox_provider",event,digest,receipt,order].map(literal).join(",")+
+    ","+amount+"::numeric);";
+  const before=value("SELECT charge_total::text||'/'||available::text FROM work_order WHERE number='OT-CAND';");
+  assert.equal(value(candidate("evt_cand_missing",digestA,"NOT-THERE")),"missing");
+  assert.equal(value(candidate("evt_cand_badord",digestA,"PAY-CAND","WRONG")),"mismatch");
+  assert.equal(value(candidate("evt_cand_badamt",digestA,"PAY-CAND","OT-CAND","1.26")),"mismatch");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"0");
+  // An earlier digest-only inbox claim cannot be retroactively relabeled as
+  // receipt-linked proof, even with the identical digest.
+  assert.equal(value(call("sandbox_provider","evt_unbound_12345678",digestA)),"stored");
+  assert.equal(value(candidate("evt_unbound_12345678",digestA)),"conflict");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-REVERSED','OT-CAND',1.25,'card','Synthetic account','reversed','unverified');");
+  assert.equal(value(candidate("evt_cand_reversed",digestA,"PAY-REVERSED")),"mismatch");
+  for(const [event,amount] of [
+    ["evt_cand_zero","0.00"],["evt_cand_negative","-1.25"],
+    ["evt_cand_overflow","1000000000000.00"]
+  ])assert.notEqual(sql(candidate(event,digestA,"PAY-CAND","OT-CAND",amount),
+    {allowFail:true}).status,0,"Invalid candidate money must be rejected");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"0");
+  const candidateEvent="evt_candidate_12345678";
+  const results=await concurrent(Array.from({length:10},()=>candidate(candidateEvent,digestA)));
+  assert.equal(results.filter(x=>x==="stored").length,1,JSON.stringify(results));
+  assert.equal(results.filter(x=>x==="duplicate").length,9,JSON.stringify(results));
+  assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
+  assert.equal(value(candidate(candidateEvent,digestA,"PAY-CAND","OT-CAND","1.26")),"mismatch");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"1");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox WHERE event_id="+
+    literal(candidateEvent)+";"),"1");
+  assert.equal(value("SELECT amount::text FROM protocolia_provider_receipt_candidate WHERE event_id="+
+    literal(candidateEvent)+";"),"1.25");
+  assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order WHERE number='OT-CAND';"),before);
+  assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),"unverified");
+  assert.equal(value("BEGIN; "+candidate("evt_cand_rollback",digestA)+
+    " ROLLBACK; SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
+    "WHERE event_id='evt_cand_rollback';").split("\n").at(-1),"0");
+  assert.equal(value(candidate("evt_cand_rollback",digestA)),"stored");
+  assert.notEqual(sql("UPDATE protocolia_provider_receipt_candidate SET amount=2.00 "+
+    "WHERE event_id="+literal(candidateEvent)+";",{allowFail:true}).status,0);
+  assert.notEqual(sql("DELETE FROM protocolia_provider_receipt_candidate "+
+    "WHERE event_id="+literal(candidateEvent)+";",{allowFail:true}).status,0);
+  assert.notEqual(sql(candidate("evt_cand_fraction",digestA,"PAY-CAND","OT-CAND","1.251"),
+    {allowFail:true}).status,0);
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"2");
+  console.log("PROTOCOLIA_S2C1C3A_RECEIPT_CANDIDATE_PASS "+build.target+
+    " exact linked candidate, 1 stored/9 duplicates, no settlement, rollback and immutable");
+
   console.log("PROTOCOLIA_S2C1C1_PROVIDER_INBOX_PASS "+build.target+
     " 1 stored/9 duplicates, cross-provider, digest conflict, rollback, immutable, no settlement");
 }finally{
