@@ -784,8 +784,8 @@ class RuntimeService{
       !adjustmentId.trim())
       throw new Problem(400,"Invalid exact adjustment lookup identity");
     const result=await this.pool.query(
-      "SELECT adjustment_id AS \\"adjustmentId\\",delta::text AS \\"delta\\",reason,"+
-      "'committed'::text AS \\"status\\" FROM "+j.table+
+      "SELECT adjustment_id AS \"adjustmentId\",delta::text AS \"delta\",reason,"+
+      "'committed'::text AS \"status\" FROM "+j.table+
       " WHERE parent_id=$1 AND adjustment_id=$2",[key,adjustmentId]);
     if(result.rowCount!==1)throw new Problem(404,"Committed adjustment not found for order");
     return result.rows[0];
