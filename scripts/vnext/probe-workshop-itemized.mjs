@@ -170,9 +170,14 @@ async function previewMobileSmoke(){
       el=>({right:el.getBoundingClientRect().right,
         viewport:document.documentElement.clientWidth}));
     assert.ok(width.right<=width.viewport+1,"Mobile correction confirmation must not overflow viewport");
-    await page.getByTestId("exact-adjustment-confirm").click();
-    await page.getByTestId("exact-adjustment-composer").getByText("Ajuste aplicado y auditado.")
-      .waitFor({timeout:15000});
+    const [write]=await Promise.all([
+      page.waitForResponse(response=>
+        response.url().includes("/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(write.status(),201,
+      "Generated UI must send one authorized adjustment POST: "+await write.text());
     const changed=await status("/api/work-orders/OT-UI-ADJUST",200);
     assert.equal(cents(changed.chargeTotal),105n);
     assert.equal(cents(changed.available),105n);
