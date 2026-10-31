@@ -102,9 +102,11 @@ public class DomainRuntime {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
     if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox forbidden outside demo");
-    String hex=System.getenv().getOrDefault("PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX","");
-    if(!hex.matches("[0-9a-f]{64}"))
-      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox key unavailable");
+    var keys=ProviderWebhookVerifier.parseSandboxKeys(
+      System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX"),
+      System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_KEYS"));
+    if(keys==null)
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox keys unavailable");
     if(!"application/json".equals(request.getContentType())||
        rawBody==null||rawBody.length<1||rawBody.length>65536)
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid raw provider body");
@@ -119,7 +121,7 @@ public class DomainRuntime {
       mode==1?"receipt-candidate":mode==2?"lifecycle-observation":"inbox",
       request.getHeader(names[0]),request.getHeader(names[1]),
       request.getHeader(names[2]),request.getHeader(names[3]),rawBody,
-      Map.of("sandbox_1",java.util.HexFormat.of().parseHex(hex)),
+      keys,
       java.time.Instant.now().getEpochSecond());
     if(verified==null)
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid provider signature");
