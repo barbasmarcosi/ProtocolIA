@@ -1238,13 +1238,15 @@ export function compileDomain(p: Program): IrDocument | undefined {
     if(kind==="reconcileExact"){
       const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const lifecycle=metadata(p,"reconcileExact",op)?.lifecycle===true;
+      const preview=metadata(p,"reconcileExact",op)?.adjustmentPreview===true;
       const names=["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount","balanced",
-        ...(lifecycle?["coverageState"]:[])];
+        ...(lifecycle?["coverageState"]:[]),
+        ...(preview?["adjustmentPreviewEligible","maxSafeDecrease","maxSafeIncrease"]:[])];
       const variants=op.returnType.kind==="Union"?[...op.returnType.variants.values()].map(v=>v.type):[op.returnType];
       const shape=variants.some(v=>v.kind==="Model"&&v.properties.size===names.length&&
         names.every(n=>{
           const prop=v.properties.get(n),type=prop?.type;
-          return !!prop&&!prop.optional&&(n==="balanced"?
+          return !!prop&&!prop.optional&&(n==="balanced"||n==="adjustmentPreviewEligible"?
             type?.kind==="Scalar"&&type.name==="boolean":typeOfField(prop)?.type==="string");
         }));
       if(http.verb!=="get"||http.parameters.body||keys.length!==1||
