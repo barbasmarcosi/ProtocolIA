@@ -73,7 +73,7 @@ function valueFor(field, identity=false){
   value=value.slice(0,maximum).padEnd(minimum,"x");
   return value;
 }
-const body=Object.fromEntries(fields.filter(f=>f.required&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>[f.name,valueFor(f,f.name===id)]));
+const body=Object.fromEntries(fields.filter(f=>f.required&&!f.serverDerived&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>[f.name,valueFor(f,f.name===id)]));
 const publicKey=body[id];
 assert.equal(typeof publicKey,"string");
 const urlFor=(kind,key)=> {
@@ -192,7 +192,7 @@ async function runMulti(){
     assert.ok(session.capabilities.includes(resource.operations.create.capability),
       "Manager missing write permission on "+e.name);
     const owned=e.fields.some(f=>f.ownerManaged);
-    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.ownerManaged&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
+    const body=Object.fromEntries(e.fields.filter(f=>f.required&&!f.ownerManaged&&!f.serverDerived&&!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&
       !((resource.operations.create.behavior.moveUnits||resource.operations.create.behavior.moveBatch)&&
         f.initial!==undefined))
       .map(f=>[f.name,f.reference?keys.get(f.reference.target):valueFor(f,f.name===identity)]));
