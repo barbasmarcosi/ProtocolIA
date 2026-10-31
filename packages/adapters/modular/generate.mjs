@@ -505,15 +505,23 @@ export function generate(ir, openapi, outDir) {
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
   copy("src/main/resources/db/migration/V2__protocolia_bff_http_session.sql","BffHttpSessionSchema.sql");
-  const resources=entities.map(entity=>({
-    entity,view:entity.view??entity.name,
+  const resources=entities.map(entity=>{
+    const ledger=ops.find(op=>op.entity===entity.name&&
+      op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const internal=new Set(ledger?.serverOnly===true?
+      [ledger.openingField,ledger.availableField]:[]);
+    return {
+    entity:{...entity,fields:entity.fields.map(field=>({
+      ...field,...(internal.has(field.name)?{serverDerived:true}:{})
+    }))},view:entity.view??entity.name,
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     patchFieldsOptions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
-  }));
+  };
+  });
   write("src/main/resources/static/protocolia-ui.json",JSON.stringify({
     ...resources[0], resources
   },null,2)+"\n");
