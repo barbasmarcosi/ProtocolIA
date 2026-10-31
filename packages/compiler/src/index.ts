@@ -1213,6 +1213,16 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       const id=props?.get("adjustmentId"),delta=props?.get("delta"),reason=props?.get("reason");
+      const expectedOpening=props?.get("expectedOpening"),expectedAvailable=props?.get("expectedAvailable");
+      const expectedFields=[expectedOpening,expectedAvailable];
+      const expectedValid=expectedFields.every(x=>{
+        if(!x||x.optional)return false;
+        const value=field(p,x),encoding=getEncode(p,x);
+        return value.type==="decimal"&&value.decimal?.precision===charge?.decimal?.precision&&
+          value.decimal?.scale===charge?.decimal?.scale&&
+          value.decimal?.min==="0.00"&&value.decimal?.max===charge?.decimal?.max&&
+          encoding?.type.name==="string"&&encoding.encoding===undefined;
+      });
       const exact=delta?field(p,delta):undefined;
       const encoding=delta?getEncode(p,delta):undefined;
       const roles=relevant.filter(candidate=>
@@ -1229,7 +1239,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !http.path.endsWith("/{"+entity.publicIdentity+"}/adjustments")||
         [...http.path.matchAll(/\{([^}]+)\}/g)].length!==1||
         ![201,400,401,403,404,409].every(x=>statuses.includes(x))||
-        !props||props.size!==3||
+        !props||props.size!==5||!expectedValid||
         !id||id.optional||typeOfField(id)?.type!=="string"||
         getMinLength(p,id)!==8||getMaxLength(p,id)!==64||
         !reason||reason.optional||typeOfField(reason)?.type!=="string"||
