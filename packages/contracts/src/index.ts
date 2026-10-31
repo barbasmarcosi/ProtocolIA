@@ -158,7 +158,7 @@ function reconcileExact(context: DecoratorContext, target: Operation, openingFie
   availableField: string, childEntity: string, referenceField: string, amountField: string,
   stateField: string, postedState: string, reversedState: string, chargeSource?: string,
   serverOnly?: boolean, lifecycle?: boolean, adjustmentPreview?: boolean,
-  adjustmentJournal?: boolean): void {
+  adjustmentJournal?: boolean, unverifiedProofField?: string): void {
   context.program.stateMap($lib.stateKeys.reconcileExact).set(target,
     {openingField,availableField,childEntity,referenceField,amountField,stateField,postedState,reversedState,
      ...(chargeSource!==undefined?{chargeSource}:{}),
