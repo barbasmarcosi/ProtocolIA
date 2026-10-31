@@ -429,10 +429,23 @@ try{
   assert.equal(cents(plus.openingBalance),30n);
   assert.equal(cents(plus.maxSafeDecrease),30n);
   // S2c-1b1: real, authenticated, independent HTTP adjustment capability.
-  const apply=(number,id,delta,reason="Corrección autorizada de ensayo",extra={})=>
-    request("/api/work-orders/"+number+"/adjustments",{method:"POST",body:{
-      adjustmentId:id,delta,reason,...extra
+  const reviewedFields=record=>({
+    expectedOpening:record.openingBalance,
+    expectedAvailable:record.available,
+    expectedPostingCount:record.postingCount,
+    expectedReversedTotal:record.reversedTotal,
+    expectedAdjustmentCount:record.adjustmentCount
+  });
+  const apply=async(number,id,delta,reason="Corrección autorizada de ensayo",extra={})=>{
+    const snap=await request("/api/work-orders/"+number+"/reconciliation");
+    const reviewed=snap.status===200?reviewedFields(snap.data):{
+      expectedOpening:"0.00",expectedAvailable:"0.00",expectedPostingCount:"0",
+      expectedReversedTotal:"0.00",expectedAdjustmentCount:"0"
+    };
+    return request("/api/work-orders/"+number+"/adjustments",{method:"POST",body:{
+      adjustmentId:id,delta,reason,...reviewed,...extra
     }});
+  };
   await status("/api/work-orders",201,{method:"POST",body:order("OT-HTTP-ADJ",[
     charge("AH-L","2.00"),charge("AH-P","1.00","parts")
   ])});
