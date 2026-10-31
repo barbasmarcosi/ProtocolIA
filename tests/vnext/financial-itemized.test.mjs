@@ -152,7 +152,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     '  @post @behavior("transition","Payment","providerSettlementState")\n'+
     '  @transition("unverified","settled") @audit("providerSettlementState") @capability("payments.write")\n'+
     '  op providerSettle(@path receipt: string): Payment | Conflict | NotFound | Unauthorized | Forbidden;\n'+
-    '  @route("/health")'),/protocolia-invalid-fixed-initial/);
+    '  @route("/health")'),/protocolia-invalid-(?:fixed-initial|transition)/);
   negative("lookup privilege escalation",s=>s.replace(
     '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.adjust")',
     '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.read")'),
