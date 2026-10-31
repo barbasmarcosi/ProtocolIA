@@ -1853,7 +1853,7 @@ export default function App(){
           auth={auth} child={ledgerChild} revision={summaryRevision}
           adjustmentOperation={canAdjustExact?exactAdjustmentOp:null}
           adjustmentField={exactAdjustmentField}
-          onApplied={data=>{setSelected(data);setSummaryRevision(n=>n+1);refresh();}}/>}
+          onApplied={data=>{setSelected(data);setNotice("Ajuste registrado y auditado correctamente.");setSummaryRevision(n=>n+1);refresh();}}/>}
         {canReadDetailSum&&<RelatedSumPanel
           key={"sumDetails:"+active.entity.name+":"+selected[active.entity.publicIdentity]}
           operation={detailSum}
