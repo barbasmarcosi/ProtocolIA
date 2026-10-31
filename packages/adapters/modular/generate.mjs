@@ -15,7 +15,7 @@ import {assertPatchTogether} from "../compound-patch.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
-import {assertExactAdjustment,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
+import {assertExactAdjustment,assertExactAdjustmentLookup,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -299,9 +299,10 @@ export function generate(ir, openapi, outDir) {
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
       const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","replaceDetails","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
-      const reviewedAdjustment=op.behavior.kind==="adjustExact";
+      const reviewedAdjustment=["adjustExact","lookupExactAdjustment"].includes(op.behavior.kind);
       if(reviewedAdjustment){
-        assertExactAdjustment(ir,openapi,op,exactReconciliations);
+        if(op.behavior.kind==="adjustExact")assertExactAdjustment(ir,openapi,op,exactReconciliations);
+        else assertExactAdjustmentLookup(ir,openapi,op,exactReconciliations);
         if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
       }
       if(ownerPatch){
