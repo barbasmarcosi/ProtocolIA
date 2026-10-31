@@ -775,6 +775,21 @@ class RuntimeService{
     }
     return this.row(e,key);
   }
+  private async lookupExactAdjustment(e:Entity,key:string,adjustmentId:unknown):Promise<Record<string,unknown>>{
+    const ledger=spec.operations.find(x=>x.entity===e.name&&x.kind==="reconcileExact")
+      ?.exactReconciliation;
+    const j=ledger?.adjustmentJournal;
+    if(!j||j.parentTable!==e.table||typeof key!=="string"||
+      typeof adjustmentId!=="string"||adjustmentId.length<8||adjustmentId.length>64||
+      !adjustmentId.trim())
+      throw new Problem(400,"Invalid exact adjustment lookup identity");
+    const result=await this.pool.query(
+      "SELECT adjustment_id AS \\"adjustmentId\\",delta::text AS \\"delta\\",reason,"+
+      "'committed'::text AS \\"status\\" FROM "+j.table+
+      " WHERE parent_id=$1 AND adjustment_id=$2",[key,adjustmentId]);
+    if(result.rowCount!==1)throw new Problem(404,"Committed adjustment not found for order");
+    return result.rows[0];
+  }
   private async reconcileExact(op:Operation,key:string):Promise<Record<string,unknown>>{
     if(typeof key!=="string")throw new Problem(400,"Invalid reconciliation identity");
     const plan=op.exactReconciliation;
@@ -1547,6 +1562,8 @@ class RuntimeService{
         case "sumDetails":data=await this.sumDetails(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "adjustExact":data=await this.adjustExact(entity,identity,req.body,session.username);break;
+        case "lookupExactAdjustment":data=await this.lookupExactAdjustment(
+          entity,identity,req.params?.adjustmentId);break;
         case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
