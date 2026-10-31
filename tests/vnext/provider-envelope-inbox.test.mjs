@@ -31,6 +31,13 @@ test("provider envelope replay key excludes rotating signing key and is append-o
   assert.match(ddl,/actual_proof<>\x27unverified\x27/);
   assert.match(ddl,/FOREIGN KEY\(provider_id,event_id\)/);
   assert.match(ddl,/protocolia_provider_receipt_candidate_immutable_guard/);
+  // Historical authenticated replay is classified before mutable receipt status.
+  assert.match(ddl,/SELECT payload_sha256 INTO old_digest[\\s\\S]*FOR UPDATE/);
+  assert.match(ddl,/old_digest IS DISTINCT FROM v_digest/);
+  assert.match(ddl,/IF old_receipt=v_receipt AND old_order=v_order AND old_amount=v_amount[\\s\\S]*RETURN 'duplicate'/);
+  assert.ok(ddl.indexOf("SELECT payload_sha256 INTO old_digest")<
+    ddl.indexOf("SELECT p.order_number,p.amount,p.status,p.provider_settlement_state"));
+
 });
 test("inbox rejects unbound and malformed canonical plans",()=>{
   assert.throws(()=>providerEnvelopeInboxSql(null));
