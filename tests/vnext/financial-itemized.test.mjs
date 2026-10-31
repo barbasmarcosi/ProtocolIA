@@ -32,6 +32,11 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.ok(!ir.operations.some(op=>op.entity==="ChargeLine"&&
     ["patchFields","delete","replaceDetails","reassignReference"].includes(op.behavior.kind)));
   assert.ok(child.fields.find(x=>x.name==="amount")?.decimal);
+  const wrongSource=structuredClone(ir);
+  wrongSource.operations.find(x=>x.name==="reconcileWorkOrder")
+    .behavior.reconcileExact.chargeSource="available";
+  assert.throws(()=>assertCreateDetails(wrongSource,parent,order),
+    /Unsafe bounded relational header\/detail contract/);
 });
 function negative(label,mutate,expected){
   const tmp=mkdtempSync(resolve("examples/vnext/.itemized-negative-"));
@@ -50,7 +55,6 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
   assert.ok(source.includes(decorator));
   negative("wrong child amount",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"description","chargeTotal"')),/protocolia-invalid-create-details/);
   negative("wrong parent total",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"amount","symptom"')),/protocolia-invalid-create-details/);
-  negative("unsafe source mismatch",s=>s.replace('"reversed","chargeTotal", true, true)','"reversed","available", true, true'),/protocolia-invalid-create-details|protocolia-invalid-exact-charge-source/);
   negative("client forged total",s=>s.replace('    // No scalar amount is accepted from the client.','    @encode(string) @exactDecimal(14,2,"0","999999999999.99") chargeTotal: decimal;\n    // No scalar amount is accepted from the client.'),/protocolia-invalid-create-details|protocolia-server-only-request-spoof/);
   negative("no itemization authorization",s=>s.replace(decorator,'@createDetails("ChargeLine","orderNumber","charges")'),/protocolia-invalid-create-details|protocolia-decimal-request-mismatch/);
   negative("extra row source",s=>s.replace('    amount: decimal;\n  }\n  model ChargeLineInput {','    amount: decimal;\n    @minValue(1) extra:int32;\n  }\n  model ChargeLineInput {'),/protocolia-invalid-create-details/);
