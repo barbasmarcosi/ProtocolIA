@@ -12,7 +12,7 @@ import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
-import {assertExactAdjustment,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
+import {assertExactAdjustment,assertExactAdjustmentLookup,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
@@ -137,9 +137,9 @@ export function generate(ir,spec,out){
   const ownerScopes=compileOwnerScopes(ir);
   const fieldReadCapabilities=[...new Set(ir.entities.flatMap(e=>e.fields.map(f=>f.readCapability).filter(Boolean)))];
   for(const op of ir.operations)assertInboxOpenApi(spec,op);
-  const methods={adjustExact:"POST",create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",
+  const methods={lookupExactAdjustment:"GET",adjustExact:"POST",create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",
     atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
-  const ok={adjustExact:201,create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,
+  const ok={lookupExactAdjustment:200,adjustExact:201,create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,
     atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const routeKeys=new Set(),of=(kind,entity)=>ir.operations.filter(o=>
     o.behavior?.kind===kind&&(!entity||o.entity===entity));
@@ -187,9 +187,10 @@ export function generate(ir,spec,out){
       const cap=kind==="health"?"public":
         ["create","patchFields","patchTogether","atomicIncrement","transition","replaceDetails","delete"].includes(kind)?write:read;
       const ownerPatch=kind==="patchFields"&&e.fields.some(field=>field.ownerManaged);
-      const reviewedAdjustment=kind==="adjustExact";
+      const reviewedAdjustment=["adjustExact","lookupExactAdjustment"].includes(kind);
       if(reviewedAdjustment){
-        assertExactAdjustment(ir,spec,op,exactReconciliations);
+        if(kind==="adjustExact")assertExactAdjustment(ir,spec,op,exactReconciliations);
+        else assertExactAdjustmentLookup(ir,spec,op,exactReconciliations);
         if(!writes.includes(op.capability))writes.push(op.capability);
       }
       if(ownerPatch){
@@ -207,7 +208,9 @@ export function generate(ir,spec,out){
       routeKeys.add(op.method+" "+op.path);
       const tokens=[...op.path.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(x=>x[1]);
       const keyed=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","adjustExact","replaceDetails","delete"].includes(kind);
-      if(keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
+      if(kind==="lookupExactAdjustment"?
+          (tokens.length!==2||tokens[0]!==e.publicIdentity||tokens[1]!=="adjustmentId"):
+          keyed?(tokens.length!==1||tokens[0]!==e.publicIdentity):tokens.length>0&&kind!=="ackNotification")
         throw Error("Public identity mismatch "+op.name);
       if(kind==="queryPage"){buildQueryPlan(ir,op);assertQueryOpenApi(spec,op);}
       if(kind==="auditPage"&&(b.audit||b.reserve||b.release||b.field||b.input||

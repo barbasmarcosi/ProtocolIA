@@ -100,6 +100,7 @@ public class DomainRuntime {
       Authentication user) {
     Manifest.Op matched = null;
     String publicKey = null;
+    String adjustmentKey = null;
     for (var op : Manifest.OPS) {
       if (!op.method().equals(request.getMethod())) continue;
       String pattern = op.path().replaceAll("\\{[A-Za-z][A-Za-z0-9_]*\\}", "([^/]+)");
@@ -107,6 +108,8 @@ public class DomainRuntime {
       if (matcher.matches()) {
         matched = op;
         if (matcher.groupCount() > 0) publicKey = URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
+        if (matched.kind().equals("lookupExactAdjustment") && matcher.groupCount() == 2)
+          adjustmentKey = URLDecoder.decode(matcher.group(2), StandardCharsets.UTF_8);
         break;
       }
     }
@@ -171,6 +174,7 @@ public class DomainRuntime {
       case "sumDetails" -> result = sumDetails(matched,publicKey);
       case "reconcileExact" -> result = reconcileExact(matched,publicKey);
       case "adjustExact" -> result = adjustExact(entity,publicKey,body,user);
+      case "lookupExactAdjustment" -> result = lookupExactAdjustment(entity,publicKey,adjustmentKey,user.getName());
       case "listPage" -> result = page(entity, query, matched, user.getName());
       case "queryPage" -> result = queryPage(entity, query, matched);
       case "inboxPage", "ackNotification" -> result = inbox(entity, matched, publicKey, query, body, user, request);
@@ -231,6 +235,7 @@ public class DomainRuntime {
     }
     int status = Set.of("create","adjustExact").contains(matched.kind()) ? 201 : matched.kind().equals("delete") ? 204 : 200;
     var response=ResponseEntity.status(status);
+    if(matched.kind().equals("lookupExactAdjustment"))response.header("Cache-Control","no-store");
     if(result instanceof Map<?,?> v && v.get("documentVersion") instanceof Number number)
       response.header("ETag","\""+number.intValue()+"\"");
     return response.body(result);
@@ -395,6 +400,21 @@ public class DomainRuntime {
       throw ex;
     }
     return row(e,id,actor.getName());
+  }
+  private Map<String,Object> lookupExactAdjustment(Manifest.Entity e,String id,String adjustmentId,String actor){
+    var plan=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x->x.parentEntity().equals(e.name())).findFirst().orElse(null);
+    if(plan==null||id==null||adjustmentId==null||adjustmentId.length()<8||
+      adjustmentId.length()>64||adjustmentId.isBlank())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact adjustment lookup identity");
+    var rows=jdbc.queryForList("SELECT adjustment_id AS \"adjustmentId\","+
+      "delta::text AS \"delta\",reason,'committed'::text AS \"status\" FROM "+
+      "protocolia_exact_adjustment_"+e.table()+
+      " WHERE parent_id=:identity AND adjustment_id=:adjustmentId AND actor=:actor",
+      Map.of("identity",id,"adjustmentId",adjustmentId,"actor",actor));
+    if(rows.size()!=1)throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+      "Committed adjustment not found for order");
+    return rows.get(0);
   }
   private Map<String,Object> reconcileExact(Manifest.Op op,String id){
     if(id==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST);

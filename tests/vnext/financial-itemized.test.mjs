@@ -5,7 +5,7 @@ import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 import {assertCreateDetails} from "../../packages/adapters/create-details.mjs";
 import {compileExactReconciliations,exactAdjustmentJournalSql} from "../../packages/adapters/exact-reconciliation.mjs";
-import {exactAdjustmentWriteSql,assertExactAdjustment} from "../../packages/adapters/exact-adjustment.mjs";
+import {exactAdjustmentWriteSql,assertExactAdjustment,assertExactAdjustmentLookup} from "../../packages/adapters/exact-adjustment.mjs";
 
 const fixture=resolve("examples/vnext/workshop-itemized-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
@@ -44,6 +44,28 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.ok(adjOp);
   assert.equal(adjOp.behavior.kind,"adjustExact");
   assert.equal(adjOp.capability,"orders.adjust");
+  const lookup=ir.operations.find(x=>x.name==="lookupWorkOrderAdjustment");
+  assert.equal(lookup?.behavior.kind,"lookupExactAdjustment");
+  assert.equal(lookup.capability,adjOp.capability);
+  assert.equal(lookup.method,"GET");
+  assert.equal(lookup.path,adjOp.path+"/{adjustmentId}");
+  const api=JSON.parse(readFileSync(join(fixture,
+    "tsp-output/@typespec/openapi3/openapi.json"),"utf8"));
+  assert.equal(assertExactAdjustmentLookup(ir,api,lookup,compileExactReconciliations(ir)).table,
+    "protocolia_exact_adjustment_work_order");
+  const tamperOutcome=(change)=>{
+    const invalid=structuredClone(api);
+    const ref=invalid.paths[lookup.path].get.responses["200"]
+      .content["application/json"].schema.$ref;
+    assert.ok(ref,"Outcome must have a concrete OpenAPI schema reference");
+    const model=ref.split("/").slice(1).reduce((v,key)=>v[key],invalid);
+    change(model);
+    assert.throws(()=>assertExactAdjustmentLookup(ir,invalid,lookup,
+      compileExactReconciliations(ir)),/Invalid immutable adjustment outcome lookup/);
+  };
+  tamperOutcome(model=>{model.properties.actor={type:"string"};model.required.push("actor");});
+  tamperOutcome(model=>{model.properties.delta={type:"number",format:"double"};});
+  tamperOutcome(model=>{model.properties.status={type:"string",enum:["pending","committed"]};});
   const writeSql=exactAdjustmentWriteSql(ir,compileExactReconciliations(ir));
   assert.equal(writeSql.length,1);
   assert.match(writeSql[0],/FOR UPDATE/);
@@ -111,6 +133,18 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("lookup privilege escalation",s=>s.replace(
+    '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.adjust")',
+    '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.read")'),
+    /protocolia-invalid-exact-adjustment-lookup/);
+  negative("lookup cannot be POST",s=>s.replace(
+    '@get @behavior("lookupExactAdjustment","WorkOrder")',
+    '@post @behavior("lookupExactAdjustment","WorkOrder")'),
+    /protocolia-invalid-exact-adjustment-lookup/);
+  negative("lookup cannot leak extra route parameter",s=>s.replace(
+    'adjustments/{adjustmentId}")',
+    'adjustments/{adjustmentId}/{actor}")'),
+    /protocolia-invalid-exact-adjustment-lookup|missing-(?:route|uri)-param/);
   negative("missing reviewed adjustment count",s=>s.replace(
     '    @minLength(1) @maxLength(3) expectedAdjustmentCount: string;',
     ''),/protocolia-invalid-exact-adjustment/);

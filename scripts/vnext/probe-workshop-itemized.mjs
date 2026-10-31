@@ -239,6 +239,44 @@ async function previewMobileSmoke(){
       "Unknown or rejected result must preserve the idempotency key");
     assert.equal(freshWrite.status(),201);
     assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),108n);
+    // Simulate a server-side COMMIT whose HTTP response is lost in transit.
+    // The client must consult the immutable journal rather than POST again.
+    await page.getByTestId("exact-adjustment-toggle").click();
+    const lostForm=page.getByTestId("exact-adjustment-form");
+    await lostForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await lostForm.getByTestId("exact-adjustment-amount").fill("0.03");
+    await lostForm.getByTestId("exact-adjustment-reason").fill(
+      "Confirmación registrada con respuesta HTTP perdida");
+    await lostForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    let lostWriteStatus=null,lostWriteId=null;
+    const lostRoute="**/api/work-orders/OT-UI-ADJUST/adjustments";
+    await page.route(lostRoute,async route=>{
+      if(route.request().method()!=="POST"){await route.continue();return;}
+      lostWriteId=route.request().postDataJSON().adjustmentId;
+      const upstream=await route.fetch();
+      lostWriteStatus=upstream.status();
+      await route.abort("failed");
+    });
+    await page.getByTestId("exact-adjustment-confirm").click();
+    await page.getByTestId("exact-adjustment-refresh-required").waitFor({timeout:15000});
+    await page.unroute(lostRoute);
+    assert.equal(lostWriteStatus,201,"Synthetic response loss must occur AFTER real commit");
+    assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),111n);
+    const journalBeforeRecovery=sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'");
+    const [lookupResponse]=await Promise.all([
+      page.waitForResponse(r=>r.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments/"+lostWriteId)&&
+        r.request().method()==="GET",{timeout:20000}),
+      page.getByTestId("exact-adjustment-check-outcome").click()
+    ]);
+    assert.equal(lookupResponse.status(),200);
+    await page.getByTestId("exact-adjustment-outcome-committed").waitFor({timeout:10000});
+    assert.equal(sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'"),journalBeforeRecovery,
+      "Outcome recovery must never issue another correction");
+    console.log("PROTOCOLIA_S2C1B5_MOBILE_LOST_RESPONSE_PASS "+build.target);
     console.log("PROTOCOLIA_S2C1B3_MOBILE_CAS_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
     console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
@@ -437,6 +475,8 @@ try{
   await status("/api/payments",201,{method:"POST",body:
     pay("J-POSTED-1","OT-ADJ-NEG","1.00")});
   sql(directInsert("OT-ADJ-NEG","J-NEG-0001","-0.50"));
+  assert.equal((await request("/api/work-orders/OT-ADJ-NEG/adjustments/J-NEG-0001")).status,404,
+    "A manager cannot claim another actor's journal row as its lost response");
   const journalDrift=await status("/api/work-orders/OT-ADJ-NEG/reconciliation",200);
   assert.equal(journalDrift.balanced,false);
   assert.equal(journalDrift.coverageState,"inconsistent");
@@ -512,11 +552,30 @@ try{
   assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
   assert.equal(cents(adjusted.data.chargeTotal),320n);
   assert.equal(cents(adjusted.data.available),220n);
+  // S2c-1b5: after an ambiguous HTTP outcome, read the committed journal
+  // without reissuing a financial POST. This is not external PSP settlement.
+  const outcomePath=(number,id)=>"/api/work-orders/"+number+"/adjustments/"+id;
+  const auditBeforeLookup=sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'");
+  const outcomeHttp=await fetch(base+outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),
+    {headers:{Authorization:auth("manager")}});
+  assert.equal(outcomeHttp.headers.get("cache-control"),"no-store");
+  const observed=await status(outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),200);
+  assert.deepEqual(observed,{adjustmentId:"AH-PLUS-01",delta:"0.20",
+    reason:"Corrección autorizada de ensayo",status:"committed"});
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","AH-UNKNOWN-1"))).status,404);
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),{role:"reader"})).status,403);
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","BAD"))).status,400);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'"),
+    auditBeforeLookup,"Read-only recovery must not create audit writes");
   // S2c-1b4: one correction id must never settle a second parent.
   // This is a DB uniqueness guarantee, not merely an HTTP or UI check.
   await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-CROSS",[
     charge("AH-CROSS-L","1.00")
   ])});
+  assert.equal((await request(outcomePath("OT-ADJ-CROSS","AH-PLUS-01"))).status,404,
+    "Journal-wide unique keys must not reveal another order's correction");
   const firstBeforeCross=await balance("OT-HTTP-ADJ");
   const crossBefore=await balance("OT-ADJ-CROSS");
   const duplicateAcrossParents=await apply("OT-ADJ-CROSS","AH-PLUS-01","0.10");
@@ -562,6 +621,14 @@ try{
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
     "WHERE operation_name='adjustWorkOrder' AND resource_id LIKE 'OT-GLOBAL-%'"),"4",
     "Nine rejected cross-parent writes must leave no audit fragments");
+// The winner is discovered from committed PostgreSQL, never inferred from response order.
+  const committedWinner=sql("SELECT parent_id FROM "+jtable+
+    " WHERE adjustment_id='AH-GLOBAL-RACE-01'");
+  assert.ok(raceParents.includes(committedWinner));
+  assert.equal((await status(outcomePath(committedWinner,"AH-GLOBAL-RACE-01"),200)).delta,"0.01");
+  for(const number of raceParents.filter(x=>x!==committedWinner))
+    assert.equal((await request(outcomePath(number,"AH-GLOBAL-RACE-01"))).status,404);
+  console.log("PROTOCOLIA_S2C1B5_OUTCOME_PASS exact committed read, privacy and zero writes "+build.target);
   console.log("PROTOCOLIA_S2C1B4_GLOBAL_KEY_PASS cross-parent replay, race and rollback "+build.target);
   adjusted=await apply("OT-HTTP-ADJ","AH-MINUS-1","-0.10");
   assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));

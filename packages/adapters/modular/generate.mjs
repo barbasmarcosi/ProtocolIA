@@ -15,7 +15,7 @@ import {assertPatchTogether} from "../compound-patch.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
-import {assertExactAdjustment,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
+import {assertExactAdjustment,assertExactAdjustmentLookup,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -131,9 +131,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["adjustExact","create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
-  const methods = {adjustExact:"POST",create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
-  const success = {adjustExact:201,create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
+  const supported = new Set(["lookupExactAdjustment","adjustExact","create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
+  const methods = {lookupExactAdjustment:"GET",adjustExact:"POST",create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
+  const success = {lookupExactAdjustment:200,adjustExact:201,create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
@@ -166,7 +166,9 @@ export function generate(ir, openapi, outDir) {
     const requiresKey=["get","auditPage","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","adjustExact","replaceDetails","delete"].includes(op.behavior.kind);
     if(requiresKey && (placeholders.length!==1 || placeholders[0]!==key))
       throw Error("Public identity path must contain {" + key + "} in " + op.name);
-    if(!requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
+    if(op.behavior.kind==="lookupExactAdjustment"?
+        (placeholders.length!==2||placeholders[0]!==key||placeholders[1]!=="adjustmentId"):
+        !requiresKey && placeholders.length!==0 && op.behavior.kind!=="ackNotification")
       throw Error("Unexpected route placeholders in " + op.name);
     const routeKey=op.method+" "+op.path;
     if(routes.has(routeKey))throw Error("Duplicate HTTP route: "+routeKey);
@@ -299,9 +301,10 @@ export function generate(ir, openapi, outDir) {
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
       const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","replaceDetails","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
-      const reviewedAdjustment=op.behavior.kind==="adjustExact";
+      const reviewedAdjustment=["adjustExact","lookupExactAdjustment"].includes(op.behavior.kind);
       if(reviewedAdjustment){
-        assertExactAdjustment(ir,openapi,op,exactReconciliations);
+        if(op.behavior.kind==="adjustExact")assertExactAdjustment(ir,openapi,op,exactReconciliations);
+        else assertExactAdjustmentLookup(ir,openapi,op,exactReconciliations);
         if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
       }
       if(ownerPatch){
