@@ -694,6 +694,21 @@ class RuntimeService{
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
+  // For contract-backed exact ledgers, parent row serialization MUST precede
+  // a fresh READ COMMITTED journal snapshot. A single UPDATE with a correlated
+  // SUM can see a stale statement snapshot after waiting on another writer.
+  private async requireConsistentExactLedger(client:any,table:string,balanceKey:string,key:string):Promise<void>{
+    const parent=spec.entities.find(e=>e.table===table);
+    const plan=spec.operations.find(op=>op.entity===parent?.name&&
+      op.kind==="reconcileExact")?.exactReconciliation;
+    if(!plan)return; // preexisting standalone exact debit/reverse contracts remain supported.
+    const lock=await client.query("SELECT "+balanceKey+" FROM "+table+
+      " WHERE "+balanceKey+"=$1 FOR UPDATE",[key]);
+    if(!lock.rowCount)throw new Problem(400,"Balance resource not found");
+    const snapshot=await client.query(plan.sqlNest,[key]);
+    if(!snapshot.rowCount||snapshot.rows[0].balanced!==true)
+      throw new Problem(409,"Exact ledger reconciliation conflict");
+  }
   private async reconcileExact(op:Operation,key:string):Promise<Record<string,unknown>>{
     if(typeof key!=="string")throw new Problem(400,"Invalid reconciliation identity");
     const plan=op.exactReconciliation;
@@ -933,6 +948,8 @@ class RuntimeService{
         }
         }
         if(exactDebit){
+          await this.requireConsistentExactLedger(client,exactDebit.balanceTable,
+            exactDebit.balanceKey,balanceId as string);
           const result=await client.query("UPDATE "+exactDebit.balanceTable+" SET "+
             exactDebit.balanceColumn+"="+exactDebit.balanceColumn+"-$1::numeric WHERE "+
             exactDebit.balanceKey+"=$2 AND "+exactDebit.balanceColumn+">=$1::numeric",
@@ -1182,6 +1199,14 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        // Lock the parent and check its current journal *before* the payment
+        // status flip; afterwards the parent balance intentionally lags until
+        // the matching credit, both in this same transaction.
+        const before=await client.query("SELECT "+plan.referenceColumn+
+          " AS reference FROM "+e.table+" WHERE "+e.identityColumn+"=$1",[key]);
+        if(!before.rowCount)throw new Problem(404,"Not found");
+        await this.requireConsistentExactLedger(client,plan.balanceTable,
+          plan.balanceKey,before.rows[0].reference as string);
         const moved=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
           e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+
           plan.referenceColumn+" AS reference, "+plan.amountColumn+"::text AS amount",
