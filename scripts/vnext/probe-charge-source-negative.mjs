@@ -1,45 +1,47 @@
 #!/usr/bin/env node
-// Compiler red tests: invalid source-declared charges MUST fail closed.
-// No production resources, no adapter special cases, no test fixture edits.
+// Fail-closed negative contract matrix; authoritative TypeSpec compiler must reject
+// ambiguous, writable or incorrectly typed charge sources before code generation.
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 import {mkdtempSync,readFileSync,writeFileSync,mkdirSync,rmSync} from "node:fs";
 import {join,resolve} from "node:path";
-const fixtures=resolve("examples/vnext/workshop-payment-guard");
-const source=readFileSync(join(fixtures,"contracts/main.tsp"),"utf8");
-const config=readFileSync(join(fixtures,"tspconfig.yaml"),"utf8");
-const exact='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge", true)';
-assert.ok(source.includes(exact),"Source-bound reconciliation must remain the oracle");
+
+const fixture=resolve("examples/vnext/workshop-payment-guard");
+const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
+const config=readFileSync(join(fixture,"tspconfig.yaml"),"utf8");
+const annotation='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true)';
+assert.ok(source.includes(annotation),"Expected frozen multi-source contract");
+const column='@encode(string) @exactDecimal(14,2,"0","999999999999.99")\n    partsCharge: decimal;\n    // Exact opening';
+assert.ok(source.includes(column),"Expected source field with exact decimal constraints");
+
 const cases=[
-  ["missing",exact.replace('"laborCharge", true)','"noSuchSource", true)')],
-  ["wrong-type",exact.replace('"laborCharge", true)','"symptom", true)')],
-  ["self-alias",exact.replace('"laborCharge", true)','"openingBalance", true)')],
-  ["nullable-source",null],
-  ["spoofed-create-dto",null]
+  ["missing",source.replace(annotation,annotation.replace("laborCharge,partsCharge","noSuchSource,partsCharge"))],
+  ["wrong-type",source.replace(annotation,annotation.replace("laborCharge,partsCharge","symptom,partsCharge"))],
+  ["self-alias",source.replace(annotation,annotation.replace("laborCharge,partsCharge","openingBalance,partsCharge"))],
+  ["nullable-source",source.replace("partsCharge: decimal;\n    // Exact opening","partsCharge?: decimal;\n    // Exact opening")],
+  ["wrong-scale-source",source.replace(column,column.replace('14,2,"0","999999999999.99"','14,3,"0","99999999999.999"'))],
+  ["negative-source",source.replace(column,column.replace('14,2,"0"','14,2,"-1.00"'))],
+  ["duplicate-source",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,laborCharge"))],
+  ["too-many-sources",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,partsCharge,symptom,status,number"))],
+  ["spoofed-create-dto",source.replace("model WorkOrderRequest {",'model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;')]
 ];
-const tmp=mkdtempSync(resolve("examples/vnext/.charge-source-negative-"));
+const temp=mkdtempSync(resolve("examples/vnext/.multi-charge-negative-"));
 try{
-  mkdirSync(join(tmp,"contracts"),{recursive:true});
-  writeFileSync(join(tmp,"tspconfig.yaml"),config);
-  for(const [name,replacement] of cases){
-    const invalid=name==="nullable-source"?
-      source.replace('laborCharge: decimal;\n    // Explicit configured ceiling',
-        'laborCharge?: decimal;\n    // Explicit configured ceiling'):
-      name==="spoofed-create-dto"?
-      source.replace('model WorkOrderRequest {','model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;'):
-      source.replace(exact,replacement);
-    writeFileSync(join(tmp,"contracts/main.tsp"),invalid);
-    const run=spawnSync(resolve("node_modules/.bin/tsp"),["compile",tmp],{
+  mkdirSync(join(temp,"contracts"),{recursive:true});
+  writeFileSync(join(temp,"tspconfig.yaml"),config);
+  for(const [name,invalid] of cases){
+    assert.notEqual(invalid,source,"Fixture mutation must change TypeSpec: "+name);
+    writeFileSync(join(temp,"contracts/main.tsp"),invalid);
+    const test=spawnSync(resolve("node_modules/.bin/tsp"),["compile",temp],{
       encoding:"utf8",timeout:90000,maxBuffer:4*1024*1024
     });
-    assert.equal(run.status,1,"Invalid source must be rejected: "+name+
-      " "+(run.stdout??"").slice(-700));
-    const output=(run.stdout??"")+"\n"+(run.stderr??"");
-    assert.match(output,name==="spoofed-create-dto"?
-      /protocolia-server-only-request-spoof/:/protocolia-invalid-exact-charge-source/,
-      "Wrong reason for source rejection "+name+" "+output.slice(-1200));
-    console.log("PROTOCOLIA_EXACT_SOURCE_COMPILE_REJECT_PASS "+name);
+    const output=(test.stdout??"")+"\n"+(test.stderr??"");
+    assert.equal(test.status,1,"Unsafe source must be rejected: "+name+" "+output.slice(-900));
+    const expected=name==="spoofed-create-dto"?
+      /protocolia-server-only-request-spoof/:/protocolia-invalid-exact-charge-source/;
+    assert.match(output,expected,"Wrong diagnostic for "+name+" "+output.slice(-1100));
+    console.log("PROTOCOLIA_MULTICHARGE_COMPILE_REJECT_PASS "+name);
   }
 }finally{
-  rmSync(tmp,{recursive:true,force:true});
+  rmSync(temp,{recursive:true,force:true});
 }
