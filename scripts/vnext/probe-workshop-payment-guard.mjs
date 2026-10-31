@@ -87,6 +87,52 @@ const orderBody=(number,balance)=>({
 const payment=(receipt,number,amount)=>({
   receipt,orderNumber:number,amount,method:"cash",destinationAccount:"Caja de prueba"
 });
+async function mobileSmoke(){
+  if(process.env.PROTOCOLIA_BROWSER_VERIFY!=="true")return;
+  const {chromium}=await import("playwright");
+  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+  const page=await browser.newPage({viewport:{width:390,height:844}});
+  const errors=[];page.on("pageerror",e=>errors.push(e.message));
+  try{
+    await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+    await page.locator('[data-testid="username"]').fill(env.PROTOCOLIA_MANAGER_USERNAME);
+    await page.locator('[data-testid="password"]').fill(env.PROTOCOLIA_MANAGER_PASSWORD);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    const nav=page.getByRole("navigation",{name:"Secciones de la aplicación"});
+    await nav.waitFor({state:"visible",timeout:20000});
+    await nav.getByRole("button",{name:"Órdenes de trabajo",exact:true}).click();
+    await page.locator('[data-testid="open-create"]').click();
+    const form=page.locator('[data-testid="create-form-WorkOrder"]');
+    await form.waitFor({state:"visible",timeout:10000});
+    assert.equal(await form.locator('[data-testid="create-openingBalance"]').count(),0);
+    assert.equal(await form.locator('[data-testid="create-available"]').count(),0);
+    assert.equal(await form.locator('[data-testid="create-laborCharge"]').count(),1);
+    await form.locator('[data-testid="create-number"]').fill("OT-MOBILE");
+    await form.locator('[data-testid="create-symptom"]').fill("Verificación móvil");
+    await form.locator('[data-testid="create-laborCharge"]').fill("8.25");
+    await form.locator('[data-testid="create-vehiclePlate"]').click();
+    await page.getByRole("option").first().click();
+    const responsePromise=page.waitForResponse(res=>
+      res.url().endsWith("/api/work-orders")&&res.request().method()==="POST",{timeout:25000});
+    await form.getByRole("button",{name:"Crear",exact:true}).click();
+    const response=await responsePromise;
+    assert.equal(response.status(),201,"Generated browser must create order");
+    const sent=JSON.parse(response.request().postData()??"{}");
+    assert.equal(sent.laborCharge,"8.25");
+    assert.ok(!Object.hasOwn(sent,"openingBalance"));
+    assert.ok(!Object.hasOwn(sent,"available"));
+    await page.locator('[data-testid="open-detail-OT-MOBILE"]').waitFor({timeout:20000});
+    const fetched=await status("/api/work-orders/OT-MOBILE",200);
+    assert.equal(cents(fetched.openingBalance),825n);
+    assert.equal(cents(fetched.available),825n);
+    assert.deepEqual(errors,[]);
+    const screenshot=await page.screenshot({fullPage:true});
+    console.log("PROTOCOLIA_SERVER_ONLY_MOBILE_PASS "+JSON.stringify({
+      target:build.target,viewport:"390x844",browserErrors:0,
+      requestKeys:Object.keys(sent).sort(),screenshotSha256:createHash("sha256").update(screenshot).digest("hex")
+    }));
+  }finally{await browser.close();}
+}
 async function balance(number){
   const record=await status("/api/work-orders/"+number,200);
   const snapshot=await status("/api/work-orders/"+number+"/reconciliation",200);
@@ -108,6 +154,7 @@ try{
   await status("/api/vehicles",201,{method:"POST",body:{
     plate:"AA123BB",customerCode:"C-001",modelName:"Modelo ficticio",mileageKm:0
   }});
+  await mobileSmoke();
   await status("/api/work-orders",400,{method:"POST",body:{
     ...orderBody("OT-FORGED","10.00"),openingBalance:"20.00",available:"20.00"
   }});
