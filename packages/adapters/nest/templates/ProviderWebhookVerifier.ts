@@ -18,10 +18,10 @@ export type VerifiedProviderEnvelope=Readonly<{
 }>;
 
 const prefix="protocolia-provider-proof-v1\n";
-const keyIdPattern=/^[A-Za-z0-9_-]{1,32}$/;
-const eventPattern=/^[A-Za-z0-9_-]{8,128}$/;
-const secondsPattern=/^[1-9][0-9]{9}$/;
-const signaturePattern=/^v1=[0-9a-f]{64}$/;
+const keyIdPattern=/^[A-Za-z0-9_-]{1,32}(?![\\s\\S])/;
+const eventPattern=/^[A-Za-z0-9_-]{8,128}(?![\\s\\S])/;
+const secondsPattern=/^[1-9][0-9]{9}(?![\\s\\S])/;
+const signaturePattern=/^v1=[0-9a-f]{64}(?![\\s\\S])/;
 
 /** Rejects malformed/expired/unsigned bytes; never changes money or records events.
  * The caller MUST atomically deduplicate (trustedProviderIdentity,eventId) in PostgreSQL
