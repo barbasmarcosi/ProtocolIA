@@ -24,6 +24,7 @@ assert.deepEqual(post?.behavior.debitExact,{
 });
 assert.deepEqual(reversed?.behavior.reverseExact,post.behavior.debitExact);
 assert.ok(recon?.behavior.reconcileExact);
+assert.deepEqual(recon.behavior.reconcileExact.chargeSources,["laborCharge","partsCharge"]);
 assert.ok(!ir.operations.some(x=>x.entity==="Payment"&&x.behavior.kind==="delete"),
   "Deleting receipts must not bypass the journal");
 const scratch=mkdtempSync(join(tmpdir(),"pia-financial-guard-"));
@@ -80,9 +81,9 @@ async function request(path,{method="GET",role="manager",body}={}){
 async function status(path,expected,opts){const res=await request(path,opts);
   assert.equal(res.status,expected,path+" "+JSON.stringify(res.data));
   return res.data;}
-const orderBody=(number,balance)=>({
+const orderBody=(number,labor,parts="0.00")=>({
   number,vehiclePlate:"AA123BB",symptom:"Trabajo de prueba",
-  laborCharge:balance,status:"opened",openedAt:null
+  laborCharge:labor,partsCharge:parts,status:"opened",openedAt:null
 });
 const payment=(receipt,number,amount)=>({
   receipt,orderNumber:number,amount,method:"cash",destinationAccount:"Caja de prueba"
@@ -107,9 +108,11 @@ async function mobileSmoke(){
     assert.equal(await form.locator('[data-testid="create-openingBalance"]').count(),0);
     assert.equal(await form.locator('[data-testid="create-available"]').count(),0);
     assert.equal(await form.locator('[data-testid="create-laborCharge"]').count(),1);
+    assert.equal(await form.locator('[data-testid="create-partsCharge"]').count(),1);
     await form.locator('[data-testid="create-number"]').fill("OT-MOBILE");
     await form.locator('[data-testid="create-symptom"]').fill("Verificación móvil");
     await form.locator('[data-testid="create-laborCharge"]').fill("8.25");
+    await form.locator('[data-testid="create-partsCharge"]').fill("1.75");
     await form.locator('[data-testid="create-vehiclePlate"]').click();
     await page.getByRole("option").first().click();
     const responsePromise=page.waitForResponse(res=>
@@ -119,12 +122,13 @@ async function mobileSmoke(){
     assert.equal(response.status(),201,"Generated browser must create order");
     const sent=JSON.parse(response.request().postData()??"{}");
     assert.equal(sent.laborCharge,"8.25");
+    assert.equal(sent.partsCharge,"1.75");
     assert.ok(!Object.hasOwn(sent,"openingBalance"));
     assert.ok(!Object.hasOwn(sent,"available"));
     await page.locator('[data-testid="open-detail-OT-MOBILE"]').waitFor({timeout:20000});
     const fetched=await status("/api/work-orders/OT-MOBILE",200);
-    assert.equal(cents(fetched.openingBalance),825n);
-    assert.equal(cents(fetched.available),825n);
+    assert.equal(cents(fetched.openingBalance),1000n);
+    assert.equal(cents(fetched.available),1000n);
     assert.deepEqual(errors,[]);
     const screenshot=await page.screenshot({fullPage:true});
     console.log("PROTOCOLIA_SERVER_ONLY_MOBILE_PASS "+JSON.stringify({
@@ -155,6 +159,35 @@ try{
     plate:"AA123BB",customerCode:"C-001",modelName:"Modelo ficticio",mileageKm:0
   }});
   await mobileSmoke();
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-MULTI","10.00","5.00")});
+  const combined=await balance("OT-MULTI");
+  assert.equal(cents(combined.record.openingBalance),1500n);
+  assert.equal(cents(combined.record.available),1500n);
+  assert.equal(cents(combined.record.laborCharge),1000n);
+  assert.equal(cents(combined.record.partsCharge),500n);
+  console.log("PROTOCOLIA_MULTICHARGE_PASS MS-01");
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-FLOAT","0.10","0.20")});
+  assert.equal(cents((await balance("OT-FLOAT")).record.openingBalance),30n);
+  console.log("PROTOCOLIA_MULTICHARGE_PASS MS-02");
+  await status("/api/work-orders",400,{method:"POST",body:
+    orderBody("OT-OVERFLOW","999999999999.99","0.01")});
+  await status("/api/work-orders/OT-OVERFLOW",404);
+  await status("/api/work-orders",201,{method:"POST",body:
+    orderBody("OT-BOUNDARY","999999999999.98","0.01")});
+  assert.equal(cents((await balance("OT-BOUNDARY")).record.openingBalance),99999999999999n);
+  console.log("PROTOCOLIA_MULTICHARGE_PASS MS-03");
+  for(const [number,override] of [
+    ["OT-NEGATIVE",{partsCharge:"-0.01"}],
+    ["OT-BAD-WIRE",{partsCharge:0.2}],
+    ["OT-MISSING",{partsCharge:undefined}],
+    ["OT-NULL",{partsCharge:null}]
+  ]){
+    const body={...orderBody(number,"1.00"),...override};
+    if(override.partsCharge===undefined)delete body.partsCharge;
+    await status("/api/work-orders",400,{method:"POST",body});
+    await status("/api/work-orders/"+number,404);
+  }
+  console.log("PROTOCOLIA_MULTICHARGE_PASS MS-04");
   await status("/api/work-orders",400,{method:"POST",body:{
     ...orderBody("OT-FORGED","10.00"),openingBalance:"20.00",available:"20.00"
   }});
@@ -174,6 +207,7 @@ try{
   }});
   await status("/api/work-orders/OT-NUMERIC",404);
   console.log("PROTOCOLIA_SERVER_ONLY_BALANCE_PASS SO-02/SO-03");
+  console.log("PROTOCOLIA_MULTICHARGE_PASS MS-05");
   await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-10","10.00")});
   const initial=await balance("OT-10");
   assert.equal(cents(initial.record.openingBalance),1000n);
