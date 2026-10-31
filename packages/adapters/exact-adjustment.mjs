@@ -76,7 +76,8 @@ export function exactAdjustmentWriteSql(ir,plans){
     ddl.push("CREATE FUNCTION "+func+
       "(v_parent VARCHAR,v_id VARCHAR,v_delta NUMERIC,v_reason VARCHAR,v_actor VARCHAR,v_expected_open NUMERIC,v_expected_available NUMERIC,v_expected_posting BIGINT,v_expected_reversed NUMERIC,v_expected_adjustments BIGINT) "+
       "RETURNS VOID LANGUAGE plpgsql AS $pia_adjust$ DECLARE "+
-      "v_balanced BOOLEAN;v_eligible BOOLEAN;v_charge NUMERIC;"+
+      "v_balanced BOOLEAN;v_eligible BOOLEAN;v_review_open NUMERIC;v_review_available NUMERIC;"+
+      "v_review_posting BIGINT;v_review_reversed NUMERIC;v_review_adjustments BIGINT;v_charge NUMERIC;"+
       "v_opening NUMERIC;v_available NUMERIC;v_new_charge NUMERIC;"+
       "v_new_opening NUMERIC;v_new_available NUMERIC; BEGIN "+
       "PERFORM 1 FROM "+table+" WHERE "+pk+"=v_parent FOR UPDATE; "+
