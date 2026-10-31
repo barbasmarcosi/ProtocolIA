@@ -34,6 +34,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   const payment=ir.entities.find(x=>x.name==="Payment");
   const providerState=payment?.fields.find(x=>x.name==="providerSettlementState");
   assert.equal(providerState?.initial,"unverified");
+  assert.equal(providerState?.fixedInitial,true);
   assert.equal(providerState?.type,"string");
   assert.equal(providerState?.minLength,10);
   assert.equal(providerState?.maxLength,10);
@@ -143,6 +144,15 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("fixed provider proof cannot be ordinary state",s=>s.replace(
+    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-orphan-initial/);
+  negative("provider proof cannot be a client lifecycle",s=>s.replace(
+    '  @route("/health")',
+    '  @route("/api/payments/{receipt}/provider-settle")\n'+
+    '  @post @behavior("transition","Payment","providerSettlementState")\n'+
+    '  @transition("unverified","settled") @audit("providerSettlementState") @capability("payments.write")\n'+
+    '  op providerSettle(@path receipt: string): Payment | Conflict | NotFound | Unauthorized | Forbidden;\n'+
+    '  @route("/health")'),/protocolia-invalid-fixed-initial/);
   negative("lookup privilege escalation",s=>s.replace(
     '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.adjust")',
     '@behavior("lookupExactAdjustment","WorkOrder") @capability("orders.read")'),
