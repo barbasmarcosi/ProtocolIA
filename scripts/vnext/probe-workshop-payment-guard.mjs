@@ -25,6 +25,7 @@ assert.deepEqual(post?.behavior.debitExact,{
 assert.deepEqual(reversed?.behavior.reverseExact,post.behavior.debitExact);
 assert.ok(recon?.behavior.reconcileExact);
 assert.deepEqual(recon.behavior.reconcileExact.chargeSources,["laborCharge","partsCharge"]);
+assert.equal(recon.behavior.reconcileExact.lifecycle,true);
 assert.ok(!ir.operations.some(x=>x.entity==="Payment"&&x.behavior.kind==="delete"),
   "Deleting receipts must not bypass the journal");
 const scratch=mkdtempSync(join(tmpdir(),"pia-financial-guard-"));
@@ -143,6 +144,7 @@ async function balance(number){
   assert.equal(snapshot.balanced,true,"Reconciliation must balance");
   assert.equal(cents(snapshot.available),cents(record.available));
   assert.equal(cents(snapshot.difference),0n);
+  assert.ok(["no_charge","unpaid","partial","covered"].includes(snapshot.coverageState));
   return {record,snapshot};
 }
 try{
@@ -159,6 +161,11 @@ try{
     plate:"AA123BB",customerCode:"C-001",modelName:"Modelo ficticio",mileageKm:0
   }});
   await mobileSmoke();
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-NO-CHARGE","0.00","0.00")});
+  const noCharge=await balance("OT-NO-CHARGE");
+  assert.equal(noCharge.snapshot.coverageState,"no_charge");
+  assert.equal(cents(noCharge.snapshot.postedTotal),0n);
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-05");
   await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-MULTI","10.00","5.00")});
   const combined=await balance("OT-MULTI");
   assert.equal(cents(combined.record.openingBalance),1500n);
@@ -213,6 +220,8 @@ try{
   assert.equal(cents(initial.record.openingBalance),1000n);
   assert.equal(cents(initial.record.available),1000n);
   assert.equal(cents(initial.record.laborCharge),1000n);
+  assert.equal(initial.snapshot.coverageState,"unpaid");
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-01");
   console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-03");
   console.log("PROTOCOLIA_SERVER_ONLY_BALANCE_PASS SO-01");
   assert.equal(cents(initial.snapshot.postedTotal),0n);
@@ -222,6 +231,8 @@ try{
   const after=await balance("OT-10");
   assert.equal(cents(after.record.available),690n);
   assert.equal(cents(after.snapshot.postedTotal),310n);
+  assert.equal(after.snapshot.coverageState,"partial");
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-02");
   assert.equal((await status("/api/payments/PAY-1",200)).status,"posted");
   pass("PG-02");
 
@@ -248,7 +259,10 @@ try{
   assert.equal(requests.filter(r=>r.status===201).length,3);
   assert.equal(requests.filter(r=>r.status===409).length,7);
   assert.equal(cents((await balance("OT-CONCURRENT")).record.available),0n);
-  assert.equal(cents((await balance("OT-CONCURRENT")).snapshot.postedTotal),300n);
+  const concurrentSnapshot=await balance("OT-CONCURRENT");
+  assert.equal(cents(concurrentSnapshot.snapshot.postedTotal),300n);
+  assert.equal(concurrentSnapshot.snapshot.coverageState,"covered");
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-03");
   for(let i=0;i<10;i++)assert.equal((await request("/api/payments/CONCURRENT-"+i)).status,
     requests[i].status===201?200:404);
   pass("PG-06");
@@ -270,6 +284,7 @@ try{
   assert.equal(cents(restored.record.available),1000n);
   assert.equal(cents(restored.snapshot.reversedTotal),310n);
   assert.equal(cents(restored.snapshot.postedTotal),0n);
+  assert.equal(restored.snapshot.coverageState,"unpaid");
   pass("PG-09");
 
   await status("/api/payments/PAY-1/reverse",409,{method:"POST"});
@@ -278,7 +293,37 @@ try{
   assert.equal(cents((await balance("OT-10")).record.available),0n);
   await status("/api/payments",409,{method:"POST",body:payment("PAY-EXCESS","OT-10","0.01")});
   assert.equal(cents((await balance("OT-10")).record.available),0n);
+  assert.equal((await balance("OT-10")).snapshot.coverageState,"covered");
   pass("PG-10");
+
+  // A fully-covered order loses coverage as the posted journal is reversed,
+  // with no persisted payment-state column to drift out of sync.
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-LIFECYCLE","10.00")});
+  await status("/api/payments",201,{method:"POST",body:payment("LIFECYCLE-1","OT-LIFECYCLE","3.00")});
+  await status("/api/payments",201,{method:"POST",body:payment("LIFECYCLE-2","OT-LIFECYCLE","7.00")});
+  assert.equal((await balance("OT-LIFECYCLE")).snapshot.coverageState,"covered");
+  await status("/api/payments/LIFECYCLE-2/reverse",200,{method:"POST"});
+  assert.equal((await balance("OT-LIFECYCLE")).snapshot.coverageState,"partial");
+  await status("/api/payments/LIFECYCLE-1/reverse",200,{method:"POST"});
+  assert.equal((await balance("OT-LIFECYCLE")).snapshot.coverageState,"unpaid");
+  await status("/api/payments/LIFECYCLE-1/reverse",409,{method:"POST"});
+  assert.equal((await balance("OT-LIFECYCLE")).snapshot.coverageState,"unpaid");
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-04");
+
+  // Deliberate privileged SQL corruption solely against this throwaway Compose
+  // instance: prove the read model never labels an unbalanced journal as covered.
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-DRIFT","10.00")});
+  docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","protocolia","-d","protocolia",
+    "-c","UPDATE work_order SET available=9.00 WHERE number='OT-DRIFT'");
+  const drift=await status("/api/work-orders/OT-DRIFT/reconciliation",200);
+  assert.equal(drift.balanced,false);
+  assert.equal(drift.coverageState,"inconsistent");
+  assert.equal(cents(drift.openingBalance),1000n);
+  assert.equal(cents(drift.available),900n);
+  docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","protocolia","-d","protocolia",
+    "-c","UPDATE work_order SET available=10.00 WHERE number='OT-DRIFT'");
+  assert.equal((await balance("OT-DRIFT")).snapshot.coverageState,"unpaid");
+  console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-09");
 
   assert.equal(typeof build.irSha256,"string");
   assert.equal(ir.operations.some(x=>x.behavior.kind==="reconcileExact"),true);
