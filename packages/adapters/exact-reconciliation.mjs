@@ -160,6 +160,7 @@ export function compileExactReconciliations(ir){
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
       balanced+" AS \"balanced\""+previewSql+
+      (journalTable?", COALESCE(a.adjustment_count,0)::text AS \"adjustmentCount\"":"")+
       (cfg.lifecycle===true?
         ", CASE WHEN NOT "+balanced+" THEN 'inconsistent'"+
         " WHEN p."+oc+"=0 THEN 'no_charge'"+
