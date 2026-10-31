@@ -21,6 +21,7 @@ const cases=[
   ["nullable-source",source.replace("partsCharge: decimal;\n    // Exact opening","partsCharge?: decimal;\n    // Exact opening")],
   ["wrong-scale-source",source.replace(column,column.replace('14,2,"0","999999999999.99"','14,3,"0","99999999999.999"'))],
   ["negative-source",source.replace(column,column.replace('14,2,"0"','14,2,"-1.00"'))],
+  ["computed-source",source.replace(column,column.replace('    partsCharge: decimal;', '    @computedRoundedProduct("laborCharge","laborCharge","half_up") partsCharge: decimal;'))],
   ["duplicate-source",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,laborCharge"))],
   ["too-many-sources",source.replace(annotation,annotation.replace("laborCharge,partsCharge","laborCharge,partsCharge,symptom,status,number"))],
   ["spoofed-create-dto",source.replace("model WorkOrderRequest {",'model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;')]
