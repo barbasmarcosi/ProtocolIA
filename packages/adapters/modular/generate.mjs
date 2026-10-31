@@ -352,10 +352,10 @@ export function generate(ir, openapi, outDir) {
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
     "  public record QuerySpec(String projection,String source,String order,List<QueryFilter> filters) {}",
     "  public record RelatedSum(String sql,String childReadCapability) {}",
-    "  public record ExactReconciliation(String parentEntity,String sql,String childReadCapability,String openingField,String availableField,String chargeSource) {}",
+    "  public record ExactReconciliation(String parentEntity,String sql,String childReadCapability,String openingField,String availableField,String chargeSource,boolean serverOnly) {}",
     "  public static final java.util.Map<String,ExactReconciliation> EXACT_RECONCILIATIONS=java.util.Map.ofEntries(",
     [...exactReconciliations.entries()].map(([key,v])=>"    java.util.Map.entry("+j(key)+",new ExactReconciliation("+
-      [j(v.parentEntity),j(v.sqlSpring),j(v.childReadCapability),j(v.openingField),j(v.availableField),v.chargeSource?j(v.chargeSource):"null"].join(",")+"))").join(",\\n"),
+      [j(v.parentEntity),j(v.sqlSpring),j(v.childReadCapability),j(v.openingField),j(v.availableField),v.chargeSource?j(v.chargeSource):"null",v.serverOnly===true?"true":"false"].join(",")+"))").join(",\\n"),
     "  );",
     "  public static final java.util.Map<String,RelatedSum> RELATED_SUMS=java.util.Map.ofEntries(",
     [...relatedSums.entries()].map(([name,plan])=>"    java.util.Map.entry("+j(name)+",new RelatedSum("+j(plan.sqlSpring)+","+j(plan.childReadCapability)+"))").join(",\\n"),
