@@ -147,6 +147,19 @@ try{
     "FROM work_order WHERE number='OT-HTTP-LINK'"),before);
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  // A lost HTTP response may be retried after the original receipt is
+  // reversed; it must report the original event without creating new proof.
+  sql("UPDATE payment SET status='reversed' WHERE receipt='PAY-HTTP-LINK';");
+  assert.equal((await linked(eventLinked)).status,200,
+    "Identical signed event must remain a duplicate after reversal");
+  assert.equal((await linked("evt_http_after_reverse_12")).status,409,
+    "A new signed event cannot attach to an already reversed receipt");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate"),"1");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id='evt_http_after_reverse_12'"),"0");
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C3C_SIGNED_REVERSAL_REPLAY_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3B_SIGNED_RECEIPT_HTTP_PASS "+build.target+
     " 1 accepted/9 duplicate, signed exact receipt match, no settlement");
   console.log("PROTOCOLIA_S2C1C2_PROVIDER_HTTP_PASS "+build.target+
