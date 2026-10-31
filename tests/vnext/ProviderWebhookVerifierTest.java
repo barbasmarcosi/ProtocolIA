@@ -87,7 +87,7 @@ public final class ProviderWebhookVerifierTest {
       {"",""},{"BAD",""},{one,"sandbox_2="+two},
       {"","sandbox_1="+one+",sandbox_1="+two},
       {"","sandbox_1="+one+",sandbox_2="+one},
-      {"","sandbox_1="+one+","},{"","sandbox_1="+one.toUpperCase()},
+      {"","sandbox_1="+one+","},{"","sandbox_1="+"aa".repeat(32).toUpperCase()},
       {"","sandbox_1="+one+",sandbox_2="+two+",a="+one+",b="+two}
     })check(ProviderWebhookVerifier.parseSandboxKeys(invalid[0],invalid[1])==null,
       "malformed/ambiguous keyring rejected");
