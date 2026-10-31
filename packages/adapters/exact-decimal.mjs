@@ -119,7 +119,11 @@ export function assertDecimalWireSchema(spec,op,entity){
   const http=spec.paths?.[op.path]?.[op.method.toLowerCase()];
   const body=deref(http?.requestBody);
   const model=deref(body?.content?.["application/json"]?.schema);
-  for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal)){
+  // A reconciliation may opt into server-only exact balances: these are
+  // persisted, validated, and returned, but intentionally absent from CREATE.
+  const derived=op.behavior?.kind==="create"?
+    spec?.["x-protocolia-server-only-fields"]?.[entity.name]??[]:[];
+  for(const f of entity.fields.filter(f=>f.type==="decimal"&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal&&!derived.includes(f.name))){
     const property=deref(model?.properties?.[f.name]);
     // A required/optional decimal must be a JSON string (and never a JSON number).
     const leaf=property?.anyOf?.find(x=>deref(x)?.type==="string")??property?.oneOf?.find(x=>deref(x)?.type==="string")??property;
