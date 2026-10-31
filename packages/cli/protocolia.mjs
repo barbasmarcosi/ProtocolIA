@@ -107,7 +107,95 @@ function main(){
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
 }
 try {
-  if(["plan","evolve"].includes(process.argv[2])){
+  if(process.argv[2]==="evolve:verified"){
+    if(process.argv.length!==9||process.argv[5]!=="--checkpoint"||
+       process.argv[7]!=="--report")
+      throw Error("Usage: protocolia evolve:verified <TypeSpec-project> <generated-dir> --checkpoint <archive.dump> --report <passed-report.json>");
+    const {evolve}=await import("./regeneration.mjs");
+    await evolve("evolve",process.argv[3],process.argv[4],{
+      requireApproval:true,archivePath:process.argv[6],reportPath:process.argv[8]
+    });
+  }else if(process.argv[2]==="db:preflight"){
+    const {preflightMigration}=await import("./database-preflight.mjs");
+    await preflightMigration(process.argv.slice(3));
+  }else if(process.argv[2]==="db:stage"){
+    const {stageRuntime}=await import("./runtime-stage.mjs");
+    await stageRuntime(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:candidate"){
+    const {createCandidate}=await import("./deployment-candidate.mjs");
+    createCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:candidate:verify"){
+    const {candidateOptions,verifyCandidate}=await import("./deployment-candidate.mjs");
+    const options=candidateOptions(process.argv.slice(3),{verify:true});
+    const candidate=verifyCandidate(options);
+    console.log("PROTOCOLIA_V11_DEPLOYMENT_CANDIDATE_VERIFIED "+JSON.stringify({
+      imageRef:candidate.imageRef,imageMode:candidate.imageMode,
+      stagedImageId:candidate.stagedImageId
+    }));
+  }else if(process.argv[2]==="deploy:precheck"){
+    const {precheckCandidate}=await import("./deployment-candidate.mjs");
+    precheckCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:permit:verify"){
+    const {verifyExternalApproval}=await import("./disposable-approval.mjs");
+    verifyExternalApproval(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:migrator:overlay"){
+    const {writeOneShotOverlay}=await import("./disposable-one-shot-migrator.mjs");
+    writeOneShotOverlay(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:runtime:prepare"){
+    const {provisionDisposableRuntime}=await import("./disposable-runtime-principal.mjs");
+    provisionDisposableRuntime(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:roles:prepare"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"prepare"});
+  }else if(process.argv[2]==="deploy:roles:blocked"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"blocked"});
+  }else if(process.argv[2]==="deploy:roles:activate"){
+    const {disposableRolePolicy}=await import("./disposable-role-policy.mjs");
+    await disposableRolePolicy(process.argv.slice(3),{mode:"activate"});
+  }else if(process.argv[2]==="deploy:db-gate:engage"){
+    const {databaseGate}=await import("./disposable-db-gate.mjs");
+    databaseGate(process.argv.slice(3),{mode:"engage"});
+  }else if(process.argv[2]==="deploy:db-gate:release"){
+    const {databaseGate}=await import("./disposable-db-gate.mjs");
+    databaseGate(process.argv.slice(3),{mode:"release"});
+  }else if(process.argv[2]==="deploy:fence:verify"){
+    const {verifyDisposableFence}=await import("./disposable-fence.mjs");
+    verifyDisposableFence(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:recovery:drill"){
+    const {rehearseRecovery}=await import("./cutover-recovery.mjs");
+    await rehearseRecovery(process.argv.slice(3));
+  }else if(process.argv[2]==="deploy:recovery:verify"){
+    const {recoveryOptions,verifyRecoveryRecord}=await import("./cutover-recovery.mjs");
+    const verified=verifyRecoveryRecord(recoveryOptions(process.argv.slice(3),{verify:true}));
+    console.log("PROTOCOLIA_V11_RECOVERY_RECEIPT_VERIFIED "+JSON.stringify({
+      oldImageId:verified.oldImageId,stagedImageId:verified.stagedImageId,
+      originalCheckpointSha256:verified.originalCheckpointSha256
+    }));
+  }else if(process.argv[2]==="deploy:postcheck"){
+    const {postcheckCandidate}=await import("./deployment-candidate.mjs");
+    await postcheckCandidate(process.argv.slice(3));
+  }else if(process.argv[2]==="db:source:verify"){
+    const {verifySourceFreshness}=await import("./source-freshness.mjs");
+    verifySourceFreshness(process.argv.slice(3));
+  }else if(process.argv[2]==="db:stage:verify"){
+    if(process.argv.length!==10)
+      throw Error("Usage: protocolia db:stage:verify <generated-dir> --checkpoint <archive.dump> --report <preflight.json> --out <receipt.json>");
+    const {verifyStageReceipt,stageOptions}=await import("./runtime-stage.mjs");
+    const receipt=verifyStageReceipt(stageOptions(process.argv.slice(3),{verify:true}));
+    console.log("PROTOCOLIA_V11_RUNTIME_STAGE_RECEIPT_VERIFIED "+JSON.stringify({
+      target:receipt.target,evolvedIrSha256:receipt.evolvedIrSha256,
+      checkpointSha256:receipt.checkpointSha256,
+      stagedImageId:receipt.stagedImageId
+    }));
+  }else if(process.argv[2]==="db:checkpoint"){
+    const {createCheckpoint}=await import("./database-checkpoint.mjs");
+    createCheckpoint(process.argv.slice(3));
+  }else if(process.argv[2]==="db:verify"){
+    if(process.argv.length!==4)throw Error("Usage: protocolia db:verify <archive.dump>");
+    const {verifyCheckpoint}=await import("./database-checkpoint.mjs");
+    verifyCheckpoint(process.argv[3]);
+  }else if(["plan","evolve"].includes(process.argv[2])){
     if(process.argv.length!==5)throw Error("Usage: protocolia "+process.argv[2]+" <TypeSpec-project> <generated-directory>");
     const {evolve}=await import("./regeneration.mjs");
     await evolve(process.argv[2],process.argv[3],process.argv[4]);

@@ -156,6 +156,7 @@ function equalSecrets(a:string,b:string):boolean{
 @Injectable()
 class RuntimeService{
   private readonly pool:Pool;
+  private readonly migrationPool:Pool|null;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
   private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean;requireIdToken?:boolean};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
@@ -168,6 +169,18 @@ class RuntimeService{
     if(!connection.password)connection.password=process.env.PROTOCOLIA_JDBC_PASSWORD??"";
     if(!connection.username)throw Error("PostgreSQL username must be explicit");
     this.pool=new Pool({connectionString:connection.toString(),max:20});
+    const migrationUser=process.env.PROTOCOLIA_MIGRATION_JDBC_USER??"";
+    const migrationPassword=process.env.PROTOCOLIA_MIGRATION_JDBC_PASSWORD??"";
+    if(Boolean(migrationUser)!==Boolean(migrationPassword))
+      throw Error("Both explicit migration DB user and password must be configured together");
+    if(migrationUser){
+      if(migrationUser===connection.username)
+        throw Error("Explicit migration DB principal must differ from runtime principal");
+      const migration=new URL(source);
+      migration.username=migrationUser;
+      migration.password=migrationPassword;
+      this.migrationPool=new Pool({connectionString:migration.toString(),max:2});
+    }else this.migrationPool=null;
     const mode=process.env.PROTOCOLIA_AUTH_MODE??"demo";
     if(!["demo","jwt"].includes(mode))throw Error("Unsupported ProtocolIA authentication mode");
     if(mode==="jwt"){
@@ -276,7 +289,7 @@ class RuntimeService{
   }
   async init():Promise<void>{
     await this.verifyOidcDiscovery();
-    const connection=await this.pool.connect();
+    const connection=await (this.migrationPool??this.pool).connect();
     try{
       await connection.query("BEGIN");
       await connection.query("SELECT pg_advisory_xact_lock(7219, 3006)");
@@ -317,9 +330,80 @@ class RuntimeService{
           console.log("PROTOCOLIA_NEST_MIGRATION_APPLIED "+migration.version);
         }
       }
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="before-commit")
+        throw Error("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_BEFORE_COMMIT");
       await connection.query("COMMIT");
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="after-commit")
+        throw Error("PROTOCOLIA_TEST_MIGRATION_INTERRUPTED_AFTER_COMMIT");
+      // Disposable CI SIGKILL barrier after the schema transaction is durable.
+      // Timeout must fail without issuing a runtime handoff if no kill arrives.
+      if(process.env.PROTOCOLIA_MIGRATION_FAILPOINT==="pause-after-commit"){
+        console.log("PROTOCOLIA_TEST_MIGRATION_PAUSED_AFTER_COMMIT");
+        await new Promise<void>(ok=>setTimeout(ok,120000));
+        throw Error("PROTOCOLIA_TEST_MIGRATION_PAUSE_NOT_INTERRUPTED");
+      }
+      const handoff=(process.env.PROTOCOLIA_MIGRATION_HANDOFF_ID??"");
+      if(handoff){
+        if(!/^[0-9a-f]{64}$/.test(handoff))
+          throw Error("Invalid one-shot handoff digest");
+        const runtimeUser=process.env.PROTOCOLIA_HANDOFF_RUNTIME_USER??"";
+        if(!/^[a-z][a-z0-9_]{1,62}$/.test(runtimeUser))
+          throw Error("Invalid SQL runtime handoff principal");
+        await connection.query("CREATE TABLE IF NOT EXISTS public.protocolia_migration_handoff_v1 "+
+          "(image_digest varchar(64) PRIMARY KEY, completed_at timestamptz NOT NULL DEFAULT NOW())");
+        await connection.query("INSERT INTO public.protocolia_migration_handoff_v1 (image_digest) "+
+          "VALUES ($1) ON CONFLICT (image_digest) DO NOTHING",[handoff]);
+        await connection.query("GRANT SELECT ON public.protocolia_migration_handoff_v1 TO "+runtimeUser);
+        console.log("PROTOCOLIA_NEST_MIGRATION_HANDOFF_PUBLISHED");
+      }
     }catch(e){await connection.query("ROLLBACK");throw e;}
-    finally{connection.release();}
+    finally{
+      connection.release();
+      if(this.migrationPool)await this.migrationPool.end();
+    }
+    if(this.migrationPool){
+      const runtime=await this.pool.connect();
+      try{
+        const who=await runtime.query("SELECT current_user AS principal");
+        if(who.rows[0]?.principal===process.env.PROTOCOLIA_MIGRATION_JDBC_USER)
+          throw Error("Runtime DB principal must never equal migration principal");
+        console.log("PROTOCOLIA_NEST_SPLIT_DB_PRINCIPALS_OK");
+      }finally{runtime.release();}
+    }
+  }
+  async verifyRuntimeReady():Promise<void>{
+    if(this.migrationPool||
+       (process.env.PROTOCOLIA_MIGRATION_JDBC_USER??"")!==""||
+       (process.env.PROTOCOLIA_MIGRATION_JDBC_PASSWORD??"")!=="")
+      throw Error("HTTP runtime must never receive privileged migration credentials");
+    const db=await this.pool.connect();
+    try{
+      const who=await db.query("SELECT rolsuper FROM pg_roles WHERE rolname=current_user");
+      if(who.rows.length!==1||who.rows[0].rolsuper!==false)
+        throw Error("HTTP runtime SQL principal must not be a superuser");
+      const handoff=process.env.PROTOCOLIA_MIGRATION_HANDOFF_ID??"";
+      if(!/^[0-9a-f]{64}$/.test(handoff))
+        throw Error("Runtime missing exact staged image migration handoff");
+      const release=await db.query(
+        "SELECT image_digest FROM public.protocolia_migration_handoff_v1 WHERE image_digest=$1",
+        [handoff]);
+      if(release.rows.length!==1)
+        throw Error("Runtime refused incomplete or different migration handoff");
+      for(const entity of spec.entities){
+        const result=await db.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+          [entity.table]);
+        const columns=new Set(result.rows.map((row:{column_name:string})=>row.column_name));
+        for(const field of entity.fields)
+          if(!columns.has(field.column))
+            throw Error("Runtime schema is not migrated for "+entity.table+"."+field.column);
+      }
+      console.log("PROTOCOLIA_NEST_RUNTIME_SCHEMA_READY");
+    }finally{db.release();}
+  }
+  async closePools():Promise<void>{
+    if(this.migrationPool)await this.migrationPool.end();
+    await this.pool.end();
   }
   private browserAuthConfig(mode:string):typeof this.browserAuth{
     if(mode!=="jwt")return {mode:"demo",enabled:false};
@@ -1383,11 +1467,25 @@ function operationController(op:Operation):any{
 })
 class ContractModule{}
 async function bootstrap(){
+  const execution=process.env.PROTOCOLIA_EXECUTION_MODE??"legacy";
+  if(!["legacy","migrate","runtime"].includes(execution))
+    throw Error("Unsupported ProtocolIA execution mode");
+  if(execution==="migrate"){
+    if(!["","before-commit","after-commit","pause-after-commit"].includes(process.env.PROTOCOLIA_MIGRATION_FAILPOINT??""))
+      throw Error("Invalid migration failpoint");
+    const runner=new RuntimeService();
+    try{
+      await runner.init();
+      console.log("PROTOCOLIA_NEST_ONE_SHOT_MIGRATION_PASS");
+    }finally{await runner.closePools();}
+    return;
+  }
   const app=await NestFactory.create<NestExpressApplication>(ContractModule,{logger:["error","warn"]});
   installBffSecurityHeaders(app);
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
-  await engine.init();
+  if(execution==="runtime")await engine.verifyRuntimeReady();
+  else await engine.init();
   await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
   if(spec.hasOverdueRules && process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"){

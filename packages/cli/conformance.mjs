@@ -116,23 +116,68 @@ async function runMulti(){
   const sessionRes=await fetch(baseUrl+"/api/_protocolia/me",{headers:{Authorization:writer}});
   assert.equal(sessionRes.status,200);
   const session=await sessionRes.json();
-  async function run(resource,kind,who,{key,body,query}={}){
+  // Derive the versioned document relationship from canonical generated metadata.
+  // No special entity/table/field names; never infer concurrency from URL shapes.
+  const creators=resources.filter(r=>r.operations.create?.behavior?.createDetails?.versioned);
+  const versionedChild=resource=>creators.find(parent=>
+    parent.operations.create.behavior.createDetails.childEntity===resource.entity.name);
+  const versionedTransition=(resource,op)=>{
+    const details=resource.operations.create?.behavior?.createDetails;
+    return details?.versioned && details.closeField&&details.closeState&&
+      op.behavior.kind==="transition"&&op.behavior.field===details.closeField&&
+      op.behavior.to===details.closeState;
+  };
+  async function run(resource,kind,who,{key,body,query,ifMatch}={}){
     const op=typeof kind==="string"?resource.operations[kind]:kind;
     assert.ok(op,resource.entity.name+" missing operation "+kind);
     const route=op.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(key));
     const suffix=query?"?"+new URLSearchParams(query).toString():"";
+    // Resolve the ETag only for authorized mutation attempts. Negative 403
+    // tests must reach the backend without accidentally acquiring authority.
+    let versionTag=ifMatch;
+    if(versionTag===undefined&&who===writer){
+      const childParent=versionedChild(resource);
+      const parent=childParent??(
+        versionedTransition(resource,op)||op.behavior.kind==="replaceDetails"&&
+        resource.operations.create?.behavior?.createDetails?.versioned?resource:null);
+      if(parent && (childParent?
+        ["create","patchFields","delete"].includes(op.behavior.kind):
+        ["transition","replaceDetails"].includes(op.behavior.kind))){
+        const details=parent.operations.create.behavior.createDetails;
+        let parentKey=childParent?body?.[details.parentField]:key;
+        if(childParent&&op.behavior.kind!=="create"){
+          const child=await run(resource,"get",writer,{key});
+          parentKey=child.status===200?child.data[details.parentField]:undefined;
+        }
+        if(typeof parentKey==="string"){
+          const header=await run(parent,"get",writer,{key:parentKey});
+          if(header.status===200){
+            assert.ok(Number.isInteger(header.data.documentVersion)&&
+              header.data.documentVersion>=1,"Document read lacks persisted version");
+            assert.equal(header.etag,'"'+header.data.documentVersion+'"',
+              "Generated parent ETag must match the documentVersion field");
+            versionTag=header.etag;
+          }
+        }
+        // Preserve 404/400 negative tests for missing child/parent identities.
+        // An absent child must not be mistaken for an invalid If-Match header.
+        versionTag??='"1"';
+      }
+    }
     const response=await fetch(baseUrl+route+suffix,{
       method:op.method,headers:{
         ...(who?{Authorization:who}:{}),
-        ...(body===undefined?{}:{"Content-Type":"application/json"})
+        ...(body===undefined?{}:{"Content-Type":"application/json"}),
+        ...(versionTag===undefined?{}:{"If-Match":versionTag})
       },...(body===undefined?{}:{body:JSON.stringify(body)})
     });
     const raw=await response.text();
     let result;
     try{result=JSON.parse(raw);}catch{result=raw;}
-    return {status:response.status,data:result};
+    return {status:response.status,data:result,etag:response.headers.get("etag")};
   }
   const createBodies=new Map();
+  const deferredClosures=[];
   for(const resource of resources){
     const e=resource.entity,identity=e.publicIdentity;
     for(const kind of ["create","get","listPage"])
@@ -349,6 +394,13 @@ async function runMulti(){
     }
     let executed=0;
     for(const op of resource.transitions??[]){
+      // Terminal closure must execute after all dependent resource fixtures have
+      // been created and edited. Closing midway would correctly forbid later
+      // child creation and produce a false-negative generic conformance result.
+      if(versionedTransition(resource,op)){
+        deferredClosures.push({resource,op,key});
+        continue;
+      }
       const field=e.fields.find(f=>f.name===op.behavior.field);
       assert.ok(field?.initial, "Transition requires an initial-state field");
       const current=await run(resource,"get",reader,{key});
@@ -377,11 +429,49 @@ async function runMulti(){
       }
       executed++;
     }
-    if((resource.transitions??[]).length)assert.ok(executed>0,"No declared transition was executable");
+    if((resource.transitions??[]).some(op=>!versionedTransition(resource,op)))
+      assert.ok(executed>0,"No declared transition was executable");
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
         [f.name]:"UNMATCHED-"+uuid};
       assert.equal((await run(resource,"create",writer,{body:bad})).status,400);
+    }
+  }
+  // A terminal state is evaluated only once all resource fixtures have been
+  // created. The same 10-writer CAS contention still proves one transition
+  // can succeed and that the other nine are rejected by document version/state.
+  for(const {resource,op,key} of deferredClosures){
+    const field=resource.entity.fields.find(f=>f.name===op.behavior.field);
+    assert.ok(field?.initial,"Terminal transition requires initial state");
+    const before=await run(resource,"get",reader,{key});
+    assert.equal(before.status,200);
+    assert.equal(before.data[field.name],op.behavior.from);
+    const version=before.data.documentVersion;
+    assert.ok(Number.isSafeInteger(version)&&version>=1);
+    assert.equal((await run(resource,op,reader,{key})).status,403);
+    assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
+    const results=await Promise.all(Array.from({length:10},()=>
+      run(resource,op,writer,{key})));
+    assert.equal(results.filter(x=>x.status===200).length,1,
+      "Exactly one terminal close may consume the current version");
+    assert.equal(results.filter(x=>x.status===409).length,9);
+    const after=await run(resource,"get",reader,{key});
+    assert.equal(after.status,200);
+    assert.equal(after.data[field.name],op.behavior.to);
+    assert.equal(after.data.documentVersion,version+1);
+    assert.equal(after.etag,'"'+after.data.documentVersion+'"');
+    const closedChild=resources.find(x=>versionedChild(x)===resource);
+    if(closedChild){
+      const parentField=resource.operations.create.behavior.createDetails.parentField;
+      const sample=createBodies.get(closedChild.entity.name);
+      if(sample?.[parentField]===key){
+        const attempt=await run(closedChild,"create",writer,{
+          body:{...sample,[closedChild.entity.publicIdentity]:
+            ("CLOSED-"+uuid).slice(0,closedChild.entity.fields.find(f=>
+              f.name===closedChild.entity.publicIdentity).maxLength??64)}
+        });
+        assert.equal(attempt.status,409,"Closed parent must reject child writes");
+      }
     }
   }
   // RESTRICT is not cosmetic: parents referenced by persisted children must refuse delete.
@@ -395,8 +485,20 @@ async function runMulti(){
     if(!resource.operations.delete)continue;
     const key=keys.get(resource.entity.name);
     assert.equal((await run(resource,"delete",reader,{key})).status,403);
-    assert.equal((await run(resource,"delete",writer,{key})).status,204);
-    assert.equal((await run(resource,"get",reader,{key})).status,404);
+    const versionedParent=versionedChild(resource);
+    const plan=versionedParent?.operations.create?.behavior?.createDetails;
+    const parentKey=createBodies.get(resource.entity.name)?.[plan?.parentField];
+    const closed=plan?.closeField&&plan?.closeState&&typeof parentKey==="string"&&
+      (await run(versionedParent,"get",writer,{key:parentKey})).data?.[plan.closeField]===
+        plan.closeState;
+    if(closed){
+      assert.equal((await run(resource,"delete",writer,{key})).status,409,
+        "A closed versioned parent must reject child cleanup mutation");
+      assert.equal((await run(resource,"get",reader,{key})).status,200);
+    }else{
+      assert.equal((await run(resource,"delete",writer,{key})).status,204);
+      assert.equal((await run(resource,"get",reader,{key})).status,404);
+    }
   }
   console.log((resources.some(r=>r.operations.create?.behavior?.reserve)?
     (resources.some(r=>(r.transitions??[]).some(t=>t.behavior.release))?

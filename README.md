@@ -60,6 +60,24 @@ historical adapter/spike, **not** the complete v1 runtime.
 - [Release scope, evidence and deferred risks](docs/releases/v1.0.0.md)
 
 
+## Unreleased v1.1 — verified development upgrades
+
+The `v1.0.0` release above is **immutable**; the following work exists only
+in [Draft PR #55](https://github.com/barbasmarcosi/ProtocolIA/pull/55).
+
+The current development branch adds a generated React bulk editor, a
+version-aware generic `app:test`, explicit PostgreSQL checkpoint/restore
+rehearsals, and a guarded **`app:evolve:verified`** command. The guarded
+command requires a successful `app:db:preflight` report plus its original
+verified checkpoint and binds the exact old contract, proposed IR and SQL
+before replacing generated artifacts. The legacy `app:evolve` is retained
+for development and is **not** protected by that gate.
+
+For supported additive TypeSpec changes, follow the four explicit steps in
+[the verified evolution runbook](docs/vnext/evidence/V11_VERIFIED_EVOLUTION_GATE_20261021.md). This is a local integrity barrier,
+not signed production authorization or a universal rollback mechanism.
+
+
 ## Start a Java/Spring project from a contract
 
 With Python 3.11+ and a checked-out copy of ProtocolIA:

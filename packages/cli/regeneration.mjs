@@ -435,7 +435,7 @@ function migrations(folder,target){
 function ownedArea(folder,target){
   const trees=target==="nestjs"?[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
-    ["src",new Set(["main.ts","manifest.json","schema.sql","migrations"])]
+    ["src",new Set(["main.ts","BffSession.ts","BffKeyring.ts","manifest.json","schema.sql","migrations"])]
   ]:[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
     ["src",new Set(["main"])],
@@ -464,7 +464,7 @@ function copyConsumer(oldDir,newDir){
     cpSync(from,to,{recursive:true,errorOnExist:true,force:false});
   }
 }
-export async function evolve(action,projectPath,outputPath){
+export async function evolve(action,projectPath,outputPath,options={}){
   if(!["plan","evolve"].includes(action)||!projectPath||!outputPath)
     throw Error("Usage: protocolia <plan|evolve> <TypeSpec-project> <generated-directory>");
   const project=resolve(projectPath),out=resolve(outputPath);
@@ -481,8 +481,35 @@ export async function evolve(action,projectPath,outputPath){
   diff.blockers.push(...validateOpenApiEvolution(oldOpenApi,nextOpenApi,oldIr,newIr,diff));
   diff.compatible=diff.blockers.length===0;
   console.log("PROTOCOLIA_EVOLUTION_PLAN "+JSON.stringify(diff));
-  if(action==="plan")return diff;
+  if(action==="plan"){
+    if(diff.compatible){
+      const migration=additiveSql(diff,newIr);
+      console.log("PROTOCOLIA_EVOLUTION_SQL_PREVIEW "+JSON.stringify({
+        sha256:createHash("sha256").update(migration).digest("hex"),
+        statements:migration.split("\n").filter(Boolean).length,
+        sql:migration,
+        warning:"SQL preview only; app:plan does not change the database. "+
+          "Take and rehearse a verified DB checkpoint before app:evolve or deployment."
+      }));
+    }
+    return diff;
+  }
   if(!diff.compatible)throw Error("Breaking evolution forbidden: "+diff.blockers.join("; "));
+  if(options.requireApproval){
+    const {verifyEvolutionApproval}=await import("./evolution-approval.mjs");
+    const existingBuild=readJson(join(out,"protocolia-build.json"));
+    verifyEvolutionApproval({
+      reportPath:options.reportPath,archivePath:options.archivePath,
+      build:existingBuild,newIr,sql:additiveSql(diff,newIr),
+      changeCount:diff.changes.length
+    });
+  }else if(diff.changes.length){
+    console.log("PROTOCOLIA_EVOLUTION_UNVERIFIED_DEV_MODE "+
+      "Use app:evolve:verified with a matching checkpoint/report for guarded upgrades.");
+  }
+  console.log("PROTOCOLIA_EVOLUTION_BACKUP_REMINDER "+
+    "Before app:evolve and next app startup: create a verified DB checkpoint, "+
+    "rehearse restoration into a separate database and arrange a maintenance window.");
   if(!diff.changes.length){
     console.log("PROTOCOLIA_EVOLUTION_NO_CHANGES");
     return diff;
@@ -496,6 +523,14 @@ export async function evolve(action,projectPath,outputPath){
       "--target",oldState.target,"--out",stage
     ],{cwd:repoRoot});
     const fresh=migrations(stage,oldState.target);
+    if(options.requireApproval){
+      const regenerated=contractFrom(stage);
+      if(!same(regenerated,newIr))
+        throw Error("Verified evolution refused: TypeSpec changed between plan and staged build");
+      const stagedOpenApi=readJson(join(stage,"protocolia-contract-openapi.json"));
+      if(!same(stagedOpenApi,nextOpenApi))
+        throw Error("Verified evolution refused: OpenAPI changed between plan and staged build");
+    }
     if(oldState.target==="nestjs"){
       // Nest executes this immutable initial schema only for an empty database.
       // Never install the new model as V1 when upgrading an existing database.

@@ -213,6 +213,11 @@ try{
     "A bounded document may not be left without its last detail");
   assert.equal((await req("GET","/api/orders/SINGLE")).body.documentVersion,1);
   assert.equal((await req("GET","/api/order-lines/SINGLE-1")).status,200);
+  const bulkCreated=await req("POST","/api/orders",{
+    code:"UI-BULK",title:"Edición por lotes",lines:Array.from({length:9},(_,i)=>
+      line("UI-BULK-OLD-"+(i+1),1))
+  });
+  assert.equal(bulkCreated.status,201,JSON.stringify(bulkCreated));
   // B17.4: prove generated React UI on mobile, including a stale writer and
   // deliberate recovery. All mutations originate in generated controls.
   const uiCreated=await req("POST","/api/orders",{
@@ -281,6 +286,98 @@ try{
     await panel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
     assert.equal((await req("GET","/api/order-lines/UI-BASE-2")).status,404);
     assert.equal((await req("GET","/api/orders/UI-VERSION/total")).body.totalUnits,"7");
+    // B17.5c/v1.1: the generic React UI must load ALL 9 children, not just
+    // the seven visible on one page, and make exactly one atomic replacement.
+    await page.getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-UI-BULK").click();
+    const bulkPanel=page.getByTestId("detail-lines-panel");
+    await bulkPanel.getByTestId("detail-document-version").getByText("1",{exact:true}).waitFor();
+    await bulkPanel.getByTestId("detail-lines-count").getByText("9 renglones en total").waitFor();
+    await bulkPanel.getByTestId("bulk-open").click();
+    const bulkForm=bulkPanel.getByTestId("bulk-edit-form");
+    await bulkForm.getByTestId("bulk-row-8").waitFor();
+    assert.equal(await bulkForm.locator('[data-testid^="bulk-row-"]').count(),9,
+      "Whole-collection editor must load all 9 rows, beyond paginated UI limit 7");
+    await bulkForm.getByTestId("bulk-row-0").getByTestId("create-product")
+      .fill("Actualizado en lote");
+    await bulkForm.getByTestId("bulk-row-0").getByTestId("create-units").fill("3");
+    await bulkForm.getByTestId("bulk-remove-8").click();
+    await bulkForm.getByTestId("bulk-add").click();
+    await bulkForm.getByTestId("bulk-row-8").getByTestId("create-lineCode")
+      .fill("UI-BULK-NEW");
+    await bulkForm.getByTestId("bulk-row-8").getByTestId("create-product")
+      .fill("Agregado por lote");
+    await bulkForm.getByTestId("bulk-row-8").getByTestId("create-units").fill("2");
+    assert.equal((await req("GET","/api/order-lines/UI-BULK-OLD-9")).status,200,
+      "Reviewing the draft must not modify SQL");
+    await bulkForm.getByTestId("bulk-review").click();
+    await bulkForm.getByTestId("bulk-confirm-panel").waitFor();
+    const batchResponse=page.waitForResponse(r=>r.request().method()==="PUT"&&
+      r.url().endsWith("/api/orders/UI-BULK/lines"));
+    await bulkForm.getByTestId("bulk-confirm").click();
+    const replaced=await batchResponse;
+    assert.equal(replaced.status(),200);
+    assert.equal(replaced.request().headers()["if-match"],'"1"');
+    const sent=JSON.parse(replaced.request().postData());
+    assert.equal(sent.lines.length,9);
+    assert.equal(sent.lines[0].product,"Actualizado en lote");
+    assert.equal(sent.lines[8].lineCode,"UI-BULK-NEW");
+    assert.equal((await req("GET","/api/order-lines/UI-BULK-OLD-9")).status,404);
+    assert.equal((await req("GET","/api/order-lines/UI-BULK-NEW")).status,200);
+    assert.equal((await req("GET","/api/orders/UI-BULK/total")).body.totalUnits,"12");
+    await bulkPanel.getByTestId("detail-document-version").getByText("2",{exact:true}).waitFor();
+    // Do not silently rebase a collection draft after an external writer wins.
+    await bulkPanel.getByTestId("bulk-open").click();
+    const staleBulkForm=bulkPanel.getByTestId("bulk-edit-form");
+    await staleBulkForm.getByTestId("bulk-row-0").getByTestId("create-product")
+      .fill("Mi borrador con versión vieja");
+    const externalBulk=await req("POST","/api/order-lines",{
+      ...line("UI-BULK-EXTERNAL",1),orderCode:"UI-BULK"
+    },{"If-Match":'"2"'});
+    assert.equal(externalBulk.status,201);
+    await staleBulkForm.getByTestId("bulk-review").click();
+    const rejected=page.waitForResponse(r=>r.request().method()==="PUT"&&
+      r.url().endsWith("/api/orders/UI-BULK/lines"));
+    await staleBulkForm.getByTestId("bulk-confirm").click();
+    assert.equal((await rejected).status(),409);
+    await bulkPanel.getByTestId("detail-version-conflict").waitFor();
+    assert.equal(await staleBulkForm.getByTestId("bulk-confirm").isDisabled(),true);
+    await bulkPanel.getByTestId("detail-conflict-refresh").click();
+    await bulkPanel.getByTestId("detail-document-version").getByText("3",{exact:true}).waitFor();
+    await staleBulkForm.getByTestId("bulk-stale-warning").waitFor();
+    assert.equal(await staleBulkForm.getByTestId("bulk-confirm").isDisabled(),true,
+      "Refresh must NOT silently rebase the stale destructive PUT");
+    assert.equal(await staleBulkForm.getByTestId("bulk-row-0")
+      .getByTestId("create-product").inputValue(),"Mi borrador con versión vieja");
+    await staleBulkForm.getByTestId("bulk-discard").click();
+    await bulkPanel.getByTestId("bulk-open").click();
+    const freshBulkForm=bulkPanel.getByTestId("bulk-edit-form");
+    await freshBulkForm.getByTestId("bulk-row-9").waitFor();
+    // Newly appended identities may sort ahead of previous rows.
+    // Follow the public identity of the actual edited row, not row index 0.
+    const editedIdentity=await freshBulkForm.getByTestId("bulk-row-0")
+      .getByTestId("create-lineCode").inputValue();
+    await freshBulkForm.getByTestId("bulk-row-0").getByTestId("create-product")
+      .fill("Versión actual confirmada");
+    await freshBulkForm.getByTestId("bulk-review").click();
+    const freshPut=page.waitForResponse(r=>r.request().method()==="PUT"&&
+      r.url().endsWith("/api/orders/UI-BULK/lines"));
+    await freshBulkForm.getByTestId("bulk-confirm").click();
+    assert.equal((await freshPut).status(),200);
+    await bulkPanel.getByTestId("detail-document-version").getByText("4",{exact:true}).waitFor();
+    assert.equal((await req("GET","/api/order-lines/"+encodeURIComponent(editedIdentity))).body.product,
+      "Versión actual confirmada");
+    assert.equal((await req("GET","/api/order-lines/UI-BULK-OLD-1")).body.product,
+      "Actualizado en lote");
+    assert.equal((await req("GET","/api/orders/UI-BULK/total")).body.totalUnits,"13");
+    console.log("PROTOCOLIA_V11_BULK_REACT_PASS "+JSON.stringify({
+      completeBeyondPage:true,explicitReview:true,putStrongETag:true,
+      replacesAtomically:true,stalePut409:true,refreshNeverRebases:true,
+      draftPreservedOnConflict:true,manualReloadAndRetry:true,
+      serverAggregateCorrect:true
+    }));
+    await page.getByRole("button",{name:"Cerrar detalle"}).click();
+    await page.getByTestId("open-detail-UI-VERSION").click();
     const styles=await panel.evaluate(node=>({
       scrollWidth:node.scrollWidth,clientWidth:node.clientWidth
     }));
@@ -306,6 +403,8 @@ try{
     await page.getByTestId("open-detail-UI-VERSION").click();
     const scopedPanel=page.getByTestId("detail-lines-panel");
     await scopedPanel.getByTestId("detail-document-version").getByText("5",{exact:true}).waitFor();
+    assert.equal(await scopedPanel.getByTestId("bulk-open").count(),0,
+      "Unprivileged child writer must not be offered full replacement");
     assert.equal(await scopedPanel.getByTestId("detail-append-open").count(),0);
     assert.equal(await scopedPanel.getByTestId("delete-detail-UI-BASE-1").count(),0);
     await page.getByRole("button",{name:"Cerrar detalle"}).click();
@@ -326,6 +425,8 @@ try{
     assert.equal(closedResponse.request().headers()["if-match"],'"5"');
     await closingPanel.getByTestId("detail-document-closed").waitFor();
     await closingPanel.getByTestId("detail-document-version").getByText("6",{exact:true}).waitFor();
+    assert.equal(await closingPanel.getByTestId("bulk-open").isDisabled(),true,
+      "Closed parent must disable the destructive batch editor");
     assert.equal(await closingPanel.getByTestId("detail-append-open").isDisabled(),true);
     assert.equal(await closingPanel.getByTestId("delete-detail-UI-BASE-1").isDisabled(),true);
     assert.equal(await closingPanel.getByTestId("edit-detail-UI-BASE-1-product").isDisabled(),true);
