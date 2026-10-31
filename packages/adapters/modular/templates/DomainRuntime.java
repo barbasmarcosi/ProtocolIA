@@ -318,8 +318,10 @@ public class DomainRuntime {
       Map<String,Object> body,Authentication actor) {
     var plan=Manifest.EXACT_RECONCILIATIONS.values().stream()
       .filter(x->x.parentEntity().equals(e.name())).findFirst().orElse(null);
-    if(id==null||plan==null||body==null||body.size()!=3||
-        !body.keySet().equals(Set.of("adjustmentId","delta","reason")))
+    if(id==null||plan==null||body==null||body.size()!=8||
+        !body.keySet().equals(Set.of("adjustmentId","delta","reason",
+          "expectedOpening","expectedAvailable","expectedPostingCount",
+          "expectedReversedTotal","expectedAdjustmentCount")))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact adjustment request");
     var field=e.fields().stream()
       .filter(f->plan.chargeSources().contains(f.name())).findFirst().orElse(null);
@@ -342,12 +344,47 @@ public class DomainRuntime {
       raw.replaceFirst("^-","").split("\\.")[0].replaceFirst("^0+","").length()>
         field.precision()-field.scale())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Adjustment out of range");
+    var reviewed=new java.util.HashMap<String,BigDecimal>();
+    for(String name:List.of("expectedOpening","expectedAvailable","expectedReversedTotal")){
+      if(!(body.get(name) instanceof String value)||
+          !value.matches("(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid reviewed money");
+      String[] parts=value.split("\\.",-1);
+      if(parts[0].replaceFirst("^0+","").length()>field.precision()-field.scale()||
+          parts.length==2&&parts[1].length()>field.scale())
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid reviewed precision");
+      try{
+        BigDecimal amount=new BigDecimal(value).setScale(field.scale(),java.math.RoundingMode.UNNECESSARY);
+        if(amount.compareTo(max)>0)
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Reviewed amount out of range");
+        reviewed.put(name,amount);
+      }catch(ArithmeticException|NumberFormatException ex){
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid reviewed decimal",ex);
+      }
+    }
+    var counts=new java.util.HashMap<String,Long>();
+    for(String name:List.of("expectedPostingCount","expectedAdjustmentCount")){
+      if(!(body.get(name) instanceof String value)||
+          value.length()>(name.equals("expectedPostingCount")?16:3)||
+          !value.matches("(?:0|[1-9][0-9]*)"))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid reviewed count");
+      long count=Long.parseLong(value);
+      if(name.equals("expectedAdjustmentCount")&&count>100)
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid adjustment count");
+      counts.put(name,count);
+    }
     var args=new MapSqlParameterSource().addValue("identity",id)
       .addValue("adj",aid).addValue("delta",delta)
-      .addValue("reason",reason).addValue("actor",actor.getName());
+      .addValue("reason",reason).addValue("actor",actor.getName())
+      .addValue("expectedOpen",reviewed.get("expectedOpening"))
+      .addValue("expectedAvailable",reviewed.get("expectedAvailable"))
+      .addValue("expectedPosting",counts.get("expectedPostingCount"))
+      .addValue("expectedReversed",reviewed.get("expectedReversedTotal"))
+      .addValue("expectedAdjustments",counts.get("expectedAdjustmentCount"));
     try{
       jdbc.queryForList("SELECT protocolia_apply_exact_adjustment_"+e.table()+
-        "(:identity,:adj,:delta,:reason,:actor)",args);
+        "(:identity,:adj,:delta,:reason,:actor,:expectedOpen,:expectedAvailable,"+
+        ":expectedPosting,:expectedReversed,:expectedAdjustments)",args);
     }catch(DataAccessException ex){
       if(constraintSqlState(ex,"PZ409")||constraintSqlState(ex,"23505"))
         throw new ResponseStatusException(HttpStatus.CONFLICT,"Exact adjustment conflict",ex);
