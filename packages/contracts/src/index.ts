@@ -179,9 +179,12 @@ function detailSum(context: DecoratorContext, target: Operation, childEntity: st
     {childEntity,parentField,quantityField});
 }
 function createDetails(context: DecoratorContext, target: Operation, childEntity: string,
-    parentField: string, rowsField: string): void {
+    parentField: string, rowsField: string, chargeAmountField?: string,
+    chargeTotalField?: string): void {
   context.program.stateMap($lib.stateKeys.createDetails).set(target,
-    {childEntity,parentField,rowsField});
+    {childEntity,parentField,rowsField,
+      ...(chargeAmountField===undefined?{}:{chargeAmountField}),
+      ...(chargeTotalField===undefined?{}:{chargeTotalField})});
 }
 function versionedDetails(context: DecoratorContext, target: Operation,
   closeField?: string, closeState?: string): void {

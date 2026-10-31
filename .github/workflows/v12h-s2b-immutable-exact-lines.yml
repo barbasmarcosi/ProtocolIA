@@ -1,0 +1,53 @@
+name: v1.2h-s2b-immutable-exact-lines
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'examples/vnext/workshop-itemized-guard/**'
+      - 'scripts/vnext/probe-workshop-itemized.mjs'
+      - 'tests/vnext/financial-itemized.test.mjs'
+      - '.github/workflows/v12h-s2b-immutable-exact-lines.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: s2b-itemized-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-itemized-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Compile original and new exact-typed contract tests
+        run: npm run build:vnext && node --test tests/vnext/financial-itemized.test.mjs
+      - name: Generate independent itemized workshop application
+        run: npm run app:build -- examples/vnext/workshop-itemized-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/itemized-app"
+      - name: Generic generated app conformance on isolated PostgreSQL
+        run: npm run app:test -- "${{ runner.temp }}/itemized-app"
+      - name: Install deterministic Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify immutable exact lines, finance, transactions and mobile UI
+        env:
+          PROTOCOLIA_BROWSER_VERIFY: 'true'
+        run: node scripts/vnext/probe-workshop-itemized.mjs "${{ runner.temp }}/itemized-app"

@@ -681,7 +681,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
       continue;
     }
     let detailConfig:{childEntity:string;parentField:string;rowsField:string;maxRows:number;
-      versioned?:boolean;closeField?:string;closeState?:string}|undefined;
+      versioned?:boolean;closeField?:string;closeState?:string;
+      chargeAmountField?:string;chargeTotalField?:string}|undefined;
     if(details){
       const child=declared.get(String(details.childEntity));
       const relation=child?.fields.find(x=>x.name===details.parentField);
@@ -693,8 +694,47 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const item=array?.kind==="Model"&&array.indexer?.value.kind==="Model"?
         array.indexer.value:undefined;
       const itemProps=item?.properties;
+      const itemized=details.chargeAmountField!==undefined||details.chargeTotalField!==undefined;
+      const moneyField=child?.fields.find(x=>x.name===details.chargeAmountField);
+      const totalField=entity.fields.find(x=>x.name===details.chargeTotalField);
+      const reconOps=ops.filter(candidate=>{
+        const b=metadata(p,"behavior",candidate);
+        return b?.entity===entity.name&&b.kind==="reconcileExact";
+      });
+      const recon=reconOps.length===1?metadata(p,"reconcileExact",reconOps[0]):undefined;
+      const derivedFields=itemized?new Set([String(details.chargeTotalField),
+        String(recon?.openingField),String(recon?.availableField)]):new Set<string>();
+      const itemizedSafe=!itemized||(
+        typeof details.chargeAmountField==="string"&&
+        typeof details.chargeTotalField==="string"&&
+        /^[A-Za-z][A-Za-z0-9_]*$/.test(details.chargeAmountField)&&
+        /^[A-Za-z][A-Za-z0-9_]*$/.test(details.chargeTotalField)&&
+        !versioned&&!!recon&&recon.serverOnly===true&&recon.lifecycle===true&&
+        recon.chargeSource===details.chargeTotalField&&
+        !!totalField&&totalField.type==="decimal"&&totalField.required&&!totalField.nullable&&
+        !!totalField.decimal&&totalField.decimal.min==="0"&&
+        !!moneyField&&moneyField.type==="decimal"&&moneyField.required&&!moneyField.nullable&&
+        !!moneyField.decimal&&moneyField.decimal.min==="0"&&
+        moneyField.decimal.scale===totalField.decimal.scale&&
+        moneyField.decimal.precision<=totalField.decimal.precision&&
+        !moneyField.computedSum&&!moneyField.computedProduct&&
+        !moneyField.computedRoundedProduct&&!moneyField.computedDiscountedTotal&&
+        !moneyField.reference&&!totalField.reference&&
+        !totalField.computedSum&&!totalField.computedProduct&&
+        !totalField.computedRoundedProduct&&!totalField.computedDiscountedTotal&&
+        !ops.some(candidate=>{
+          const b=metadata(p,"behavior",candidate);
+          if(!b)return false;
+          return b.entity===child?.name&&
+            !["create","get","listPage","queryPage","auditPage","health"].includes(String(b.kind))||
+            b.entity===entity.name&&
+            (b.kind==="patchTogether"||b.kind==="delete"||
+              b.kind==="patchFields"&&derivedFields.has(String(b.field)));
+        })
+      );
       const reqFields=entity.fields.filter(x=>!x.computedSum&&!x.computedProduct&&
-        !x.computedRoundedProduct&&!x.computedDiscountedTotal&&x.initial===undefined);
+        !x.computedRoundedProduct&&!x.computedDiscountedTotal&&x.initial===undefined&&
+        !derivedFields.has(x.name));
       const childFields=child?.fields.filter(x=>x.name!==details.parentField&&
         !x.computedSum&&!x.computedProduct&&!x.computedRoundedProduct&&!x.computedDiscountedTotal);
       const sameField=(a:IrField,b?:ModelProperty)=>{const parsed=b?field(p,b):undefined;
@@ -705,7 +745,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
           JSON.stringify(a.decimal)===JSON.stringify(parsed.decimal)&&
           JSON.stringify(a.choices)===JSON.stringify(parsed.choices);};
       const valid=kind==="create"&&f===undefined&&input===undefined&&
-
+        itemizedSafe&&
         /^[A-Za-z][A-Za-z0-9_]*$/.test(rowName)&&
         !!child&&child!==entity&&!!relation&&
         relation.type==="string"&&relation.required&&!relation.nullable&&
@@ -733,6 +773,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
       }
       detailConfig={childEntity:child!.name,
         parentField:String(details.parentField),rowsField:rowName,maxRows:20,
+        ...(itemized?{chargeAmountField:String(details.chargeAmountField),
+          chargeTotalField:String(details.chargeTotalField)}:{}),
         ...(versioned?{versioned:true,
           ...(versioned.closeField!==undefined?{closeField:String(versioned.closeField)}:{}),
           ...(versioned.closeState!==undefined?{closeState:String(versioned.closeState)}:{})
@@ -1404,8 +1446,11 @@ export function compileDomain(p: Program): IrDocument | undefined {
         metadata(p,"reconcileExact",candidate)?.serverOnly===true);
       const serverOnlyLedger=sourceBoundReconcile?
         metadata(p,"reconcileExact",sourceBoundReconcile):undefined;
+      const declaredLines=metadata(p,"createDetails",op);
       const serverOnlyFields=new Set<string>(serverOnlyLedger?
-        [String(serverOnlyLedger.openingField),String(serverOnlyLedger.availableField)]:[]);
+        [String(serverOnlyLedger.openingField),String(serverOnlyLedger.availableField),
+          ...(declaredLines?.chargeTotalField!==undefined?
+            [String(declaredLines.chargeTotalField)]:[])]:[]);
       if(serverOnlyLedger&&[...serverOnlyFields].some(name=>props?.has(name))){
         reject("server-only-request-spoof",op.name+" must omit both server-derived balances from CREATE DTO",op);
         continue;

@@ -323,7 +323,9 @@ export function generate(ir,spec,out){
           parentField:plan.relation.name,
           rowsField:plan.rowsField,
           maxRows:plan.maxRows,
-          childWriteCapability:plan.childWriteCapability
+          childWriteCapability:plan.childWriteCapability,
+          ...(plan.chargeAmountField?{chargeAmountField:plan.chargeAmountField,
+            chargeTotalField:plan.chargeTotalField}:{})
         };
       }
       if(b.moveBatch){
@@ -515,8 +517,13 @@ export function generate(ir,spec,out){
   const resources=ir.entities.map(entity=>{
     const ledger=ir.operations.find(op=>op.entity===entity.name&&
       op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const chargeCreator=ir.operations.find(x=>x.entity===entity.name&&
+      x.behavior.createDetails?.chargeAmountField);
+    const financialChild=ir.operations.some(x=>x.behavior.createDetails?.chargeAmountField&&
+      x.behavior.createDetails.childEntity===entity.name);
     const internal=new Set(ledger?.serverOnly===true?
-      [ledger.openingField,ledger.availableField]:[]);
+      [ledger.openingField,ledger.availableField,
+        ...(chargeCreator?[chargeCreator.behavior.createDetails.chargeTotalField]:[])]:[]);
     return {entity:{...entity,fields:entity.fields.map(field=>({
       ...field,...(internal.has(field.name)?{serverDerived:true}:{})
     }))},view:entity.view??entity.name,
@@ -525,7 +532,8 @@ export function generate(ir,spec,out){
     patchFieldsOptions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ir.operations.filter(op=>
-      op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
+      op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition"&&
+      !(financialChild&&op.behavior.kind==="create")).map(op=>[
         op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
       ]))};
   });

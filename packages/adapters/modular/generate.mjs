@@ -344,7 +344,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
     "  public record MoveLeg(String sourceField,String targetField,String quantityField) {}",
-    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState) {}",
+    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState,String chargeAmountField,String chargeTotalField) {}",
     "  public record MoveBatch(String stockTable,String stockKeyColumn,String availableColumn,int maxBalance,String parentWriteCapability,List<MoveLeg> legs) {}",
     "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
@@ -471,7 +471,8 @@ export function generate(ir, openapi, outDir) {
       createDetails="new CreateDetails("+[
         j(plan.child.name),j(plan.relation.name),j(plan.rowsField),
         j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false",
-        j(b.createDetails.closeField??""),j(b.createDetails.closeState??"")
+        j(b.createDetails.closeField??""),j(b.createDetails.closeState??""),
+        j(plan.chargeAmountField??""),j(plan.chargeTotalField??"")
       ].join(",")+")";
     }
     let release="null";
@@ -508,8 +509,13 @@ export function generate(ir, openapi, outDir) {
   const resources=entities.map(entity=>{
     const ledger=ops.find(op=>op.entity===entity.name&&
       op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const chargeCreator=ops.find(x=>x.entity===entity.name&&
+      x.behavior.createDetails?.chargeAmountField);
+    const financialChild=ops.some(x=>x.behavior.createDetails?.chargeAmountField&&
+      x.behavior.createDetails.childEntity===entity.name);
     const internal=new Set(ledger?.serverOnly===true?
-      [ledger.openingField,ledger.availableField]:[]);
+      [ledger.openingField,ledger.availableField,
+        ...(chargeCreator?[chargeCreator.behavior.createDetails.chargeTotalField]:[])]:[]);
     return {
     entity:{...entity,fields:entity.fields.map(field=>({
       ...field,...(internal.has(field.name)?{serverDerived:true}:{})
@@ -517,7 +523,8 @@ export function generate(ir, openapi, outDir) {
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     patchFieldsOptions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
-    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
+    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition"&&
+      !(financialChild&&op.behavior.kind==="create")).map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
   };
