@@ -35,7 +35,7 @@ try{
   mkdirSync(join(temp,"contracts"),{recursive:true});
   writeFileSync(join(temp,"tspconfig.yaml"),config);
   // The opt-in must not break the original exact eight-field snapshot contract.
-  const previous=source.replace(annotation,annotation.replace(", true, true)",", true"))
+  const previous=source.replace(annotation,annotation.replace(", true, true)",", true)"))
     .replace("    coverageState: string;\n","");
   assert.notEqual(previous,source);
   writeFileSync(join(temp,"contracts/main.tsp"),previous);
