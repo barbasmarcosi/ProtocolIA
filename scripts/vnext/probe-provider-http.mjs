@@ -149,7 +149,9 @@ try{
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
   // A lost HTTP response may be retried after the original receipt is
   // reversed; it must report the original event without creating new proof.
-  sql("UPDATE payment SET status='reversed' WHERE receipt='PAY-HTTP-LINK';");
+  sql("BEGIN; UPDATE payment SET status='reversed' WHERE receipt='PAY-HTTP-LINK'; "+
+    "UPDATE work_order SET available=1.25 WHERE number='OT-HTTP-LINK'; COMMIT;");
+  assert.equal(sql("SELECT available::text FROM work_order WHERE number='OT-HTTP-LINK'"),"1.25");
   assert.equal((await linked(eventLinked)).status,200,
     "Identical signed event must remain a duplicate after reversal");
   assert.equal((await linked("evt_http_after_reverse_12")).status,409,
