@@ -58,13 +58,40 @@ export function assertCreateDetails(ir,parent,op){
     x.entity===parent?.name&&x.behavior?.reconcileExact||
     x.behavior?.debitExact?.stockEntity===parent?.name||
     x.behavior?.reverseExact?.stockEntity===parent?.name);
+  const itemized=meta?.chargeAmountField!==undefined||meta?.chargeTotalField!==undefined;
+  const charge=child?.fields.find(f=>f.name===meta?.chargeAmountField);
+  const total=parent?.fields.find(f=>f.name===meta?.chargeTotalField);
+  const reconciliations=ir.operations.filter(x=>x.entity===parent?.name&&
+    x.behavior.kind==="reconcileExact"&&x.behavior.reconcileExact);
+  const cfg=reconciliations.length===1?reconciliations[0].behavior.reconcileExact:null;
+  // An opt-in financial detail is a strict single-source ledger, not a
+  // generic append/edit collection with a coincidental amount field.
+  const validItemization=!itemized||(
+    ident(meta.chargeAmountField)&&ident(meta.chargeTotalField)&&
+    meta.versioned===undefined&&cfg?.serverOnly===true&&cfg.lifecycle===true&&
+    (cfg.chargeSource===meta.chargeTotalField||
+      cfg.chargeSources?.length===1&&cfg.chargeSources[0]===meta.chargeTotalField)&&
+    !!charge&&charge.type==="decimal"&&charge.required&&!charge.nullable&&
+    charge.decimal?.min==="0"&&!!total&&total.type==="decimal"&&
+    total.required&&!total.nullable&&total.decimal?.min==="0"&&
+    charge.decimal?.scale===total.decimal?.scale&&
+    charge.decimal.precision<=total.decimal.precision&&
+    meta.chargeAmountField!==meta.parentField&&
+    child.publicIdentity!==meta.parentField&&
+    !child.operations?.length&& // no custom child operation surface in entity metadata
+    patches.length===0&&deletes.length===0&&
+    ir.operations.every(x=>x.entity!==child.name||
+      ["create","get","listPage","queryPage","auditPage","health"].includes(x.behavior.kind))&&
+    !ir.operations.some(x=>x.entity===parent.name&&
+      ["delete","patchTogether"].includes(x.behavior.kind))
+  );
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
     new Set(patches.map(x=>x.capability)).size!==patches.length||
     patches.some(x=>x.behavior.audit?.length!==1);
   if(!parent||!meta||op.behavior.kind!=="create"||op.method!=="POST"||
     ![201,400,401,403,409].every(s=>op.statuses?.includes(s))||
-    exactLedgerParent||!bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
+    (exactLedgerParent&&!itemized)||!validItemization||!bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
     parent.fields.some(f=>f.name===rows)||!child||child===parent||
     child.fields.some(f=>f.ownerManaged||f.initial!==undefined||f.readCapability)||
     parent.fields.some(f=>f.ownerManaged)||
@@ -90,5 +117,7 @@ export function assertCreateDetails(ir,parent,op){
     (invalidPatch||unsafePatches))
     throw Error("Unsafe bounded relational header/detail contract");
   return {parent,child,relation,rowsField:rows,maxRows:20,fields:allowed,
-    childWriteCapability:childCreate[0].capability};
+    childWriteCapability:childCreate[0].capability,
+    ...(itemized?{chargeAmountField:meta.chargeAmountField,
+      chargeTotalField:meta.chargeTotalField}:{})};
 }
