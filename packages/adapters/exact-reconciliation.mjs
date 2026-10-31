@@ -189,7 +189,12 @@ export function compileExactReconciliations(ir){
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
-      ...(proof?{unverifiedProofField:proof.name}:{}),
+      ...(proof?{unverifiedProofField:proof.name,providerCandidate:{
+        childTable:ct,receiptColumn:snake(child.publicIdentity),
+        referenceColumn:fkCol,amountColumn:amountCol,stateColumn:stateCol,
+        postedState:cfg.postedState,proofColumn:snake(proof.name),
+        precision:c.precision,scale:c.scale,max:c.max
+      }}:{}),
       ...(cfg.serverOnly===true?{serverOnly:true}:{}),
       ...(cfg.lifecycle===true?{lifecycle:true}:{}),
       ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{}),
