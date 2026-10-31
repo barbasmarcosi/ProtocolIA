@@ -1593,6 +1593,7 @@ class RuntimeService{
       if(["get","create"].includes(op.kind)&&isRecord(data)&&
         Number.isInteger(data.documentVersion))
         res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
+      if(op.kind==="lookupExactAdjustment")res.setHeader("Cache-Control","no-store");
       res.status(["create","adjustExact"].includes(op.kind)?201:200).json(data);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
