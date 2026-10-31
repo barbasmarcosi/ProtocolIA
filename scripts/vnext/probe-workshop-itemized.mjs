@@ -224,6 +224,59 @@ try{
   assert.equal(partial.snapshot.coverageState,"partial");
   assert.equal(cents(partial.record.available),100n);
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-05 concurrent receipts and reversal");
+  // S2c-0: simulate a privileged, out-of-band PostgreSQL source mutation.
+  // These are fixed synthetic records in the disposable Compose DB, never production.
+  const sql=statement=>docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia","-Atc",statement);
+  const driftId="OT-SOURCE-DRIFT";
+  const driftPath="/api/work-orders/"+driftId+"/reconciliation";
+  await status("/api/work-orders",201,{method:"POST",body:order(driftId,[
+    charge("DRIFT-L","2.00"),charge("DRIFT-P","1.00","parts")
+  ])});
+  await status("/api/payments",201,{method:"POST",body:pay("PD-BASE",driftId,"1.00")});
+  assert.equal((await balance(driftId)).snapshot.coverageState,"partial");
+  const mutations=[
+    ["amount","UPDATE charge_line SET amount=2.50 WHERE line_id='DRIFT-L'",
+      "UPDATE charge_line SET amount=2.00 WHERE line_id='DRIFT-L'"],
+    ["insert","INSERT INTO charge_line (line_id,order_number,kind,description,amount) "+
+      "VALUES ('DRIFT-EXTRA','OT-SOURCE-DRIFT','parts','Privileged addition',0.50)",
+      "DELETE FROM charge_line WHERE line_id='DRIFT-EXTRA'"],
+    ["delete","DELETE FROM charge_line WHERE line_id='DRIFT-P'",
+      "INSERT INTO charge_line (line_id,order_number,kind,description,amount) "+
+      "VALUES ('DRIFT-P','OT-SOURCE-DRIFT','parts','Cargo sintético DRIFT-P',1.00)"],
+    ["parent_total","UPDATE work_order SET charge_total=4.00 WHERE number='OT-SOURCE-DRIFT'",
+      "UPDATE work_order SET charge_total=3.00 WHERE number='OT-SOURCE-DRIFT'"],
+    ["parent_opening","UPDATE work_order SET opening_balance=4.00 WHERE number='OT-SOURCE-DRIFT'",
+      "UPDATE work_order SET opening_balance=3.00 WHERE number='OT-SOURCE-DRIFT'"]
+  ];
+  for(const [name,mutation,restore] of mutations){
+    sql(mutation);
+    try{
+      const snapshot=await status(driftPath,200);
+      assert.equal(snapshot.balanced,false,"Untrusted "+name+" cannot appear reconciled");
+      assert.equal(snapshot.coverageState,"inconsistent",name);
+      // The journal difference can remain zero even with an inconsistent source.
+      if(name==="parent_opening")assert.notEqual(snapshot.difference,"0.00");
+      else assert.equal(cents(snapshot.difference),0n);
+      const denied="PD-DENIED-"+name;
+      await status("/api/payments",409,{method:"POST",body:pay(denied,driftId,"0.01")});
+      await status("/api/payments/"+denied,404);
+      await status("/api/payments/PD-BASE/reverse",409,{method:"POST"});
+      assert.equal(sql("SELECT COUNT(*) FROM payment WHERE order_number='OT-SOURCE-DRIFT'"),"1");
+      assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Payment' "+
+        "AND resource_id='"+denied+"'"),"0");
+      assert.equal(cents((await status("/api/work-orders/"+driftId,200)).available),200n);
+      console.log("PROTOCOLIA_S2C0_DRIFT_DENIED "+name);
+    }finally{sql(restore);}
+    assert.equal((await balance(driftId)).snapshot.coverageState,"partial",
+      "Restored source must reconcile again");
+  }
+  await status("/api/payments",201,{method:"POST",body:
+    pay("PD-AFTER-RESTORE",driftId,"0.50")});
+  assert.equal(cents((await balance(driftId)).record.available),150n);
+  await status("/api/payments/PD-BASE/reverse",200,{method:"POST"});
+  assert.equal(cents((await balance(driftId)).record.available),250n);
+  console.log("PROTOCOLIA_S2C0_DRIFT_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2B_ITEMIZED_ALL_PASS "+build.target);
 }finally{
   if(started)try{docker("down","--volumes","--remove-orphans");}

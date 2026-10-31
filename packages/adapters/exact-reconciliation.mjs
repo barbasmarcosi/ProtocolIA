@@ -80,19 +80,52 @@ export function compileExactReconciliations(ir){
       !debits.has(original[0]?.name)||!reversals.has(reversal[0]?.name)||
       of("reconcileExact",parent.name).length!==1||writes.length>0)
       throw Error("Invalid exact ledger reconciliation "+op.name);
+    // S2c-0: one snapshot checks authoritative itemized child money AND receipts.
+    const itemized=ir.operations.filter(x=>x.entity===parent.name&&
+      x.behavior?.kind==="create"&&x.behavior?.createDetails?.chargeAmountField);
+    const source=itemized[0]?.behavior.createDetails;
+    const line=entities.get(source?.childEntity);
+    const lineAmount=line?.fields.find(f=>f.name===source?.chargeAmountField);
+    const lineFk=line?.fields.find(f=>f.name===source?.parentField);
+    const total=parent.fields.find(f=>f.name===source?.chargeTotalField);
+    if(itemized.length>1||source&&(
+      itemized.length!==1||chargeNames.length!==1||
+      chargeNames[0]!==source.chargeTotalField||
+      !ident(source.chargeAmountField)||!ident(source.chargeTotalField)||
+      source.maxRows!==20||!line||line===parent||
+      !lineFk||lineFk.type!=="string"||!lineFk.reference||
+      lineFk.reference.target!==parent.name||lineFk.reference.onDelete!=="restrict"||
+      !lineAmount||lineAmount.type!=="decimal"||!lineAmount.decimal||
+      !lineAmount.required||lineAmount.nullable||lineAmount.decimal.min!=="0"||
+      !total||total.type!=="decimal"||!total.decimal||
+      !total.required||total.nullable||total.decimal.min!=="0"||
+      total.decimal.scale!==lineAmount.decimal.scale||
+      total.decimal.precision<lineAmount.decimal.precision||
+      cfg.serverOnly!==true||cfg.lifecycle!==true))
+      throw Error("Invalid exact itemized source binding "+op.name);
+    const sourceGood=source?
+      "(COALESCE(s.line_count,0) BETWEEN 1 AND 20 AND "+
+      "COALESCE(s.line_total,0)=p."+snake(source.chargeTotalField)+
+      " AND p."+snake(cfg.openingField)+"=p."+snake(source.chargeTotalField)+")":null;
+    const sourceJoin=source?
+      " LEFT JOIN LATERAL (SELECT COUNT(*) AS line_count, "+
+      "SUM(d."+snake(source.chargeAmountField)+") AS line_total FROM "+
+      snake(line.name)+" d WHERE d."+snake(source.parentField)+
+      "=p."+snake(parent.publicIdentity)+") s ON TRUE":"";
     const pt=snake(parent.name),ct=snake(child.name),pk=snake(parent.publicIdentity);
     const fkCol=snake(cfg.referenceField),amountCol=snake(cfg.amountField),stateCol=snake(cfg.stateField);
     const oc=snake(cfg.openingField),bc=snake(cfg.availableField);
     const calc="(p."+oc+"-COALESCE(j.posted,0))";
+    const balanced="(p."+bc+"="+calc+(sourceGood?" AND "+sourceGood:"")+")";
     const select="SELECT p."+oc+"::text AS \"openingBalance\", p."+bc+"::text AS \"available\", "+
       "COALESCE(j.posted,0)::text AS \"postedTotal\", "+
       "COALESCE(j.reversed,0)::text AS \"reversedTotal\", "+
       calc+"::text AS \"expectedAvailable\", "+
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
-      "(p."+bc+"="+calc+") AS \"balanced\""+
+      balanced+" AS \"balanced\""+
       (cfg.lifecycle===true?
-        ", CASE WHEN p."+bc+"<>"+calc+" THEN 'inconsistent'"+
+        ", CASE WHEN NOT "+balanced+" THEN 'inconsistent'"+
         " WHEN p."+oc+"=0 THEN 'no_charge'"+
         " WHEN COALESCE(j.posted,0)=0 THEN 'unpaid'"+
         " WHEN p."+bc+"=0 THEN 'covered'"+
@@ -101,7 +134,7 @@ export function compileExactReconciliations(ir){
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' THEN c."+amountCol+" ELSE 0 END) AS posted, "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
       "COUNT(*) AS posting_count FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
-      ") j ON TRUE WHERE p."+pk+"=";
+      ") j ON TRUE"+sourceJoin+" WHERE p."+pk+"=";
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,

@@ -4,6 +4,7 @@ import {readFileSync,writeFileSync,cpSync,mkdtempSync,rmSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 import {assertCreateDetails} from "../../packages/adapters/create-details.mjs";
+import {compileExactReconciliations} from "../../packages/adapters/exact-reconciliation.mjs";
 
 const fixture=resolve("examples/vnext/workshop-itemized-guard");
 const source=readFileSync(join(fixture,"contracts/main.tsp"),"utf8");
@@ -32,6 +33,21 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.ok(!ir.operations.some(op=>op.entity==="ChargeLine"&&
     ["patchFields","delete","replaceDetails","reassignReference"].includes(op.behavior.kind)));
   assert.ok(child.fields.find(x=>x.name==="amount")?.decimal);
+  // One source-backed snapshot must reject a journal balanced against a
+  // persisted but no longer matching child-row sum.
+  const sql=compileExactReconciliations(ir).get("reconcileWorkOrder");
+  assert.ok(sql&&sql.sqlNest===sql.sqlSpring.replace(":identity","$1"));
+  assert.match(sql.sqlNest,/LEFT JOIN LATERAL \(SELECT COUNT\(\*\) AS line_count/);
+  assert.match(sql.sqlNest,/SUM\(d\.amount\) AS line_total FROM charge_line/);
+  assert.match(sql.sqlNest,/COALESCE\(s\.line_count,0\) BETWEEN 1 AND 20/);
+  assert.match(sql.sqlNest,/COALESCE\(s\.line_total,0\)=p\.charge_total/);
+  assert.match(sql.sqlNest,/p\.opening_balance=p\.charge_total/);
+  assert.match(sql.sqlNest,/CASE WHEN NOT/);
+  const sourceTampering=structuredClone(ir);
+  sourceTampering.operations.find(x=>x.name==="createWorkOrder")
+    .behavior.createDetails.chargeTotalField="available";
+  assert.throws(()=>compileExactReconciliations(sourceTampering),
+    /Invalid exact itemized source binding/);
   const wrongSource=structuredClone(ir);
   wrongSource.operations.find(x=>x.name==="reconcileWorkOrder")
     .behavior.reconcileExact.chargeSource="available";
