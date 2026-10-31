@@ -587,7 +587,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
           !charge.decimal||charge.decimal.min!=="0"||
           charge.decimal.scale!==opening?.decimal?.scale||
           charge.decimal.precision>(opening?.decimal?.precision??0)||
-          charge.reference!==undefined||charge.initial!==undefined)||
+          charge.reference!==undefined||charge.initial!==undefined||
+          charge.computedSum!==undefined||charge.computedProduct!==undefined||
+          charge.computedRoundedProduct!==undefined||
+          charge.computedDiscountedTotal!==undefined)||
         sourceMutation);
       if(reconciliation?.serverOnly!==undefined&&reconciliation.serverOnly!==true&&
         reconciliation.serverOnly!==false || reconciliation?.serverOnly===true&&!reconciliation.chargeSource){
