@@ -310,6 +310,9 @@ namespace TallerPaymentGuard {
     @encode(string) @exactDecimal(14,2,"-999999999999.99","999999999999.99")
     delta: decimal;
     @minLength(12) @maxLength(240) reason: string;
+    // Reviewed snapshot expectations; these values are never authoritative money.
+    @encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedOpening: decimal;
+    @encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedAvailable: decimal;
   }
 
   @route("/api/work-orders/{number}/adjustments")
