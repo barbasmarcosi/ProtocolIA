@@ -89,6 +89,13 @@ export function exactAdjustmentWriteSql(ir,plans){
       select+") q; "+
       "IF NOT COALESCE(v_balanced,false) OR NOT COALESCE(v_eligible,false) THEN "+
       "RAISE EXCEPTION 'Exact adjustment ledger conflict' USING ERRCODE='PZ409'; END IF; "+
+      "IF v_expected_open IS NULL OR v_expected_available IS NULL OR "+
+      "v_expected_posting IS NULL OR v_expected_reversed IS NULL OR "+
+      "v_expected_adjustments IS NULL OR "+
+      "v_review_open<>v_expected_open OR v_review_available<>v_expected_available OR "+
+      "v_review_posting<>v_expected_posting OR v_review_reversed<>v_expected_reversed OR "+
+      "v_review_adjustments<>v_expected_adjustments THEN "+
+      "RAISE EXCEPTION 'Reviewed ledger snapshot changed' USING ERRCODE='PZ409'; END IF; "+
       "IF v_id IS NULL OR char_length(btrim(v_id)) NOT BETWEEN 8 AND 64 OR "+
       "v_reason IS NULL OR char_length(btrim(v_reason)) NOT BETWEEN 12 AND 240 OR "+
       "v_actor IS NULL OR char_length(btrim(v_actor))=0 OR "+
