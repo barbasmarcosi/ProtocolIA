@@ -55,7 +55,7 @@ export function exactAdjustmentWriteSql(ir,plans){
     const rec=ir.operations.find(x=>x.entity===parent?.name&&x.behavior.kind==="reconcileExact");
     const plan=rec&&plans.get(rec.name);
     const journal=plan?.adjustmentJournal;
-    if(!journal||!parent||tables.has(journal.table))
+    if(!journal||!parent||!ident(parent.name)||!ident(op.name)||tables.has(journal.table))
       throw Error("Invalid adjustment SQL target "+op.name);
     tables.add(journal.table);
     const table=journal.parentTable,pk=journal.parentColumn,
@@ -77,7 +77,7 @@ export function exactAdjustmentWriteSql(ir,plans){
       "v_new_opening NUMERIC;v_new_available NUMERIC; BEGIN "+
       "PERFORM 1 FROM "+table+" WHERE "+pk+"=v_parent FOR UPDATE; "+
       "IF NOT FOUND THEN RAISE EXCEPTION 'Adjustment parent not found' USING ERRCODE='P0002'; END IF; "+
-      "SELECT q.\\"balanced\\",q.\\"adjustmentPreviewEligible\\" INTO v_balanced,v_eligible FROM ("+
+      "SELECT q.\"balanced\",q.\"adjustmentPreviewEligible\" INTO v_balanced,v_eligible FROM ("+
       select+") q; "+
       "IF NOT COALESCE(v_balanced,false) OR NOT COALESCE(v_eligible,false) THEN "+
       "RAISE EXCEPTION 'Exact adjustment ledger conflict' USING ERRCODE='PZ409'; END IF; "+
@@ -102,7 +102,7 @@ export function exactAdjustmentWriteSql(ir,plans){
       opening+"=v_new_opening,"+available+"=v_new_available WHERE "+pk+"=v_parent; "+
       "INSERT INTO protocolia_audit_event "+
       "(actor,entity_name,resource_id,operation_name,field_name,before_value,after_value) "+
-      "VALUES (v_actor,'"+parent.name+"','"+""+"'||v_parent,'"+op.name+"','"+
+      "VALUES (v_actor,'"+parent.name+"',v_parent,'"+op.name+"','"+
       plan.chargeSources[0]+"',v_charge::TEXT,v_new_charge::TEXT),"+
       "(v_actor,'"+parent.name+"',v_parent,'"+op.name+"','"+
       plan.openingField+"',v_opening::TEXT,v_new_opening::TEXT),"+
