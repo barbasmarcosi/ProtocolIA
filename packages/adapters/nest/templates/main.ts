@@ -775,7 +775,7 @@ class RuntimeService{
     }
     return this.row(e,key);
   }
-  private async lookupExactAdjustment(e:Entity,key:string,adjustmentId:unknown):Promise<Record<string,unknown>>{
+  private async lookupExactAdjustment(e:Entity,key:string,adjustmentId:unknown,actor:string):Promise<Record<string,unknown>>{
     const ledger=spec.operations.find(x=>x.entity===e.name&&x.kind==="reconcileExact")
       ?.exactReconciliation;
     const j=ledger?.adjustmentJournal;
@@ -786,7 +786,7 @@ class RuntimeService{
     const result=await this.pool.query(
       "SELECT adjustment_id AS \"adjustmentId\",delta::text AS \"delta\",reason,"+
       "'committed'::text AS \"status\" FROM "+j.table+
-      " WHERE parent_id=$1 AND adjustment_id=$2",[key,adjustmentId]);
+      " WHERE parent_id=$1 AND adjustment_id=$2 AND actor=$3",[key,adjustmentId,actor]);
     if(result.rowCount!==1)throw new Problem(404,"Committed adjustment not found for order");
     return result.rows[0];
   }
@@ -1563,7 +1563,7 @@ class RuntimeService{
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "adjustExact":data=await this.adjustExact(entity,identity,req.body,session.username);break;
         case "lookupExactAdjustment":data=await this.lookupExactAdjustment(
-          entity,identity,req.params?.adjustmentId);break;
+          entity,identity,req.params?.adjustmentId,session.username);break;
         case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
