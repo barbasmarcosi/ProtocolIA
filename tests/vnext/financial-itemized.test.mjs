@@ -58,6 +58,8 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(journal[0],/CREATE TABLE protocolia_exact_adjustment_work_order/);
   assert.match(journal[0],/delta NUMERIC\(14,2\) NOT NULL CHECK \(delta <> 0\)/);
   assert.match(journal[0],/PRIMARY KEY \(parent_id, adjustment_id\)/);
+  assert.match(journal[0],/UNIQUE \(adjustment_id\)/,
+    "A correction ID must not be reused against a different order");
   assert.match(journal[1],/RAISE EXCEPTION/);
   assert.match(journal[2],/BEFORE UPDATE OR DELETE/);
   assert.ok(sql&&sql.sqlNest===sql.sqlSpring.replace(":identity","$1"));

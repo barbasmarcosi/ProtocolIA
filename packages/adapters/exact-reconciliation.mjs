@@ -213,7 +213,7 @@ export function exactAdjustmentJournalSql(plans){
       "reason VARCHAR(240) NOT NULL CHECK (char_length(btrim(reason)) BETWEEN 12 AND 240), "+
       "actor VARCHAR(255) NOT NULL CHECK (char_length(btrim(actor)) > 0), "+
       "created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, "+
-      "PRIMARY KEY (parent_id, adjustment_id));");
+      "PRIMARY KEY (parent_id, adjustment_id), UNIQUE (adjustment_id));");
     ddl.push("CREATE FUNCTION "+func+"() RETURNS trigger LANGUAGE plpgsql AS "+
       "$$ BEGIN RAISE EXCEPTION 'Exact adjustment journal is append-only' "+
       "USING ERRCODE = '23514'; END $$;");
