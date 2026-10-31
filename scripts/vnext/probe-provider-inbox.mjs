@@ -154,6 +154,20 @@ try{
   assert.notEqual(sql(candidate("evt_cand_fraction",digestA,"PAY-CAND","OT-CAND","1.251"),
     {allowFail:true}).status,0);
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"2");
+  // Once a candidate was committed, reversing its receipt must not turn an
+  // identical provider retry into a new business decision or erase history.
+  sql("UPDATE payment SET status='reversed' WHERE receipt='PAY-CAND';");
+  assert.equal(value(candidate(candidateEvent,digestA)),"duplicate",
+    "Identical committed event remains idempotent after receipt reversal");
+  assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
+  assert.equal(value(candidate("evt_after_reverse_1234",digestA)),"mismatch",
+    "New event may not attach to a reversed receipt");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"2");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox WHERE "+
+    "event_id='evt_after_reverse_1234';"),"0");
+  assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
+    "unverified");
+  console.log("PROTOCOLIA_S2C1C3C_REVERSAL_REPLAY_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3A_RECEIPT_CANDIDATE_PASS "+build.target+
     " exact linked candidate, 1 stored/9 duplicates, no settlement, rollback and immutable");
 
