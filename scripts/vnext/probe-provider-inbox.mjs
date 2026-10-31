@@ -159,6 +159,80 @@ try{
     "WHERE event_id LIKE 'evt_race_%';"),"1");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-RACE';"),"unverified");
+
+  // S2c-1c4b: SQL-only synthetic lifecycle observations. These are NOT
+  // provider-authorized settlement, refunds or changes to the payment ledger.
+  const observation=(event,seq,phase="reported_pending",
+    candidateId=candidateEvent,receipt="PAY-CAND",order="OT-CAND",
+    amount="1.25",provider="sandbox_provider",digest=digestA)=>
+    "SELECT protocolia_record_provider_lifecycle_observation("+
+    [provider,event,digest,candidateId,receipt,order].map(literal).join(",")+
+    ","+amount+"::numeric,"+seq+"::numeric,"+literal(phase)+");";
+  assert.match(schema,/CREATE TABLE protocolia_provider_lifecycle_observation/);
+  assert.match(schema,/CREATE FUNCTION protocolia_record_provider_lifecycle_observation/);
+  assert.equal(value(observation("evt_life_00000003",3,"reported_success")),"stored");
+  assert.equal(value(observation("evt_life_00000001",1)),"stored");
+  assert.equal(value(observation("evt_life_00000002",2)),"stored");
+  assert.equal(value("SELECT string_agg(event_sequence::text,',' ORDER BY event_sequence) "+
+    "FROM protocolia_provider_lifecycle_observation WHERE receipt_id='PAY-CAND';"),"1,2,3",
+    "Out-of-order events are journaled, not applied as payment state");
+  const sameEvent="evt_life_same_0004";
+  const concurrentLife=await concurrent(Array.from({length:10},()=>observation(sameEvent,4)));
+  assert.equal(concurrentLife.filter(x=>x==="stored").length,1,JSON.stringify(concurrentLife));
+  assert.equal(concurrentLife.filter(x=>x==="duplicate").length,9,JSON.stringify(concurrentLife));
+  const competingLife=await concurrent(Array.from({length:10},(_,i)=>
+    observation("evt_life_race_"+String(i).padStart(8,"0"),5)));
+  assert.equal(competingLife.filter(x=>x==="stored").length,1,JSON.stringify(competingLife));
+  assert.equal(competingLife.filter(x=>x==="conflict").length,9,JSON.stringify(competingLife));
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id LIKE 'evt_life_race_%';"),"1",
+    "Competing sequence numbers must leave no orphan inbox envelopes");
+  assert.equal(value(observation(sameEvent,4,"reported_failure")),"conflict");
+  assert.equal(value(observation(sameEvent,4,"reported_pending",candidateEvent,
+    "PAY-CAND","OT-CAND","1.25","sandbox_provider",digestB)),"conflict");
+  assert.equal(value(observation("evt_life_seq_conflict",4)),"conflict");
+  assert.equal(value(observation("evt_life_missing_01",6,"reported_pending","unknown_candidate")),"missing");
+  assert.equal(value(observation("evt_life_other_provider",6,"reported_pending",
+    candidateEvent,"PAY-CAND","OT-CAND","1.25","another_provider")),"missing");
+  assert.equal(value(observation("evt_life_bad_order_1",6,"reported_pending",
+    candidateEvent,"PAY-CAND","wrong")),"mismatch");
+  assert.equal(value(observation("evt_life_bad_amount",6,"reported_pending",
+    candidateEvent,"PAY-CAND","OT-CAND","1.26")),"mismatch");
+  for(const [event,seq,phase,amount] of [
+    ["evt_life_zero_0000","0","reported_pending","1.25"],
+    ["evt_life_negative_1","-1","reported_pending","1.25"],
+    ["evt_life_fraction_1","1.5","reported_pending","1.25"],
+    ["evt_life_large_000","2147483648","reported_pending","1.25"],
+    ["evt_life_bad_phase1","6","settled","1.25"],
+    ["evt_life_bad_money1","6","reported_pending","1.251"]
+  ])assert.notEqual(sql(observation(event,seq,phase,candidateEvent,
+    "PAY-CAND","OT-CAND",amount),{allowFail:true}).status,0,
+    "Malformed lifecycle observation must fail closed: "+event);
+  const rollbackLife=observation("evt_life_rollback_6",6,"reported_reversal");
+  assert.equal(value("BEGIN; "+rollbackLife+" ROLLBACK; "+
+    "SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
+    "WHERE event_id='evt_life_rollback_6';").split("\n").at(-1),"0");
+  assert.equal(value(rollbackLife),"stored");
+  assert.notEqual(sql("UPDATE protocolia_provider_lifecycle_observation "+
+    "SET reported_phase='reported_failure' WHERE event_id="+literal(sameEvent)+";",
+    {allowFail:true}).status,0);
+  assert.notEqual(sql("DELETE FROM protocolia_provider_lifecycle_observation "+
+    "WHERE event_id="+literal(sameEvent)+";",{allowFail:true}).status,0);
+  // A direct SQL insertion cannot attach a lifecycle row to the wrong candidate.
+  assert.notEqual(sql("INSERT INTO protocolia_provider_lifecycle_observation "+
+    "(provider_id,event_id,candidate_event_id,receipt_id,order_id,amount,event_sequence,reported_phase) "+
+    "VALUES ('sandbox_provider','evt_life_direct_wrong','evt_candidate_12345678',"+
+    "'PAY-CAND-RACE','OT-CAND-RACE',1.25,7,'reported_success');",
+    {allowFail:true}).status,0);
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
+    "WHERE receipt_id='PAY-CAND';"),"6");
+  assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
+    "unverified");
+  assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order "+
+    "WHERE number='OT-CAND';"),before);
+  console.log("PROTOCOLIA_S2C1C4B_LIFECYCLE_JOURNAL_PASS "+build.target+
+    " out-of-order, 10-way replay and sequence conflict, no financial mutation");
+
   console.log("PROTOCOLIA_S2C1C4A_UNIQUE_RECEIPT_BINDING_PASS "+build.target);
 
   assert.equal(value(candidate(candidateEvent,digestA,"PAY-CAND","OT-CAND","1.26")),"conflict");
@@ -192,6 +266,12 @@ try{
   sql("BEGIN; UPDATE payment SET status='reversed' WHERE receipt='PAY-CAND'; "+
     "UPDATE work_order SET available=1.25 WHERE number='OT-CAND'; COMMIT;");
   assert.equal(value("SELECT available::text FROM work_order WHERE number='OT-CAND';"),"1.25");
+  assert.equal(value(observation(sameEvent,4)),"duplicate",
+    "Committed lifecycle replay survives later internal receipt reversal");
+  assert.equal(value(observation("evt_life_after_reverse",7)),"mismatch",
+    "New lifecycle observation cannot attach to reversed internal receipt");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id='evt_life_after_reverse';"),"0");
   assert.equal(value(candidate(candidateEvent,digestA)),"duplicate",
     "Identical committed event remains idempotent after receipt reversal");
   assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
