@@ -3,8 +3,9 @@ import "@protocolia/domain";
 using TypeSpec.Http;
 using ProtocolIA.Domain;
 
-// Financial safety acceptance freeze: docs/vnext/acceptance/WORKSHOP_EXACT_PAYMENT_GUARD_20261030.md.
-// A bounded checked receipt ledger; initial opening-balance correctness remains UNSUPPORTED.
+// Financial acceptance: bounded exact multi-charge + authoritative PostgreSQL
+// receipt-coverage snapshot (v1.2h-S1), not real payment-provider settlement.
+// Frozen scope: docs/vnext/acceptance/V12H_S1_LEDGER_COVERAGE_20261030.md.
 @service(#{ title: "Taller Ledger — contract-only workshop operations" })
 namespace TallerPaymentGuard {
   enum PaymentMethod {
