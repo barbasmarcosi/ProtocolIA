@@ -943,7 +943,9 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
         const data=await response.json();
         if(!data||typeof data.balanced!=="boolean"||
           !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount",
-            ...(operation.behavior?.reconcileExact?.adjustmentJournal?["adjustmentCount"]:[])].every(key=>
+            ...(operation.behavior?.reconcileExact?.adjustmentJournal?["adjustmentCount"]:[]),
+            ...(operation.behavior?.reconcileExact?.unverifiedProofField?
+              ["unverifiedPostedTotal","unverifiedPostingCount"]:[])].every(key=>
             typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[key])))
           throw Error("El servidor devolvió una conciliación inválida.");
         if(operation.behavior?.reconcileExact?.adjustmentPreview&&
@@ -973,6 +975,20 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
           ["Saldo esperado",report.expectedAvailable],["Diferencia",report.difference],
           ["Movimientos",report.postingCount]
         ].map(([name,value])=><React.Fragment key={name}><dt>{name}</dt><dd>{value}</dd></React.Fragment>)}</dl>
+        {operation.behavior?.reconcileExact?.unverifiedProofField&&
+          <section data-testid="external-proof-boundary" aria-label="Cobros sin verificación externa">
+            <h4>Verificación externa pendiente</h4>
+            <dl className="ledger-values">
+              <dt>Cobros internos sin constancia externa</dt>
+              <dd data-testid="unverified-posted-total">{report.unverifiedPostedTotal}</dd>
+              <dt>Movimientos sin constancia externa</dt>
+              <dd data-testid="unverified-posting-count">{report.unverifiedPostingCount}</dd>
+            </dl>
+            <p className="related-summary-hint">
+              La cobertura de la orden es interna. No acredita liquidación de tarjeta,
+              transferencia bancaria ni devolución de un proveedor.
+            </p>
+          </section>}
         {operation.behavior?.reconcileExact?.adjustmentPreview&&
           <section data-testid="exact-adjustment-preview" aria-label="Vista previa de ajustes" className="related-summary">
             <h4>Vista previa de ajustes</h4>
