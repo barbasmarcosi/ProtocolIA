@@ -538,7 +538,31 @@ try{
   assert.equal(cents((await balance("OT-ADJ-CROSS")).record.chargeTotal),110n);
   assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
     " WHERE adjustment_id='AH-PLUS-01'"),"1");
-  console.log("PROTOCOLIA_S2C1B4_GLOBAL_KEY_PASS cross-parent replay and rollback "+build.target);
+  // Concurrent requests on distinct parents cannot bypass the global unique index.
+  const raceParents=Array.from({length:10},(_,i)=>"OT-GLOBAL-"+String(i).padStart(2,"0"));
+  for(let i=0;i<raceParents.length;i++)
+    await status("/api/work-orders",201,{method:"POST",body:order(raceParents[i],[
+      charge("GL-"+String(i).padStart(2,"0"),"1.00")
+    ])});
+  const crossRace=await Promise.all(raceParents.map(number=>
+    apply(number,"AH-GLOBAL-RACE-01","0.01")));
+  assert.equal(crossRace.filter(x=>x.status===201).length,1,
+    "Exactly one cross-parent correction can commit with a shared key");
+  assert.equal(crossRace.filter(x=>x.status===409).length,9,
+    "All other cross-parent correction requests must conflict");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE adjustment_id='AH-GLOBAL-RACE-01'"),"1");
+  let total=0n;
+  for(const number of raceParents){
+    const record=(await balance(number)).record;
+    total+=cents(record.chargeTotal);
+  }
+  assert.equal(total,1001n,
+    "Ten independent orders must receive exactly one 0.01 correction in total");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id LIKE 'OT-GLOBAL-%'"),"4",
+    "Nine rejected cross-parent writes must leave no audit fragments");
+  console.log("PROTOCOLIA_S2C1B4_GLOBAL_KEY_PASS cross-parent replay, race and rollback "+build.target);
   adjusted=await apply("OT-HTTP-ADJ","AH-MINUS-1","-0.10");
   assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
   assert.equal(cents(adjusted.data.chargeTotal),310n);
