@@ -320,10 +320,46 @@ try{
   assert.equal(drift.coverageState,"inconsistent");
   assert.equal(cents(drift.openingBalance),1000n);
   assert.equal(cents(drift.available),900n);
+  // DG-01: never debit or journal a receipt if the parent is already inconsistent.
+  await status("/api/payments",409,{method:"POST",body:payment("DRIFT-POST","OT-DRIFT","1.00")});
+  await status("/api/payments/DRIFT-POST",404);
+  const driftAfterDenied=await status("/api/work-orders/OT-DRIFT/reconciliation",200);
+  assert.equal(driftAfterDenied.coverageState,"inconsistent");
+  assert.equal(cents(driftAfterDenied.available),900n);
+  const postedAudit=docker("exec","-T","db","psql","-t","-A","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia",
+    "-c","SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Payment' AND resource_id='DRIFT-POST'");
+  assert.equal(postedAudit,"0","Rejected receipt must leave no audit row");
+  console.log("PROTOCOLIA_LEDGER_DRIFT_GUARD_PASS DG-01");
   docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","protocolia","-d","protocolia",
     "-c","UPDATE work_order SET available=10.00 WHERE number='OT-DRIFT'");
   assert.equal((await balance("OT-DRIFT")).snapshot.coverageState,"unpaid");
   console.log("PROTOCOLIA_LEDGER_COVERAGE_PASS LC-09");
+
+  // DG-02: a reversed receipt must not mask pre-existing drift. Its status,
+  // credit and audit must remain unchanged after an HTTP 409 transaction rollback.
+  await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-DRIFT-REVERSE","10.00")});
+  await status("/api/payments",201,{method:"POST",
+    body:payment("DRIFT-REVERSE","OT-DRIFT-REVERSE","3.00")});
+  assert.equal((await balance("OT-DRIFT-REVERSE")).snapshot.coverageState,"partial");
+  docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","protocolia","-d","protocolia",
+    "-c","UPDATE work_order SET available=6.00 WHERE number='OT-DRIFT-REVERSE'");
+  assert.equal((await status("/api/work-orders/OT-DRIFT-REVERSE/reconciliation",200)).coverageState,"inconsistent");
+  await status("/api/payments/DRIFT-REVERSE/reverse",409,{method:"POST"});
+  assert.equal((await status("/api/payments/DRIFT-REVERSE",200)).status,"posted");
+  const deniedReverse=await status("/api/work-orders/OT-DRIFT-REVERSE/reconciliation",200);
+  assert.equal(deniedReverse.coverageState,"inconsistent");
+  assert.equal(cents(deniedReverse.available),600n);
+  const reversalAudit=docker("exec","-T","db","psql","-t","-A","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia",
+    "-c","SELECT COUNT(*) FROM protocolia_audit_event WHERE entity_name='Payment' AND resource_id='DRIFT-REVERSE' AND field_name='status'");
+  assert.equal(reversalAudit,"0","Rejected reversal must leave no status audit");
+  docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1","-U","protocolia","-d","protocolia",
+    "-c","UPDATE work_order SET available=7.00 WHERE number='OT-DRIFT-REVERSE'");
+  assert.equal((await status("/api/payments/DRIFT-REVERSE/reverse",200,{method:"POST"})).status,"reversed");
+  assert.equal((await balance("OT-DRIFT-REVERSE")).snapshot.coverageState,"unpaid");
+  await status("/api/payments/DRIFT-REVERSE/reverse",409,{method:"POST"});
+  console.log("PROTOCOLIA_LEDGER_DRIFT_GUARD_PASS DG-02");
 
   assert.equal(typeof build.irSha256,"string");
   assert.equal(ir.operations.some(x=>x.behavior.kind==="reconcileExact"),true);
