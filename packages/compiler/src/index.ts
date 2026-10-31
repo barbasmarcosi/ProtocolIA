@@ -565,6 +565,33 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const foreign=child?.fields.find(x=>x.name===reconciliation?.referenceField);
       const amount=child?.fields.find(x=>x.name===reconciliation?.amountField);
       const status=child?.fields.find(x=>x.name===reconciliation?.stateField);
+      const chargeSource=reconciliation?.chargeSource===undefined?undefined:
+        entity.fields.find(x=>x.name===reconciliation.chargeSource);
+      // A bound charge source is required, exact decimal, and cannot be patched
+      // after the ledger is opened. It constrains a configured balance, it does
+      // not silently synthesize a trustworthy price from arbitrary data.
+      const unsafeCharge=!!reconciliation?.chargeSource&&(
+        !chargeSource||chargeSource===opening||chargeSource===balance||
+        chargeSource.type!=="decimal"||!chargeSource.required||chargeSource.nullable||
+        !chargeSource.decimal||chargeSource.decimal.min!=="0"||
+        chargeSource.decimal.scale!==opening?.decimal?.scale||
+        chargeSource.decimal.precision>(opening?.decimal?.precision??0)||
+        chargeSource.reference!==undefined||chargeSource.initial!==undefined||
+        operations.some(x=>x.entity===entity.name&&
+          (x.behavior.kind==="patchFields"&&
+            [chargeSource.name,opening?.name,balance?.name].includes(x.behavior.field)||
+           x.behavior.kind==="patchTogether"||
+           x.behavior.kind==="delete")));
+      if(reconciliation?.serverOnly!==undefined&&reconciliation.serverOnly!==true&&
+        reconciliation.serverOnly!==false || reconciliation?.serverOnly===true&&!reconciliation.chargeSource){
+        reject("invalid-server-only-balance",op.name+" serverOnly requires an immutable source-declared charge",op);
+        continue;
+      }
+      if(unsafeCharge){
+        reject("invalid-exact-charge-source",op.name+
+          " requires one immutable nonnegative exact decimal charge with compatible scale; no balance/source patches",op);
+        continue;
+      }
       if(!reconciliation||!opening||!balance||opening===balance||
         opening.type!=="decimal"||balance.type!=="decimal"||!opening.decimal||!balance.decimal||
         !opening.required||opening.nullable||!balance.required||balance.nullable||
@@ -575,7 +602,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
         !status||status.initial!==reconciliation.postedState||
         reconciliation.postedState===reconciliation.reversedState||
-        !Object.values(reconciliation).every(x=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
+        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly")
+          .every(([,x])=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
         f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
         metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
         op.parameters.properties.has("input")){
@@ -1348,7 +1376,21 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
-      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal)){
+      // Read every declared TypeSpec operation: CREATE may precede the
+      // reconciliation operation, so partially built IR must not decide DTO shape.
+      const sourceBoundReconcile=ops.find(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="reconcileExact"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        metadata(p,"reconcileExact",candidate)?.serverOnly===true);
+      const serverOnlyLedger=sourceBoundReconcile?
+        metadata(p,"reconcileExact",sourceBoundReconcile):undefined;
+      const serverOnlyFields=new Set<string>(serverOnlyLedger?
+        [String(serverOnlyLedger.openingField),String(serverOnlyLedger.availableField)]:[]);
+      if(serverOnlyLedger&&[...serverOnlyFields].some(name=>props?.has(name))){
+        reject("server-only-request-spoof",op.name+" must omit both server-derived balances from CREATE DTO",op);
+        continue;
+      }
+      for(const exact of entity.fields.filter(field=>field.type==="decimal"&&!field.computedProduct&&!field.computedRoundedProduct&&!field.computedDiscountedTotal&&!serverOnlyFields.has(field.name))){
         const dto=props?.get(exact.name);
         const actual=dto?field(p,dto):undefined;
         const expected=exact.decimal;
@@ -1504,7 +1546,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
           amountField:String(reconciliation.amountField),
           stateField:String(reconciliation.stateField),
           postedState:String(reconciliation.postedState),
-          reversedState:String(reconciliation.reversedState)
+          reversedState:String(reconciliation.reversedState),
+          ...(reconciliation.chargeSource!==undefined?
+            {chargeSource:String(reconciliation.chargeSource)}:{}),
+          ...(reconciliation.serverOnly===true?{serverOnly:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),

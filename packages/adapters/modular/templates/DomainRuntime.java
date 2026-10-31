@@ -519,6 +519,19 @@ public class DomainRuntime {
       body=new java.util.LinkedHashMap<>(body);
       body.put(e.ownerField(),subject);
     }
+    // Bind the server-managed opening/available values *before* generic
+    // required-field validation, while rejecting all client-supplied copies.
+    var derivedLedger=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x -> e.name().equals(x.parentEntity())).findFirst().orElse(null);
+    if(derivedLedger!=null&&derivedLedger.serverOnly()){
+      if(body==null||body.containsKey(derivedLedger.openingField())||
+          body.containsKey(derivedLedger.availableField()))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Server-managed balance cannot be supplied");
+      body=new java.util.LinkedHashMap<>(body);
+      Object source=body.get(derivedLedger.chargeSource());
+      body.put(derivedLedger.openingField(),source);
+      body.put(derivedLedger.availableField(),source);
+    }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
     if(op.moveBatch()!=null){
@@ -546,6 +559,15 @@ public class DomainRuntime {
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
       if(opening.compareTo(available)!=0)
         throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
+      if(reconciliation.chargeSource()!=null){
+        BigDecimal charge=new BigDecimal((String)body.get(reconciliation.chargeSource()));
+        if(opening.compareTo(charge)!=0)
+          throw new InvalidInputField(reconciliation.openingField(),"invalid_comparison");
+        // Persist the source value as the actual opening/balance. Do not trust
+        // independently supplied client duplicates even when numerically equal.
+        body.put(reconciliation.openingField(),body.get(reconciliation.chargeSource()));
+        body.put(reconciliation.availableField(),body.get(reconciliation.chargeSource()));
+      }
     }
     if(op.moveBatch()!=null){
       var batch=op.moveBatch();

@@ -400,7 +400,7 @@ export function generate(ir,spec,out){
     copyFileSync(source,full);contents.push(p);
   };
   for(const op of ir.operations.filter(o=>o.behavior.kind==="create"))
-    assertDecimalWireSchema(spec,op,ir.entities.find(e=>e.name===op.entity));
+    assertDecimalWireSchema(spec,op,ir.entities.find(e=>e.name===op.entity),ir);
   const overdueRules=compileOverduePolicies(ir);
   const schema=[];
   for(const e of ir.entities){
@@ -512,7 +512,14 @@ export function generate(ir,spec,out){
     copy("web/"+f,join(uiRoot,f));
   write("web/vite.config.mjs",'import {defineConfig} from "vite";\n'+
     'export default defineConfig({base:"/",build:{outDir:"../dist/static",emptyOutDir:false}});\n');
-  const resources=ir.entities.map(entity=>({entity,view:entity.view??entity.name,
+  const resources=ir.entities.map(entity=>{
+    const ledger=ir.operations.find(op=>op.entity===entity.name&&
+      op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const internal=new Set(ledger?.serverOnly===true?
+      [ledger.openingField,ledger.availableField]:[]);
+    return {entity:{...entity,fields:entity.fields.map(field=>({
+      ...field,...(internal.has(field.name)?{serverDerived:true}:{})
+    }))},view:entity.view??entity.name,
     transitions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     patchFieldsOptions:ir.operations.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
@@ -520,7 +527,8 @@ export function generate(ir,spec,out){
     operations:Object.fromEntries(ir.operations.filter(op=>
       op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
         op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
-      ]))}));
+      ]))};
+  });
   write("dist/static/protocolia-ui.json",JSON.stringify({...resources[0],resources},null,2)+"\n");
   write("Dockerfile",[
     "FROM node:24-bookworm-slim","WORKDIR /app",

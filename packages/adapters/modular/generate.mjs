@@ -331,7 +331,7 @@ export function generate(ir, openapi, outDir) {
   const overdueRules=compileOverduePolicies(ir);
   const queryPlans=ops.filter(op=>op.behavior.kind==="queryPage").map(op=>({op,plan:buildQueryPlan(ir,op)}));
   for(const op of ops.filter(o=>o.behavior.kind==="create"))
-    assertDecimalWireSchema(openapi,op,entityMap.get(op.entity));
+    assertDecimalWireSchema(openapi,op,entityMap.get(op.entity),ir);
   const classes=[
     "package dev.protocolia.modular;",
     "import java.util.List;",
@@ -352,10 +352,10 @@ export function generate(ir, openapi, outDir) {
     "  public record QueryFilter(String name,String expression,String comparator,String type,Integer minLength,Integer maxLength,Integer min,Integer max,String pattern) {}",
     "  public record QuerySpec(String projection,String source,String order,List<QueryFilter> filters) {}",
     "  public record RelatedSum(String sql,String childReadCapability) {}",
-    "  public record ExactReconciliation(String parentEntity,String sql,String childReadCapability,String openingField,String availableField) {}",
+    "  public record ExactReconciliation(String parentEntity,String sql,String childReadCapability,String openingField,String availableField,String chargeSource,boolean serverOnly) {}",
     "  public static final java.util.Map<String,ExactReconciliation> EXACT_RECONCILIATIONS=java.util.Map.ofEntries(",
     [...exactReconciliations.entries()].map(([key,v])=>"    java.util.Map.entry("+j(key)+",new ExactReconciliation("+
-      [j(v.parentEntity),j(v.sqlSpring),j(v.childReadCapability),j(v.openingField),j(v.availableField)].join(",")+"))").join(",\\n"),
+      [j(v.parentEntity),j(v.sqlSpring),j(v.childReadCapability),j(v.openingField),j(v.availableField),v.chargeSource?j(v.chargeSource):"null",v.serverOnly===true?"true":"false"].join(",")+"))").join(",\\n"),
     "  );",
     "  public static final java.util.Map<String,RelatedSum> RELATED_SUMS=java.util.Map.ofEntries(",
     [...relatedSums.entries()].map(([name,plan])=>"    java.util.Map.entry("+j(name)+",new RelatedSum("+j(plan.sqlSpring)+","+j(plan.childReadCapability)+"))").join(",\\n"),
@@ -505,15 +505,23 @@ export function generate(ir, openapi, outDir) {
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
   copy("src/main/resources/db/migration/V2__protocolia_bff_http_session.sql","BffHttpSessionSchema.sql");
-  const resources=entities.map(entity=>({
-    entity,view:entity.view??entity.name,
+  const resources=entities.map(entity=>{
+    const ledger=ops.find(op=>op.entity===entity.name&&
+      op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const internal=new Set(ledger?.serverOnly===true?
+      [ledger.openingField,ledger.availableField]:[]);
+    return {
+    entity:{...entity,fields:entity.fields.map(field=>({
+      ...field,...(internal.has(field.name)?{serverDerived:true}:{})
+    }))},view:entity.view??entity.name,
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     patchFieldsOptions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
-  }));
+  };
+  });
   write("src/main/resources/static/protocolia-ui.json",JSON.stringify({
     ...resources[0], resources
   },null,2)+"\n");
