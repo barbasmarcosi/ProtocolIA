@@ -220,6 +220,25 @@ async function previewMobileSmoke(){
     await page.getByTestId("exact-adjustment-form").waitFor({timeout:15000});
     assert.equal(await page.getByTestId("exact-adjustment-amount").inputValue(),"",
       "Recovery must require fresh human review rather than replaying the stale amount");
+    const staleId=staleWrite.request().postDataJSON().adjustmentId;
+    const freshForm=page.getByTestId("exact-adjustment-form");
+    await freshForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await freshForm.getByTestId("exact-adjustment-amount").fill("0.02");
+    await freshForm.getByTestId("exact-adjustment-reason").fill(
+      "Nueva revisión humana después del conflicto concurrente");
+    await freshForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-after").textContent(),"1.08");
+    const [freshWrite]=await Promise.all([
+      page.waitForResponse(response=>response.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(freshWrite.request().postDataJSON().adjustmentId,staleId,
+      "Unknown or rejected result must preserve the idempotency key");
+    assert.equal(freshWrite.status(),201);
+    assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),108n);
     console.log("PROTOCOLIA_S2C1B3_MOBILE_CAS_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
     console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
