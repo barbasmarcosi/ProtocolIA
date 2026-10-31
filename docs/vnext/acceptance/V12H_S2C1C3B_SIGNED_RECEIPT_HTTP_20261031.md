@@ -20,7 +20,14 @@ The generated endpoint invokes `protocolia_record_provider_receipt_candidate`, w
 
 `scripts/vnext/probe-provider-http.mjs` now exercises both routes against independently generated applications and disposable PostgreSQL in the existing provider CI matrix. The signed candidate test asserts 10 parallel requests produce exactly **1 × 202 and 9 × 200**, verifies the persisted receipt/order/amount, then checks forged/mismatched/reversed/missing receipts, altered signature, expired timestamp, unknown schema version, numeric rather than string amount, duplicate keys, extra `settled` key, invalid decimal scale, zero amount, replay with changed claim and an already unbound digest-only event. Rejected claims must leave no candidate and no new envelope; source money and `provider_settlement_state='unverified'` remain unchanged. The old digest-only ingress and HMAC tests remain in the workflow.
 
-**Evidence status:** PENDING GitHub Actions for this branch. No dual-target pass is asserted before logs are inspected.
+**Evidence status: VERIFIED on functional SHA `ec817843ec50ffe84a338b04ae05e18d1385c51c` (2026-10-31).**
+
+- [Signed provider HTTP, inbox, generated PostgreSQL and cross-language HMAC CI #41212128593](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41212128593): **SUCCESS** on independently generated NestJS and modular Spring. The actual HTTP probe asserts `PROTOCOLIA_S2C1C3B_SIGNED_RECEIPT_HTTP_PASS` for both; 10-way concurrent delivery, tamper/replay, malformed payload and no external settlement.
+- [General quality #41212128558](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41212128558): **SUCCESS**.
+- [Exact drift-safe receipts #41212128541](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41212128541): **SUCCESS**.
+- [Immutable itemized finance #41212128561](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41212128561): **SUCCESS**, NestJS and modular Spring.
+
+This is a **sandbox candidate proof only**, not production provider acceptance or a verified external settlement.
 
 ## Remaining blockers
 
