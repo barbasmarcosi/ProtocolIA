@@ -231,7 +231,7 @@ namespace TallerPaymentGuard {
     { @statusCode _: 204; } | NotFound | Conflict | Unauthorized | Forbidden;
 
   @route("/api/work-orders")
-  @post @behavior("create","WorkOrder") @audit("symptom,status")
+  @post @behavior("create","WorkOrder") @audit("symptom,status,chargeTotal")
   @createDetails("ChargeLine","orderNumber","charges","amount","chargeTotal")
   @capability("orders.write")
   op createWorkOrder(@body input: WorkOrderRequest):
