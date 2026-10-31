@@ -557,6 +557,9 @@ try{
   const outcomePath=(number,id)=>"/api/work-orders/"+number+"/adjustments/"+id;
   const auditBeforeLookup=sql("SELECT COUNT(*) FROM protocolia_audit_event "+
     "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'");
+  const outcomeHttp=await fetch(base+outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),
+    {headers:{Authorization:auth("manager")}});
+  assert.equal(outcomeHttp.headers.get("cache-control"),"no-store");
   const observed=await status(outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),200);
   assert.deepEqual(observed,{adjustmentId:"AH-PLUS-01",delta:"0.20",
     reason:"Corrección autorizada de ensayo",status:"committed"});
