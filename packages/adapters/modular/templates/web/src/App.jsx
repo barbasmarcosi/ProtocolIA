@@ -815,7 +815,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       setAmount("");setReason("");setConfirmed(null);setOpen(false);
       setAdjustmentId(crypto.randomUUID());
       onApplied?.(saved);
-    }catch(e){setError(e.message);setConfirmed(null);}
+    }catch(e){setNeedsRefresh(true);setError(e.message);setConfirmed(null);}
     finally{setBusy(false);}
   }
   return <section className="exact-adjustment-composer" data-testid="exact-adjustment-composer"
