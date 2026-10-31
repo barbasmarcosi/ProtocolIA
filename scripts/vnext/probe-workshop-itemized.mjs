@@ -326,6 +326,69 @@ try{
   await status("/api/payments/PD-BASE/reverse",200,{method:"POST"});
   assert.equal(cents((await balance(driftId)).record.available),250n);
   console.log("PROTOCOLIA_S2C0_DRIFT_ALL_PASS "+build.target);
+  // S2c-1b0: actual PostgreSQL-only journal rehearsal. There is deliberately
+  // NO adjustment HTTP write route; this isolated SQL validates its future
+  // durable constraints and exact snapshot math, not customer authorization.
+  const jtable="protocolia_exact_adjustment_work_order";
+  const directInsert=(orderNo,id,delta)=>
+    "INSERT INTO "+jtable+" (parent_id,adjustment_id,delta,reason,actor) VALUES ("+
+    "'"+orderNo+"','"+id+"',"+delta+",'Ajuste firmado de ensayo','fixture_qa')";
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable),"0");
+  await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-NEG",[
+    charge("J-ORIG-L","2.00"),charge("J-ORIG-P","1.00","parts")
+  ])});
+  await status("/api/payments",201,{method:"POST",body:
+    pay("J-POSTED-1","OT-ADJ-NEG","1.00")});
+  sql(directInsert("OT-ADJ-NEG","J-NEG-0001","-0.50"));
+  const journalDrift=(await balance("OT-ADJ-NEG")).snapshot;
+  assert.equal(journalDrift.balanced,false);
+  assert.equal(journalDrift.coverageState,"inconsistent");
+  assert.equal(journalDrift.adjustmentPreviewEligible,false);
+  assert.equal(cents(journalDrift.maxSafeDecrease),0n);
+  await status("/api/payments",409,{method:"POST",body:
+    pay("J-POSTED-DENIED","OT-ADJ-NEG","0.10")});
+  await status("/api/payments/J-POSTED-DENIED",404);
+  await status("/api/payments/J-POSTED-1/reverse",409,{method:"POST"});
+  assert.throws(()=>sql("UPDATE "+jtable+" SET delta=-0.25 "+
+    "WHERE parent_id='OT-ADJ-NEG'"),/append-only|Compose/i);
+  assert.throws(()=>sql("DELETE FROM "+jtable+
+    " WHERE parent_id='OT-ADJ-NEG'"),/append-only|Compose/i);
+  assert.throws(()=>sql(directInsert("OT-ADJ-NEG","J-NEG-0001","-0.30")),
+    /duplicate|Compose/i);
+  assert.throws(()=>sql(directInsert("OT-ADJ-NEG","J-NEG-ZERO","0.00")),
+    /check constraint|Compose/i);
+  assert.throws(()=>sql(directInsert("OT-JOURNAL-ORPHAN","J-ORPHAN","1.00")),
+    /foreign key|Compose/i);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-ADJ-NEG'"),"1");
+  console.log("PROTOCOLIA_S2C1B0_JOURNAL_PASS immutable idempotency and source-drift denial");
+  // Test fixture explicitly models the transaction that a future *reviewed*
+  // authorized API must atomically execute. It bypasses no generated HTTP gate.
+  sql("BEGIN; UPDATE work_order SET charge_total=2.50,"+
+    " opening_balance=2.50,available=1.50 WHERE number='OT-ADJ-NEG'; COMMIT;");
+  const signed=(await balance("OT-ADJ-NEG")).snapshot;
+  assert.equal(signed.balanced,true);
+  assert.equal(signed.coverageState,"partial");
+  assert.equal(cents(signed.openingBalance),250n);
+  assert.equal(cents(signed.available),150n);
+  assert.equal(cents(signed.postedTotal),100n);
+  assert.equal(cents(signed.maxSafeDecrease),150n);
+  assert.equal(cents((await status("/api/charge-lines/J-ORIG-L",200)).amount),200n);
+  assert.equal(cents((await status("/api/charge-lines/J-ORIG-P",200)).amount),100n);
+  await status("/api/payments",201,{method:"POST",body:
+    pay("J-POSTED-AFTER","OT-ADJ-NEG","0.50")});
+  assert.equal(cents((await balance("OT-ADJ-NEG")).record.available),100n);
+  await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-POS",[
+    charge("J-ORIG-0","0.00")
+  ])});
+  sql("BEGIN; "+directInsert("OT-ADJ-POS","J-POS-0001","0.30")+"; "+
+    "UPDATE work_order SET charge_total=0.30,opening_balance=0.30,available=0.30 "+
+    "WHERE number='OT-ADJ-POS'; COMMIT;");
+  const plus=(await balance("OT-ADJ-POS")).snapshot;
+  assert.equal(plus.coverageState,"unpaid");
+  assert.equal(cents(plus.openingBalance),30n);
+  assert.equal(cents(plus.maxSafeDecrease),30n);
+  console.log("PROTOCOLIA_S2C1B0_JOURNAL_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2B_ITEMIZED_ALL_PASS "+build.target);
 }finally{
