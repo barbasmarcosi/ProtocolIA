@@ -15,6 +15,7 @@ import {assertPatchTogether} from "../compound-patch.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
+import {assertExactAdjustment} from "../exact-adjustment.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -130,9 +131,9 @@ export function generate(ir, openapi, outDir) {
        (f.maxLength??255)<(pk.maxLength??255))
       throw Error("Unsupported FK "+e.name+"."+f.name+": reference another entity's public identity with onDelete=restrict");
   }
-  const supported = new Set(["create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
-  const methods = {create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
-  const success = {create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
+  const supported = new Set(["adjustExact","create","get","listPage","queryPage","auditPage","inboxPage","ackNotification","patchFields","patchTogether","atomicIncrement","transition","reassignReference","sumRelated","sumDetails","reconcileExact","replaceDetails","delete","health"]);
+  const methods = {adjustExact:"POST",create:"POST",get:"GET",listPage:"GET",queryPage:"GET",auditPage:"GET",inboxPage:"GET",ackNotification:"POST",patchFields:"PATCH",patchTogether:"PATCH",atomicIncrement:"PATCH",transition:"POST",reassignReference:"PATCH",sumRelated:"GET",sumDetails:"GET",reconcileExact:"GET",replaceDetails:"PUT",delete:"DELETE",health:"GET"};
+  const success = {adjustExact:201,create:201,get:200,listPage:200,queryPage:200,auditPage:200,inboxPage:200,ackNotification:200,patchFields:200,patchTogether:200,atomicIncrement:200,transition:200,reassignReference:200,sumRelated:200,sumDetails:200,reconcileExact:200,replaceDetails:200,delete:204,health:200};
   const ops = ir.operations;
   const inboxes=compileRecipientInboxes(ir);
   const relatedSums=compileRelatedSums(ir);
@@ -298,6 +299,11 @@ export function generate(ir, openapi, outDir) {
       if(["auditPage","reassignReference","inboxPage","ackNotification"].includes(op.behavior.kind))continue;
       const expected=["create","patchFields","patchTogether","atomicIncrement","transition","reassignReference","replaceDetails","delete"].includes(op.behavior.kind)?write:read;
       const ownerPatch=op.behavior.kind==="patchFields"&&e.fields.some(f=>f.ownerManaged);
+      const reviewedAdjustment=op.behavior.kind==="adjustExact";
+      if(reviewedAdjustment){
+        assertExactAdjustment(ir,openapi,op,exactReconciliations);
+        if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
+      }
       if(ownerPatch){
         if(!op.capability||op.capability==="public"||op.capability===read||op.capability===write)
           throw Error("Owner field patch requires independent capability "+op.name);
@@ -307,7 +313,7 @@ export function generate(ir, openapi, outDir) {
           op.capability===auditRead?.capability)
           throw Error("Invalid independently authorized detail editor "+op.name);
         if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
-      }else if(op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
+      }else if(!reviewedAdjustment&&op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }
   readCaps.push(...new Set(inboxes.map(r=>r.readCapability)));
