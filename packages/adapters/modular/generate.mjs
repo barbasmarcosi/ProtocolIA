@@ -344,7 +344,7 @@ export function generate(ir, openapi, outDir) {
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
     "  public record MoveUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceField,String targetField,String amountField,int maxBalance,String parentWriteCapability) {}",
     "  public record MoveLeg(String sourceField,String targetField,String quantityField) {}",
-    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState) {}",
+    "  public record CreateDetails(String childEntity,String parentField,String rowsField,String childWriteCapability,int maxRows,boolean versioned,String closeField,String closeState,String chargeAmountField,String chargeTotalField) {}",
     "  public record MoveBatch(String stockTable,String stockKeyColumn,String availableColumn,int maxBalance,String parentWriteCapability,List<MoveLeg> legs) {}",
     "  public record ReverseUnits(String stockTable,String stockKeyColumn,String availableColumn,String sourceColumn,String targetColumn,String amountColumn,int maxBalance,String parentWriteCapability) {}",
     "  public record ExactDebit(String balanceTable,String balanceKey,String balanceColumn,String referenceField,String amountField,String parentWriteCapability) {}",
@@ -471,7 +471,8 @@ export function generate(ir, openapi, outDir) {
       createDetails="new CreateDetails("+[
         j(plan.child.name),j(plan.relation.name),j(plan.rowsField),
         j(plan.childWriteCapability),n(plan.maxRows),b.createDetails.versioned===true?"true":"false",
-        j(b.createDetails.closeField??""),j(b.createDetails.closeState??"")
+        j(b.createDetails.closeField??""),j(b.createDetails.closeState??""),
+        j(plan.chargeAmountField??""),j(plan.chargeTotalField??"")
       ].join(",")+")";
     }
     let release="null";
