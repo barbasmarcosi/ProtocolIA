@@ -56,7 +56,7 @@ namespace ProtocolIA.Domain {
     stateField: valueof string, postedState: valueof string, reversedState: valueof string,
     chargeSource?: valueof string, serverOnly?: valueof boolean,
     lifecycle?: valueof boolean, adjustmentPreview?: valueof boolean,
-    adjustmentJournal?: valueof boolean);
+    adjustmentJournal?: valueof boolean, unverifiedProofField?: valueof string);
   extern dec reverseExact(target: Operation, balanceEntity: valueof string,
     availableField: valueof string, referenceField: valueof string, amountField: valueof string);
   extern dec debitExact(target: Operation, balanceEntity: valueof string,
