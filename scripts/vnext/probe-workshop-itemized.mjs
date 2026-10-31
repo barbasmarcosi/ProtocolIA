@@ -129,6 +129,29 @@ async function browserSmoke(){
     console.log("PROTOCOLIA_S2B_ITEMIZED_MOBILE_PASS");
   }finally{await browser.close();}
 }
+async function previewMobileSmoke(){
+  if(process.env.PROTOCOLIA_BROWSER_VERIFY!=="true")return;
+  const {chromium}=await import("playwright");
+  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+  try{
+    const page=await browser.newPage({viewport:{width:390,height:844}});
+    const errors=[];page.on("pageerror",e=>errors.push(e.message));
+    await page.goto(base+"/",{waitUntil:"domcontentloaded"});
+    await page.getByTestId("username").fill(env.PROTOCOLIA_MANAGER_USERNAME);
+    await page.getByTestId("password").fill(env.PROTOCOLIA_MANAGER_PASSWORD);
+    await page.getByRole("button",{name:"Entrar"}).click();
+    const nav=page.getByRole("navigation",{name:"Secciones de la aplicación"});
+    await nav.waitFor({timeout:30000});
+    await nav.getByRole("button",{name:"Órdenes de trabajo",exact:true}).click();
+    await page.getByTestId("open-detail-OT-EXACT").waitFor({timeout:15000});
+    await page.getByTestId("open-detail-OT-EXACT").click();
+    await page.getByTestId("exact-adjustment-preview").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("max-safe-decrease").textContent(),"0.30");
+    assert.equal(await page.getByTestId("max-safe-increase").textContent(),"999999999999.69");
+    assert.deepEqual(errors,[],"Generated repricing preview must have zero JS errors");
+    console.log("PROTOCOLIA_S2C1A_PREVIEW_MOBILE_PASS "+build.target);
+  }finally{await browser.close();}
+}
 try{
   const port=await freePort();env.PROTOCOLIA_HOST_PORT=String(port);
   writeFileSync(join(scratch,"env"),
@@ -155,6 +178,7 @@ try{
   assert.equal(cents(baseline.snapshot.maxSafeDecrease),30n);
   assert.equal(cents(baseline.snapshot.maxSafeIncrease),99999999999969n);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS unpaid");
+  await previewMobileSmoke();
   const audit=await status("/api/work-orders/OT-EXACT/audit",200);
   assert.ok(audit.items.some(row=>row.fieldName==="chargeTotal"&&
     cents(String(row.afterValue).replace(/^"|"$/g,""))===30n),
