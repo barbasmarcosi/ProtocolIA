@@ -605,6 +605,12 @@ export function compileDomain(p: Program): IrDocument | undefined {
           " lifecycle snapshot requires true server-only exact charge-source initialization",op);
         continue;
       }
+      if(reconciliation?.adjustmentJournal!==undefined&&reconciliation.adjustmentJournal!==true ||
+        reconciliation?.adjustmentJournal===true&&reconciliation.adjustmentPreview!==true){
+        reject("invalid-exact-adjustment-journal",op.name+
+          " adjustment journal requires the explicit source-backed itemized preview",op);
+        continue;
+      }
       if(reconciliation?.adjustmentPreview!==undefined&&reconciliation.adjustmentPreview!==true){
         reject("invalid-exact-adjustment-preview",op.name+" preview must be explicit true on a reviewed itemized ledger",op);
         continue;
@@ -639,7 +645,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
         !status||status.initial!==reconciliation.postedState||
         reconciliation.postedState===reconciliation.reversedState||
-        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource"&&k!=="lifecycle"&&k!=="adjustmentPreview")
+        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource"&&k!=="lifecycle"&&k!=="adjustmentPreview"&&k!=="adjustmentJournal")
           .every(([,x])=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
         f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
         metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
@@ -1639,7 +1645,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
               {chargeSource:String(reconciliation.chargeSource)}):{}),
           ...(reconciliation.serverOnly===true?{serverOnly:true}:{}),
           ...(reconciliation.lifecycle===true?{lifecycle:true}:{}),
-          ...(reconciliation.adjustmentPreview===true?{adjustmentPreview:true}:{})
+          ...(reconciliation.adjustmentPreview===true?{adjustmentPreview:true}:{}),
+          ...(reconciliation.adjustmentJournal===true?{adjustmentJournal:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
           stockEntity:String(exactReverse.stockEntity),
