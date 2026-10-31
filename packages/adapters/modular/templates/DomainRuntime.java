@@ -501,6 +501,12 @@ public class DomainRuntime {
 
   private Map<String,Object> create(Manifest.Entity e, Manifest.Op op, Map<String,Object> body,
       Authentication user,String ifMatch,boolean nested) {
+    // A financial detail is immutable after its parent's atomic initial INSERT.
+    // The nested header workflow is allowed; independent child POST is not.
+    if(!nested&&Manifest.OPS.stream().anyMatch(x->x.createDetails()!=null&&
+        e.name().equals(x.createDetails().childEntity())&&
+        !x.createDetails().chargeAmountField().isEmpty()))
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"Exact charge rows are immutable");
     // Nested DTO is validated against the declared child entity, not flattened into parent SQL.
     java.util.List<Map<String,Object>> details=null;
     Manifest.Entity detailEntity=null;
@@ -529,6 +535,16 @@ public class DomainRuntime {
       }
       body=new java.util.LinkedHashMap<>(body);
       body.remove(plan.rowsField());
+      if(!plan.chargeAmountField().isEmpty()){
+        if(body.containsKey(plan.chargeTotalField()))
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Client cannot supply charge total");
+        BigDecimal total=BigDecimal.ZERO;
+        for(var detail:details)
+          total=total.add(new BigDecimal((String)detail.get(plan.chargeAmountField())));
+        // The parent exact-decimal constraints validate the summed total
+        // before any INSERT; child rows were validated above.
+        body.put(plan.chargeTotalField(),total.toPlainString());
+      }
     }
     String subject=user.getName();
     if(e.ownerField()!=null){
