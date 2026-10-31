@@ -519,6 +519,19 @@ public class DomainRuntime {
       body=new java.util.LinkedHashMap<>(body);
       body.put(e.ownerField(),subject);
     }
+    // Bind the server-managed opening/available values *before* generic
+    // required-field validation, while rejecting all client-supplied copies.
+    var derivedLedger=Manifest.EXACT_RECONCILIATIONS.values().stream()
+      .filter(x -> e.name().equals(x.parentEntity())).findFirst().orElse(null);
+    if(derivedLedger!=null&&derivedLedger.serverOnly()){
+      if(body==null||body.containsKey(derivedLedger.openingField())||
+          body.containsKey(derivedLedger.availableField()))
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Server-managed balance cannot be supplied");
+      body=new java.util.LinkedHashMap<>(body);
+      Object source=body.get(derivedLedger.chargeSource());
+      body.put(derivedLedger.openingField(),source);
+      body.put(derivedLedger.availableField(),source);
+    }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
     if(op.moveBatch()!=null){
