@@ -116,6 +116,23 @@ function appendProviderCandidate(plans,ddl){
         INTO actual_order,actual_amount,actual_state,actual_proof
         FROM ${b.childTable} p WHERE p.${b.receiptColumn}=v_receipt FOR UPDATE;
       IF NOT FOUND THEN RETURN 'missing'; END IF;
+      -- A concurrent first delivery can commit while we wait for the receipt
+      -- row lock. Recheck the immutable event after acquiring that lock:
+      -- same event -> duplicate, different event -> single-owner conflict.
+      -- This also preserves deterministic replay if status changed meanwhile.
+      SELECT payload_sha256 INTO old_digest
+        FROM protocolia_provider_envelope_inbox
+        WHERE provider_id=v_provider AND event_id=v_event FOR UPDATE;
+      IF FOUND THEN
+        IF old_digest IS DISTINCT FROM v_digest THEN RETURN 'conflict'; END IF;
+        SELECT receipt_id,order_id,amount INTO old_receipt,old_order,old_amount
+          FROM protocolia_provider_receipt_candidate
+          WHERE provider_id=v_provider AND event_id=v_event;
+        IF NOT FOUND THEN RETURN 'conflict'; END IF;
+        IF old_receipt=v_receipt AND old_order=v_order AND old_amount=v_amount
+        THEN RETURN 'duplicate'; END IF;
+        RETURN 'conflict';
+      END IF;
       IF actual_order<>v_order OR actual_amount<>v_amount OR
          actual_state<>'posted' OR actual_proof<>'unverified'
       THEN RETURN 'mismatch'; END IF;
