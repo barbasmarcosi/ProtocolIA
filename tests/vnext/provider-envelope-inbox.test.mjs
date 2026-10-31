@@ -13,7 +13,7 @@ test("provider inbox is opt-in only for fixed unverified ledger proof",()=>{
   assert.deepEqual(providerEnvelopeInboxSql(new Map([["ordinary",{}]])),[]);
   assert.deepEqual(providerEnvelopeInboxSql(new Map([
     ["ordinary",{}],["financial",plan]
-  ])).length,10);
+  ])).length,11);
 });
 test("provider envelope replay key excludes rotating signing key and is append-only",()=>{
   const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
@@ -87,4 +87,18 @@ test("sandbox lifecycle observations are sequenced, append-only and never settle
   assert.match(ddl,/WHERE receipt_id=v_receipt AND event_sequence=v_sequence/);
   assert.match(ddl,/SELECT payload_sha256 INTO old_digest/);
   assert.doesNotMatch(ddl,/UPDATE payment|SET provider_settlement_state/);
+});
+
+test("causal projection is read-only, gap-aware and cannot grant settlement authority",()=>{
+  const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
+  const projection=ddl.slice(ddl.indexOf("CREATE FUNCTION protocolia_provider_lifecycle_causal_projection"));
+  assert.match(projection,/LANGUAGE SQL STABLE/);
+  assert.match(projection,/ROW_NUMBER\(\) OVER \(ORDER BY event_sequence\)/);
+  assert.match(projection,/LAG\(reported_phase\) OVER \(ORDER BY event_sequence\)/);
+  assert.match(projection,/WHEN has_gap THEN 'gap'/);
+  assert.match(projection,/WHEN invalid_transition THEN 'contradictory'/);
+  assert.match(projection,/reported_phase<>'reported_pending'/);
+  assert.match(projection,/previous_phase='reported_failure'/);
+  assert.match(projection,/previous_phase='reported_reversal'/);
+  assert.doesNotMatch(projection,/UPDATE |DELETE |INSERT |SET provider_settlement_state|SECURITY DEFINER/);
 });
