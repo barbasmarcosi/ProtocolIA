@@ -827,11 +827,17 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       {open?"Cerrar":"Crear ajuste"}</button></div>
     {notice&&<p role="status" className="message">{notice}</p>}
     {error&&<p role="alert" className="message error" data-testid="exact-adjustment-error">{error}</p>}
+    {needsRefresh&&<div data-testid="exact-adjustment-refresh-required">
+      <p className="related-summary-hint">La confirmación anterior ya no es válida.
+        No se reintentará el ajuste automáticamente.</p>
+      <button type="button" className="ghost" data-testid="exact-adjustment-recover"
+        disabled={busy} onClick={()=>onRefresh?.()}>Actualizar conciliación y revisar de nuevo</button>
+    </div>}
     {open&&(!report?.balanced||!report?.adjustmentPreviewEligible)?
       <p className="message error" role="alert" data-testid="exact-adjustment-locked">
         No se puede ajustar: revisá la conciliación o los límites de la orden.
       </p>:null}
-    {open&&report?.balanced&&report?.adjustmentPreviewEligible&&
+    {open&&!needsRefresh&&report?.balanced&&report?.adjustmentPreviewEligible&&
       <form className="exact-adjustment-form" data-testid="exact-adjustment-form" onSubmit={preview}>
         <div className="field">
           <label htmlFor="exact-adjustment-direction">Tipo de corrección</label>
@@ -895,7 +901,8 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
           response.status===404?"El registro ya no existe.":"No se pudo conciliar el saldo.");
         const data=await response.json();
         if(!data||typeof data.balanced!=="boolean"||
-          !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount"].every(key=>
+          !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount",
+            ...(operation.behavior?.reconcileExact?.adjustmentJournal?["adjustmentCount"]:[])].every(key=>
             typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[key])))
           throw Error("El servidor devolvió una conciliación inválida.");
         if(operation.behavior?.reconcileExact?.adjustmentPreview&&
@@ -943,7 +950,8 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
           </section>}
         {adjustmentOperation&&report.balanced&&<ExactAdjustmentComposer
           operation={adjustmentOperation} reconciliation={operation} identity={identity}
-          auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}/>}
+          auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}
+          onRefresh={()=>setLocal(x=>x+1)}/>}
       </div>}
   </section>;
 }
