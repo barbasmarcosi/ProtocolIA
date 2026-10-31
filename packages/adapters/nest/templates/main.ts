@@ -1529,7 +1529,7 @@ class RuntimeService{
   // Test-only sandbox ingress: authenticates ORIGINAL HTTP bytes, never a settlement.
   async receiveSandboxProvider(req:any,res:any):Promise<void>{
     try{
-      if(process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true")
+      if(!spec.providerInboxEnabled||process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true")
         throw new Problem(404,"Sandbox provider ingress disabled");
       if(process.env.PROTOCOLIA_AUTH_MODE!=="demo")
         throw new Problem(503,"Sandbox ingress forbidden outside demo mode");
