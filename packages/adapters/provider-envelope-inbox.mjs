@@ -78,6 +78,9 @@ function appendProviderCandidate(plans,ddl){
       -- Later lifecycle observations must reference this binding, not claim
       -- the same receipt through a second event or another provider.
       UNIQUE (receipt_id),
+      -- Composite authority: a lifecycle row must match all immutable claims,
+      -- even if someone bypasses the generated SQL function.
+      UNIQUE (provider_id,event_id,receipt_id,order_id,amount),
       PRIMARY KEY(provider_id,event_id),
       FOREIGN KEY(provider_id,event_id)
         REFERENCES protocolia_provider_envelope_inbox(provider_id,event_id) ON DELETE RESTRICT
@@ -162,6 +165,122 @@ function appendProviderCandidate(plans,ddl){
     END $receipt_candidate$;`,
     `CREATE TRIGGER protocolia_provider_receipt_candidate_immutable_guard
       BEFORE UPDATE OR DELETE ON protocolia_provider_receipt_candidate
+      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
+  );
+
+  // S2c-1c4b: append-only, *non-authoritative* synthetic lifecycle signals.
+  // This is a sequencing inbox, NOT a settlement projection or payment state.
+  // Out-of-order sequences may be stored but never applied to the ledger.
+  ddl.push(
+    `CREATE TABLE protocolia_provider_lifecycle_observation (
+      provider_id VARCHAR(64) COLLATE "C" NOT NULL,
+      event_id VARCHAR(128) COLLATE "C" NOT NULL,
+      candidate_event_id VARCHAR(128) COLLATE "C" NOT NULL,
+      receipt_id VARCHAR(255) NOT NULL,
+      order_id VARCHAR(255) NOT NULL,
+      amount NUMERIC(${b.precision},${b.scale}) NOT NULL CHECK (amount>0),
+      event_sequence BIGINT NOT NULL CHECK (event_sequence BETWEEN 1 AND 2147483647),
+      reported_phase VARCHAR(32) COLLATE "C" NOT NULL CHECK
+        (reported_phase IN ('reported_pending','reported_success',
+          'reported_failure','reported_reversal')),
+      observed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider_id,event_id),
+      UNIQUE (receipt_id,event_sequence),
+      FOREIGN KEY (provider_id,event_id)
+        REFERENCES protocolia_provider_envelope_inbox(provider_id,event_id) ON DELETE RESTRICT,
+      FOREIGN KEY (provider_id,candidate_event_id,receipt_id,order_id,amount)
+        REFERENCES protocolia_provider_receipt_candidate
+          (provider_id,event_id,receipt_id,order_id,amount) ON DELETE RESTRICT
+    );`,
+    `CREATE FUNCTION protocolia_record_provider_lifecycle_observation(
+      v_provider TEXT,v_event TEXT,v_digest TEXT,v_candidate_event TEXT,
+      v_receipt TEXT,v_order TEXT,v_amount NUMERIC,v_sequence NUMERIC,v_phase TEXT
+    ) RETURNS TEXT LANGUAGE plpgsql AS $lifecycle_observation$
+    DECLARE old_digest TEXT;old_candidate TEXT;old_receipt TEXT;old_order TEXT;
+      old_amount NUMERIC;old_sequence BIGINT;old_phase TEXT;
+      actual_order TEXT;actual_amount NUMERIC;actual_state TEXT;
+      seq_event TEXT;outcome TEXT;
+    BEGIN
+      IF v_provider IS NULL OR length(v_provider) NOT BETWEEN 1 AND 64 OR
+         v_provider !~ '^[A-Za-z0-9_-]+$' OR
+         v_event IS NULL OR length(v_event) NOT BETWEEN 8 AND 128 OR
+         v_event !~ '^[A-Za-z0-9_-]+$' OR
+         v_candidate_event IS NULL OR length(v_candidate_event) NOT BETWEEN 8 AND 128 OR
+         v_candidate_event !~ '^[A-Za-z0-9_-]+$' OR
+         v_event=v_candidate_event OR
+         v_digest IS NULL OR v_digest !~ '^[0-9a-f]{64}$' OR
+         v_receipt IS NULL OR length(v_receipt) NOT BETWEEN 1 AND 255 OR
+         v_order IS NULL OR length(v_order) NOT BETWEEN 1 AND 255 OR
+         v_amount IS NULL OR v_amount<=0 OR v_amount>${b.max}::NUMERIC OR
+         v_amount<>ROUND(v_amount,${b.scale}) OR
+         v_sequence IS NULL OR v_sequence NOT BETWEEN 1 AND 2147483647 OR
+         v_sequence<>TRUNC(v_sequence) OR
+         v_phase IS NULL OR v_phase NOT IN
+           ('reported_pending','reported_success','reported_failure','reported_reversal')
+      THEN RAISE EXCEPTION 'Invalid synthetic lifecycle observation'
+        USING ERRCODE='23514'; END IF;
+      -- Committed replay wins over mutable receipt status or newer observations.
+      -- An envelope used by another endpoint cannot be promoted to lifecycle.
+      SELECT payload_sha256 INTO old_digest
+        FROM protocolia_provider_envelope_inbox
+        WHERE provider_id=v_provider AND event_id=v_event FOR UPDATE;
+      IF FOUND THEN
+        IF old_digest IS DISTINCT FROM v_digest THEN RETURN 'conflict'; END IF;
+        SELECT candidate_event_id,receipt_id,order_id,amount,event_sequence,reported_phase
+          INTO old_candidate,old_receipt,old_order,old_amount,old_sequence,old_phase
+          FROM protocolia_provider_lifecycle_observation
+          WHERE provider_id=v_provider AND event_id=v_event;
+        IF NOT FOUND THEN RETURN 'conflict'; END IF;
+        IF old_candidate=v_candidate_event AND old_receipt=v_receipt AND
+           old_order=v_order AND old_amount=v_amount AND
+           old_sequence=v_sequence AND old_phase=v_phase
+        THEN RETURN 'duplicate'; END IF;
+        RETURN 'conflict';
+      END IF;
+      -- Serialize all new observations on the immutable candidate. This locks
+      -- the sequence namespace even when events arrive in reverse order.
+      SELECT order_id,amount INTO actual_order,actual_amount
+        FROM protocolia_provider_receipt_candidate
+        WHERE provider_id=v_provider AND event_id=v_candidate_event AND
+          receipt_id=v_receipt FOR UPDATE;
+      IF NOT FOUND THEN RETURN 'missing'; END IF;
+      IF actual_order<>v_order OR actual_amount<>v_amount
+      THEN RETURN 'mismatch'; END IF;
+      SELECT ${"p."+b.stateColumn} INTO actual_state FROM ${b.childTable} p
+        WHERE p.${b.receiptColumn}=v_receipt FOR UPDATE;
+      IF NOT FOUND OR actual_state<>'posted' THEN RETURN 'mismatch'; END IF;
+      -- The same event may have committed while we waited on the candidate.
+      SELECT payload_sha256 INTO old_digest
+        FROM protocolia_provider_envelope_inbox
+        WHERE provider_id=v_provider AND event_id=v_event FOR UPDATE;
+      IF FOUND THEN
+        IF old_digest IS DISTINCT FROM v_digest THEN RETURN 'conflict'; END IF;
+        SELECT candidate_event_id,receipt_id,order_id,amount,event_sequence,reported_phase
+          INTO old_candidate,old_receipt,old_order,old_amount,old_sequence,old_phase
+          FROM protocolia_provider_lifecycle_observation
+          WHERE provider_id=v_provider AND event_id=v_event;
+        IF NOT FOUND THEN RETURN 'conflict'; END IF;
+        IF old_candidate=v_candidate_event AND old_receipt=v_receipt AND
+           old_order=v_order AND old_amount=v_amount AND
+           old_sequence=v_sequence AND old_phase=v_phase
+        THEN RETURN 'duplicate'; END IF;
+        RETURN 'conflict';
+      END IF;
+      SELECT event_id INTO seq_event FROM protocolia_provider_lifecycle_observation
+        WHERE receipt_id=v_receipt AND event_sequence=v_sequence;
+      IF FOUND THEN RETURN 'conflict'; END IF;
+      SELECT protocolia_record_provider_envelope_digest(v_provider,v_event,v_digest)
+        INTO outcome;
+      IF outcome<>'stored' THEN RETURN 'conflict'; END IF;
+      INSERT INTO protocolia_provider_lifecycle_observation
+        (provider_id,event_id,candidate_event_id,receipt_id,order_id,amount,
+          event_sequence,reported_phase)
+        VALUES(v_provider,v_event,v_candidate_event,v_receipt,v_order,v_amount,
+          v_sequence,v_phase);
+      RETURN 'stored';
+    END $lifecycle_observation$;`,
+    `CREATE TRIGGER protocolia_provider_lifecycle_observation_immutable_guard
+      BEFORE UPDATE OR DELETE ON protocolia_provider_lifecycle_observation
       FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
   );
   return ddl;
