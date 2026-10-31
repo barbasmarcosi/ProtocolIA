@@ -87,8 +87,8 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     '"reversed","chargeTotal", true, true, false)'),
     /protocolia-invalid-exact-adjustment-preview/);
   negative("missing amount ceiling",s=>s.replace(
-    '@exactDecimal(14,2,"0","999999999999.99")\\n    chargeTotal',
-    '@exactDecimal(14,2,"0")\\n    chargeTotal'),
+    '@exactDecimal(14,2,"0","999999999999.99")\n    chargeTotal',
+    '@exactDecimal(14,2,"0")\n    chargeTotal'),
     /protocolia-invalid-exact-adjustment-preview/);
   negative("wrong child amount",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"description","chargeTotal"')),/protocolia-invalid-create-details/);
   negative("wrong parent total",s=>s.replace(decorator,decorator.replace('"amount","chargeTotal"','"amount","symptom"')),/protocolia-invalid-create-details/);
