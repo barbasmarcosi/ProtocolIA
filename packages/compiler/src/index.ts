@@ -565,23 +565,30 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const foreign=child?.fields.find(x=>x.name===reconciliation?.referenceField);
       const amount=child?.fields.find(x=>x.name===reconciliation?.amountField);
       const status=child?.fields.find(x=>x.name===reconciliation?.stateField);
-      const chargeSource=reconciliation?.chargeSource===undefined?undefined:
-        entity.fields.find(x=>x.name===reconciliation.chargeSource);
-      // A bound charge source is required, exact decimal, and cannot be patched
-      // after the ledger is opened. It constrains a configured balance, it does
-      // not silently synthesize a trustworthy price from arbitrary data.
-      const unsafeCharge=!!reconciliation?.chargeSource&&(
-        !chargeSource||chargeSource===opening||chargeSource===balance||
-        chargeSource.type!=="decimal"||!chargeSource.required||chargeSource.nullable||
-        !chargeSource.decimal||chargeSource.decimal.min!=="0"||
-        chargeSource.decimal.scale!==opening?.decimal?.scale||
-        chargeSource.decimal.precision>(opening?.decimal?.precision??0)||
-        chargeSource.reference!==undefined||chargeSource.initial!==undefined||
-        operations.some(x=>x.entity===entity.name&&
-          (x.behavior.kind==="patchFields"&&
-            [chargeSource.name,opening?.name,balance?.name].includes(x.behavior.field)||
-           x.behavior.kind==="patchTogether"||
-           x.behavior.kind==="delete")));
+      // This CSV is only a bounded list of *field identifiers*. It is not an
+      // expression language and cannot inject SQL or runtime JavaScript.
+      const chargeText=reconciliation?.chargeSource;
+      const chargeNames=typeof chargeText==="string"?
+        chargeText.split(",").map(x=>x.trim()):[];
+      const charges=chargeNames.map(name=>entity.fields.find(x=>x.name===name));
+      const sourceMutation=ops.some(candidate=>{
+        const behavior=metadata(p,"behavior",candidate);
+        return behavior?.entity===entity.name&&
+          (behavior.kind==="patchTogether"||behavior.kind==="delete"||
+           behavior.kind==="patchFields"&&
+             [...chargeNames,opening?.name,balance?.name].includes(String(behavior.field)));
+      });
+      const unsafeCharge=chargeText!==undefined&&(
+        typeof chargeText!=="string"||chargeNames.length<1||chargeNames.length>4||
+        new Set(chargeNames).size!==chargeNames.length||
+        chargeNames.some(name=>!/^[A-Za-z][A-Za-z0-9_]*$/.test(name))||
+        charges.some(charge=>!charge||charge===opening||charge===balance||
+          charge.type!=="decimal"||!charge.required||charge.nullable||
+          !charge.decimal||charge.decimal.min!=="0"||
+          charge.decimal.scale!==opening?.decimal?.scale||
+          charge.decimal.precision>(opening?.decimal?.precision??0)||
+          charge.reference!==undefined||charge.initial!==undefined)||
+        sourceMutation);
       if(reconciliation?.serverOnly!==undefined&&reconciliation.serverOnly!==true&&
         reconciliation.serverOnly!==false || reconciliation?.serverOnly===true&&!reconciliation.chargeSource){
         reject("invalid-server-only-balance",op.name+" serverOnly requires an immutable source-declared charge",op);
@@ -602,7 +609,7 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !foreign.required||foreign.nullable||!amount||amount.type!=="decimal"||
         !status||status.initial!==reconciliation.postedState||
         reconciliation.postedState===reconciliation.reversedState||
-        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly")
+        !Object.entries(reconciliation).filter(([k])=>k!=="serverOnly"&&k!=="chargeSource")
           .every(([,x])=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x))||
         f||input||auditMeta||release||metadata(p,"reserve",op)||metadata(p,"debitExact",op)||
         metadata(p,"reverseExact",op)||metadata(p,"transition",op)||
@@ -1547,8 +1554,8 @@ export function compileDomain(p: Program): IrDocument | undefined {
           stateField:String(reconciliation.stateField),
           postedState:String(reconciliation.postedState),
           reversedState:String(reconciliation.reversedState),
-          ...(reconciliation.chargeSource!==undefined?
-            {chargeSource:String(reconciliation.chargeSource)}:{}),
+          ...(chargeNames.length===1?{chargeSource:chargeNames[0]}:{})
+          ,...(chargeNames.length>=2?{chargeSources:chargeNames}:{}),
           ...(reconciliation.serverOnly===true?{serverOnly:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
