@@ -210,7 +210,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
   negative("disabled repricing preview",s=>s.replace(
     '"reversed","chargeTotal", true, true, true, true, "providerSettlementState")',
     '"reversed","chargeTotal", true, true, false, false, "providerSettlementState")'),
-    /protocolia-invalid-exact-adjustment-preview/);
+    /protocolia-invalid-exact-adjustment-(?:preview|journal)/);
   negative("missing amount ceiling",s=>s.replace(
     '@exactDecimal(14,2,"0","999999999999.99")\n    chargeTotal',
     '@exactDecimal(14,2,"0")\n    chargeTotal'),
