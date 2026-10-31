@@ -81,7 +81,7 @@ public class DomainRuntime {
   @PostMapping("/api/_protocolia/provider/sandbox/inbox")
   public ResponseEntity<Map<String,String>> receiveSandboxProvider(
       HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    if(!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
+    if(!Manifest.PROVIDER_INBOX_ENABLED||!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
     if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox forbidden outside demo");
