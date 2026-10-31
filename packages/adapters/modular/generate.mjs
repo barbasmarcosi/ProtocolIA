@@ -331,7 +331,7 @@ export function generate(ir, openapi, outDir) {
   const overdueRules=compileOverduePolicies(ir);
   const queryPlans=ops.filter(op=>op.behavior.kind==="queryPage").map(op=>({op,plan:buildQueryPlan(ir,op)}));
   for(const op of ops.filter(o=>o.behavior.kind==="create"))
-    assertDecimalWireSchema(openapi,op,entityMap.get(op.entity));
+    assertDecimalWireSchema(openapi,op,entityMap.get(op.entity),ir);
   const classes=[
     "package dev.protocolia.modular;",
     "import java.util.List;",
