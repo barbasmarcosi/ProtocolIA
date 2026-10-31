@@ -65,8 +65,11 @@ namespace ProtocolIA.Domain {
     parentField: valueof string, quantityField: valueof string);
   // Dynamic 1..20 child rows in the CREATE request, committed with the parent.
   // Child's declared FK back to parent is assigned by the server.
+  // Opt-in: exact money on child rows is the sole authority for one parent
+  // source field. Both optional parameters MUST be supplied together.
   extern dec createDetails(target: Operation, childEntity: valueof string,
-    parentField: valueof string, rowsField: valueof string);
+    parentField: valueof string, rowsField: valueof string,
+    chargeAmountField?: valueof string, chargeTotalField?: valueof string);
   // Two to four flat movement legs: "fromA,toA,unitsA;fromB,toB,unitsB".
   // All participating balances settle once, in a single database transaction.
   extern dec moveBatch(target: Operation, stockEntity: valueof string,
