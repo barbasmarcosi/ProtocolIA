@@ -347,7 +347,7 @@ export function generate(ir, openapi, outDir) {
     "public final class Manifest {",
     "  private Manifest() {}",
     "  public static final boolean HAS_OVERDUE_RULES="+(overdueRules.length>0?"true":"false")+";",
-    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField,String readCapability) {}",
+    "  public record Field(String name,String column,String type,boolean required,boolean nullable,Integer min,Integer max,Integer minLength,Integer maxLength,String pattern,String referenceTarget,String initial,boolean fixedInitial,boolean computed,List<String> choices,String requiredSource,String requiredValue,String forbidSource,String forbidValue,Integer precision,Integer scale,String decimalMin,String decimalMax,String afterField,String greaterThanField,String readCapability) {}",
     "  public record OwnerRelation(String field,String parentTable,String parentKey,String parentOwnerColumn,String parentReadCapability) {}",
     "  public record Entity(String name,String table,String identity,String identityColumn,String ownerField,String ownerColumn,OwnerRelation ownerRelation,List<Field> fields) {}",
     "  public record Reserve(String stockTable,String stockKeyColumn,String availableColumn,String referenceField,String amountField,String stockWriteCapability) {}",
@@ -391,7 +391,7 @@ export function generate(ir, openapi, outDir) {
     entities.map(e=>{
       const parts=e.fields.map(f=>"      new Field("+[
         j(f.name),j(snake(f.name)),j(f.type),f.required,f.nullable,
-        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal),
+        n(f.min),n(f.max),n(f.minLength),n(f.maxLength),f.pattern?j(f.pattern):"null",f.reference?j(f.reference.target):"null",f.initial!==undefined?j(f.initial):"null",Boolean(f.fixedInitial),Boolean(f.computedSum||f.computedProduct||f.computedRoundedProduct||f.computedDiscountedTotal),
         "List.of("+(f.choices??[]).map(c=>j(c.value)).join(",")+")",
         f.requiredWhen?j(f.requiredWhen.field):"null",f.requiredWhen?j(f.requiredWhen.equals):"null",
         f.forbidWhen?j(f.forbidWhen.field):"null",f.forbidWhen?j(f.forbidWhen.equals):"null",
@@ -567,7 +567,12 @@ export function generate(ir, openapi, outDir) {
       if(f.min!==undefined)checks.push("CHECK ("+col+">="+f.min+")");
       if(f.max!==undefined)checks.push("CHECK ("+col+"<="+f.max+")");
       if(f.type==="decimal")checks.push(...decimalSql(f,col).checks);
-      if(f.initial!==undefined){
+      if(f.fixedInitial){
+        if(typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
+          f.type!=="string"||!f.required||f.nullable)
+          throw Error("Invalid fixed server-only initial "+e.name+"."+f.name);
+        checks.push("CHECK ("+col+" = '"+f.initial+"')");
+      }else if(f.initial!==undefined){
         const values=new Set([f.initial,...ops.filter(op=>
           op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)
           .flatMap(op=>[op.behavior.from,op.behavior.to])]);
