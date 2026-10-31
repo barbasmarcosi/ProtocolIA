@@ -406,8 +406,8 @@ public class DomainRuntime {
     if(plan==null||id==null||adjustmentId==null||adjustmentId.length()<8||
       adjustmentId.length()>64||adjustmentId.isBlank())
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid exact adjustment lookup identity");
-    var rows=jdbc.queryForList("SELECT adjustment_id AS \\"adjustmentId\\","+
-      "delta::text AS \\"delta\\",reason,'committed'::text AS \\"status\\" FROM "+
+    var rows=jdbc.queryForList("SELECT adjustment_id AS \"adjustmentId\","+
+      "delta::text AS \"delta\",reason,'committed'::text AS \"status\" FROM "+
       "protocolia_exact_adjustment_"+e.table()+
       " WHERE parent_id=:identity AND adjustment_id=:adjustmentId",
       Map.of("identity",id,"adjustmentId",adjustmentId));
