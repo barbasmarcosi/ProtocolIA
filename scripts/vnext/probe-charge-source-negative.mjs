@@ -8,19 +8,24 @@ import {join,resolve} from "node:path";
 const fixtures=resolve("examples/vnext/workshop-payment-guard");
 const source=readFileSync(join(fixtures,"contracts/main.tsp"),"utf8");
 const config=readFileSync(join(fixtures,"tspconfig.yaml"),"utf8");
-const exact='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge")';
+const exact='@reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge", true)';
 assert.ok(source.includes(exact),"Source-bound reconciliation must remain the oracle");
 const cases=[
-  ["missing",exact.replace('"laborCharge")','"noSuchSource")')],
-  ["wrong-type",exact.replace('"laborCharge")','"symptom")')],
-  ["self-alias",exact.replace('"laborCharge")','"openingBalance")')]
+  ["missing",exact.replace('"laborCharge", true)','"noSuchSource", true)')],
+  ["wrong-type",exact.replace('"laborCharge", true)','"symptom", true)')],
+  ["self-alias",exact.replace('"laborCharge", true)','"openingBalance", true)')],
+  ["server-only-without-source",exact.replace('"laborCharge", true)', 'true')],
+  ["spoofed-create-dto",null]
 ];
 const tmp=mkdtempSync(resolve("examples/vnext/.charge-source-negative-"));
 try{
   mkdirSync(join(tmp,"contracts"),{recursive:true});
   writeFileSync(join(tmp,"tspconfig.yaml"),config);
   for(const [name,replacement] of cases){
-    writeFileSync(join(tmp,"contracts/main.tsp"),source.replace(exact,replacement));
+    const invalid=name==="spoofed-create-dto"?
+      source.replace('model WorkOrderRequest {','model WorkOrderRequest {\n    @encode(string) @exactDecimal(14,2,"0","999999999999.99") openingBalance: decimal;'):
+      source.replace(exact,replacement);
+    writeFileSync(join(tmp,"contracts/main.tsp"),invalid);
     const run=spawnSync(resolve("node_modules/.bin/tsp"),["compile",tmp],{
       encoding:"utf8",timeout:90000,maxBuffer:4*1024*1024
     });
