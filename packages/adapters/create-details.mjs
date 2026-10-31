@@ -48,13 +48,23 @@ export function assertCreateDetails(ir,parent,op){
       x.capability!==childCreate[0]?.capability
     )
   );
+  // S2b-0: generic typed detail creation is not an authoritative money ledger.
+  // The existing child-create route and parent scalar sources can bypass a financial
+  // line-item total. Reject this combination until a reviewed, atomic itemized
+  // contract binds the total and closes independent child mutations in BOTH targets.
+  // Include unreconciled exact debit/reversal parents: removing the read endpoint
+  // must never turn unsafe header/detail creation into an accepted financial plan.
+  const exactLedgerParent=ir.operations.some(x=>
+    x.entity===parent?.name&&x.behavior?.reconcileExact||
+    x.behavior?.debitExact?.stockEntity===parent?.name||
+    x.behavior?.reverseExact?.stockEntity===parent?.name);
   const unsafePatches=patches.length>3||
     new Set(patches.map(x=>x.behavior.field)).size!==patches.length||
     new Set(patches.map(x=>x.capability)).size!==patches.length||
     patches.some(x=>x.behavior.audit?.length!==1);
   if(!parent||!meta||op.behavior.kind!=="create"||op.method!=="POST"||
     ![201,400,401,403,409].every(s=>op.statuses?.includes(s))||
-    !bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
+    exactLedgerParent||!bounded||typeof rows!=="string"||!/^[A-Za-z][A-Za-z0-9_]*$/.test(rows)||
     parent.fields.some(f=>f.name===rows)||!child||child===parent||
     child.fields.some(f=>f.ownerManaged||f.initial!==undefined||f.readCapability)||
     parent.fields.some(f=>f.ownerManaged)||
