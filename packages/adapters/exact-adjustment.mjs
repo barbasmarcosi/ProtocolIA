@@ -17,10 +17,12 @@ export function assertExactAdjustment(ir,api,op,plans){
   const rb=deref(api,endpoint?.requestBody);
   const model=deref(api,rb?.content?.["application/json"]?.schema);
   const ps=model?.properties;
-  const ids=["adjustmentId","delta","reason"];
+  const ids=["adjustmentId","delta","reason","expectedOpening","expectedAvailable","expectedPostingCount","expectedReversedTotal","expectedAdjustmentCount"];
   const id=ps&&deref(api,ps.adjustmentId);
   const delta=ps&&deref(api,ps.delta);
   const reason=ps&&deref(api,ps.reason);
+  const expectedMoney=["expectedOpening","expectedAvailable","expectedReversedTotal"];
+  const expectedCounts=["expectedPostingCount","expectedAdjustmentCount"];
   if(!parent||!ident(parent.publicIdentity)||!journal||
     !journal.table?.startsWith("protocolia_exact_adjustment_")||
     typeof journal.max!=="string"||!charge?.decimal||charge.decimal.max!==journal.max||
@@ -32,12 +34,14 @@ export function assertExactAdjustment(ir,api,op,plans){
     !op.capability||op.capability==="public"||
     [create[0].capability,get[0].capability,audit[0]?.capability].includes(op.capability)||
     op.behavior.audit!==undefined||op.behavior.field!==undefined||op.behavior.input!==undefined||
-    !endpoint||!ps||Object.keys(ps).length!==3||
+    !endpoint||!ps||Object.keys(ps).length!==8||
     !ids.every(k=>Object.hasOwn(ps,k))||
     !ids.every(k=>model.required?.includes(k))||
     id?.type!=="string"||id.minLength!==8||id.maxLength!==64||
     reason?.type!=="string"||reason.minLength!==12||reason.maxLength!==240||
-    delta?.type!=="string")
+    delta?.type!=="string"||
+    !expectedMoney.every(name=>deref(api,ps[name])?.type==="string")||
+    !expectedCounts.every(name=>deref(api,ps[name])?.type==="string"))
     throw Error("Invalid reviewed exact adjustment "+op?.name);
   return {parent,ledger,journal};
 }
@@ -70,17 +74,28 @@ export function exactAdjustmentWriteSql(ir,plans){
       !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(journal.max))
       throw Error("Invalid signed adjustment SQL plan "+op.name);
     ddl.push("CREATE FUNCTION "+func+
-      "(v_parent VARCHAR,v_id VARCHAR,v_delta NUMERIC,v_reason VARCHAR,v_actor VARCHAR) "+
+      "(v_parent VARCHAR,v_id VARCHAR,v_delta NUMERIC,v_reason VARCHAR,v_actor VARCHAR,v_expected_open NUMERIC,v_expected_available NUMERIC,v_expected_posting BIGINT,v_expected_reversed NUMERIC,v_expected_adjustments BIGINT) "+
       "RETURNS VOID LANGUAGE plpgsql AS $pia_adjust$ DECLARE "+
-      "v_balanced BOOLEAN;v_eligible BOOLEAN;v_charge NUMERIC;"+
+      "v_balanced BOOLEAN;v_eligible BOOLEAN;v_review_open NUMERIC;v_review_available NUMERIC;"+
+      "v_review_posting BIGINT;v_review_reversed NUMERIC;v_review_adjustments BIGINT;v_charge NUMERIC;"+
       "v_opening NUMERIC;v_available NUMERIC;v_new_charge NUMERIC;"+
       "v_new_opening NUMERIC;v_new_available NUMERIC; BEGIN "+
       "PERFORM 1 FROM "+table+" WHERE "+pk+"=v_parent FOR UPDATE; "+
       "IF NOT FOUND THEN RAISE EXCEPTION 'Adjustment parent not found' USING ERRCODE='P0002'; END IF; "+
-      "SELECT q.\"balanced\",q.\"adjustmentPreviewEligible\" INTO v_balanced,v_eligible FROM ("+
+      "SELECT q.\"balanced\",q.\"adjustmentPreviewEligible\",q.\"openingBalance\"::NUMERIC,"+
+      "q.\"available\"::NUMERIC,q.\"postingCount\"::BIGINT,q.\"reversedTotal\"::NUMERIC,"+
+      "q.\"adjustmentCount\"::BIGINT INTO v_balanced,v_eligible,v_review_open,"+
+      "v_review_available,v_review_posting,v_review_reversed,v_review_adjustments FROM ("+
       select+") q; "+
       "IF NOT COALESCE(v_balanced,false) OR NOT COALESCE(v_eligible,false) THEN "+
       "RAISE EXCEPTION 'Exact adjustment ledger conflict' USING ERRCODE='PZ409'; END IF; "+
+      "IF v_expected_open IS NULL OR v_expected_available IS NULL OR "+
+      "v_expected_posting IS NULL OR v_expected_reversed IS NULL OR "+
+      "v_expected_adjustments IS NULL OR "+
+      "v_review_open<>v_expected_open OR v_review_available<>v_expected_available OR "+
+      "v_review_posting<>v_expected_posting OR v_review_reversed<>v_expected_reversed OR "+
+      "v_review_adjustments<>v_expected_adjustments THEN "+
+      "RAISE EXCEPTION 'Reviewed ledger snapshot changed' USING ERRCODE='PZ409'; END IF; "+
       "IF v_id IS NULL OR char_length(btrim(v_id)) NOT BETWEEN 8 AND 64 OR "+
       "v_reason IS NULL OR char_length(btrim(v_reason)) NOT BETWEEN 12 AND 240 OR "+
       "v_actor IS NULL OR char_length(btrim(v_actor))=0 OR "+

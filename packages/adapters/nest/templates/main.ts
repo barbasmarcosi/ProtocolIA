@@ -719,8 +719,10 @@ class RuntimeService{
     const j=ledger?.adjustmentJournal;
     if(!j||j.parentTable!==e.table||typeof key!=="string")
       throw new Error("Unbound exact adjustment operation");
-    if(!isRecord(body)||Object.keys(body).length!==3||
-      !["adjustmentId","delta","reason"].every(k=>Object.hasOwn(body,k)))
+    if(!isRecord(body)||Object.keys(body).length!==8||
+      !["adjustmentId","delta","reason","expectedOpening","expectedAvailable",
+        "expectedPostingCount","expectedReversedTotal","expectedAdjustmentCount"]
+        .every(k=>Object.hasOwn(body,k)))
       throw new Problem(400,"Expected exact adjustment ID, delta and reason");
     const adjustmentId=body.adjustmentId,reason=body.reason,raw=body.delta;
     if(typeof adjustmentId!=="string"||adjustmentId.length<8||adjustmentId.length>64||
@@ -736,10 +738,33 @@ class RuntimeService{
     const units=decimalUnits(raw,j.scale),max=decimalUnits(j.max,j.scale);
     if(units===0n||units>max||units< -max)
       throw new Problem(400,"Adjustment must be nonzero and bounded");
+    const checkedMoney=(value:unknown):string=>{
+      if(typeof value!=="string"||!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value))
+        throw new Problem(400,"Invalid reviewed exact money");
+      const [w,f=""]=value.split(".");
+      if(f.length>j.scale||w.replace(/^0+/,"").length>j.precision-j.scale)
+        throw new Problem(400,"Invalid reviewed exact precision");
+      const units=decimalUnits(value,j.scale);
+      if(units>max)throw new Problem(400,"Reviewed amount out of range");
+      return exactStringFromUnits(units,j.scale);
+    };
+    const checkedCount=(value:unknown,maxDigits:number,maxValue:bigint):string=>{
+      if(typeof value!=="string"||value.length>maxDigits||
+        !/^(?:0|[1-9][0-9]*)$/.test(value)||BigInt(value)>maxValue)
+        throw new Problem(400,"Invalid reviewed ledger count");
+      return value;
+    };
+    const expected=[
+      checkedMoney(body.expectedOpening),checkedMoney(body.expectedAvailable),
+      checkedCount(body.expectedPostingCount,16,9999999999999999n),
+      checkedMoney(body.expectedReversedTotal),
+      checkedCount(body.expectedAdjustmentCount,3,100n)
+    ];
     const func="protocolia_apply_exact_adjustment_"+e.table;
     try{
-      await this.pool.query("SELECT "+func+"($1,$2,$3::numeric,$4,$5)",
-        [key,adjustmentId,exactStringFromUnits(units,j.scale),reason,actor]);
+      await this.pool.query("SELECT "+func+
+        "($1,$2,$3::numeric,$4,$5,$6::numeric,$7::numeric,$8::bigint,$9::numeric,$10::bigint)",
+        [key,adjustmentId,exactStringFromUnits(units,j.scale),reason,actor,...expected]);
     }catch(error){
       const code=(error as {code?:string}).code;
       if(code==="PZ409"||code==="23505")

@@ -50,6 +50,8 @@ function docker(...args){
     (cmd.stderr??cmd.error?.message??"").slice(-1600));
   return cmd.stdout?.trim();
 }
+const sql=statement=>docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia","-Atc",statement);
 async function freePort(){return await new Promise((yes,no)=>{
   const s=createServer();s.once("error",no);
   s.listen(0,"127.0.0.1",()=>{const p=s.address().port;
@@ -182,6 +184,62 @@ async function previewMobileSmoke(){
     assert.equal(cents(changed.chargeTotal),105n);
     assert.equal(cents(changed.available),105n);
     assert.equal((await balance("OT-UI-ADJUST")).snapshot.balanced,true);
+    await page.getByTestId("exact-adjustment-toggle").click();
+    const nextForm=page.getByTestId("exact-adjustment-form");
+    await nextForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await nextForm.getByTestId("exact-adjustment-amount").fill("0.02");
+    await nextForm.getByTestId("exact-adjustment-reason").fill(
+      "Segunda corrección revisada antes de un cambio concurrente");
+    await nextForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-after").textContent(),"1.07");
+    const live=(await balance("OT-UI-ADJUST")).snapshot;
+    const concurrent=await request("/api/work-orders/OT-UI-ADJUST/adjustments",{
+      method:"POST",body:{adjustmentId:"UI-OTHER-01",delta:"0.01",
+        reason:"Cambio concurrente de otra sesión autorizada",
+        expectedOpening:live.openingBalance,expectedAvailable:live.available,
+        expectedPostingCount:live.postingCount,expectedReversedTotal:live.reversedTotal,
+        expectedAdjustmentCount:live.adjustmentCount}
+    });
+    assert.equal(concurrent.status,201,JSON.stringify(concurrent.data));
+    const journalBefore=sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'");
+    const [staleWrite]=await Promise.all([
+      page.waitForResponse(response=>response.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(staleWrite.status(),409,"Stale mobile approval must fail closed");
+    await page.getByTestId("exact-adjustment-refresh-required").waitFor({timeout:10000});
+    assert.equal(sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'"),journalBefore);
+    await page.getByTestId("exact-adjustment-recover").click();
+    await page.getByTestId("exact-adjustment-composer").waitFor({timeout:15000});
+    await page.getByTestId("exact-adjustment-toggle").click();
+    await page.getByTestId("exact-adjustment-form").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-amount").inputValue(),"",
+      "Recovery must require fresh human review rather than replaying the stale amount");
+    const staleId=staleWrite.request().postDataJSON().adjustmentId;
+    const freshForm=page.getByTestId("exact-adjustment-form");
+    await freshForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await freshForm.getByTestId("exact-adjustment-amount").fill("0.02");
+    await freshForm.getByTestId("exact-adjustment-reason").fill(
+      "Nueva revisión humana después del conflicto concurrente");
+    await freshForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-after").textContent(),"1.08");
+    const [freshWrite]=await Promise.all([
+      page.waitForResponse(response=>response.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(freshWrite.request().postDataJSON().adjustmentId,staleId,
+      "Unknown or rejected result must preserve the idempotency key");
+    assert.equal(freshWrite.status(),201);
+    assert.equal(cents((await balance("OT-UI-ADJUST")).record.chargeTotal),108n);
+    console.log("PROTOCOLIA_S2C1B3_MOBILE_CAS_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
     console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated repricing preview must have zero JS errors");
@@ -308,8 +366,7 @@ try{
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-05 concurrent receipts and reversal");
   // S2c-0: simulate a privileged, out-of-band PostgreSQL source mutation.
   // These are fixed synthetic records in the disposable Compose DB, never production.
-  const sql=statement=>docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1",
-    "-U","protocolia","-d","protocolia","-Atc",statement);
+
   const driftId="OT-SOURCE-DRIFT";
   const driftPath="/api/work-orders/"+driftId+"/reconciliation";
   await status("/api/work-orders",201,{method:"POST",body:order(driftId,[
@@ -429,10 +486,23 @@ try{
   assert.equal(cents(plus.openingBalance),30n);
   assert.equal(cents(plus.maxSafeDecrease),30n);
   // S2c-1b1: real, authenticated, independent HTTP adjustment capability.
-  const apply=(number,id,delta,reason="Corrección autorizada de ensayo",extra={})=>
-    request("/api/work-orders/"+number+"/adjustments",{method:"POST",body:{
-      adjustmentId:id,delta,reason,...extra
+  const reviewedFields=record=>({
+    expectedOpening:record.openingBalance,
+    expectedAvailable:record.available,
+    expectedPostingCount:record.postingCount,
+    expectedReversedTotal:record.reversedTotal,
+    expectedAdjustmentCount:record.adjustmentCount
+  });
+  const apply=async(number,id,delta,reason="Corrección autorizada de ensayo",extra={})=>{
+    const snap=await request("/api/work-orders/"+number+"/reconciliation");
+    const reviewed=snap.status===200?reviewedFields(snap.data):{
+      expectedOpening:"0.00",expectedAvailable:"0.00",expectedPostingCount:"0",
+      expectedReversedTotal:"0.00",expectedAdjustmentCount:"0"
+    };
+    return request("/api/work-orders/"+number+"/adjustments",{method:"POST",body:{
+      adjustmentId:id,delta,reason,...reviewed,...extra
     }});
+  };
   await status("/api/work-orders",201,{method:"POST",body:order("OT-HTTP-ADJ",[
     charge("AH-L","2.00"),charge("AH-P","1.00","parts")
   ])});
@@ -497,22 +567,60 @@ try{
 
   await status("/api/work-orders",201,{method:"POST",body:
     order("OT-ADJ-RACE",[charge("AR-FIRST","3.00")])});
+  const reviewedRace=reviewedFields((await balance("OT-ADJ-RACE")).snapshot);
   const decreasing=await Promise.all(Array.from({length:10},(_,i)=>
-    apply("OT-ADJ-RACE","AR-NEG-"+String(i).padStart(3,"0"),"-1.00")));
-  assert.equal(decreasing.filter(x=>x.status===201).length,3);
-  assert.equal(decreasing.filter(x=>x.status===409).length,7);
-  assert.equal((await balance("OT-ADJ-RACE")).snapshot.coverageState,"no_charge");
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"3");
+    apply("OT-ADJ-RACE","AR-NEG-"+String(i).padStart(3,"0"),"-1.00",
+      "Corrección autorizada de ensayo",reviewedRace)));
+  assert.equal(decreasing.filter(x=>x.status===201).length,1);
+  assert.equal(decreasing.filter(x=>x.status===409).length,9);
+  assert.equal((await balance("OT-ADJ-RACE")).snapshot.coverageState,"unpaid");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"1");
+  const reviewedSame=reviewedFields((await balance("OT-ADJ-RACE")).snapshot);
   const sameId=await Promise.all(Array.from({length:5},()=>
-    apply("OT-ADJ-RACE","AR-SAME-ID","0.10")));
+    apply("OT-ADJ-RACE","AR-SAME-ID","0.10",
+      "Corrección autorizada de ensayo",reviewedSame)));
   assert.equal(sameId.filter(x=>x.status===201).length,1);
   assert.equal(sameId.filter(x=>x.status===409).length,4);
   const afterRace=await balance("OT-ADJ-RACE");
-  assert.equal(cents(afterRace.record.chargeTotal),10n);
-  assert.equal(cents(afterRace.record.available),10n);
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
+  assert.equal(cents(afterRace.record.chargeTotal),210n);
+  assert.equal(cents(afterRace.record.available),210n);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"2");
   assert.throws(()=>sql("UPDATE "+jtable+" SET delta=9.00 "+
     "WHERE adjustment_id='AR-SAME-ID'"),/append-only|Compose/i);
+  const beforeAba=reviewedFields(afterRace.snapshot);
+  assert.equal((await apply("OT-ADJ-RACE","AR-ABA-UP","0.10")).status,201);
+  assert.equal((await apply("OT-ADJ-RACE","AR-ABA-DN","-0.10")).status,201);
+  const afterAba=await balance("OT-ADJ-RACE");
+  assert.equal(afterAba.snapshot.openingBalance,afterRace.snapshot.openingBalance);
+  assert.equal(afterAba.snapshot.available,afterRace.snapshot.available);
+  assert.equal(afterAba.snapshot.adjustmentCount,"4");
+  const auditBeforeStale=sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-ADJ-RACE'");
+  const staleAba=await apply("OT-ADJ-RACE","AR-ABA-OLD","0.01",
+    "Intento de confirmación con saldo anterior",beforeAba);
+  assert.equal(staleAba.status,409,JSON.stringify(staleAba.data));
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-ADJ-RACE'"),auditBeforeStale);
+  await status("/api/work-orders",201,{method:"POST",body:
+    order("OT-REVIEW-REVERSE",[charge("RR-LINE-1","2.00")])});
+  const beforeReversal=reviewedFields((await balance("OT-REVIEW-REVERSE")).snapshot);
+  await status("/api/payments",201,{method:"POST",body:
+    pay("RR-PAY-1","OT-REVIEW-REVERSE","0.10")});
+  await status("/api/payments/RR-PAY-1/reverse",200,{method:"POST"});
+  const afterReversal=await balance("OT-REVIEW-REVERSE");
+  assert.equal(afterReversal.snapshot.openingBalance,beforeReversal.expectedOpening);
+  assert.equal(afterReversal.snapshot.available,beforeReversal.expectedAvailable);
+  assert.equal(afterReversal.snapshot.postingCount,"1");
+  assert.equal(cents(afterReversal.snapshot.reversedTotal),10n);
+  const staleReceipt=await apply("OT-REVIEW-REVERSE","RR-STALE-1","0.01",
+    "Confirmación obsoleta tras cobro y reversión",beforeReversal);
+  assert.equal(staleReceipt.status,409);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-REVIEW-REVERSE'"),"0");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-REVIEW-REVERSE'"),"0");
+  console.log("PROTOCOLIA_S2C1B3_CAS_PASS stale and ABA-safe reviewed snapshot "+build.target);
   console.log("PROTOCOLIA_S2C1B1_ADJUST_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1B0_JOURNAL_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_ALL_PASS "+build.target);

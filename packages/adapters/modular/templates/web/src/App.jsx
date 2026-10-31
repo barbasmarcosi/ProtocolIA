@@ -732,7 +732,7 @@ function signedAdjustmentString(units,scale){
 // S2c-1b2: intentionally no generic PATCH, no client-supplied actor or parent
 // balance, no auto-submit after a preview read. Every write is an explicit
 // confirmation, while PostgreSQL still rechecks balance inside its transaction.
-function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied}){
+function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied,onRefresh,adjustmentId,onNewAdjustmentId}){
   const [open,setOpen]=useState(false);
   const [direction,setDirection]=useState("decrease");
   const [amount,setAmount]=useState("");
@@ -741,7 +741,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
-  const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
+  const [needsRefresh,setNeedsRefresh]=useState(false);
   const scale=amountField?.decimal?.scale;
   const precision=amountField?.decimal?.precision;
   const current=Number.isInteger(scale)?signedAdjustmentUnits(report?.openingBalance,scale):null;
@@ -757,10 +757,10 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
     magnitude.toString().length<=precision&&
     reason.trim().length>=12&&reason.trim().length<=240&&
     report?.balanced===true&&report?.adjustmentPreviewEligible===true;
-  function change(updater){updater();setConfirmed(null);setError("");setNotice("");}
+  function change(updater){if(needsRefresh)return;updater();setConfirmed(null);setError("");setNotice("");}
   async function preview(event){
     event.preventDefault();
-    if(busy)return;
+    if(busy||needsRefresh)return;
     if(!wellFormed){setError("Revisá el importe, el motivo y el límite disponible.");return;}
     setBusy(true);setError("");
     try{
@@ -770,14 +770,17 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       if(!response.ok)throw Error("No se pudo verificar la conciliación actual.");
       const latest=await response.json();
       if(!latest.balanced||!latest.adjustmentPreviewEligible||
-        ["openingBalance","available","postedTotal","reversedTotal","maxSafeDecrease","maxSafeIncrease"]
+        ["openingBalance","available","postedTotal","reversedTotal","postingCount","adjustmentCount","maxSafeDecrease","maxSafeIncrease"]
           .some(k=>latest[k]!==report[k]))
         throw Error("Los cargos o cobros cambiaron. Actualizá la conciliación antes de continuar.");
       const freshLimit=signedAdjustmentUnits(direction==="decrease"?
         latest.maxSafeDecrease:latest.maxSafeIncrease,scale);
       if(freshLimit===null||magnitude>freshLimit)
         throw Error("El importe supera el máximo permitido actualmente.");
-      setConfirmed({delta:signedAdjustmentString(delta,scale),
+      setConfirmed({expectedOpening:latest.openingBalance,
+        expectedAvailable:latest.available,expectedPostingCount:latest.postingCount,
+        expectedReversedTotal:latest.reversedTotal,expectedAdjustmentCount:latest.adjustmentCount,
+        delta:signedAdjustmentString(delta,scale),
         before:latest.openingBalance,after:signedAdjustmentString(candidate,scale),
         available:latest.available,afterAvailable:signedAdjustmentString(nextAvailable,scale),
         reason:reason.trim(),adjustmentId});
@@ -785,13 +788,17 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
     finally{setBusy(false);}
   }
   async function apply(){
-    if(!confirmed||busy)return;
+    if(!confirmed||busy||needsRefresh)return;
     setBusy(true);setError("");
     try{
       const response=await authenticatedFetch(route(operation,identity),{
         method:"POST",headers:{Authorization:auth,"Content-Type":"application/json"},
         body:JSON.stringify({adjustmentId:confirmed.adjustmentId,
-          delta:confirmed.delta,reason:confirmed.reason})
+          delta:confirmed.delta,reason:confirmed.reason,
+          expectedOpening:confirmed.expectedOpening,expectedAvailable:confirmed.expectedAvailable,
+          expectedPostingCount:confirmed.expectedPostingCount,
+          expectedReversedTotal:confirmed.expectedReversedTotal,
+          expectedAdjustmentCount:confirmed.expectedAdjustmentCount})
       });
       if(!response.ok){
         if(response.status===409)throw Error(
@@ -805,9 +812,9 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       const saved=await response.json();
       setNotice("Ajuste aplicado y auditado.");
       setAmount("");setReason("");setConfirmed(null);setOpen(false);
-      setAdjustmentId(crypto.randomUUID());
+      onNewAdjustmentId?.();
       onApplied?.(saved);
-    }catch(e){setError(e.message);setConfirmed(null);}
+    }catch(e){setNeedsRefresh(true);setError(e.message);setConfirmed(null);}
     finally{setBusy(false);}
   }
   return <section className="exact-adjustment-composer" data-testid="exact-adjustment-composer"
@@ -819,11 +826,17 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       {open?"Cerrar":"Crear ajuste"}</button></div>
     {notice&&<p role="status" className="message">{notice}</p>}
     {error&&<p role="alert" className="message error" data-testid="exact-adjustment-error">{error}</p>}
+    {needsRefresh&&<div data-testid="exact-adjustment-refresh-required">
+      <p className="related-summary-hint">La confirmación anterior ya no es válida.
+        No se reintentará el ajuste automáticamente.</p>
+      <button type="button" className="ghost" data-testid="exact-adjustment-recover"
+        disabled={busy} onClick={()=>onRefresh?.()}>Actualizar conciliación y revisar de nuevo</button>
+    </div>}
     {open&&(!report?.balanced||!report?.adjustmentPreviewEligible)?
       <p className="message error" role="alert" data-testid="exact-adjustment-locked">
         No se puede ajustar: revisá la conciliación o los límites de la orden.
       </p>:null}
-    {open&&report?.balanced&&report?.adjustmentPreviewEligible&&
+    {open&&!needsRefresh&&report?.balanced&&report?.adjustmentPreviewEligible&&
       <form className="exact-adjustment-form" data-testid="exact-adjustment-form" onSubmit={preview}>
         <div className="field">
           <label htmlFor="exact-adjustment-direction">Tipo de corrección</label>
@@ -877,6 +890,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
 }
 function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adjustmentOperation,adjustmentField,onApplied}){
   const [local,setLocal]=useState(0);
+  const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
   const [state,setState]=useState({loading:true,data:null,error:""});
   useEffect(()=>{
     const controller=new AbortController();
@@ -887,7 +901,8 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
           response.status===404?"El registro ya no existe.":"No se pudo conciliar el saldo.");
         const data=await response.json();
         if(!data||typeof data.balanced!=="boolean"||
-          !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount"].every(key=>
+          !["openingBalance","available","postedTotal","reversedTotal","expectedAvailable","difference","postingCount",
+            ...(operation.behavior?.reconcileExact?.adjustmentJournal?["adjustmentCount"]:[])].every(key=>
             typeof data[key]==="string"&&/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(data[key])))
           throw Error("El servidor devolvió una conciliación inválida.");
         if(operation.behavior?.reconcileExact?.adjustmentPreview&&
@@ -935,7 +950,9 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
           </section>}
         {adjustmentOperation&&report.balanced&&<ExactAdjustmentComposer
           operation={adjustmentOperation} reconciliation={operation} identity={identity}
-          auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}/>}
+          auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}
+          onRefresh={()=>setLocal(x=>x+1)} adjustmentId={adjustmentId}
+          onNewAdjustmentId={()=>setAdjustmentId(crypto.randomUUID())}/>}
       </div>}
   </section>;
 }

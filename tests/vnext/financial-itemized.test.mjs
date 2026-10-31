@@ -48,6 +48,9 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.equal(writeSql.length,1);
   assert.match(writeSql[0],/FOR UPDATE/);
   assert.match(writeSql[0],/IF NOT COALESCE\(v_balanced,false\)/);
+  assert.match(writeSql[0],/v_review_posting<>v_expected_posting/);
+  assert.match(writeSql[0],/v_review_adjustments<>v_expected_adjustments/);
+  assert.match(writeSql[0],/Reviewed ledger snapshot changed/);
   assert.match(writeSql[0],/INSERT INTO protocolia_exact_adjustment_work_order/);
   assert.match(writeSql[0],/UPDATE work_order SET charge_total=v_new_charge/);
   assert.match(writeSql[0],/INSERT INTO protocolia_audit_event/);
@@ -70,6 +73,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(sql.sqlNest,/AS "maxSafeDecrease"/);
   assert.match(sql.sqlNest,/AS "maxSafeIncrease"/);
   assert.match(sql.sqlNest,/AS "adjustmentPreviewEligible"/);
+  assert.match(sql.sqlNest,/AS "adjustmentCount"/);
   const poisonedMax=structuredClone(ir);
   poisonedMax.entities.find(x=>x.name==="WorkOrder").fields
     .find(x=>x.name==="chargeTotal").decimal.max="0;DROP TABLE payment";
@@ -105,6 +109,15 @@ function negative(label,mutate,expected){
 }
 test("S2b compiler refuses missing linked source, missing field, spoofing and ordinary unsafe mutations",()=>{
   assert.ok(source.includes(decorator));
+  negative("missing reviewed adjustment count",s=>s.replace(
+    '    @minLength(1) @maxLength(3) expectedAdjustmentCount: string;',
+    ''),/protocolia-invalid-exact-adjustment/);
+  negative("forged floating-point reviewed balance",s=>s.replace(
+    '@encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedAvailable: decimal;',
+    'expectedAvailable: float64;'),/protocolia-invalid-exact-adjustment/);
+  negative("optional reviewed posting count",s=>s.replace(
+    'expectedPostingCount: string;',
+    'expectedPostingCount?: string;'),/protocolia-invalid-exact-adjustment/);
   negative("forged adjustment actor",s=>s.replace(
     '    @minLength(12) @maxLength(240) reason: string;',
     '    @minLength(12) @maxLength(240) reason: string;\n    actor: string;'),

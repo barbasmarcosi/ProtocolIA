@@ -22,6 +22,7 @@ namespace TallerPaymentGuard {
     expectedAvailable: string;
     difference: string;
     postingCount: string;
+    adjustmentCount: string;
     balanced: boolean;
     coverageState: string;
     // S2c-1a: advisory exact headroom, NEVER authority to mutate.
@@ -310,6 +311,11 @@ namespace TallerPaymentGuard {
     @encode(string) @exactDecimal(14,2,"-999999999999.99","999999999999.99")
     delta: decimal;
     @minLength(12) @maxLength(240) reason: string;
+    @encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedOpening: decimal;
+    @encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedAvailable: decimal;
+    @minLength(1) @maxLength(16) expectedPostingCount: string;
+    @encode(string) @exactDecimal(14,2,"0.00","999999999999.99") expectedReversedTotal: decimal;
+    @minLength(1) @maxLength(3) expectedAdjustmentCount: string;
   }
 
   @route("/api/work-orders/{number}/adjustments")
