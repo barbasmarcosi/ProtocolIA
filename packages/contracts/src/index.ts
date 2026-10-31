@@ -21,6 +21,7 @@ export const $lib = createTypeSpecLibrary({
     uiSection: {description:"Declarative visual grouping for editable form fields"},
     uiPlaceholder: {description:"Presentation-only sample text, not a default or constraint"},
     initial: {description:"Initial immutable state for a finite-state field"},
+    fixedInitial: {description:"Server-only immutable fixed string with database constraint"},
     computedSum: {description:"Read-only bounded sum of required integer fields"},
     computedProduct: {description:"Read-only exact decimal product of two required nonnegative fields"},
     computedRoundedProduct: {description:"Read-only rounded positive decimal product, explicit half_up mode"},
@@ -105,6 +106,10 @@ function uiPlaceholder(context: DecoratorContext, target: ModelProperty, placeho
 
 function initial(context: DecoratorContext, target: ModelProperty, value: string): void {
   context.program.stateMap($lib.stateKeys.initial).set(target, {value});
+}
+
+function fixedInitial(context: DecoratorContext, target: ModelProperty, value: string): void {
+  context.program.stateMap($lib.stateKeys.fixedInitial).set(target,{value});
 }
 
 function computedSum(context: DecoratorContext, target: ModelProperty, fields: string): void {
@@ -282,6 +287,7 @@ export const $decorators = {
     uiSection,
     uiPlaceholder,
     initial,
+    fixedInitial,
     computedSum,
     computedProduct,
     computedRoundedProduct,
