@@ -1376,9 +1376,14 @@ export function compileDomain(p: Program): IrDocument | undefined {
       const request=op.parameters.properties.get("input")?.type;
       const props=request?.kind==="Model"?request.properties:undefined;
       let mismatch=false;
-      const serverOnlyLedger=operations.find(x=>x.entity===entity.name&&
-        x.behavior.kind==="reconcileExact"&&x.behavior.reconcileExact?.serverOnly===true)
-        ?.behavior.reconcileExact;
+      // Read every declared TypeSpec operation: CREATE may precede the
+      // reconciliation operation, so partially built IR must not decide DTO shape.
+      const sourceBoundReconcile=ops.find(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="reconcileExact"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        metadata(p,"reconcileExact",candidate)?.serverOnly===true);
+      const serverOnlyLedger=sourceBoundReconcile?
+        metadata(p,"reconcileExact",sourceBoundReconcile):undefined;
       const serverOnlyFields=serverOnlyLedger?
         new Set([serverOnlyLedger.openingField,serverOnlyLedger.availableField]):new Set<string>();
       if(serverOnlyLedger&&[serverOnlyLedger.openingField,serverOnlyLedger.availableField]
