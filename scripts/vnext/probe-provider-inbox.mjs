@@ -132,7 +132,7 @@ try{
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),"unverified");
   assert.equal(value("BEGIN; "+candidate("evt_cand_rollback",digestA)+
     " ROLLBACK; SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
-    "WHERE event_id='evt_cand_rollback';").split("\\n").at(-1),"0");
+    "WHERE event_id='evt_cand_rollback';").split("\n").at(-1),"0");
   assert.equal(value(candidate("evt_cand_rollback",digestA)),"stored");
   assert.notEqual(sql("UPDATE protocolia_provider_receipt_candidate SET amount=2.00 "+
     "WHERE event_id="+literal(candidateEvent)+";",{allowFail:true}).status,0);
