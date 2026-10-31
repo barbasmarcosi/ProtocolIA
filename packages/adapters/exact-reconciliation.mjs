@@ -116,15 +116,16 @@ export function compileExactReconciliations(ir){
     const fkCol=snake(cfg.referenceField),amountCol=snake(cfg.amountField),stateCol=snake(cfg.stateField);
     const oc=snake(cfg.openingField),bc=snake(cfg.availableField);
     const calc="(p."+oc+"-COALESCE(j.posted,0))";
+    const balanced="(p."+bc+"="+calc+(sourceGood?" AND "+sourceGood:"")+")";
     const select="SELECT p."+oc+"::text AS \"openingBalance\", p."+bc+"::text AS \"available\", "+
       "COALESCE(j.posted,0)::text AS \"postedTotal\", "+
       "COALESCE(j.reversed,0)::text AS \"reversedTotal\", "+
       calc+"::text AS \"expectedAvailable\", "+
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
-      "(p."+bc+"="+calc+") AS \"balanced\""+
+      balanced+" AS \"balanced\""+
       (cfg.lifecycle===true?
-        ", CASE WHEN p."+bc+"<>"+calc+" THEN 'inconsistent'"+
+        ", CASE WHEN NOT "+balanced+" THEN 'inconsistent'"+
         " WHEN p."+oc+"=0 THEN 'no_charge'"+
         " WHEN COALESCE(j.posted,0)=0 THEN 'unpaid'"+
         " WHEN p."+bc+"=0 THEN 'covered'"+
@@ -133,7 +134,7 @@ export function compileExactReconciliations(ir){
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' THEN c."+amountCol+" ELSE 0 END) AS posted, "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
       "COUNT(*) AS posting_count FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
-      ") j ON TRUE WHERE p."+pk+"=";
+      ") j ON TRUE"+sourceJoin+" WHERE p."+pk+"=";
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
