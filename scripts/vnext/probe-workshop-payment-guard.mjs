@@ -82,7 +82,7 @@ async function status(path,expected,opts){const res=await request(path,opts);
   return res.data;}
 const orderBody=(number,balance)=>({
   number,vehiclePlate:"AA123BB",symptom:"Trabajo de prueba",
-  laborCharge:balance,openingBalance:balance,available:balance,status:"opened",openedAt:null
+  laborCharge:balance,status:"opened",openedAt:null
 });
 const payment=(receipt,number,amount)=>({
   receipt,orderNumber:number,amount,method:"cash",destinationAccount:"Caja de prueba"
@@ -109,7 +109,7 @@ try{
     plate:"AA123BB",customerCode:"C-001",modelName:"Modelo ficticio",mileageKm:0
   }});
   await status("/api/work-orders",400,{method:"POST",body:{
-    ...orderBody("OT-FORGED","20.00"),laborCharge:"10.00"
+    ...orderBody("OT-FORGED","10.00"),openingBalance:"20.00",available:"20.00"
   }});
   await status("/api/work-orders/OT-FORGED",404);
   console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-01");
@@ -118,12 +118,22 @@ try{
   }});
   await status("/api/work-orders/OT-SKEWED",404);
   console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-02");
+  await status("/api/work-orders",400,{method:"POST",body:{
+    ...orderBody("OT-EQUAL-FAKE","10.00"),openingBalance:"10.00"
+  }});
+  await status("/api/work-orders/OT-EQUAL-FAKE",404);
+  await status("/api/work-orders",400,{method:"POST",body:{
+    ...orderBody("OT-NUMERIC",10.0)
+  }});
+  await status("/api/work-orders/OT-NUMERIC",404);
+  console.log("PROTOCOLIA_SERVER_ONLY_BALANCE_PASS SO-02/SO-03");
   await status("/api/work-orders",201,{method:"POST",body:orderBody("OT-10","10.00")});
   const initial=await balance("OT-10");
   assert.equal(cents(initial.record.openingBalance),1000n);
   assert.equal(cents(initial.record.available),1000n);
   assert.equal(cents(initial.record.laborCharge),1000n);
   console.log("PROTOCOLIA_CHARGE_SOURCE_PASS CS-03");
+  console.log("PROTOCOLIA_SERVER_ONLY_BALANCE_PASS SO-01");
   assert.equal(cents(initial.snapshot.postedTotal),0n);
   pass("PG-01");
 
