@@ -638,6 +638,7 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_SCOPED_CAPABILITIES: ${PROTOCOLIA_SCOPED_CAPABILITIES:-}',
     '      PROTOCOLIA_PROVIDER_SANDBOX_ENABLED: ${PROTOCOLIA_PROVIDER_SANDBOX_ENABLED:-false}',
     '      PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX: ${PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX:-}',
+    '      PROTOCOLIA_PROVIDER_SANDBOX_KEYS: ${PROTOCOLIA_PROVIDER_SANDBOX_KEYS:-}',
     "volumes:","  protocolia_nest_data:",""
   ].join("\n"));
   const result={adapter:"nestjs",irVersion:ir.irVersion,

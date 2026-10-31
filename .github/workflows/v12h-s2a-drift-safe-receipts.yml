@@ -58,7 +58,11 @@ jobs:
       - name: Generic HTTP/DB conformance against isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/v12h-s2a-drift-app"
       - name: Install deterministic Chromium for generated mobile acceptance
+        timeout-minutes: 12
         run: |
+          # Hosted Ubuntu runners may point apt to an unreachable Azure HTTP mirror.
+          # Use the public HTTPS archive to keep browser prerequisites deterministic.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           npm install --no-save --ignore-scripts playwright@1.56.1
           npx playwright install --with-deps chromium
       - name: Frozen exact multi-charge financial + mobile form/HTTP acceptance

@@ -7,7 +7,7 @@ export type ProviderEnvelope={
   keyId:string;
   timestamp:string; // canonical Unix seconds, not milliseconds
   eventId:string;
-  signature:string; // v1=<lowercase 64-char hex HMAC-SHA256>
+  signature:string; // v2=<lowercase 64-char hex HMAC-SHA256>
   rawBody:Uint8Array; // original HTTP bytes, NEVER reserialized JSON
   keys:Readonly<Record<string,Uint8Array>>; // trusted server-side keys, not HTTP data
   nowSeconds:number;
@@ -56,4 +56,24 @@ export function verifyProviderEnvelope(input:ProviderEnvelope):VerifiedProviderE
     keyId:input.keyId,eventId:input.eventId,
     payloadSha256:createHash("sha256").update(raw).digest("hex")
   });
+}
+
+// Server-only demo keyring: one legacy key or 1-3 explicit, revocable IDs.
+// Never select a fallback secret based on a client-controlled header.
+export function parseSandboxProviderKeys(
+  legacyHex:string|undefined,ring:string|undefined
+):Readonly<Record<string,Uint8Array>>|null{
+  const legacy=legacyHex??"",configured=ring??"";
+  if(legacy&&configured)return null;
+  const entries=configured?configured.split(","):legacy?["sandbox_1="+legacy]:[];
+  if(entries.length<1||entries.length>3)return null;
+  const keys:Record<string,Uint8Array>=Object.create(null);
+  const secrets=new Set<string>();
+  for(const entry of entries){
+    const match=/^([A-Za-z0-9_-]{1,32})=([0-9a-f]{64})(?![\s\S])/.exec(entry);
+    if(!match||Object.hasOwn(keys,match[1])||secrets.has(match[2]))return null;
+    keys[match[1]]=Buffer.from(match[2],"hex");
+    secrets.add(match[2]);
+  }
+  return Object.freeze(keys);
 }

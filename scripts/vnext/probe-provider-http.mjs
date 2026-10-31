@@ -14,13 +14,15 @@ assert.ok(["nestjs","modular-spring"].includes(build.target));
 const scratch=mkdtempSync(join(tmpdir(),"pia-provider-http-"));
 const project="pia_http_"+randomBytes(5).toString("hex");
 const key=randomBytes(32);
+const rotatedKey=randomBytes(32);
 const env={
   PROTOCOLIA_DB_PASSWORD:randomBytes(18).toString("hex"),
   PROTOCOLIA_MANAGER_PASSWORD:randomBytes(18).toString("hex"),
   PROTOCOLIA_READER_PASSWORD:randomBytes(18).toString("hex"),
   PROTOCOLIA_ALLOW_DEMO_AUTH:"true",
   PROTOCOLIA_PROVIDER_SANDBOX_ENABLED:"true",
-  PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX:key.toString("hex")
+  PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX:"",
+  PROTOCOLIA_PROVIDER_SANDBOX_KEYS:"sandbox_1="+key.toString("hex")+",sandbox_2="+rotatedKey.toString("hex")
 };
 const compose=["compose","--project-name",project,"--env-file",join(scratch,"env")];
 const docker=(args,allowFail=false)=>{
@@ -44,9 +46,8 @@ writeFileSync(join(scratch,"env"),Object.entries(env).map(([k,v])=>k+"="+v).join
 const base="http://127.0.0.1:"+port;
 const path="/api/_protocolia/provider/sandbox/inbox";
 const body=Buffer.from('{"sandbox":"test","amount":"1.00"}');
-function signed(event,raw=body,timestamp=String(Math.floor(Date.now()/1000)),purpose="inbox"){
-  const keyId="sandbox_1";
-  const mac=createHmac("sha256",key)
+function signed(event,raw=body,timestamp=String(Math.floor(Date.now()/1000)),purpose="inbox",keyId="sandbox_1"){
+  const mac=createHmac("sha256",keyId==="sandbox_1"?key:rotatedKey)
     .update("protocolia-provider-proof-v2\n"+purpose+"\n"+keyId+"\n"+timestamp+"\n"+event+"\n")
     .update(raw).digest("hex");
   return {"Content-Type":"application/json","X-ProtocolIA-Key-Id":keyId,
@@ -86,11 +87,20 @@ try{
   const noAuth=await send("evt_valid_12345678");
   assert.equal(noAuth.status,202,"Valid HMAC must work without human Basic auth");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"2");
+  // Both active keys authenticate; rotation never creates a second event.
+  const rotatedEvent="evt_rotation_12345678";
+  assert.equal((await send(rotatedEvent,body,
+    signed(rotatedEvent,body,undefined,"inbox","sandbox_2"))).status,202);
+  assert.equal((await send(rotatedEvent)).status,200,
+    "same event signed by a different active key is still a duplicate");
+  assert.equal((await send("evt_unknown_key_12",body,
+    signed("evt_unknown_key_12",body,undefined,"inbox","retired_1"))).status,401);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"3");
   assert.equal(sql("SELECT COUNT(*) FROM payment"),"0");
   const crossEvent="evt_cross_route_12345678";
   assert.equal((await send(crossEvent,body,signed(crossEvent,body,undefined,"receipt-candidate"))).status,401);
   assert.equal((await send(crossEvent,body,signed(crossEvent,body),"/api/_protocolia/provider/sandbox/receipt-candidate")).status,401);
-  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"2");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"),"3");
 
   // S2c-1c3b: synthetic receipt matching over signed sandbox HTTP, never settlement.
   sql("INSERT INTO customer(customer_code,name,contact_note) VALUES "+
@@ -181,6 +191,12 @@ try{
   assert.equal(sql("SELECT charge_total::text||'/'||available::text "+
     "FROM work_order WHERE number='OT-HTTP-LINK'"),before);
 
+  assert.equal((await linked(eventLinked,claim(),
+    signed(eventLinked,claim(),undefined,"receipt-candidate","sandbox_2"))).status,200,
+    "key rotation cannot create a second receipt candidate");
+  assert.equal((await lifecycle(lifeEvent,lifeClaim(),
+    signed(lifeEvent,lifeClaim(),undefined,"lifecycle-observation","sandbox_2"))).status,200,
+    "key rotation cannot create a second lifecycle observation");
   assert.equal((await linked("evt_http_missing_1234",claim("MISSING-RECEIPT"))).status,404);
   assert.equal((await linked("evt_http_wrongorder",claim("PAY-HTTP-LINK","WRONG-ORDER"))).status,409);
   assert.equal((await linked("evt_http_wrongamt_1",claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);

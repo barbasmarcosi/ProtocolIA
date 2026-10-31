@@ -7,7 +7,7 @@ import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {Pool} from "pg";
 import {installBff,installBffSecurityHeaders} from "./BffSession";
-import {verifyProviderEnvelope} from "./ProviderWebhookVerifier";
+import {verifyProviderEnvelope,parseSandboxProviderKeys} from "./ProviderWebhookVerifier";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
@@ -1533,9 +1533,10 @@ class RuntimeService{
         throw new Problem(404,"Sandbox provider ingress disabled");
       if(process.env.PROTOCOLIA_AUTH_MODE!=="demo")
         throw new Problem(503,"Sandbox ingress forbidden outside demo mode");
-      const hex=process.env.PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX??"";
-      if(!/^[0-9a-f]{64}$/.test(hex))
-        throw new Problem(503,"Sandbox signing key not configured");
+      const keys=parseSandboxProviderKeys(
+        process.env.PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX,
+        process.env.PROTOCOLIA_PROVIDER_SANDBOX_KEYS);
+      if(!keys)throw new Problem(503,"Sandbox signing keys not configured");
       const header=(name:string):string=>{
         const matches=(req.rawHeaders as string[]).filter((x,i)=>i%2===0&&x.toLowerCase()===name);
         if(matches.length!==1)throw new Problem(400,"Missing or duplicate provider header");
@@ -1553,7 +1554,7 @@ class RuntimeService{
         eventId:header("x-protocolia-event-id"),
         signature:header("x-protocolia-signature"),
         rawBody:req.rawBody,
-        keys:{sandbox_1:Buffer.from(hex,"hex")},
+        keys,
         nowSeconds:Math.floor(Date.now()/1000)
       });
       if(!verified)throw new Problem(401,"Invalid provider signature");

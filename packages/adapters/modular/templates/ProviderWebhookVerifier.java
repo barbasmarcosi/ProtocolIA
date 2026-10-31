@@ -5,6 +5,8 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -15,6 +17,27 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class ProviderWebhookVerifier {
   private ProviderWebhookVerifier() {}
+
+  /** Trusted demo-only keyring; no client-supplied identity or key fallback.
+   * Removing an ID revokes it for new requests without changing stored events.
+   */
+  public static Map<String,byte[]> parseSandboxKeys(String legacyHex,String keyring) {
+    String legacy=legacyHex==null?"":legacyHex;
+    String configured=keyring==null?"":keyring;
+    if(!legacy.isEmpty()&&!configured.isEmpty())return null;
+    String[] entries=!configured.isEmpty()?configured.split(",",-1):
+      !legacy.isEmpty()?new String[]{"sandbox_1="+legacy}:new String[0];
+    if(entries.length<1||entries.length>3)return null;
+    var keys=new HashMap<String,byte[]>();
+    var secrets=new HashSet<String>();
+    for(String entry:entries){
+      var matcher=Pattern.compile("([A-Za-z0-9_-]{1,32})=([0-9a-f]{64})").matcher(entry);
+      if(!matcher.matches()||keys.containsKey(matcher.group(1))||
+         !secrets.add(matcher.group(2)))return null;
+      keys.put(matcher.group(1),HexFormat.of().parseHex(matcher.group(2)));
+    }
+    return Map.copyOf(keys);
+  }
   public record Verified(String keyId,String eventId,String payloadSha256) {}
   private static final Pattern KEY=Pattern.compile("[A-Za-z0-9_-]{1,32}");
   private static final Pattern EVENT=Pattern.compile("[A-Za-z0-9_-]{8,128}");
