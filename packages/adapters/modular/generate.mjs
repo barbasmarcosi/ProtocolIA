@@ -1,3 +1,4 @@
+import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -634,7 +635,8 @@ export function generate(ir, openapi, outDir) {
   sql.push(...queryIndexDdl);
   sql.push(...overdueSchemaSql(overdueRules),...recipientInboxSql(inboxes),
     ...exactAdjustmentJournalSql(exactReconciliations),
-    ...exactAdjustmentWriteSql(ir,exactReconciliations));
+    ...exactAdjustmentWriteSql(ir,exactReconciliations),
+    ...providerEnvelopeInboxSql(exactReconciliations));
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
