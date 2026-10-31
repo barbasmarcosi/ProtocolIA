@@ -724,9 +724,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
         !totalField.computedRoundedProduct&&!totalField.computedDiscountedTotal&&
         !ops.some(candidate=>{
           const b=metadata(p,"behavior",candidate);
-          return b?.entity===child?.name&&
+          if(!b)return false;
+          return b.entity===child?.name&&
             !["create","get","listPage","queryPage","auditPage","health"].includes(String(b.kind))||
-            b?.entity===entity.name&&
+            b.entity===entity.name&&
             (b.kind==="patchTogether"||b.kind==="delete"||
               b.kind==="patchFields"&&derivedFields.has(String(b.field)));
         })
