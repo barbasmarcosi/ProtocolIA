@@ -325,6 +325,11 @@ try{
   }});
   assert.equal(forged.status,400,"A caller must not claim provider settlement");
   await status("/api/payments/PROOF-FORGE",404);
+  await status("/api/payments",400,{method:"POST",body:{
+    ...pay("PROOF-FORGE-SAME","OT-PROVIDER-PROOF","1.00"),
+    providerSettlementState:"unverified"
+  }});
+  await status("/api/payments/PROOF-FORGE-SAME",404);
   assert.equal((await balance("OT-PROVIDER-PROOF")).record.available,
     proofBefore.record.available,"Forged provider proof must not debit the ledger");
   for(const method of ["cash","bank_transfer","card"]){
@@ -340,6 +345,8 @@ try{
     assert.equal(sql("SELECT provider_settlement_state FROM payment WHERE receipt='"+
       receipt+"'"),"unverified");
   }
+  assert.throws(()=>sql("UPDATE payment SET provider_settlement_state='settled' "+
+    "WHERE receipt='PROOF-CARD'"),"PostgreSQL must reject forged external proof");
   const proofCovered=await balance("OT-PROVIDER-PROOF");
   assert.equal(proofCovered.snapshot.coverageState,"covered",
     "Coverage is internal ledger coverage, not provider clearing");
