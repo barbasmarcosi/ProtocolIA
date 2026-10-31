@@ -323,7 +323,9 @@ export function generate(ir,spec,out){
           parentField:plan.relation.name,
           rowsField:plan.rowsField,
           maxRows:plan.maxRows,
-          childWriteCapability:plan.childWriteCapability
+          childWriteCapability:plan.childWriteCapability,
+          ...(plan.chargeAmountField?{chargeAmountField:plan.chargeAmountField,
+            chargeTotalField:plan.chargeTotalField}:{})
         };
       }
       if(b.moveBatch){
