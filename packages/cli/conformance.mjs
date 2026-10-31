@@ -128,6 +128,10 @@ async function runMulti(){
   const creators=resources.filter(r=>r.operations.create?.behavior?.createDetails?.versioned);
   const versionedChild=resource=>creators.find(parent=>
     parent.operations.create.behavior.createDetails.childEntity===resource.entity.name);
+  const immutableChild=resource=>resources.find(parent=>{
+    const detail=parent.operations.create?.behavior?.createDetails;
+    return detail?.chargeAmountField&&detail.childEntity===resource.entity.name;
+  });
   const versionedTransition=(resource,op)=>{
     const details=resource.operations.create?.behavior?.createDetails;
     return details?.versioned && details.closeField&&details.closeState&&
@@ -187,6 +191,31 @@ async function runMulti(){
   const deferredClosures=[];
   for(const resource of resources){
     const e=resource.entity,identity=e.publicIdentity;
+    const sealed=immutableChild(resource);
+    if(sealed){
+      // The generated UI correctly omits direct CREATE for immutable financial
+      // rows. They are created only as part of their parent transaction.
+      assert.equal(resource.operations.create,undefined,
+        "Immutable financial charge rows must not advertise standalone CREATE");
+      assert.ok(resource.operations.get&&resource.operations.listPage);
+      const detail=sealed.operations.create.behavior.createDetails;
+      const parentBody=createBodies.get(sealed.entity.name);
+      const rows=parentBody?.[detail.rowsField];
+      assert.ok(Array.isArray(rows)&&rows.length>=1,
+        "Financial charge rows must be supplied atomically with their parent");
+      for(const line of rows){
+        const key=line[identity];
+        assert.equal(typeof key,"string");
+        const read=await run(resource,"get",reader,{key});
+        assert.equal(read.status,200,"Atomic child rows must be independently readable");
+        assert.equal(read.data[detail.parentField],
+          parentBody[sealed.entity.publicIdentity]);
+      }
+      keys.set(e.name,rows[0][identity]);
+      createBodies.set(e.name,{...rows[0],
+        [detail.parentField]:parentBody[sealed.entity.publicIdentity]});
+      continue;
+    }
     for(const kind of ["create","get","listPage"])
       assert.ok(resource.operations[kind],e.name+" requires "+kind);
     assert.ok(session.capabilities.includes(resource.operations.create.capability),
