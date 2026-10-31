@@ -74,6 +74,10 @@ function appendProviderCandidate(plans,ddl){
       receipt_id VARCHAR(255) NOT NULL REFERENCES ${b.childTable}(${b.receiptColumn}) ON DELETE RESTRICT,
       order_id VARCHAR(255) NOT NULL,
       amount NUMERIC(${b.precision},${b.scale}) NOT NULL CHECK (amount>0),
+      -- A v1 receipt candidate is a one-time provider/transaction binding.
+      -- Later lifecycle observations must reference this binding, not claim
+      -- the same receipt through a second event or another provider.
+      UNIQUE (receipt_id),
       PRIMARY KEY(provider_id,event_id),
       FOREIGN KEY(provider_id,event_id)
         REFERENCES protocolia_provider_envelope_inbox(provider_id,event_id) ON DELETE RESTRICT
@@ -83,6 +87,7 @@ function appendProviderCandidate(plans,ddl){
     ) RETURNS TEXT LANGUAGE plpgsql AS $receipt_candidate$
     DECLARE actual_order TEXT;actual_amount NUMERIC;actual_state TEXT;actual_proof TEXT;
       outcome TEXT;old_receipt TEXT;old_order TEXT;old_amount NUMERIC;old_digest TEXT;
+      bound_provider TEXT;bound_event TEXT;
     BEGIN
       IF v_receipt IS NULL OR length(v_receipt) NOT BETWEEN 1 AND 255 OR
          v_order IS NULL OR length(v_order) NOT BETWEEN 1 AND 255 OR
@@ -114,6 +119,13 @@ function appendProviderCandidate(plans,ddl){
       IF actual_order<>v_order OR actual_amount<>v_amount OR
          actual_state<>'posted' OR actual_proof<>'unverified'
       THEN RETURN 'mismatch'; END IF;
+      -- Receipt row lock serializes different event IDs and providers trying
+      -- to claim the same receipt. Reject before inserting any inbox envelope.
+      -- UNIQUE(receipt_id) remains the database backstop against bypass.
+      SELECT provider_id,event_id INTO bound_provider,bound_event
+        FROM protocolia_provider_receipt_candidate
+        WHERE receipt_id=v_receipt;
+      IF FOUND THEN RETURN 'conflict'; END IF;
       SELECT protocolia_record_provider_envelope_digest(v_provider,v_event,v_digest)
         INTO outcome;
       IF outcome='conflict' THEN RETURN 'conflict'; END IF;
