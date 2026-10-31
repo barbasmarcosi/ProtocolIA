@@ -75,7 +75,7 @@ public final class ProviderWebhookVerifierTest {
       "old key during rotation");
     var mac=javax.crypto.Mac.getInstance("HmacSHA256");
     mac.init(new javax.crypto.spec.SecretKeySpec(HexFormat.of().parseHex(two),"HmacSHA256"));
-    var prefix="protocolia-provider-proof-v2\\ninbox\\nsandbox_2\\n1793440000\\nevt_12345678\\n";
+    var prefix="protocolia-provider-proof-v2\ninbox\nsandbox_2\n1793440000\nevt_12345678\n";
     mac.update(prefix.getBytes(StandardCharsets.UTF_8));
     var newSig="v2="+HexFormat.of().formatHex(mac.doFinal(BODY));
     check(verify("sandbox_2","1793440000","evt_12345678",newSig,BODY,rotated,NOW)!=null,
