@@ -129,7 +129,6 @@ async function browserSmoke(){
     console.log("PROTOCOLIA_S2B_ITEMIZED_MOBILE_PASS");
   }finally{await browser.close();}
 }
-let started=false;
 try{
   const port=await freePort();env.PROTOCOLIA_HOST_PORT=String(port);
   writeFileSync(join(scratch,"env"),
