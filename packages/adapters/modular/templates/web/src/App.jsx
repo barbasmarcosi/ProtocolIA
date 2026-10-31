@@ -732,7 +732,7 @@ function signedAdjustmentString(units,scale){
 // S2c-1b2: intentionally no generic PATCH, no client-supplied actor or parent
 // balance, no auto-submit after a preview read. Every write is an explicit
 // confirmation, while PostgreSQL still rechecks balance inside its transaction.
-function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied,onRefresh}){
+function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied,onRefresh,adjustmentId,onNewAdjustmentId}){
   const [open,setOpen]=useState(false);
   const [direction,setDirection]=useState("decrease");
   const [amount,setAmount]=useState("");
@@ -742,7 +742,6 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [needsRefresh,setNeedsRefresh]=useState(false);
-  const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
   const scale=amountField?.decimal?.scale;
   const precision=amountField?.decimal?.precision;
   const current=Number.isInteger(scale)?signedAdjustmentUnits(report?.openingBalance,scale):null;
@@ -813,7 +812,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       const saved=await response.json();
       setNotice("Ajuste aplicado y auditado.");
       setAmount("");setReason("");setConfirmed(null);setOpen(false);
-      setAdjustmentId(crypto.randomUUID());
+      onNewAdjustmentId?.();
       onApplied?.(saved);
     }catch(e){setNeedsRefresh(true);setError(e.message);setConfirmed(null);}
     finally{setBusy(false);}
@@ -891,6 +890,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
 }
 function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adjustmentOperation,adjustmentField,onApplied}){
   const [local,setLocal]=useState(0);
+  const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
   const [state,setState]=useState({loading:true,data:null,error:""});
   useEffect(()=>{
     const controller=new AbortController();
@@ -951,7 +951,8 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
         {adjustmentOperation&&report.balanced&&<ExactAdjustmentComposer
           operation={adjustmentOperation} reconciliation={operation} identity={identity}
           auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}
-          onRefresh={()=>setLocal(x=>x+1)}/>}
+          onRefresh={()=>setLocal(x=>x+1)} adjustmentId={adjustmentId}
+          onNewAdjustmentId={()=>setAdjustmentId(crypto.randomUUID())}/>}
       </div>}
   </section>;
 }
