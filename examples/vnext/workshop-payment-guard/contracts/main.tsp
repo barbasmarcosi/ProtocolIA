@@ -22,6 +22,7 @@ namespace TallerPaymentGuard {
     difference: string;
     postingCount: string;
     balanced: boolean;
+    coverageState: string;
   }
   @error model BadRequest { @statusCode _: 400; message: string; }
   @error model Unauthorized { @statusCode _: 401; message: string; }
@@ -247,7 +248,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
-  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true)
+  @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","laborCharge,partsCharge", true, true)
   @capability("orders.read")
   op reconcileWorkOrder(@path number: string):
     ExactLedgerSnapshot | NotFound | Unauthorized | Forbidden;
