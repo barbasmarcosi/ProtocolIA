@@ -50,6 +50,8 @@ function docker(...args){
     (cmd.stderr??cmd.error?.message??"").slice(-1600));
   return cmd.stdout?.trim();
 }
+const sql=statement=>docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia","-Atc",statement);
 async function freePort(){return await new Promise((yes,no)=>{
   const s=createServer();s.once("error",no);
   s.listen(0,"127.0.0.1",()=>{const p=s.address().port;
@@ -345,8 +347,7 @@ try{
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-05 concurrent receipts and reversal");
   // S2c-0: simulate a privileged, out-of-band PostgreSQL source mutation.
   // These are fixed synthetic records in the disposable Compose DB, never production.
-  const sql=statement=>docker("exec","-T","db","psql","-v","ON_ERROR_STOP=1",
-    "-U","protocolia","-d","protocolia","-Atc",statement);
+
   const driftId="OT-SOURCE-DRIFT";
   const driftPath="/api/work-orders/"+driftId+"/reconciliation";
   await status("/api/work-orders",201,{method:"POST",body:order(driftId,[
