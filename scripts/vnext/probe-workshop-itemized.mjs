@@ -388,6 +388,92 @@ try{
   assert.equal(plus.coverageState,"unpaid");
   assert.equal(cents(plus.openingBalance),30n);
   assert.equal(cents(plus.maxSafeDecrease),30n);
+  // S2c-1b1: real, authenticated, independent HTTP adjustment capability.
+  const apply=(number,id,delta,reason="Corrección autorizada de ensayo",extra={})=>
+    request("/api/work-orders/"+number+"/adjustments",{method:"POST",body:{
+      adjustmentId:id,delta,reason,...extra
+    }});
+  await status("/api/work-orders",201,{method:"POST",body:order("OT-HTTP-ADJ",[
+    charge("AH-L","2.00"),charge("AH-P","1.00","parts")
+  ])});
+  await status("/api/payments",201,{method:"POST",body:
+    pay("AH-PAY-1","OT-HTTP-ADJ","1.00")});
+  let adjusted=await apply("OT-HTTP-ADJ","AH-PLUS-01","0.20");
+  assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
+  assert.equal(cents(adjusted.data.chargeTotal),320n);
+  assert.equal(cents(adjusted.data.available),220n);
+  adjusted=await apply("OT-HTTP-ADJ","AH-MINUS-1","-0.10");
+  assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
+  assert.equal(cents(adjusted.data.chargeTotal),310n);
+  assert.equal(cents(adjusted.data.available),210n);
+  assert.equal((await balance("OT-HTTP-ADJ")).snapshot.coverageState,"partial");
+  assert.equal(cents((await status("/api/charge-lines/AH-L",200)).amount),200n);
+  assert.equal(cents((await status("/api/charge-lines/AH-P",200)).amount),100n);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-HTTP-ADJ'"),"2");
+  assert.equal(sql("SELECT actor FROM "+jtable+
+    " WHERE adjustment_id='AH-PLUS-01'"),env.PROTOCOLIA_MANAGER_USERNAME);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE entity_name='WorkOrder' AND resource_id='OT-HTTP-ADJ' "+
+    "AND operation_name='adjustWorkOrder'"),"8");
+  const beforeDuplicate=await balance("OT-HTTP-ADJ");
+  adjusted=await apply("OT-HTTP-ADJ","AH-PLUS-01","0.20");
+  assert.equal(adjusted.status,409);
+  assert.equal(cents((await balance("OT-HTTP-ADJ")).record.available),
+    cents(beforeDuplicate.record.available));
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'"),"8");
+  console.log("PROTOCOLIA_S2C1B1_ADJUST_PASS signed money, actor, audit and idempotency");
+  const invalidAdjustment=[
+    ["AH-ZERO-01","0.00","Corrección autorizada de ensayo",{},400],
+    ["AH-WIRE-01",0.1,"Corrección autorizada de ensayo",{},400],
+    ["AH-PRECI-1","0.001","Corrección autorizada de ensayo",{},400],
+    ["AH-OVER-01","999999999999.99","Corrección autorizada de ensayo",{},409],
+    ["BAD","0.10","Corrección autorizada de ensayo",{},400],
+    ["AH-REASON","0.10","   ",{},400],
+    ["AH-FORGE-1","0.10","Corrección autorizada de ensayo",{actor:"fake"},400],
+    ["AH-FORGE-2","0.10","Corrección autorizada de ensayo",{chargeTotal:"999.00"},400],
+    ["AH-FORGE-3","0.10","Corrección autorizada de ensayo",{orderNumber:"OT-OTHER"},400]
+  ];
+  for(const [id,delta,reason,extra,code] of invalidAdjustment){
+    const result=await apply("OT-HTTP-ADJ",id,delta,reason,extra);
+    assert.equal(result.status,code,id+" "+JSON.stringify(result.data));
+  }
+  const forbidden=await request("/api/work-orders/OT-HTTP-ADJ/adjustments",{
+    method:"POST",role:"reader",body:{adjustmentId:"AH-READER-1",delta:"0.10",
+      reason:"Sin permiso para corregir"}
+  });
+  assert.equal(forbidden.status,403);
+  assert.equal((await apply("OT-NOT-FOUND","AH-NO-ORD","0.10")).status,404);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-HTTP-ADJ'"),"2");
+  assert.equal((await apply("OT-HTTP-ADJ","AH-COVER-1","-2.10")).status,201);
+  const exactlyCovered=(await balance("OT-HTTP-ADJ")).snapshot;
+  assert.equal(exactlyCovered.coverageState,"covered");
+  assert.equal(cents(exactlyCovered.available),0n);
+  assert.equal((await apply("OT-HTTP-ADJ","AH-OVERPAY","-0.01")).status,409);
+  assert.equal((await apply("OT-HTTP-ADJ","AH-REOPEN","0.15")).status,201);
+  assert.equal((await balance("OT-HTTP-ADJ")).snapshot.coverageState,"partial");
+  console.log("PROTOCOLIA_S2C1B1_ADJUST_PASS forged inputs, read authority and covered guard");
+
+  await status("/api/work-orders",201,{method:"POST",body:
+    order("OT-ADJ-RACE",[charge("AR-FIRST","3.00")])});
+  const decreasing=await Promise.all(Array.from({length:10},(_,i)=>
+    apply("OT-ADJ-RACE","AR-NEG-"+String(i).padStart(3,"0"),"-1.00")));
+  assert.equal(decreasing.filter(x=>x.status===201).length,3);
+  assert.equal(decreasing.filter(x=>x.status===409).length,7);
+  assert.equal((await balance("OT-ADJ-RACE")).snapshot.coverageState,"no_charge");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"3");
+  const sameId=await Promise.all(Array.from({length:5},()=>
+    apply("OT-ADJ-RACE","AR-SAME-ID","0.10")));
+  assert.equal(sameId.filter(x=>x.status===201).length,1);
+  assert.equal(sameId.filter(x=>x.status===409).length,4);
+  const afterRace=await balance("OT-ADJ-RACE");
+  assert.equal(cents(afterRace.record.chargeTotal),10n);
+  assert.equal(cents(afterRace.record.available),10n);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
+  assert.throws(()=>sql("UPDATE "+jtable+" SET delta=9.00 "+
+    "WHERE adjustment_id='AR-SAME-ID'"),/append-only|Compose/i);
+  console.log("PROTOCOLIA_S2C1B1_ADJUST_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1B0_JOURNAL_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2B_ITEMIZED_ALL_PASS "+build.target);
