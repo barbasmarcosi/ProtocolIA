@@ -13,7 +13,7 @@ const metadata = (p: Program, name: string, target: Type) =>
   readDomainDecorator(p, name, target);
 type Kind = IrOperation["behavior"]["kind"];
 const supported: readonly string[] =
-  ["adjustExact","create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
+  ["lookupExactAdjustment","adjustExact","create","get","listPage","auditPage","inboxPage","ackNotification","queryPage","sumRelated","sumDetails","reconcileExact","replaceDetails","patchFields","patchTogether","atomicIncrement","transition","reassignReference","delete","health"];
 
 function typeOfField(prop: ModelProperty): { type: IrField["type"]; nullable: boolean; choices?: Array<{value:string;label:string}> } | null {
   let t: Type = prop.type;
@@ -1198,6 +1198,33 @@ export function compileDomain(p: Program): IrDocument | undefined {
       (x):x is number => typeof x === "number").sort((a,b)=>a-b);
     if (!statuses.some((x)=>x>=200 && x<300)) {
       reject("http-status",op.name+" is missing a success status",op);continue;
+    }
+    if(kind==="lookupExactAdjustment"){
+      const writers=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="adjustExact"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name);
+      const writer=writers.length===1?writers[0]:undefined;
+      const journal=relevant.filter(candidate=>
+        metadata(p,"behavior",candidate)?.kind==="reconcileExact"&&
+        metadata(p,"behavior",candidate)?.entity===entity.name&&
+        metadata(p,"reconcileExact",candidate)?.adjustmentJournal===true);
+      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const params=[...op.parameters.properties.keys()];
+      if(!writer||journal.length!==1||
+        metadata(p,"capability",writer)?.name!==cap.name||cap.name==="public"||
+        relevant.filter(candidate=>metadata(p,"behavior",candidate)?.kind==="lookupExactAdjustment"&&
+          metadata(p,"behavior",candidate)?.entity===entity.name).length!==1||
+        http.verb!=="get"||http.parameters.body!==undefined||
+        http.path!=="/api/work-orders/{"+entity.publicIdentity+"}/adjustments/{adjustmentId}"||
+        keys.join(",")!==entity.publicIdentity+",adjustmentId"||
+        params.length!==2||!params.includes(entity.publicIdentity)||!params.includes("adjustmentId")||
+        ![200,400,401,403,404].every(code=>statuses.includes(code))||
+        f!==undefined||input!==undefined||auditMeta||metadata(p,"transition",op)||
+        metadata(p,"debitExact",op)||metadata(p,"reverseExact",op)){
+        reject("invalid-exact-adjustment-lookup",op.name+
+          " requires bounded authenticated GET of the immutable journal with adjustment authority",op);
+        continue;
+      }
     }
     if(kind==="adjustExact"){
       const recons=relevant.filter(candidate=>
