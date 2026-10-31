@@ -165,7 +165,8 @@ function reconcileExact(context: DecoratorContext, target: Operation, openingFie
      ...(serverOnly!==undefined?{serverOnly}:{}),
      ...(lifecycle!==undefined?{lifecycle}:{}),
      ...(adjustmentPreview!==undefined?{adjustmentPreview}:{}),
-     ...(adjustmentJournal!==undefined?{adjustmentJournal}:{})});
+     ...(adjustmentJournal!==undefined?{adjustmentJournal}:{}),
+     ...(unverifiedProofField!==undefined?{unverifiedProofField}:{})});
 }
 function reverseExact(context: DecoratorContext, target: Operation, balanceEntity: string,
   availableField: string, referenceField: string, amountField: string): void {
