@@ -34,8 +34,10 @@ const sql=query=>docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
   "-U","protocolia","-d","protocolia","-Atc",query]).stdout.trim();
 const port=await new Promise((resolve,reject)=>{
   const server=createServer();server.once("error",reject);
-  server.listen(0,"127.0.0.1",()=>server.close(error=>
-    error?reject(error):resolve(server.address()?.port)));
+  server.listen(0,"127.0.0.1",()=>{
+    const selected=server.address()?.port;
+    server.close(error=>error?reject(error):resolve(selected));
+  });
 });
 env.PROTOCOLIA_HOST_PORT=String(port);
 writeFileSync(join(scratch,"env"),Object.entries(env).map(([k,v])=>k+"="+v).join("\n")+"\n");
