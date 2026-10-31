@@ -324,6 +324,21 @@ namespace TallerPaymentGuard {
     { @statusCode _: 201; @body item: WorkOrder; }
     | Conflict | BadRequest | NotFound | Unauthorized | Forbidden;
 
+  // Read-only recovery of a COMMITTED internal correction after a lost HTTP response.
+  // A missing result never authorizes an automatic retry or external settlement.
+  model ExactAdjustmentOutcome {
+    @minLength(8) @maxLength(64) adjustmentId: string;
+    @encode(string) @exactDecimal(14,2,"-999999999999.99","999999999999.99")
+    delta: decimal;
+    @minLength(12) @maxLength(240) reason: string;
+    status: "committed";
+  }
+
+  @route("/api/work-orders/{number}/adjustments/{adjustmentId}")
+  @get @behavior("lookupExactAdjustment","WorkOrder") @capability("orders.adjust")
+  op lookupWorkOrderAdjustment(@path number: string, @path adjustmentId: string):
+    ExactAdjustmentOutcome | BadRequest | NotFound | Unauthorized | Forbidden;
+
   @route("/api/work-orders/{number}/reconciliation")
   @get @behavior("reconcileExact","WorkOrder")
   @reconcileExact("openingBalance","available","Payment","orderNumber","amount","status","posted","reversed","chargeTotal", true, true, true, true)
