@@ -1,7 +1,5 @@
 name: v1.2h-s2b-immutable-exact-lines
 on:
-  push:
-    branches: [feature/v1.2h-s2b1-itemized-exact-charge-20261030]
   pull_request:
     branches: [main]
     paths:
