@@ -6,7 +6,7 @@ on:
       - 'examples/vnext/workshop-payment-guard/**'
       - 'scripts/vnext/probe-workshop-payment-guard.mjs'
       - 'scripts/vnext/probe-charge-source-negative.mjs'
-      - '.github/workflows/v12d-exact-workshop-payment.yml'
+      - '.github/workflows/v12g-exact-multicharge.yml'
       - 'packages/cli/**'
       - 'packages/compiler/**'
       - 'packages/contracts/**'
