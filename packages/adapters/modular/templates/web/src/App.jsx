@@ -715,7 +715,167 @@ function DetailLinesPanel({child,operation,filter,identity,auth,editOps=[],paren
       </>}
   </section>;
 }
-function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
+// All money math in this UX stays base-10 BigInt. Never use Number/parseFloat
+// for a financial preview, even in a read-only display.
+function signedAdjustmentUnits(raw,scale){
+  if(typeof raw!=="string"||!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw))return null;
+  const [whole,fraction=""]=raw.split(".");
+  if(fraction.length>scale)return null;
+  return BigInt(whole+fraction.padEnd(scale,"0"));
+}
+function signedAdjustmentString(units,scale){
+  const neg=units<0n?"-":"",digits=(units<0n?-units:units).toString();
+  if(scale===0)return neg+digits;
+  const padded=digits.padStart(scale+1,"0");
+  return neg+padded.slice(0,-scale)+"."+padded.slice(-scale);
+}
+// S2c-1b2: intentionally no generic PATCH, no client-supplied actor or parent
+// balance, no auto-submit after a preview read. Every write is an explicit
+// confirmation, while PostgreSQL still rechecks balance inside its transaction.
+function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied}){
+  const [open,setOpen]=useState(false);
+  const [direction,setDirection]=useState("decrease");
+  const [amount,setAmount]=useState("");
+  const [reason,setReason]=useState("");
+  const [confirmed,setConfirmed]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
+  const scale=amountField?.decimal?.scale;
+  const precision=amountField?.decimal?.precision;
+  const current=Number.isInteger(scale)?signedAdjustmentUnits(report?.openingBalance,scale):null;
+  const available=Number.isInteger(scale)?signedAdjustmentUnits(report?.available,scale):null;
+  const limit=Number.isInteger(scale)?signedAdjustmentUnits(
+    direction==="decrease"?report?.maxSafeDecrease:report?.maxSafeIncrease,scale):null;
+  const magnitude=Number.isInteger(scale)?signedAdjustmentUnits(amount.trim(),scale):null;
+  const delta=direction==="decrease"?-(magnitude??0n):(magnitude??0n);
+  const candidate=current!==null?current+delta:null;
+  const nextAvailable=available!==null?available+delta:null;
+  const wellFormed=Number.isInteger(scale)&&scale>=0&&Number.isInteger(precision)&&
+    magnitude!==null&&magnitude>0n&&limit!==null&&magnitude<=limit&&
+    magnitude.toString().length<=precision&&
+    reason.trim().length>=12&&reason.trim().length<=240&&
+    report?.balanced===true&&report?.adjustmentPreviewEligible===true;
+  function change(updater){updater();setConfirmed(null);setError("");setNotice("");}
+  async function preview(event){
+    event.preventDefault();
+    if(busy)return;
+    if(!wellFormed){setError("Revisá el importe, el motivo y el límite disponible.");return;}
+    setBusy(true);setError("");
+    try{
+      const response=await authenticatedFetch(route(reconciliation,identity),{
+        headers:{Authorization:auth}
+      });
+      if(!response.ok)throw Error("No se pudo verificar la conciliación actual.");
+      const latest=await response.json();
+      if(!latest.balanced||!latest.adjustmentPreviewEligible||
+        ["openingBalance","available","postedTotal","reversedTotal","maxSafeDecrease","maxSafeIncrease"]
+          .some(k=>latest[k]!==report[k]))
+        throw Error("Los cargos o cobros cambiaron. Actualizá la conciliación antes de continuar.");
+      const freshLimit=signedAdjustmentUnits(direction==="decrease"?
+        latest.maxSafeDecrease:latest.maxSafeIncrease,scale);
+      if(freshLimit===null||magnitude>freshLimit)
+        throw Error("El importe supera el máximo permitido actualmente.");
+      setConfirmed({delta:signedAdjustmentString(delta,scale),
+        before:latest.openingBalance,after:signedAdjustmentString(candidate,scale),
+        available:latest.available,afterAvailable:signedAdjustmentString(nextAvailable,scale),
+        reason:reason.trim(),adjustmentId});
+    }catch(e){setError(e.message);setConfirmed(null);}
+    finally{setBusy(false);}
+  }
+  async function apply(){
+    if(!confirmed||busy)return;
+    setBusy(true);setError("");
+    try{
+      const response=await authenticatedFetch(route(operation,identity),{
+        method:"POST",headers:{Authorization:auth,"Content-Type":"application/json"},
+        body:JSON.stringify({adjustmentId:confirmed.adjustmentId,
+          delta:confirmed.delta,reason:confirmed.reason})
+      });
+      if(!response.ok){
+        if(response.status===409)throw Error(
+          "Conflicto: la orden cambió o este identificador ya se utilizó. "+
+          "Actualizá la conciliación; no se reintentó automáticamente.");
+        if(response.status===403)throw Error("No tenés permiso para ajustar este importe.");
+        if(response.status===401)throw Error("La sesión caducó. Volvé a iniciar sesión.");
+        if(response.status===400)throw Error("El servidor rechazó el importe o el motivo.");
+        throw Error("No se pudo confirmar el ajuste. Verificá la orden antes de reintentar.");
+      }
+      const saved=await response.json();
+      setNotice("Ajuste aplicado y auditado.");
+      setAmount("");setReason("");setConfirmed(null);setOpen(false);
+      setAdjustmentId(crypto.randomUUID());
+      onApplied?.(saved);
+    }catch(e){setError(e.message);setConfirmed(null);}
+    finally{setBusy(false);}
+  }
+  return <section className="exact-adjustment-composer" data-testid="exact-adjustment-composer"
+    aria-label="Corrección autorizada de importe">
+    <div className="related-summary-head"><div><h4>Corrección autorizada</h4>
+      <p className="related-summary-hint">Se registra un movimiento nuevo, sin cambiar los cargos originales.</p>
+    </div><button type="button" className="ghost" data-testid="exact-adjustment-toggle"
+      disabled={busy} aria-expanded={open} onClick={()=>change(()=>setOpen(v=>!v))}>
+      {open?"Cerrar":"Crear ajuste"}</button></div>
+    {notice&&<p role="status" className="message">{notice}</p>}
+    {error&&<p role="alert" className="message error" data-testid="exact-adjustment-error">{error}</p>}
+    {open&&(!report?.balanced||!report?.adjustmentPreviewEligible)?
+      <p className="message error" role="alert" data-testid="exact-adjustment-locked">
+        No se puede ajustar: revisá la conciliación o los límites de la orden.
+      </p>:null}
+    {open&&report?.balanced&&report?.adjustmentPreviewEligible&&
+      <form className="exact-adjustment-form" data-testid="exact-adjustment-form" onSubmit={preview}>
+        <div className="field">
+          <label htmlFor="exact-adjustment-direction">Tipo de corrección</label>
+          <select id="exact-adjustment-direction" data-testid="exact-adjustment-direction"
+            disabled={busy} value={direction}
+            onChange={e=>change(()=>setDirection(e.target.value))}>
+            <option value="decrease">Reducir el cargo</option>
+            <option value="increase">Aumentar el cargo</option>
+          </select>
+        </div>
+        <div className="field"><label htmlFor="exact-adjustment-amount">Importe positivo (exacto)</label>
+          <input id="exact-adjustment-amount" data-testid="exact-adjustment-amount"
+            type="text" inputMode="decimal" autoComplete="off" disabled={busy}
+            value={amount} placeholder={scale===2?"0.00":"Importe"}
+            onChange={e=>change(()=>setAmount(e.target.value))}/>
+          <small className="related-summary-hint">Máximo disponible: {direction==="decrease"?
+            report.maxSafeDecrease:report.maxSafeIncrease}. No se aceptan redondeos.</small>
+        </div>
+        <div className="field"><label htmlFor="exact-adjustment-reason">Motivo auditable</label>
+          <textarea id="exact-adjustment-reason" data-testid="exact-adjustment-reason"
+            minLength={12} maxLength={240} rows={3} disabled={busy} value={reason}
+            onChange={e=>change(()=>setReason(e.target.value))}
+            placeholder="Describí por qué se modifica el cargo original."/>
+        </div>
+        {!confirmed?
+          <button type="submit" data-testid="exact-adjustment-review" disabled={busy||!wellFormed}>
+            {busy?"Verificando…":"Revisar impacto y confirmar"}</button>:
+          <section className="exact-adjustment-confirmation" data-testid="exact-adjustment-confirmation"
+            role="group" aria-label="Confirmar impacto financiero">
+            <p>Esta operación agregará un movimiento firmado e inmutable.</p>
+            <dl className="ledger-values">
+              <dt>Ajuste</dt><dd data-testid="exact-adjustment-delta">{confirmed.delta}</dd>
+              <dt>Total anterior</dt><dd>{confirmed.before}</dd>
+              <dt>Nuevo total</dt><dd data-testid="exact-adjustment-after">{confirmed.after}</dd>
+              <dt>Saldo anterior</dt><dd>{confirmed.available}</dd>
+              <dt>Nuevo saldo disponible</dt><dd>{confirmed.afterAvailable}</dd>
+              <dt>Motivo</dt><dd>{confirmed.reason}</dd>
+            </dl>
+            <div className="exact-adjustment-actions">
+              <button type="button" className="ghost" disabled={busy}
+                data-testid="exact-adjustment-cancel" onClick={()=>setConfirmed(null)}>Volver</button>
+              <button type="button" disabled={busy} data-testid="exact-adjustment-confirm"
+                onClick={apply}>{busy?"Aplicando…":"Aplicar ajuste definitivo"}</button>
+            </div>
+          </section>}
+        <p className="related-summary-hint">La verificación es preliminar: el servidor comprueba
+          otra vez los cobros y el saldo antes de registrar el movimiento. No constituye una
+          devolución, nota de crédito fiscal ni liquidación bancaria.</p>
+      </form>}
+  </section>;
+}
+function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adjustmentOperation,adjustmentField,onApplied}){
   const [local,setLocal]=useState(0);
   const [state,setState]=useState({loading:true,data:null,error:""});
   useEffect(()=>{
@@ -773,6 +933,9 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0}){
               Cualquier ajuste deberá volver a validar cobros, permisos y saldo.
             </p>
           </section>}
+        {adjustmentOperation&&report.balanced&&<ExactAdjustmentComposer
+          operation={adjustmentOperation} reconciliation={operation} identity={identity}
+          auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}/>}
       </div>}
   </section>;
 }
@@ -1063,6 +1226,13 @@ export default function App(){
   const ledgerReconciliation=operations.reconcileExact;
   const ledgerChild=ledgerReconciliation?.behavior?.reconcileExact?
     config?.resources?.find(r=>r.entity.name===ledgerReconciliation.behavior.reconcileExact.childEntity):null;
+  const exactAdjustmentOp=operations.adjustExact;
+  const exactAdjustmentField=active?.entity.fields.find(f=>
+    f.name===ledgerReconciliation?.behavior?.reconcileExact?.chargeSource);
+  const canAdjustExact=Boolean(exactAdjustmentOp&&can("adjustExact")&&
+    ledgerReconciliation?.behavior?.reconcileExact?.adjustmentJournal===true&&
+    exactAdjustmentField?.decimal&&
+    capabilities.includes(ledgerReconciliation.capability));
   const canReconcile=Boolean(ledgerReconciliation&&ledgerChild&&
     capabilities.includes(ledgerReconciliation.capability)&&
     capabilities.includes(ledgerChild.operations?.get?.capability));
@@ -1680,7 +1850,10 @@ export default function App(){
           key={active.entity.name+":"+selected[active.entity.publicIdentity]}
           operation={ledgerReconciliation}
           identity={selected[active.entity.publicIdentity]}
-          auth={auth} child={ledgerChild} revision={summaryRevision}/>}
+          auth={auth} child={ledgerChild} revision={summaryRevision}
+          adjustmentOperation={canAdjustExact?exactAdjustmentOp:null}
+          adjustmentField={exactAdjustmentField}
+          onApplied={data=>{setSelected(data);setSummaryRevision(n=>n+1);refresh();}}/>}
         {canReadDetailSum&&<RelatedSumPanel
           key={"sumDetails:"+active.entity.name+":"+selected[active.entity.publicIdentity]}
           operation={detailSum}
