@@ -65,7 +65,7 @@ export interface IrOperation {
   method: string;
   path: string;
   behavior: {
-    kind: "create" | "get" | "listPage" | "patchFields" | "patchTogether" | "atomicIncrement" | "transition" | "reassignReference" | "queryPage" | "auditPage" | "inboxPage" | "ackNotification" | "sumRelated" | "sumDetails" | "reconcileExact" | "replaceDetails" | "delete" | "health";
+    kind: "adjustExact" | "create" | "get" | "listPage" | "patchFields" | "patchTogether" | "atomicIncrement" | "transition" | "reassignReference" | "queryPage" | "auditPage" | "inboxPage" | "ackNotification" | "sumRelated" | "sumDetails" | "reconcileExact" | "replaceDetails" | "delete" | "health";
     field?: string;
     input?: string;
     from?: string;
