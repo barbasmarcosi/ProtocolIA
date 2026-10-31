@@ -151,6 +151,14 @@ try{
   for(const field of ["openingBalance","available","chargeTotal"])
     assert.equal(cents(baseline.record[field]),30n,field+" must equal exact line sum");
   assert.equal(baseline.snapshot.coverageState,"unpaid");
+  const audit=await status("/api/work-orders/OT-EXACT/audit",200);
+  assert.ok(audit.items.some(row=>row.fieldName==="chargeTotal"&&
+    cents(String(row.afterValue).replace(/^"|"$/g,""))===30n),
+    "The authoritative exact line sum must be durably audited");
+  await status("/api/work-orders",201,{method:"POST",body:
+    order("OT-NO-CHARGE",[charge("ZERO-1","0.00")])});
+  assert.equal((await balance("OT-NO-CHARGE")).snapshot.coverageState,"no_charge");
+  console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-06 durable derived-total audit and zero-charge policy");
   assert.equal(cents((await status("/api/charge-lines/L-001",200)).amount),10n);
   assert.equal(cents((await status("/api/charge-lines/P-001",200)).amount),20n);
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-01 exact atomic 0.10 + 0.20");
