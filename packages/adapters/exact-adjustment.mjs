@@ -17,10 +17,12 @@ export function assertExactAdjustment(ir,api,op,plans){
   const rb=deref(api,endpoint?.requestBody);
   const model=deref(api,rb?.content?.["application/json"]?.schema);
   const ps=model?.properties;
-  const ids=["adjustmentId","delta","reason"];
+  const ids=["adjustmentId","delta","reason","expectedOpening","expectedAvailable","expectedPostingCount","expectedReversedTotal","expectedAdjustmentCount"];
   const id=ps&&deref(api,ps.adjustmentId);
   const delta=ps&&deref(api,ps.delta);
   const reason=ps&&deref(api,ps.reason);
+  const expectedMoney=["expectedOpening","expectedAvailable","expectedReversedTotal"];
+  const expectedCounts=["expectedPostingCount","expectedAdjustmentCount"];
   if(!parent||!ident(parent.publicIdentity)||!journal||
     !journal.table?.startsWith("protocolia_exact_adjustment_")||
     typeof journal.max!=="string"||!charge?.decimal||charge.decimal.max!==journal.max||
@@ -32,12 +34,14 @@ export function assertExactAdjustment(ir,api,op,plans){
     !op.capability||op.capability==="public"||
     [create[0].capability,get[0].capability,audit[0]?.capability].includes(op.capability)||
     op.behavior.audit!==undefined||op.behavior.field!==undefined||op.behavior.input!==undefined||
-    !endpoint||!ps||Object.keys(ps).length!==3||
+    !endpoint||!ps||Object.keys(ps).length!==8||
     !ids.every(k=>Object.hasOwn(ps,k))||
     !ids.every(k=>model.required?.includes(k))||
     id?.type!=="string"||id.minLength!==8||id.maxLength!==64||
     reason?.type!=="string"||reason.minLength!==12||reason.maxLength!==240||
-    delta?.type!=="string")
+    delta?.type!=="string"||
+    !expectedMoney.every(name=>deref(api,ps[name])?.type==="string")||
+    !expectedCounts.every(name=>deref(api,ps[name])?.type==="string"))
     throw Error("Invalid reviewed exact adjustment "+op?.name);
   return {parent,ledger,journal};
 }
