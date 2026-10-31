@@ -6,15 +6,15 @@ import {verifyProviderEnvelope} from "../../packages/adapters/nest/templates/Pro
 const secret=Buffer.alloc(32,0x11);
 const rawBody=Buffer.from('{"provider":"sandbox","amount":"1.00","event":"settled"}');
 const timestamp="1793440000",eventId="evt_12345678",keyId="sandbox_1";
-const signature="v1=12eb6b3aca418544295012e183c6401db154e9c536b85470a2c37145927eabdb";
+const signature="v2=71033dfd23bc965cc8d17125539d8394d58e796bbb9deb7ea5a2c99f51732f6d";
 const payloadSha256="20ece580daf2c31f7706a02043618938a28ea1fdf4041fabab1fc2f9558259eb";
-const baseline={keyId,timestamp,eventId,signature,rawBody,keys:{sandbox_1:secret},nowSeconds:1793440000};
+const baseline={purpose:"inbox",keyId,timestamp,eventId,signature,rawBody,keys:{sandbox_1:secret},nowSeconds:1793440000};
 const verify=change=>verifyProviderEnvelope({...baseline,...change});
 test("signed raw bytes match frozen cross-language HMAC-SHA256 fixture",()=>{
   const mac=createHmac("sha256",secret)
-    .update("protocolia-provider-proof-v1\n"+keyId+"\n"+timestamp+"\n"+eventId+"\n")
+    .update("protocolia-provider-proof-v2\ninbox\n"+keyId+"\n"+timestamp+"\n"+eventId+"\n")
     .update(rawBody).digest("hex");
-  assert.equal("v1="+mac,signature);
+  assert.equal("v2="+mac,signature);
   assert.deepEqual(verify({}),{keyId,eventId,payloadSha256});
   assert.deepEqual(verify({}),verify({}),"signature verification is stateless, NOT replay protection");
 });
@@ -24,11 +24,11 @@ test("tampered raw bytes, event identity, key identity and signature fail closed
     {rawBody:Buffer.from(rawBody.toString()+" ")},
     {eventId:"evt_99999999"},
     {keyId:"sandbox_2"},
-    {signature:"v1="+signature.slice(3).replace(/^./,"f")},
+    {signature:"v2="+signature.slice(3).replace(/^./,"f")},
     {signature:signature.toUpperCase()},
-    {signature:"v2="+signature.slice(3)},
+    {signature:"v1="+signature.slice(3)},
     {signature:signature.slice(0,-1)},
-    {signature:"v1="+"0".repeat(64)}
+    {signature:"v2="+"0".repeat(64)}
   ])assert.equal(verify(change),null,JSON.stringify({...change,rawBody:undefined}));
 });
 test("strict timestamp window, no milliseconds, no newline or ambiguous identifiers",()=>{
@@ -40,7 +40,7 @@ test("strict timestamp window, no milliseconds, no newline or ambiguous identifi
     {eventId:"evt_12345678\n"},{keyId:"sandbox_1\n"},
     {signature:signature+"\n"},
     {eventId:"short"},{keyId:"bad\nheader"},
-    {keyId:"../sandbox_1"}
+    {keyId:"../sandbox_1"},{purpose:"wrong"},{purpose:"receipt-candidate"},{purpose:"lifecycle-observation"},{purpose:null}
   ])assert.equal(verify(change),null);
   assert.ok(verify({nowSeconds:1793440300}));
   assert.ok(verify({nowSeconds:1793439700}));
@@ -62,4 +62,15 @@ test("verification does not parse payload semantics or claim settlement",()=>{
   // Even an identical second delivery authenticates: PostgreSQL must dedupe it.
   assert.ok(verify({}));
   assert.ok(verify({}));
+});
+
+test("v2 purpose binding rejects signed bytes on the wrong endpoint",()=>{
+  for(const purpose of ["inbox","receipt-candidate","lifecycle-observation"]){
+    const sig="v2="+createHmac("sha256",secret)
+      .update("protocolia-provider-proof-v2\n"+purpose+"\n"+keyId+"\n"+timestamp+"\n"+eventId+"\n")
+      .update(rawBody).digest("hex");
+    assert.ok(verify({purpose,signature:sig}));
+    for(const other of ["inbox","receipt-candidate","lifecycle-observation"].filter(x=>x!==purpose))
+      assert.equal(verify({purpose:other,signature:sig}),null,purpose+" -> "+other);
+  }
 });

@@ -11,13 +11,13 @@ public final class ProviderWebhookVerifierTest {
     "{\"provider\":\"sandbox\",\"amount\":\"1.00\",\"event\":\"settled\"}"
       .getBytes(StandardCharsets.UTF_8);
   private static final String SIG=
-    "v1=12eb6b3aca418544295012e183c6401db154e9c536b85470a2c37145927eabdb";
+    "v2=71033dfd23bc965cc8d17125539d8394d58e796bbb9deb7ea5a2c99f51732f6d";
   private static final long NOW=1793440000L;
   private static final String DIGEST=
     "20ece580daf2c31f7706a02043618938a28ea1fdf4041fabab1fc2f9558259eb";
   private static ProviderWebhookVerifier.Verified verify(String keyId,String ts,
       String eventId,String sig,byte[] body,Map<String,byte[]> keys,long now){
-    return ProviderWebhookVerifier.verify(keyId,ts,eventId,sig,body,keys,now);
+    return ProviderWebhookVerifier.verify("inbox",keyId,ts,eventId,sig,body,keys,now);
   }
   private static ProviderWebhookVerifier.Verified base(){
     return verify("sandbox_1","1793440000","evt_12345678",SIG,BODY,
@@ -33,6 +33,10 @@ public final class ProviderWebhookVerifierTest {
     check(accepted.eventId().equals("evt_12345678"),"event identity");
     check(accepted.payloadSha256().equals(DIGEST),"cross-language SHA256");
     check(base()!=null,"authentication is stateless; persistence must prevent replay");
+    for(String purpose:new String[]{"receipt-candidate","lifecycle-observation"})
+      check(ProviderWebhookVerifier.verify(purpose,"sandbox_1","1793440000",
+        "evt_12345678",SIG,BODY,Map.of("sandbox_1",KEY),NOW)==null,
+        "inbox signature cannot authenticate "+purpose);
     byte[] tampered=BODY.clone();tampered[20]^=1;
     check(verify("sandbox_1","1793440000","evt_12345678",SIG,tampered,
       Map.of("sandbox_1",KEY),NOW)==null,"tampered body");

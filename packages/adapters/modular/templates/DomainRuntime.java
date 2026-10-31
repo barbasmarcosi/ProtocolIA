@@ -116,6 +116,7 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Missing or duplicate provider header");
     }
     var verified=ProviderWebhookVerifier.verify(
+      mode==1?"receipt-candidate":mode==2?"lifecycle-observation":"inbox",
       request.getHeader(names[0]),request.getHeader(names[1]),
       request.getHeader(names[2]),request.getHeader(names[3]),rawBody,
       Map.of("sandbox_1",java.util.HexFormat.of().parseHex(hex)),

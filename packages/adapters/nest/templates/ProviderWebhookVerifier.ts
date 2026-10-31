@@ -3,6 +3,7 @@
 import {createHash,createHmac,timingSafeEqual} from "node:crypto";
 
 export type ProviderEnvelope={
+  purpose:"inbox"|"receipt-candidate"|"lifecycle-observation";
   keyId:string;
   timestamp:string; // canonical Unix seconds, not milliseconds
   eventId:string;
@@ -17,18 +18,19 @@ export type VerifiedProviderEnvelope=Readonly<{
   payloadSha256:string;
 }>;
 
-const prefix="protocolia-provider-proof-v1\n";
+const prefix="protocolia-provider-proof-v2\n";
 const keyIdPattern=/^[A-Za-z0-9_-]{1,32}(?![\s\S])/;
 const eventPattern=/^[A-Za-z0-9_-]{8,128}(?![\s\S])/;
 const secondsPattern=/^[1-9][0-9]{9}(?![\s\S])/;
-const signaturePattern=/^v1=[0-9a-f]{64}(?![\s\S])/;
+const signaturePattern=/^v2=[0-9a-f]{64}(?![\s\S])/;
 
 /** Rejects malformed/expired/unsigned bytes; never changes money or records events.
  * The caller MUST atomically deduplicate (trustedProviderIdentity,eventId) in PostgreSQL
  * before giving any business meaning to an authenticated event.
  */
 export function verifyProviderEnvelope(input:ProviderEnvelope):VerifiedProviderEnvelope|null{
-  if(!input||!keyIdPattern.test(input.keyId)||
+  if(!input||!["inbox","receipt-candidate","lifecycle-observation"].includes(input.purpose)||
+    !keyIdPattern.test(input.keyId)||
     !eventPattern.test(input.eventId)||
     !secondsPattern.test(input.timestamp)||
     !signaturePattern.test(input.signature)||
@@ -46,7 +48,7 @@ export function verifyProviderEnvelope(input:ProviderEnvelope):VerifiedProviderE
   const seconds=Number(input.timestamp);
   if(!Number.isSafeInteger(seconds)||Math.abs(seconds-input.nowSeconds)>300)return null;
   const raw=Buffer.from(input.rawBody);
-  const header=Buffer.from(prefix+input.keyId+"\n"+input.timestamp+"\n"+input.eventId+"\n","utf8");
+  const header=Buffer.from(prefix+input.purpose+"\n"+input.keyId+"\n"+input.timestamp+"\n"+input.eventId+"\n","utf8");
   const expected=createHmac("sha256",Buffer.from(secret)).update(header).update(raw).digest();
   const received=Buffer.from(input.signature.slice(3),"hex");
   if(!timingSafeEqual(expected,received))return null;

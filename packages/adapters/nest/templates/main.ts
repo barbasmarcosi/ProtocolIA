@@ -1547,6 +1547,7 @@ class RuntimeService{
         !Buffer.isBuffer(req.rawBody)||req.rawBody.length<1||req.rawBody.length>65536)
         throw new Problem(400,"Invalid raw provider body");
       const verified=verifyProviderEnvelope({
+        purpose:mode==="candidate"?"receipt-candidate":mode==="lifecycle"?"lifecycle-observation":"inbox",
         keyId:header("x-protocolia-key-id"),
         timestamp:header("x-protocolia-timestamp"),
         eventId:header("x-protocolia-event-id"),
