@@ -36,6 +36,7 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   // One source-backed snapshot must reject a journal balanced against a
   // persisted but no longer matching child-row sum.
   const sql=compileExactReconciliations(ir).get("reconcileWorkOrder");
+  assert.equal(recon.behavior.reconcileExact.adjustmentPreview,true);
   assert.ok(sql&&sql.sqlNest===sql.sqlSpring.replace(":identity","$1"));
   assert.match(sql.sqlNest,/LEFT JOIN LATERAL \(SELECT COUNT\(\*\) AS line_count/);
   assert.match(sql.sqlNest,/SUM\(d\.amount\) AS line_total FROM charge_line/);
@@ -43,6 +44,13 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
   assert.match(sql.sqlNest,/COALESCE\(s\.line_total,0\)=p\.charge_total/);
   assert.match(sql.sqlNest,/p\.opening_balance=p\.charge_total/);
   assert.match(sql.sqlNest,/CASE WHEN NOT/);
+  assert.match(sql.sqlNest,/AS "maxSafeDecrease"/);
+  assert.match(sql.sqlNest,/AS "maxSafeIncrease"/);
+  assert.match(sql.sqlNest,/AS "adjustmentPreviewEligible"/);
+  const noPreview=structuredClone(ir);
+  noPreview.operations.find(x=>x.name==="createWorkOrder")
+    .behavior.createDetails.chargeAmountField=undefined;
+  assert.throws(()=>compileExactReconciliations(noPreview),/Invalid exact repricing preview/);
   const sourceTampering=structuredClone(ir);
   sourceTampering.operations.find(x=>x.name==="createWorkOrder")
     .behavior.createDetails.chargeTotalField="available";
