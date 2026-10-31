@@ -230,6 +230,48 @@ try{
     "unverified");
   assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order "+
     "WHERE number='OT-CAND';"),before);
+  // S2c-1c4d: a read-only, single-snapshot causal diagnostic. Neither
+  // coherent nor reported_success grants externally verified settlement.
+  assert.match(schema,/CREATE FUNCTION protocolia_provider_lifecycle_causal_projection/);
+  const causal=receipt=>value("SELECT causal_integrity||'/'||"+
+    "COALESCE(last_coherent_phase,'none')||'/'||observation_count::text "+
+    "FROM protocolia_provider_lifecycle_causal_projection("+literal(receipt)+");");
+  assert.equal(causal("PAY-CAND"),"contradictory/none/6",
+    "pending -> failure -> success is contradictory, even with all sequence numbers");
+  assert.equal(causal("PAY-CAND-RACE"),"unobserved/none/0");
+  const raceCandidateId=value("SELECT event_id FROM protocolia_provider_receipt_candidate "+
+    "WHERE receipt_id='PAY-CAND-RACE';");
+  assert.ok(raceCandidateId.startsWith("evt_race_"));
+  const raceObservation=(event,seq,phase)=>observation(event,seq,phase,raceCandidateId,
+    "PAY-CAND-RACE","OT-CAND-RACE");
+  const raceBefore=value("SELECT charge_total::text||'/'||available::text "+
+    "FROM work_order WHERE number='OT-CAND-RACE';");
+  assert.equal(value(raceObservation("evt_proj_race_03",3,"reported_success")),"stored");
+  assert.equal(causal("PAY-CAND-RACE"),"gap/none/1",
+    "A terminal-looking report at sequence 3 must not imply a complete history");
+  assert.equal(value(raceObservation("evt_proj_race_01",1,"reported_pending")),"stored");
+  assert.equal(causal("PAY-CAND-RACE"),"gap/none/2");
+  assert.equal(value(raceObservation("evt_proj_race_02",2,"reported_pending")),"stored");
+  assert.equal(causal("PAY-CAND-RACE"),"coherent/reported_success/3",
+    "Filling a gap permits causal classification but never financial authority");
+  const raceReversal=raceObservation("evt_proj_race_04",4,"reported_reversal");
+  assert.equal(value("BEGIN; "+raceReversal+" ROLLBACK; "+
+    "SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
+    "WHERE event_id='evt_proj_race_04';").split("\n").at(-1),"0");
+  assert.equal(causal("PAY-CAND-RACE"),"coherent/reported_success/3",
+    "A rolled-back event must not change the projection");
+  assert.equal(value(raceReversal),"stored");
+  assert.equal(causal("PAY-CAND-RACE"),"coherent/reported_reversal/4");
+  assert.equal(value(raceObservation("evt_proj_race_05",5,"reported_pending")),"stored");
+  assert.equal(causal("PAY-CAND-RACE"),"contradictory/none/5",
+    "A new pending report after reversal is not a valid causal transition");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-RACE';"),"unverified");
+  assert.equal(value("SELECT charge_total::text||'/'||available::text "+
+    "FROM work_order WHERE number='OT-CAND-RACE';"),raceBefore);
+  console.log("PROTOCOLIA_S2C1C4D_CAUSAL_PROJECTION_PASS "+build.target+
+    " gap recovery, contradiction, rollback, unverified money");
+
   console.log("PROTOCOLIA_S2C1C4B_LIFECYCLE_JOURNAL_PASS "+build.target+
     " out-of-order, 10-way replay and sequence conflict, no financial mutation");
 
