@@ -82,7 +82,10 @@ export function exactAdjustmentWriteSql(ir,plans){
       "v_new_opening NUMERIC;v_new_available NUMERIC; BEGIN "+
       "PERFORM 1 FROM "+table+" WHERE "+pk+"=v_parent FOR UPDATE; "+
       "IF NOT FOUND THEN RAISE EXCEPTION 'Adjustment parent not found' USING ERRCODE='P0002'; END IF; "+
-      "SELECT q.\"balanced\",q.\"adjustmentPreviewEligible\" INTO v_balanced,v_eligible FROM ("+
+      "SELECT q.\"balanced\",q.\"adjustmentPreviewEligible\",q.\"openingBalance\"::NUMERIC,"+
+      "q.\"available\"::NUMERIC,q.\"postingCount\"::BIGINT,q.\"reversedTotal\"::NUMERIC,"+
+      "q.\"adjustmentCount\"::BIGINT INTO v_balanced,v_eligible,v_review_open,"+
+      "v_review_available,v_review_posting,v_review_reversed,v_review_adjustments FROM ("+
       select+") q; "+
       "IF NOT COALESCE(v_balanced,false) OR NOT COALESCE(v_eligible,false) THEN "+
       "RAISE EXCEPTION 'Exact adjustment ledger conflict' USING ERRCODE='PZ409'; END IF; "+
