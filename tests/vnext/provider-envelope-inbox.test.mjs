@@ -37,7 +37,9 @@ test("provider envelope replay key excludes rotating signing key and is append-o
   assert.match(ddl,/SELECT provider_id,event_id INTO bound_provider,bound_event/);
   // An in-flight first delivery may commit while another waits for the
   // receipt lock; the second must recheck and return duplicate, not conflict.
-  assert.equal(ddl.split("SELECT payload_sha256 INTO old_digest").length-1,2);
+  const candidateSql=ddl.slice(ddl.indexOf("CREATE FUNCTION protocolia_record_provider_receipt_candidate"),
+    ddl.indexOf("CREATE TRIGGER protocolia_provider_receipt_candidate_immutable_guard"));
+  assert.equal(candidateSql.split("SELECT payload_sha256 INTO old_digest").length-1,2);
   assert.ok(ddl.indexOf("SELECT p.order_number,p.amount,p.status,p.provider_settlement_state")<
     ddl.lastIndexOf("SELECT payload_sha256 INTO old_digest"));
 
