@@ -47,9 +47,12 @@ export function compileExactReconciliations(ir){
         (x.behavior.kind==="patchFields"&&
           [charge.name,cfg.openingField,cfg.availableField].includes(x.behavior.field)||
          x.behavior.kind==="patchTogether"||x.behavior.kind==="delete")));
-    if(invalidCharge)throw Error("Invalid exact charge source "+op.name);
+    if(invalidCharge||cfg.serverOnly===true&&!charge||
+      cfg.serverOnly!==undefined&&typeof cfg.serverOnly!=="boolean")
+      throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
-      ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,...Object.values(cfg)].every(ident)||
+      ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
@@ -85,7 +88,8 @@ export function compileExactReconciliations(ir){
       ") j ON TRUE WHERE p."+pk+"=";
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
-      ...(charge?{chargeSource:charge.name}:{})});
+      ...(charge?{chargeSource:charge.name}:{}),
+      ...(cfg.serverOnly===true?{serverOnly:true}:{})});
   }
   if(ir.operations.some(op=>op.behavior.reconcileExact&&op.behavior.kind!=="reconcileExact"))
     throw Error("Orphan exact reconciliation metadata");
