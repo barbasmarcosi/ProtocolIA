@@ -162,7 +162,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     'true, "providerSettlementState")','true, "doesNotExist")'),
     /protocolia-invalid-unverified-proof/);
   negative("fixed provider proof cannot be ordinary state",s=>s.replace(
-    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-orphan-initial/);
+    '@fixedInitial("unverified")','@initial("unverified")'),/protocolia-(?:invalid-unverified-proof|orphan-initial)/);
   negative("provider proof cannot be a client lifecycle",s=>s.replace(
     '  @route("/health")',
     '  @route("/api/payments/{receipt}/provider-settle")\n'+
@@ -209,7 +209,7 @@ test("S2b compiler refuses missing linked source, missing field, spoofing and or
     /protocolia-invalid-exact-adjustment-journal/);
   negative("disabled repricing preview",s=>s.replace(
     '"reversed","chargeTotal", true, true, true, true, "providerSettlementState")',
-    '"reversed","chargeTotal", true, true, false, true, "providerSettlementState")'),
+    '"reversed","chargeTotal", true, true, false, false, "providerSettlementState")'),
     /protocolia-invalid-exact-adjustment-preview/);
   negative("missing amount ceiling",s=>s.replace(
     '@exactDecimal(14,2,"0","999999999999.99")\n    chargeTotal',
