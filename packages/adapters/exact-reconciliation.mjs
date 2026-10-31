@@ -47,7 +47,10 @@ export function compileExactReconciliations(ir){
         charge.type!=="decimal"||!charge.required||charge.nullable||
         !charge.decimal||charge.decimal.min!=="0"||
         charge.decimal.scale!==b?.scale||charge.decimal.precision>b?.precision||
-        charge.reference!==undefined||charge.initial!==undefined)||
+        charge.reference!==undefined||charge.initial!==undefined||
+        charge.computedSum!==undefined||charge.computedProduct!==undefined||
+        charge.computedRoundedProduct!==undefined||
+        charge.computedDiscountedTotal!==undefined)||
       ir.operations.some(x=>x.entity===parent?.name&&
         (x.behavior.kind==="patchFields"&&
           [...chargeNames,cfg.openingField,cfg.availableField].includes(x.behavior.field)||
