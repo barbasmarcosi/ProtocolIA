@@ -510,14 +510,18 @@ try{
 
   await status("/api/work-orders",201,{method:"POST",body:
     order("OT-ADJ-RACE",[charge("AR-FIRST","3.00")])});
+  const reviewedRace=reviewedFields((await balance("OT-ADJ-RACE")).snapshot);
   const decreasing=await Promise.all(Array.from({length:10},(_,i)=>
-    apply("OT-ADJ-RACE","AR-NEG-"+String(i).padStart(3,"0"),"-1.00")));
-  assert.equal(decreasing.filter(x=>x.status===201).length,3);
-  assert.equal(decreasing.filter(x=>x.status===409).length,7);
-  assert.equal((await balance("OT-ADJ-RACE")).snapshot.coverageState,"no_charge");
-  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"3");
+    apply("OT-ADJ-RACE","AR-NEG-"+String(i).padStart(3,"0"),"-1.00",
+      "Corrección autorizada de ensayo",reviewedRace)));
+  assert.equal(decreasing.filter(x=>x.status===201).length,1);
+  assert.equal(decreasing.filter(x=>x.status===409).length,9);
+  assert.equal((await balance("OT-ADJ-RACE")).snapshot.coverageState,"unpaid");
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"1");
+  const reviewedSame=reviewedFields((await balance("OT-ADJ-RACE")).snapshot);
   const sameId=await Promise.all(Array.from({length:5},()=>
-    apply("OT-ADJ-RACE","AR-SAME-ID","0.10")));
+    apply("OT-ADJ-RACE","AR-SAME-ID","0.10",
+      "Corrección autorizada de ensayo",reviewedSame)));
   assert.equal(sameId.filter(x=>x.status===201).length,1);
   assert.equal(sameId.filter(x=>x.status===409).length,4);
   const afterRace=await balance("OT-ADJ-RACE");
