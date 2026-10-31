@@ -40,9 +40,14 @@ identical signed events, 409 for a different authenticated payload with the
 same event ID, 401 for tampering and expired signatures, 400 for missing
 headers, successful HMAC without browser credentials, and zero payment rows.
 
-**Evidence status:** pending full green CI on the PR head; do not merge until
-both matrix jobs and all other relevant regressions succeed. The test oracle
-is project-authored and does not prove real bank/provider integration.
+**Evidence status: verified on functional SHA `636921fa6163c865f108496db6b5325e42120372`.**
+- [Sandbox HTTP + HMAC + inbox + generated app, dual-target CI #41203018496](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41203018496): SUCCESS NestJS and modular Spring, including the 10-request real HTTP concurrency oracle and zero payment rows.
+- [Drift-safe exact receipt regression #41203018486](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41203018486): SUCCESS.
+- [Immutable itemized financial regression #41203018489](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41203018489): SUCCESS both generated targets.
+- [General quality #41203018565](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41203018565): SUCCESS all jobs.
+
+The test oracle is project-authored and does not prove real bank/provider
+integration or independent financial acceptance.
 
 ## Explicit exclusions
 
