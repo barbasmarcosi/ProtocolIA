@@ -13,7 +13,7 @@ test("provider inbox is opt-in only for fixed unverified ledger proof",()=>{
   assert.deepEqual(providerEnvelopeInboxSql(new Map([["ordinary",{}]])),[]);
   assert.deepEqual(providerEnvelopeInboxSql(new Map([
     ["ordinary",{}],["financial",plan]
-  ])).length,7);
+  ])).length,10);
 });
 test("provider envelope replay key excludes rotating signing key and is append-only",()=>{
   const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
@@ -70,4 +70,19 @@ test("receipt candidate refuses missing, ambiguous or unsafe canonical binding",
   assert.throws(()=>providerEnvelopeInboxSql(new Map([["bad",{
     ...plan,providerCandidate:{...candidate,scale:3}
   }],["other",plan]])),/one canonical exact ledger/);
+});
+
+test("sandbox lifecycle observations are sequenced, append-only and never settlement",()=>{
+  const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
+  assert.match(ddl,/CREATE TABLE protocolia_provider_lifecycle_observation/);
+  assert.match(ddl,/UNIQUE \(receipt_id,event_sequence\)/);
+  assert.match(ddl,/FOREIGN KEY \(provider_id,candidate_event_id,receipt_id,order_id,amount\)/);
+  assert.match(ddl,/REFERENCES protocolia_provider_receipt_candidate/);
+  assert.match(ddl,/protocolia_record_provider_lifecycle_observation/);
+  assert.match(ddl,/v_sequence<>TRUNC\(v_sequence\)/);
+  assert.match(ddl,/reported_phase IN \('reported_pending','reported_success'/);
+  assert.match(ddl,/protocolia_provider_lifecycle_observation_immutable_guard/);
+  assert.match(ddl,/WHERE receipt_id=v_receipt AND event_sequence=v_sequence/);
+  assert.match(ddl,/SELECT payload_sha256 INTO old_digest/);
+  assert.doesNotMatch(ddl,/UPDATE payment|SET provider_settlement_state/);
 });
