@@ -545,6 +545,24 @@ try{
   assert.equal(sql("SELECT COUNT(*) FROM "+jtable+" WHERE parent_id='OT-ADJ-RACE'"),"4");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
     "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-ADJ-RACE'"),auditBeforeStale);
+  await status("/api/work-orders",201,{method:"POST",body:
+    order("OT-REVIEW-REVERSE",[charge("RR-LINE-1","2.00")])});
+  const beforeReversal=reviewedFields((await balance("OT-REVIEW-REVERSE")).snapshot);
+  await status("/api/payments",201,{method:"POST",body:
+    pay("RR-PAY-1","OT-REVIEW-REVERSE","0.10")});
+  await status("/api/payments/RR-PAY-1/reverse",200,{method:"POST"});
+  const afterReversal=await balance("OT-REVIEW-REVERSE");
+  assert.equal(afterReversal.snapshot.openingBalance,beforeReversal.expectedOpening);
+  assert.equal(afterReversal.snapshot.available,beforeReversal.expectedAvailable);
+  assert.equal(afterReversal.snapshot.postingCount,"1");
+  assert.equal(cents(afterReversal.snapshot.reversedTotal),10n);
+  const staleReceipt=await apply("OT-REVIEW-REVERSE","RR-STALE-1","0.01",
+    "Confirmación obsoleta tras cobro y reversión",beforeReversal);
+  assert.equal(staleReceipt.status,409);
+  assert.equal(sql("SELECT COUNT(*) FROM "+jtable+
+    " WHERE parent_id='OT-REVIEW-REVERSE'"),"0");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-REVIEW-REVERSE'"),"0");
   console.log("PROTOCOLIA_S2C1B3_CAS_PASS stale and ABA-safe reviewed snapshot "+build.target);
   console.log("PROTOCOLIA_S2C1B1_ADJUST_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1B0_JOURNAL_ALL_PASS "+build.target);
