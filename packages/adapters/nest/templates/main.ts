@@ -1527,7 +1527,7 @@ class RuntimeService{
     }finally{client.release();}
   }
   // Test-only sandbox ingress: authenticates ORIGINAL HTTP bytes, never a settlement.
-  async receiveSandboxProvider(req:any,res:any,linkReceipt=false):Promise<void>{
+  async receiveSandboxProvider(req:any,res:any,mode:"inbox"|"candidate"|"lifecycle"="inbox"):Promise<void>{
     try{
       if(!spec.providerInboxEnabled||process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true")
         throw new Problem(404,"Sandbox provider ingress disabled");
@@ -1560,12 +1560,22 @@ class RuntimeService{
       // Exact bytes and key order rule out duplicate JSON keys and parser ambiguity.
       let statement="SELECT protocolia_record_provider_envelope_digest($1,$2,$3) AS outcome";
       let params:unknown[]=["sandbox_provider",verified.eventId,verified.payloadSha256];
-      if(linkReceipt){
+      if(mode==="candidate"){
         const raw=req.rawBody.toString("utf8");
         const match=/^\{"version":"receipt-candidate\.v1","receiptId":"([A-Za-z0-9_-]{1,128})","orderId":"([A-Za-z0-9_-]{1,128})","amount":"((?:0|[1-9][0-9]{0,11})\.[0-9]{2})"\}(?![\s\S])/.exec(raw);
         if(!match||match[3]==="0.00")throw new Problem(400,"Invalid canonical receipt candidate");
         statement="SELECT protocolia_record_provider_receipt_candidate($1,$2,$3,$4,$5,$6::numeric) AS outcome";
         params=[...params,match[1],match[2],match[3]];
+      }
+      if(mode==="lifecycle"){
+        // The HMAC covers these exact canonical bytes. A lifecycle observation
+        // is an untrusted report, never settlement authority.
+        const raw=req.rawBody.toString("utf8");
+        const match=/^\{"version":"lifecycle-observation\.v1","candidateEventId":"([A-Za-z0-9_-]{8,128})","receiptId":"([A-Za-z0-9_-]{1,128})","orderId":"([A-Za-z0-9_-]{1,128})","amount":"((?:0|[1-9][0-9]{0,11})\.[0-9]{2})","sequence":"([1-9][0-9]{0,9})","phase":"(reported_pending|reported_success|reported_failure|reported_reversal)"\}(?![\s\S])/.exec(raw);
+        if(!match||match[4]==="0.00")
+          throw new Problem(400,"Invalid canonical lifecycle observation");
+        statement="SELECT protocolia_record_provider_lifecycle_observation($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9) AS outcome";
+        params=[...params,match[1],match[2],match[3],match[4],match[5],match[6]];
       }
       const result=await this.pool.query(statement,params);
       const outcome=result.rows[0]?.outcome;
@@ -1672,7 +1682,11 @@ class SandboxProviderController{
   }
   @Post("receipt-candidate")
   async candidate(@Req() req:any,@Res() res:any):Promise<void>{
-    await this.service.receiveSandboxProvider(req,res,true);
+    await this.service.receiveSandboxProvider(req,res,"candidate");
+  }
+  @Post("lifecycle-observation")
+  async lifecycle(@Req() req:any,@Res() res:any):Promise<void>{
+    await this.service.receiveSandboxProvider(req,res,"lifecycle");
   }
 }
 @Controller()
