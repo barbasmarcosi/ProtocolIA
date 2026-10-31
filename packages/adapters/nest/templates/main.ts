@@ -739,7 +739,7 @@ class RuntimeService{
     if(units===0n||units>max||units< -max)
       throw new Problem(400,"Adjustment must be nonzero and bounded");
     const checkedMoney=(value:unknown):string=>{
-      if(typeof value!=="string"||! /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value))
+      if(typeof value!=="string"||!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value))
         throw new Problem(400,"Invalid reviewed exact money");
       const [w,f=""]=value.split(".");
       if(f.length>j.scale||w.replace(/^0+/,"").length>j.precision-j.scale)
