@@ -182,6 +182,43 @@ async function previewMobileSmoke(){
     assert.equal(cents(changed.chargeTotal),105n);
     assert.equal(cents(changed.available),105n);
     assert.equal((await balance("OT-UI-ADJUST")).snapshot.balanced,true);
+    await page.getByTestId("exact-adjustment-toggle").click();
+    const nextForm=page.getByTestId("exact-adjustment-form");
+    await nextForm.getByTestId("exact-adjustment-direction").selectOption("increase");
+    await nextForm.getByTestId("exact-adjustment-amount").fill("0.02");
+    await nextForm.getByTestId("exact-adjustment-reason").fill(
+      "Segunda corrección revisada antes de un cambio concurrente");
+    await nextForm.getByTestId("exact-adjustment-review").click();
+    await page.getByTestId("exact-adjustment-confirmation").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-after").textContent(),"1.07");
+    const live=(await balance("OT-UI-ADJUST")).snapshot;
+    const concurrent=await request("/api/work-orders/OT-UI-ADJUST/adjustments",{
+      method:"POST",body:{adjustmentId:"UI-OTHER-01",delta:"0.01",
+        reason:"Cambio concurrente de otra sesión autorizada",
+        expectedOpening:live.openingBalance,expectedAvailable:live.available,
+        expectedPostingCount:live.postingCount,expectedReversedTotal:live.reversedTotal,
+        expectedAdjustmentCount:live.adjustmentCount}
+    });
+    assert.equal(concurrent.status,201,JSON.stringify(concurrent.data));
+    const journalBefore=sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'");
+    const [staleWrite]=await Promise.all([
+      page.waitForResponse(response=>response.url().includes(
+        "/api/work-orders/OT-UI-ADJUST/adjustments")&&
+        response.request().method()==="POST",{timeout:20000}),
+      page.getByTestId("exact-adjustment-confirm").click()
+    ]);
+    assert.equal(staleWrite.status(),409,"Stale mobile approval must fail closed");
+    await page.getByTestId("exact-adjustment-refresh-required").waitFor({timeout:10000});
+    assert.equal(sql("SELECT COUNT(*) FROM protocolia_exact_adjustment_work_order "+
+      "WHERE parent_id='OT-UI-ADJUST'"),journalBefore);
+    await page.getByTestId("exact-adjustment-recover").click();
+    await page.getByTestId("exact-adjustment-composer").waitFor({timeout:15000});
+    await page.getByTestId("exact-adjustment-toggle").click();
+    await page.getByTestId("exact-adjustment-form").waitFor({timeout:15000});
+    assert.equal(await page.getByTestId("exact-adjustment-amount").inputValue(),"",
+      "Recovery must require fresh human review rather than replaying the stale amount");
+    console.log("PROTOCOLIA_S2C1B3_MOBILE_CAS_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated mobile correction must have no JS exceptions");
     console.log("PROTOCOLIA_S2C1B2_MOBILE_ADJUST_PASS "+build.target);
     assert.deepEqual(errors,[],"Generated repricing preview must have zero JS errors");
