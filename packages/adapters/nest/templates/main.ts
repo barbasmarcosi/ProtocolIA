@@ -24,7 +24,7 @@ type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSource?:string;serverOnly?:boolean};
+type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSources:string[];serverOnly?:boolean};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
@@ -65,6 +65,12 @@ function decimalUnits(value:string,scale:number):bigint{
   const neg=value.startsWith("-");
   const [whole,fraction=""]=(neg?value.slice(1):value).split(".");
   return BigInt((neg?"-":"")+whole+fraction.padEnd(scale,"0"));
+}
+function exactStringFromUnits(units:bigint,scale:number):string{
+  const sign=units<0n?"-":"",digits=(units<0n?-units:units).toString();
+  if(scale===0)return sign+digits;
+  const padded=digits.padStart(scale+1,"0");
+  return sign+padded.slice(0,-scale)+"."+padded.slice(-scale);
 }
 function decimalIssue(value:unknown,f:Field):string|null{
   if(typeof value!=="string")return "invalid_type";
@@ -766,17 +772,26 @@ class RuntimeService{
       (!isRecord(body)||e.fields.some(f=>f.initial!==undefined&&Object.hasOwn(body,f.name))))
       throw new Problem(400,"Initial batch state is server-managed");
     const reconciled=spec.operations.find(x=>x.kind==="reconcileExact"&&x.entity===e.name)?.exactReconciliation;
-    if(reconciled?.serverOnly&&reconciled.chargeSource&&
+    const writable=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name);
+    if(reconciled?.serverOnly&&
       (!isRecord(body)||[reconciled.openingField,reconciled.availableField]
         .some(name=>Object.hasOwn(body,name))))
       throw new Problem(400,"Server-managed opening balance cannot be supplied");
-    // Derive before required-field validation, then validate the source and both
-    // generated monetary values with the same field-bound exact decimal checks.
-    const enriched=reconciled?.serverOnly&&reconciled.chargeSource&&isRecord(body)?
-      {...body,[reconciled.openingField]:body[reconciled.chargeSource],
-        [reconciled.availableField]:body[reconciled.chargeSource]}:body;
+    // Validate sources with safe zero placeholders first, before converting to
+    // BigInt, so invalid JSON wire types and malformed strings get HTTP 400.
+    let enriched=body;
+    if(reconciled?.serverOnly&&isRecord(body)){
+      const zeros={...body,[reconciled.openingField]:"0",[reconciled.availableField]:"0"};
+      const initial=owner?{...zeros,[owner.name]:actor}:zeros;
+      const checked=validateInput(e,initial,writable,true);
+      const scale=e.fields.find(f=>f.name===reconciled.openingField)!.decimal!.scale;
+      const sum=reconciled.chargeSources.reduce((units,name)=>
+        units+decimalUnits(checked[name] as string,scale),0n);
+      const value=exactStringFromUnits(sum,scale);
+      enriched={...body,[reconciled.openingField]:value,[reconciled.availableField]:value};
+    }
     const ownedBody=owner?{...(enriched as Record<string,unknown>),[owner.name]:actor}:enriched;
-    const input={...validateInput(e,ownedBody,e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name),true)};
+    const input={...validateInput(e,ownedBody,writable,true)};
     for(const f of e.fields)if(f.initial!==undefined && !Object.hasOwn(input,f.name))
       input[f.name]=f.initial;
     if(reconciled){
@@ -784,15 +799,16 @@ class RuntimeService{
       const opening=decimalUnits(input[reconciled.openingField] as string,open.decimal!.scale);
       const available=decimalUnits(input[reconciled.availableField] as string,open.decimal!.scale);
       if(opening!==available)throw invalidField(e.fields.find(f=>f.name===reconciled.availableField)!,"invalid_comparison");
-      // Fail before INSERT: the client's ledger ceiling must equal the declared
-      // source charge. Compare exact integer minor units, not JS floating-point.
-      if(reconciled.chargeSource){
-        const charge=e.fields.find(f=>f.name===reconciled.chargeSource)!;
-        const amount=decimalUnits(input[charge.name] as string,charge.decimal!.scale);
-        if(opening!==amount)
-          throw invalidField(e.fields.find(f=>f.name===reconciled.openingField)!,"invalid_comparison");
-        input[reconciled.openingField]=input[charge.name];
-        input[reconciled.availableField]=input[charge.name];
+      // Re-evaluate the immutable declared source vector using exact minor units.
+      // Never allow a request value to impersonate derived charge totals.
+      if(reconciled.chargeSources.length){
+        const sum=reconciled.chargeSources.reduce((units,name)=>
+          units+decimalUnits(input[name] as string,open.decimal!.scale),0n);
+        if(opening!==sum)
+          throw invalidField(open,"invalid_comparison");
+        const value=exactStringFromUnits(sum,open.decimal!.scale);
+        input[reconciled.openingField]=value;
+        input[reconciled.availableField]=value;
       }
     }
     const persisted=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal);
