@@ -15,7 +15,7 @@ import {assertPatchTogether} from "../compound-patch.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
-import {assertExactAdjustment} from "../exact-adjustment.mjs";
+import {assertExactAdjustment,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -625,7 +625,8 @@ export function generate(ir, openapi, outDir) {
   const queryIndexDdl=new Set(queryPlans.flatMap(x=>x.plan.ddl));
   sql.push(...queryIndexDdl);
   sql.push(...overdueSchemaSql(overdueRules),...recipientInboxSql(inboxes),
-    ...exactAdjustmentJournalSql(exactReconciliations));
+    ...exactAdjustmentJournalSql(exactReconciliations),
+    ...exactAdjustmentWriteSql(ir,exactReconciliations));
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
