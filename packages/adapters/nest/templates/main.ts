@@ -28,7 +28,7 @@ type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
 type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSources:string[];serverOnly?:boolean;
   adjustmentJournal?:{table:string;parentTable:string;parentColumn:string;precision:number;scale:number;max:string}};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
-type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
+type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean;providerInboxEnabled?:boolean};
 const spec=contract as Manifest;
 type FieldIssue={field:string;code:string};
 class Problem extends Error{
