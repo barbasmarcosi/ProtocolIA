@@ -9,6 +9,10 @@ import {authenticatedFetch,AUTH_REJECTED_EVENT,jwtExpiresAt,setBffCsrf,getBffCsr
 function route(operation, code) {
   return operation.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(code));
 }
+function adjustmentOutcomeRoute(operation,identity,adjustmentId){
+  return operation.path.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g,(_,key)=>
+    encodeURIComponent(key==="adjustmentId"?adjustmentId:identity));
+}
 const fieldWords={badge:"legajo",volunteer:"personal",period:"período",incident:"emergencias",mandatory:"asistencia",guard:"guardia",internal:"orden interno",other:"adicionales",base:"base",points:"puntos",status:"estado",number:"número",name:"nombre",code:"código",section:"sección",rank:"rango",leave:"licencia",kind:"tipo",days:"días",units:"unidades",available:"disponible",sku:"SKU",notes:"observaciones",evaluation:"evaluación",monthly:"mensual",created:"creado",updated:"actualizado"};
 function label(field){
   if(field.uiLabel)return field.uiLabel;
@@ -732,7 +736,7 @@ function signedAdjustmentString(units,scale){
 // S2c-1b2: intentionally no generic PATCH, no client-supplied actor or parent
 // balance, no auto-submit after a preview read. Every write is an explicit
 // confirmation, while PostgreSQL still rechecks balance inside its transaction.
-function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,amountField,onApplied,onRefresh,adjustmentId,onNewAdjustmentId}){
+function ExactAdjustmentComposer({operation,reconciliation,lookupOperation,identity,auth,report,amountField,onApplied,onRefresh,adjustmentId,onNewAdjustmentId}){
   const [open,setOpen]=useState(false);
   const [direction,setDirection]=useState("decrease");
   const [amount,setAmount]=useState("");
@@ -742,6 +746,8 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [needsRefresh,setNeedsRefresh]=useState(false);
+  const [lastAttempt,setLastAttempt]=useState(null);
+  const [resolved,setResolved]=useState(false);
   const scale=amountField?.decimal?.scale;
   const precision=amountField?.decimal?.precision;
   const current=Number.isInteger(scale)?signedAdjustmentUnits(report?.openingBalance,scale):null;
@@ -789,6 +795,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
   }
   async function apply(){
     if(!confirmed||busy||needsRefresh)return;
+    setLastAttempt({...confirmed});setResolved(false);
     setBusy(true);setError("");
     try{
       const response=await authenticatedFetch(route(operation,identity),{
@@ -812,9 +819,35 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       const saved=await response.json();
       setNotice("Ajuste aplicado y auditado.");
       setAmount("");setReason("");setConfirmed(null);setOpen(false);
-      onNewAdjustmentId?.();
+      setLastAttempt(null);onNewAdjustmentId?.();
       onApplied?.(saved);
     }catch(e){setNeedsRefresh(true);setError(e.message);setConfirmed(null);}
+    finally{setBusy(false);}
+  }
+  async function checkCommittedOutcome(){
+    if(!lookupOperation||!lastAttempt||busy)return;
+    setBusy(true);setError("");
+    try{
+      const response=await authenticatedFetch(
+        adjustmentOutcomeRoute(lookupOperation,identity,lastAttempt.adjustmentId),
+        {headers:{Authorization:auth},cache:"no-store"});
+      if(response.status===404)throw Error(
+        "No se observó un ajuste confirmado con este identificador. "+
+        "Eso no prueba que sea seguro reenviarlo; verificá el estado antes de otra revisión.");
+      if(response.status===403)throw Error("No tenés permiso para consultar esta corrección.");
+      if(response.status===401)throw Error("La sesión caducó. Volvé a iniciar sesión.");
+      if(!response.ok)throw Error("No se pudo consultar el resultado. No reintentes automáticamente.");
+      const found=await response.json();
+      if(found.status!=="committed"||found.adjustmentId!==lastAttempt.adjustmentId||
+        found.reason!==lastAttempt.reason||
+        signedAdjustmentUnits(found.delta,scale)!==
+          signedAdjustmentUnits(lastAttempt.delta,scale))
+        throw Error("El movimiento encontrado no coincide con el ajuste revisado. "+
+          "Se requiere investigación manual antes de continuar.");
+      setResolved(true);
+      setNotice("Movimiento confirmado en el registro inmutable. No se volvió a enviar el ajuste.");
+      onNewAdjustmentId?.();
+    }catch(e){setError(e.message);}
     finally{setBusy(false);}
   }
   return <section className="exact-adjustment-composer" data-testid="exact-adjustment-composer"
@@ -829,6 +862,14 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
     {needsRefresh&&<div data-testid="exact-adjustment-refresh-required">
       <p className="related-summary-hint">La confirmación anterior ya no es válida.
         No se reintentará el ajuste automáticamente.</p>
+      {lookupOperation&&lastAttempt&&!resolved&&
+        <button type="button" className="ghost" data-testid="exact-adjustment-check-outcome"
+          disabled={busy} onClick={checkCommittedOutcome}>
+          {busy?"Consultando…":"Consultar si el ajuste quedó registrado"}
+        </button>}
+      {resolved&&<p role="status" data-testid="exact-adjustment-outcome-committed">
+        Ajuste confirmado en el registro; no se realizó otro POST.
+      </p>}
       <button type="button" className="ghost" data-testid="exact-adjustment-recover"
         disabled={busy} onClick={()=>onRefresh?.()}>Actualizar conciliación y revisar de nuevo</button>
     </div>}
@@ -888,7 +929,7 @@ function ExactAdjustmentComposer({operation,reconciliation,identity,auth,report,
       </form>}
   </section>;
 }
-function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adjustmentOperation,adjustmentField,onApplied}){
+function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adjustmentOperation,lookupOperation,adjustmentField,onApplied}){
   const [local,setLocal]=useState(0);
   const [adjustmentId,setAdjustmentId]=useState(()=>crypto.randomUUID());
   const [state,setState]=useState({loading:true,data:null,error:""});
@@ -949,7 +990,7 @@ function LedgerReconciliationPanel({operation,identity,auth,child,revision=0,adj
             </p>
           </section>}
         {adjustmentOperation&&report.balanced&&<ExactAdjustmentComposer
-          operation={adjustmentOperation} reconciliation={operation} identity={identity}
+          operation={adjustmentOperation} reconciliation={operation} lookupOperation={lookupOperation} identity={identity}
           auth={auth} report={report} amountField={adjustmentField} onApplied={onApplied}
           onRefresh={()=>setLocal(x=>x+1)} adjustmentId={adjustmentId}
           onNewAdjustmentId={()=>setAdjustmentId(crypto.randomUUID())}/>}
@@ -1869,6 +1910,9 @@ export default function App(){
           identity={selected[active.entity.publicIdentity]}
           auth={auth} child={ledgerChild} revision={summaryRevision}
           adjustmentOperation={canAdjustExact?exactAdjustmentOp:null}
+          lookupOperation={canAdjustExact&&operations.lookupExactAdjustment&&
+            capabilities.includes(operations.lookupExactAdjustment.capability)?
+              operations.lookupExactAdjustment:null}
           adjustmentField={exactAdjustmentField}
           onApplied={data=>{setSelected(data);setNotice("Ajuste registrado y auditado correctamente.");setSummaryRevision(n=>n+1);refresh();}}/>}
         {canReadDetailSum&&<RelatedSumPanel
