@@ -8,7 +8,7 @@ import {assertDecimalField,assertComputedProduct,assertComputedRoundedProduct,as
 import {compileRelatedSums} from "../related-sum.mjs";
 import {compileDetailSums} from "../detail-sum.mjs";
 import {compileExactDebits,compileExactReversals} from "../exact-debit.mjs";
-import {compileExactReconciliations} from "../exact-reconciliation.mjs";
+import {compileExactReconciliations,exactAdjustmentJournalSql} from "../exact-reconciliation.mjs";
 import {compileOwnerScopes} from "../owner-scope.mjs";
 import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
@@ -618,7 +618,8 @@ export function generate(ir, openapi, outDir) {
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
   const queryIndexDdl=new Set(queryPlans.flatMap(x=>x.plan.ddl));
   sql.push(...queryIndexDdl);
-  sql.push(...overdueSchemaSql(overdueRules),...recipientInboxSql(inboxes));
+  sql.push(...overdueSchemaSql(overdueRules),...recipientInboxSql(inboxes),
+    ...exactAdjustmentJournalSql(exactReconciliations));
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   const signature=createHash("sha256").update(JSON.stringify(entities)).digest("hex");
