@@ -151,13 +151,21 @@ try{
   for(const field of ["openingBalance","available","chargeTotal"])
     assert.equal(cents(baseline.record[field]),30n,field+" must equal exact line sum");
   assert.equal(baseline.snapshot.coverageState,"unpaid");
+  assert.equal(baseline.snapshot.adjustmentPreviewEligible,true);
+  assert.equal(cents(baseline.snapshot.maxSafeDecrease),30n);
+  assert.equal(cents(baseline.snapshot.maxSafeIncrease),99999999999969n);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS unpaid");
   const audit=await status("/api/work-orders/OT-EXACT/audit",200);
   assert.ok(audit.items.some(row=>row.fieldName==="chargeTotal"&&
     cents(String(row.afterValue).replace(/^"|"$/g,""))===30n),
     "The authoritative exact line sum must be durably audited");
   await status("/api/work-orders",201,{method:"POST",body:
     order("OT-NO-CHARGE",[charge("ZERO-1","0.00")])});
-  assert.equal((await balance("OT-NO-CHARGE")).snapshot.coverageState,"no_charge");
+  const zeroSnapshot=(await balance("OT-NO-CHARGE")).snapshot;
+  assert.equal(zeroSnapshot.coverageState,"no_charge");
+  assert.equal(zeroSnapshot.adjustmentPreviewEligible,true);
+  assert.equal(cents(zeroSnapshot.maxSafeDecrease),0n);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS zero_charge");
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-06 durable derived-total audit and zero-charge policy");
   assert.equal(cents((await status("/api/charge-lines/L-001",200)).amount),10n);
   assert.equal(cents((await status("/api/charge-lines/P-001",200)).amount),20n);
@@ -188,7 +196,12 @@ try{
   const twenty=Array.from({length:20},(_,i)=>
     charge("TWENTY-"+i,"0.01",i%2?"parts":"labor"));
   await status("/api/work-orders",201,{method:"POST",body:order("OT-TWENTY",twenty)});
-  assert.equal(cents((await balance("OT-TWENTY")).record.chargeTotal),20n);
+  const full=(await balance("OT-TWENTY"));
+  assert.equal(cents(full.record.chargeTotal),20n);
+  assert.equal(full.snapshot.adjustmentPreviewEligible,false);
+  assert.equal(cents(full.snapshot.maxSafeDecrease),0n);
+  assert.equal(cents(full.snapshot.maxSafeIncrease),0n);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS 20_row_limit");
   await status("/api/work-orders",400,{method:"POST",body:order("OT-21",[
     ...twenty.map((x,i)=>({...x,lineId:"MANY-"+i})),charge("MANY-20","0.01")
   ])});
@@ -217,12 +230,18 @@ try{
   assert.equal(attempts.filter(x=>x.status===409).length,7);
   const covered=await balance("OT-CONCURRENT");
   assert.equal(covered.snapshot.coverageState,"covered");
+  assert.equal(covered.snapshot.adjustmentPreviewEligible,true);
+  assert.equal(cents(covered.snapshot.maxSafeDecrease),0n);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS covered");
   const winning=attempts.findIndex(x=>x.status===201);
   await status("/api/payments/P-CON-"+winning+"/reverse",200,{method:"POST"});
   await status("/api/payments/P-CON-"+winning+"/reverse",409,{method:"POST"});
   const partial=await balance("OT-CONCURRENT");
   assert.equal(partial.snapshot.coverageState,"partial");
   assert.equal(cents(partial.record.available),100n);
+  assert.equal(partial.snapshot.adjustmentPreviewEligible,true);
+  assert.equal(cents(partial.snapshot.maxSafeDecrease),100n);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS partial");
   console.log("PROTOCOLIA_S2B_ITEMIZED_PASS S2B-05 concurrent receipts and reversal");
   // S2c-0: simulate a privileged, out-of-band PostgreSQL source mutation.
   // These are fixed synthetic records in the disposable Compose DB, never production.
@@ -255,6 +274,9 @@ try{
       const snapshot=await status(driftPath,200);
       assert.equal(snapshot.balanced,false,"Untrusted "+name+" cannot appear reconciled");
       assert.equal(snapshot.coverageState,"inconsistent",name);
+      assert.equal(snapshot.adjustmentPreviewEligible,false);
+      assert.equal(cents(snapshot.maxSafeDecrease),0n);
+      assert.equal(cents(snapshot.maxSafeIncrease),0n);
       // The journal difference can remain zero even with an inconsistent source.
       if(name==="parent_opening")assert.notEqual(snapshot.difference,"0.00");
       else assert.equal(cents(snapshot.difference),0n);
@@ -268,8 +290,11 @@ try{
       assert.equal(cents((await status("/api/work-orders/"+driftId,200)).available),200n);
       console.log("PROTOCOLIA_S2C0_DRIFT_DENIED "+name);
     }finally{sql(restore);}
-    assert.equal((await balance(driftId)).snapshot.coverageState,"partial",
+    const restored=(await balance(driftId)).snapshot;
+    assert.equal(restored.coverageState,"partial",
       "Restored source must reconcile again");
+    assert.equal(restored.adjustmentPreviewEligible,true);
+    assert.equal(cents(restored.maxSafeDecrease),200n);
   }
   await status("/api/payments",201,{method:"POST",body:
     pay("PD-AFTER-RESTORE",driftId,"0.50")});
@@ -277,6 +302,7 @@ try{
   await status("/api/payments/PD-BASE/reverse",200,{method:"POST"});
   assert.equal(cents((await balance(driftId)).record.available),250n);
   console.log("PROTOCOLIA_S2C0_DRIFT_ALL_PASS "+build.target);
+  console.log("PROTOCOLIA_S2C1A_PREVIEW_ALL_PASS "+build.target);
   console.log("PROTOCOLIA_S2B_ITEMIZED_ALL_PASS "+build.target);
 }finally{
   if(started)try{docker("down","--volumes","--remove-orphans");}
