@@ -313,6 +313,43 @@ try{
   assert.equal(cents(baseline.snapshot.maxSafeDecrease),30n);
   assert.equal(cents(baseline.snapshot.maxSafeIncrease),99999999999969n);
   console.log("PROTOCOLIA_S2C1A_PREVIEW_PASS unpaid");
+  // A locally posted receipt is never evidence of bank/card clearing.
+  // The source of truth for external settlement is intentionally absent.
+  await status("/api/work-orders",201,{method:"POST",body:order("OT-PROVIDER-PROOF",[
+    charge("PROOF-LABOR","3.00")
+  ])});
+  const proofBefore=await balance("OT-PROVIDER-PROOF");
+  const forged=await request("/api/payments",{method:"POST",body:{
+    ...pay("PROOF-FORGE","OT-PROVIDER-PROOF","1.00"),
+    method:"card",providerSettlementState:"settled"
+  }});
+  assert.equal(forged.status,400,"A caller must not claim provider settlement");
+  await status("/api/payments/PROOF-FORGE",404);
+  assert.equal((await balance("OT-PROVIDER-PROOF")).record.available,
+    proofBefore.record.available,"Forged provider proof must not debit the ledger");
+  for(const method of ["cash","bank_transfer","card"]){
+    const receipt="PROOF-"+method.toUpperCase().replace(/_/g,"-");
+    const created=await status("/api/payments",201,{method:"POST",body:{
+      ...pay(receipt,"OT-PROVIDER-PROOF","1.00"),method
+    }});
+    assert.equal(created.providerSettlementState,"unverified",
+      "Internal receipt must never imply provider verification: "+method);
+    assert.equal(created.status,"posted");
+    const persisted=await status("/api/payments/"+receipt,200);
+    assert.equal(persisted.providerSettlementState,"unverified");
+    assert.equal(sql("SELECT provider_settlement_state FROM payment WHERE receipt='"+
+      receipt+"'"),"unverified");
+  }
+  const proofCovered=await balance("OT-PROVIDER-PROOF");
+  assert.equal(proofCovered.snapshot.coverageState,"covered",
+    "Coverage is internal ledger coverage, not provider clearing");
+  assert.equal(proofCovered.record.available,"0.00");
+  const reversedProvider=await status("/api/payments/PROOF-BANK-TRANSFER/reverse",200,
+    {method:"POST"});
+  assert.equal(reversedProvider.providerSettlementState,"unverified",
+    "An internal reversal is not an external refund");
+  assert.equal((await balance("OT-PROVIDER-PROOF")).snapshot.coverageState,"partial");
+  console.log("PROTOCOLIA_S2C1B6_PROVIDER_PROOF_PASS "+build.target);
   await previewMobileSmoke();
   const audit=await status("/api/work-orders/OT-EXACT/audit",200);
   assert.ok(audit.items.some(row=>row.fieldName==="chargeTotal"&&
