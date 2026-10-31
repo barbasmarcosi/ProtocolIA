@@ -12,7 +12,7 @@ import {uniqueTogetherSql} from "../composite-uniqueness.mjs";
 import {assertMoveUnits,assertReverseUnits} from "../stock-transfer.mjs";
 import {assertMoveBatch,assertReverseBatch} from "../multi-leg-transfer.mjs";
 import {assertCreateDetails} from "../create-details.mjs";
-import {assertExactAdjustment} from "../exact-adjustment.mjs";
+import {assertExactAdjustment,exactAdjustmentWriteSql} from "../exact-adjustment.mjs";
 import {assertPatchTogether} from "../compound-patch.mjs";
 import {uniqueWhenSql} from "../conditional-uniqueness.mjs";
 import {readFileSync,writeFileSync,copyFileSync,mkdirSync,existsSync,readdirSync} from "node:fs";
@@ -487,7 +487,8 @@ export function generate(ir,spec,out){
     "field_name VARCHAR(128) NOT NULL, before_value TEXT, after_value TEXT, "+
     "occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);",
     "CREATE INDEX idx_protocolia_audit_resource ON protocolia_audit_event (entity_name,resource_id,id);");
-  schema.push(...exactAdjustmentJournalSql(exactReconciliations));
+  schema.push(...exactAdjustmentJournalSql(exactReconciliations),
+    ...exactAdjustmentWriteSql(ir,exactReconciliations));
   schema.push(...recipientInboxSql(inboxes));
   const manifest={entities:ir.entities.map(e=>({name:e.name,table:snake(e.name),
     publicIdentity:e.publicIdentity,identityColumn:snake(e.publicIdentity),
