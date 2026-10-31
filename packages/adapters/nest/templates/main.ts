@@ -24,7 +24,8 @@ type Release={stockTable:string;stockKeyColumn:string;availableColumn:string;ref
 type QueryFilter={name:string;expression:string;comparator:string;type:string;minLength:number|null;maxLength:number|null;min:number|null;max:number|null;pattern:string|null};
 type QuerySpec={projection:string;source:string;order:string;filters:QueryFilter[]};
 type RelatedSum={sqlNest:string;sqlSpring:string;childReadCapability:string};
-type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSources:string[];serverOnly?:boolean};
+type ExactReconciliation=RelatedSum&{openingField:string;availableField:string;chargeSources:string[];serverOnly?:boolean;
+  adjustmentJournal?:{table:string;parentTable:string;parentColumn:string;precision:number;scale:number;max:string}};
 type Operation={query?:QuerySpec;relatedSum?:RelatedSum;detailSum?:RelatedSum;exactReconciliation?:ExactReconciliation;name:string;method:string;path:string;entity:string;kind:string;capability:string;audit?:string[];reserve?:Reserve;moveUnits?:MoveUnits;moveBatch?:MoveBatch;createDetails?:CreateDetails;reverseBatch?:MoveBatch;reverseUnits?:ReverseUnits;release?:Release;exactDebit?:ExactDebit;exactReverse?:ExactReverse;field?:string;input?:string;from?:string;to?:string;inputMin?:number;inputMax?:number;limitDefault?:number;limitMin?:number;limitMax?:number;offsetDefault?:number;offsetMax?:number};
 type Manifest={entities:Entity[];operations:Operation[];readCapabilities:string[];writeCapabilities:string[];auditCapabilities:string[];assignmentCapabilities:string[];fieldReadCapabilities?:string[];hasOverdueRules?:boolean};
 const spec=contract as Manifest;
@@ -708,6 +709,46 @@ class RuntimeService{
     const snapshot=await client.query(plan.sqlNest,[key]);
     if(!snapshot.rowCount||snapshot.rows[0].balanced!==true)
       throw new Problem(409,"Exact ledger reconciliation conflict");
+  }
+  // S2c-1b1: authentication is checked by dispatch. The generated PostgreSQL
+  // function locks parent first, then checks a fresh source+journal snapshot
+  // and atomically persists one immutable signed adjustment, balances and audit.
+  private async adjustExact(e:Entity,key:string,body:unknown,actor:string):Promise<Record<string,unknown>>{
+    const ledger=spec.operations.find(x=>x.entity===e.name&&x.kind==="reconcileExact")
+      ?.exactReconciliation;
+    const j=ledger?.adjustmentJournal;
+    if(!j||j.parentTable!==e.table||typeof key!=="string")
+      throw new Error("Unbound exact adjustment operation");
+    if(!isRecord(body)||Object.keys(body).length!==3||
+      !["adjustmentId","delta","reason"].every(k=>Object.hasOwn(body,k)))
+      throw new Problem(400,"Expected exact adjustment ID, delta and reason");
+    const adjustmentId=body.adjustmentId,reason=body.reason,raw=body.delta;
+    if(typeof adjustmentId!=="string"||adjustmentId.length<8||adjustmentId.length>64||
+      !adjustmentId.trim()||
+      typeof reason!=="string"||reason.trim().length<12||reason.trim().length>240||
+      typeof raw!=="string"||!Number.isInteger(j.scale)||!Number.isInteger(j.precision)||
+      !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw))
+      throw new Problem(400,"Invalid signed adjustment payload");
+    const unsigned=raw.replace(/^-/,""),[whole,fraction=""]=unsigned.split(".");
+    if(fraction.length>j.scale||
+      whole.replace(/^0+/,"").length>j.precision-j.scale)
+      throw new Problem(400,"Invalid adjustment precision");
+    const units=decimalUnits(raw,j.scale),max=decimalUnits(j.max,j.scale);
+    if(units===0n||units>max||units< -max)
+      throw new Problem(400,"Adjustment must be nonzero and bounded");
+    const func="protocolia_apply_exact_adjustment_"+e.table;
+    try{
+      await this.pool.query("SELECT "+func+"($1,$2,$3::numeric,$4,$5)",
+        [key,adjustmentId,exactStringFromUnits(units,j.scale),reason,actor]);
+    }catch(error){
+      const code=(error as {code?:string}).code;
+      if(code==="PZ409"||code==="23505")
+        throw new Problem(409,"Adjustment conflicts with current balance or identity");
+      if(code==="P0002")throw new Problem(404,"Work order not found");
+      if(code==="23514"||code==="22003")throw new Problem(400,"Invalid adjustment data");
+      throw error;
+    }
+    return this.row(e,key);
   }
   private async reconcileExact(op:Operation,key:string):Promise<Record<string,unknown>>{
     if(typeof key!=="string")throw new Problem(400,"Invalid reconciliation identity");
@@ -1480,6 +1521,7 @@ class RuntimeService{
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "sumDetails":data=await this.sumDetails(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
+        case "adjustExact":data=await this.adjustExact(entity,identity,req.body,session.username);break;
         case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
@@ -1503,13 +1545,13 @@ class RuntimeService{
           delete copy[f.name];
         return copy;
       };
-      if(["create","get","patchFields","patchTogether"].includes(op.kind))data=redacted(data);
+      if(["create","adjustExact","get","patchFields","patchTogether"].includes(op.kind))data=redacted(data);
       else if(op.kind==="listPage"&&isRecord(data)&&Array.isArray(data.items))
         data={...data,items:data.items.map(redacted)};
       if(["get","create"].includes(op.kind)&&isRecord(data)&&
         Number.isInteger(data.documentVersion))
         res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
-      res.status(op.kind==="create"?201:200).json(data);
+      res.status(["create","adjustExact"].includes(op.kind)?201:200).json(data);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
         sendProblem(res,new Problem(409,"Referenced resource cannot be deleted"));
