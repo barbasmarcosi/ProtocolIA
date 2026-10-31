@@ -117,6 +117,14 @@ try{
   assert.equal((await linked("evt_http_wrongorder",claim("PAY-HTTP-LINK","WRONG-ORDER"))).status,409);
   assert.equal((await linked("evt_http_wrongamt_1",claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
   assert.equal((await linked(eventLinked,claim("PAY-HTTP-LINK","OT-HTTP-LINK","1.26"))).status,409);
+  // A second authenticated event ID is not a second independent receipt proof.
+  const secondClaimEvent="evt_http_second_claim_123";
+  assert.equal((await linked(secondClaimEvent)).status,409);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id='evt_http_second_claim_123'"),"0");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
+    "WHERE receipt_id='PAY-HTTP-LINK'"),"1");
+
   assert.equal((await linked("evt_http_badver_12",Buffer.from(JSON.stringify({
     version:"receipt-candidate.v2",receiptId:"PAY-HTTP-LINK",orderId:"OT-HTTP-LINK",amount:"1.25"
   })))).status,400);
@@ -161,6 +169,7 @@ try{
     "WHERE event_id='evt_http_after_reverse_12'"),"0");
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4A_HTTP_UNIQUE_BINDING_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3C_SIGNED_REVERSAL_REPLAY_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3B_SIGNED_RECEIPT_HTTP_PASS "+build.target+
     " 1 accepted/9 duplicate, signed exact receipt match, no settlement");
