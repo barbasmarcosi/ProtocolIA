@@ -8,12 +8,12 @@ The exact internal workshop ledger records `Payment.status=posted` and computes 
 
 ## Contractual increment
 
-The workshop TypeSpec `Payment` entity declares a persisted, server-initialized `providerSettlementState="unverified"`. It is absent from `PaymentRequest`, has no declared transition, PATCH or delete lifecycle, and cannot be changed to `settled` via a generated HTTP operation. The value is intentionally unverified for **cash, bank_transfer and card**: the platform has no trusted provider attestation, and cash is not evidence of a remote provider settlement. This is an **explicit negative attestation**, not a bank/payment integration, provider webhook, or verified refund. It does not change internal ledger accounting or monetary authorization.
+The workshop TypeSpec `Payment` entity declares a persisted, server-initialized `@fixedInitial("unverified") providerSettlementState`. The reusable decorator is compiled into a fixed-value PostgreSQL CHECK and a strict server-only CREATE field in both adapters. It is absent from `PaymentRequest`, has no declared transition, PATCH or delete lifecycle, and cannot be changed to `settled` via a generated HTTP operation. The value is intentionally unverified for **cash, bank_transfer and card**: the platform has no trusted provider attestation, and cash is not evidence of a remote provider settlement. This is an **explicit negative attestation**, not a bank/payment integration, provider webhook, or verified refund. It does not change internal ledger accounting or monetary authorization.
 
 ## Executable acceptance (independent NestJS and modular Spring)
 
-1. Compile the TypeSpec and assert the canonical IR contains the server initial and no provider-settlement mutation operation.
-2. Create a synthetic order in disposable PostgreSQL. Forging `providerSettlementState="settled"` on receipt creation must return HTTP 400, persist no receipt and leave the order balance unchanged.
+1. Compile the TypeSpec and assert the canonical IR contains `fixedInitial=true` and no provider-settlement mutation operation. Negative contracts must reject ordinary orphan `@initial` and any transition over a fixed field.
+2. Create a synthetic order in disposable PostgreSQL. Forging `providerSettlementState="settled"` **or even `"unverified"`** on receipt creation must return HTTP 400, persist no receipt and leave the order balance unchanged. Direct SQL UPDATE to `settled` must fail under the generated CHECK.
 3. Record exact 1.00 internal receipts using cash, bank_transfer and card; each POST/GET and SQL row must report `providerSettlementState="unverified"`.
 4. Confirm that `coverageState="covered"` can coexist with unverified provider state, proving the two concepts are **not interchangeable**.
 5. Reverse the bank-transfer receipt: internal coverage becomes partial, provider state remains unverified, and no provider refund is asserted.
