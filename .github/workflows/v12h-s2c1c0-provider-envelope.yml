@@ -1,0 +1,52 @@
+name: v1.2h-s2c1c0-provider-envelope-preflight
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/adapters/nest/**'
+      - 'packages/adapters/modular/**'
+      - 'tests/vnext/provider-webhook-envelope.test.mjs'
+      - 'tests/vnext/ProviderWebhookVerifierTest.java'
+      - '.github/workflows/v12h-s2c1c0-provider-envelope.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: s2c1c0-envelope-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cross-language-envelope-and-generated-app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci
+      - name: Verify strict raw-body HMAC and adversarial Node vectors
+        run: node --experimental-strip-types --test tests/vnext/provider-webhook-envelope.test.mjs
+      - name: Verify identical Java cryptographic fixture and rejection vectors
+        run: |
+          mkdir -p "${{ runner.temp }}/provider-proof-classes"
+          javac -d "${{ runner.temp }}/provider-proof-classes" \
+            packages/adapters/modular/templates/ProviderWebhookVerifier.java \
+            tests/vnext/ProviderWebhookVerifierTest.java
+          java -cp "${{ runner.temp }}/provider-proof-classes" \
+            dev.protocolia.modular.ProviderWebhookVerifierTest
+      - name: Generate independent target from unchanged canonical workshop TypeSpec
+        run: npm run app:build -- examples/vnext/workshop-itemized-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/provider-preflight-app"
+      - name: Real PostgreSQL and HTTP generated conformance, no provider calls
+        run: npm run app:test -- "${{ runner.temp }}/provider-preflight-app"

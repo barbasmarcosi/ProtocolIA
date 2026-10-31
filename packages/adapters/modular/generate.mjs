@@ -511,7 +511,7 @@ export function generate(ir, openapi, outDir) {
   });
   classes.push(mapped.join(",\n"),"  );","}");
   write(base+"Manifest.java",classes.join("\n")+"\n");
-  for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java","BffSession.java","BffKeyring.java","BffHttpSessionConfig.java"]) copy(base+filename,filename);
+  for(const filename of ["ContractApplication.java","SecurityConfig.java","DomainRuntime.java","BffSession.java","BffKeyring.java","BffHttpSessionConfig.java","ProviderWebhookVerifier.java"]) copy(base+filename,filename);
   copy("pom.xml","pom.xml");
   copy("src/main/resources/application.properties","application.properties");
   copy("src/main/resources/db/migration/V2__protocolia_bff_http_session.sql","BffHttpSessionSchema.sql");
