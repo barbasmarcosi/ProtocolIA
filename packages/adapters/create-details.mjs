@@ -3,6 +3,7 @@
  * Reject anything that might bypass a parent authorization boundary, mutate generated
  * child fields or create an unbounded batch.
  */
+const ident=x=>typeof x==="string"&&/^[A-Za-z][A-Za-z0-9_]*$/.test(x);
 export function assertCreateDetails(ir,parent,op){
   const meta=op?.behavior?.createDetails;
   const child=ir.entities.find(e=>e.name===meta?.childEntity);
