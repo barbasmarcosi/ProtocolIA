@@ -53,6 +53,19 @@ test("S2b TypeSpec binds immutable nested exact charge rows to one authoritative
     "tsp-output/@typespec/openapi3/openapi.json"),"utf8"));
   assert.equal(assertExactAdjustmentLookup(ir,api,lookup,compileExactReconciliations(ir)).table,
     "protocolia_exact_adjustment_work_order");
+  const tamperOutcome=(change)=>{
+    const invalid=structuredClone(api);
+    const ref=invalid.paths[lookup.path].get.responses["200"]
+      .content["application/json"].schema.$ref;
+    assert.ok(ref,"Outcome must have a concrete OpenAPI schema reference");
+    const model=ref.split("/").slice(1).reduce((v,key)=>v[key],invalid);
+    change(model);
+    assert.throws(()=>assertExactAdjustmentLookup(ir,invalid,lookup,
+      compileExactReconciliations(ir)),/Invalid immutable adjustment outcome lookup/);
+  };
+  tamperOutcome(model=>{model.properties.actor={type:"string"};model.required.push("actor");});
+  tamperOutcome(model=>{model.properties.delta={type:"number",format:"double"};});
+  tamperOutcome(model=>{model.properties.status={type:"string",enum:["pending","committed"]};});
   const writeSql=exactAdjustmentWriteSql(ir,compileExactReconciliations(ir));
   assert.equal(writeSql.length,1);
   assert.match(writeSql[0],/FOR UPDATE/);
