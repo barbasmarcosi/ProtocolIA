@@ -172,6 +172,11 @@ namespace TallerPaymentGuard {
     destinationAccount: string;
     @initial("posted") @minLength(1) @maxLength(20)
     status: string;
+    // A posted receipt is INTERNAL evidence only. Until an independently
+    // verified provider integration exists, no card/bank settlement is proven.
+    // This is server-initialized, immutable through the declared HTTP contract.
+    @fixedInitial("unverified") @minLength(10) @maxLength(10)
+    providerSettlementState: string;
   }
 
   model PaymentRequest {

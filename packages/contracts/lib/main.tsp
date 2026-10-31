@@ -25,6 +25,8 @@ namespace ProtocolIA.Domain {
   extern dec uiSection(target: ModelProperty, section: valueof string);
   extern dec uiPlaceholder(target: ModelProperty, placeholder: valueof string);
   extern dec initial(target: ModelProperty, value: valueof string);
+  // Server-assigned constant: no client input, transitions or mutable HTTP path.
+  extern dec fixedInitial(target: ModelProperty, value: valueof string);
   extern dec computedSum(target: ModelProperty, fields: valueof string);
   // Read-only base-10 multiplication, materialized exactly in PostgreSQL.
   extern dec computedProduct(target: ModelProperty, left: valueof string, right: valueof string);

@@ -10,7 +10,7 @@ import {installBff,installBffSecurityHeaders} from "./BffSession";
 import "reflect-metadata";
 import contract from "./manifest.json";
 
-type Field={name:string;column:string;ownerManaged?:boolean;readCapability?:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
+type Field={name:string;column:string;ownerManaged?:boolean;readCapability?:string;type:string;required:boolean;nullable:boolean;unique:boolean;computedSum?:string[];computedProduct?:[string,string];computedRoundedProduct?:{left:string;right:string;mode:"half_up"};computedDiscountedTotal?:{price:string;quantity:string;discount:string;mode:"half_up"};min?:number;max?:number;minLength?:number;maxLength?:number;pattern?:string;choices?:Array<{value:string;label:string}>;reference?:{target:string;onDelete:string};initial?:string;fixedInitial?:boolean;requiredWhen?:{field:string;equals:string};forbidWhen?:{field:string;equals:string};decimal?:{precision:number;scale:number;min?:string;max?:string};afterField?:string;greaterThanField?:string};
 type Entity={name:string;table:string;publicIdentity:string;identityColumn:string;fields:Field[];
  ownerRelation?:{field:string;parentTable:string;parentKey:string;parentOwnerColumn:string;parentReadCapability:string}};
 type Reserve={stockTable:string;stockKeyColumn:string;availableColumn:string;referenceField:string;quantityField:string;stockWriteCapability:string};
@@ -883,6 +883,8 @@ class RuntimeService{
       (!isRecord(body)||e.fields.some(f=>f.initial!==undefined&&Object.hasOwn(body,f.name))))
       throw new Problem(400,"Initial batch state is server-managed");
     const reconciled=spec.operations.find(x=>x.kind==="reconcileExact"&&x.entity===e.name)?.exactReconciliation;
+    if(!isRecord(body)||e.fields.some(f=>f.fixedInitial&&Object.hasOwn(body,f.name)))
+      throw new Problem(400,"Server-owned fixed field cannot be supplied");
     const writable=e.fields.filter(f=>!f.computedSum&&!f.computedProduct&&!f.computedRoundedProduct&&!f.computedDiscountedTotal).map(f=>f.name);
     if(reconciled?.serverOnly&&
       (!isRecord(body)||[reconciled.openingField,reconciled.availableField]

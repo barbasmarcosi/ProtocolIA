@@ -428,7 +428,12 @@ export function generate(ir,spec,out){
         f.min!==undefined?"CHECK ("+col+">="+f.min+")":"",
         f.max!==undefined?"CHECK ("+col+"<="+f.max+")":"",
         ...(f.type==="decimal"?decimalSql(f,col).checks:[])].filter(Boolean);
-      if(f.initial!==undefined){
+      if(f.fixedInitial){
+        if(typeof f.initial!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(f.initial)||
+          f.type!=="string"||!f.required||f.nullable)
+          throw Error("Invalid fixed server-only initial "+e.name+"."+f.name);
+        checks.push("CHECK ("+col+" = '"+f.initial+"')");
+      }else if(f.initial!==undefined){
         const states=new Set([f.initial,...ir.operations.filter(op=>
           op.entity===e.name&&op.behavior.kind==="transition"&&op.behavior.field===f.name)
           .flatMap(op=>[op.behavior.from,op.behavior.to])]);
