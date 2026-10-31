@@ -9,6 +9,9 @@ on:
       - 'tests/vnext/provider-envelope-inbox.test.mjs'
       - 'packages/adapters/provider-envelope-inbox.mjs'
       - 'scripts/vnext/probe-provider-inbox.mjs'
+      - 'scripts/vnext/probe-provider-http.mjs'
+      - 'packages/adapters/nest/generate.mjs'
+      - 'packages/adapters/modular/generate.mjs'
       - 'tests/vnext/ProviderWebhookVerifierTest.java'
       - '.github/workflows/v12h-s2c1c0-provider-envelope.yml'
   workflow_dispatch:
@@ -57,3 +60,5 @@ jobs:
         run: npm run app:test -- "${{ runner.temp }}/provider-preflight-app"
       - name: Real PostgreSQL concurrent replay and rollback in generated target
         run: node scripts/vnext/probe-provider-inbox.mjs "${{ runner.temp }}/provider-preflight-app"
+      - name: Real sandbox signed HTTP ingress, replay and PostgreSQL assertions
+        run: node scripts/vnext/probe-provider-http.mjs "${{ runner.temp }}/provider-preflight-app"
