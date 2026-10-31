@@ -156,7 +156,9 @@ try{
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"2");
   // Once a candidate was committed, reversing its receipt must not turn an
   // identical provider retry into a new business decision or erase history.
-  sql("UPDATE payment SET status='reversed' WHERE receipt='PAY-CAND';");
+  sql("BEGIN; UPDATE payment SET status='reversed' WHERE receipt='PAY-CAND'; "+
+    "UPDATE work_order SET available=1.25 WHERE number='OT-CAND'; COMMIT;");
+  assert.equal(value("SELECT available::text FROM work_order WHERE number='OT-CAND';"),"1.25");
   assert.equal(value(candidate(candidateEvent,digestA)),"duplicate",
     "Identical committed event remains idempotent after receipt reversal");
   assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
