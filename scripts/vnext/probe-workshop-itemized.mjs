@@ -512,11 +512,27 @@ try{
   assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
   assert.equal(cents(adjusted.data.chargeTotal),320n);
   assert.equal(cents(adjusted.data.available),220n);
+  // S2c-1b5: after an ambiguous HTTP outcome, read the committed journal
+  // without reissuing a financial POST. This is not external PSP settlement.
+  const outcomePath=(number,id)=>"/api/work-orders/"+number+"/adjustments/"+id;
+  const auditBeforeLookup=sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'");
+  const observed=await status(outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),200);
+  assert.deepEqual(observed,{adjustmentId:"AH-PLUS-01",delta:"0.20",
+    reason:"Corrección autorizada de ensayo",status:"committed"});
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","AH-UNKNOWN-1"))).status,404);
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","AH-PLUS-01"),{role:"reader"})).status,403);
+  assert.equal((await request(outcomePath("OT-HTTP-ADJ","BAD"))).status,400);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
+    "WHERE operation_name='adjustWorkOrder' AND resource_id='OT-HTTP-ADJ'"),
+    auditBeforeLookup,"Read-only recovery must not create audit writes");
   // S2c-1b4: one correction id must never settle a second parent.
   // This is a DB uniqueness guarantee, not merely an HTTP or UI check.
   await status("/api/work-orders",201,{method:"POST",body:order("OT-ADJ-CROSS",[
     charge("AH-CROSS-L","1.00")
   ])});
+  assert.equal((await request(outcomePath("OT-ADJ-CROSS","AH-PLUS-01"))).status,404,
+    "Journal-wide unique keys must not reveal another order's correction");
   const firstBeforeCross=await balance("OT-HTTP-ADJ");
   const crossBefore=await balance("OT-ADJ-CROSS");
   const duplicateAcrossParents=await apply("OT-ADJ-CROSS","AH-PLUS-01","0.10");
@@ -562,6 +578,14 @@ try{
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_audit_event "+
     "WHERE operation_name='adjustWorkOrder' AND resource_id LIKE 'OT-GLOBAL-%'"),"4",
     "Nine rejected cross-parent writes must leave no audit fragments");
+// The winner is discovered from committed PostgreSQL, never inferred from response order.
+  const committedWinner=sql("SELECT parent_id FROM "+jtable+
+    " WHERE adjustment_id='AH-GLOBAL-RACE-01'");
+  assert.ok(raceParents.includes(committedWinner));
+  assert.equal((await status(outcomePath(committedWinner,"AH-GLOBAL-RACE-01"),200)).delta,"0.01");
+  for(const number of raceParents.filter(x=>x!==committedWinner))
+    assert.equal((await request(outcomePath(number,"AH-GLOBAL-RACE-01"))).status,404);
+  console.log("PROTOCOLIA_S2C1B5_OUTCOME_PASS exact committed read, privacy and zero writes "+build.target);
   console.log("PROTOCOLIA_S2C1B4_GLOBAL_KEY_PASS cross-parent replay, race and rollback "+build.target);
   adjusted=await apply("OT-HTTP-ADJ","AH-MINUS-1","-0.10");
   assert.equal(adjusted.status,201,JSON.stringify(adjusted.data));
