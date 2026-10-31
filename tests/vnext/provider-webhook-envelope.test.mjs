@@ -98,7 +98,7 @@ test("server keyring rotates without fallback, and revokes removed key IDs",()=>
     ["",`sandbox_1=${one},`],
     ["",`sandbox_1=${one},sandbox_2=${two},sandbox_3=${three},sandbox_4=${one}`],
     ["",`sandbox_1=${one.toUpperCase()}`],
-    ["",`sandbox_1=${one} `],
+    ["",`sandbox_1=${one} `],["",`sandbox_1=${one}\n`],
     ["",`__proto__=${one},__proto__=${two}`]
   ])assert.equal(parseSandboxProviderKeys(old,ring),null);
 });
