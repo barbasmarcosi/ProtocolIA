@@ -674,7 +674,9 @@ public class DomainRuntime {
       body.put(derivedLedger.openingField(),"0");
       body.put(derivedLedger.availableField(),"0");
     }
-    if(body==null||e.fields().stream().anyMatch(f->f.fixedInitial()&&body.containsKey(f.name())))
+    if(body==null)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Missing create body");
+    for(var field:e.fields())if(field.fixedInitial()&&body.containsKey(field.name()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Server-owned fixed field cannot be supplied");
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
