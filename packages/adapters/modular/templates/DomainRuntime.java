@@ -528,12 +528,23 @@ public class DomainRuntime {
           body.containsKey(derivedLedger.availableField()))
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Server-managed balance cannot be supplied");
       body=new java.util.LinkedHashMap<>(body);
-      Object source=body.get(derivedLedger.chargeSource());
-      body.put(derivedLedger.openingField(),source);
-      body.put(derivedLedger.availableField(),source);
+      // Temporary typed zero only for the first exact-decimal input validation.
+      // The actual total is computed after every source has passed validation.
+      body.put(derivedLedger.openingField(),"0");
+      body.put(derivedLedger.availableField(),"0");
     }
     Set<String> fields = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::name).collect(java.util.stream.Collectors.toSet());
     validate(e, body, true, fields);
+    if(derivedLedger!=null&&derivedLedger.serverOnly()){
+      BigDecimal total=BigDecimal.ZERO;
+      for(String source:derivedLedger.chargeSources())
+        total=total.add(new BigDecimal((String)body.get(source)));
+      String calculated=total.toPlainString();
+      body.put(derivedLedger.openingField(),calculated);
+      body.put(derivedLedger.availableField(),calculated);
+      // Runtime bounds apply to the SUM, not just its individually valid terms.
+      validate(e,body,true,fields);
+    }
     if(op.moveBatch()!=null){
       // No client may impersonate a reversed or posted ledger entry.
       var state=Manifest.OPS.stream().filter(x->x.entity().equals(e.name())&&x.reverseBatch()!=null)
@@ -559,14 +570,15 @@ public class DomainRuntime {
       BigDecimal available=new BigDecimal((String)body.get(reconciliation.availableField()));
       if(opening.compareTo(available)!=0)
         throw new InvalidInputField(reconciliation.availableField(),"invalid_comparison");
-      if(reconciliation.chargeSource()!=null){
-        BigDecimal charge=new BigDecimal((String)body.get(reconciliation.chargeSource()));
-        if(opening.compareTo(charge)!=0)
+      if(!reconciliation.chargeSources().isEmpty()){
+        BigDecimal total=BigDecimal.ZERO;
+        for(String source:reconciliation.chargeSources())
+          total=total.add(new BigDecimal((String)body.get(source)));
+        if(opening.compareTo(total)!=0)
           throw new InvalidInputField(reconciliation.openingField(),"invalid_comparison");
-        // Persist the source value as the actual opening/balance. Do not trust
-        // independently supplied client duplicates even when numerically equal.
-        body.put(reconciliation.openingField(),body.get(reconciliation.chargeSource()));
-        body.put(reconciliation.availableField(),body.get(reconciliation.chargeSource()));
+        // Persist the canonical multi-charge amount, never client duplicates.
+        body.put(reconciliation.openingField(),total.toPlainString());
+        body.put(reconciliation.availableField(),total.toPlainString());
       }
     }
     if(op.moveBatch()!=null){
