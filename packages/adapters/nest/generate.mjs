@@ -513,6 +513,7 @@ export function generate(ir,spec,out){
   copy("src/main.ts",join(root,"templates/main.ts"));
   copy("src/BffSession.ts",join(root,"templates/BffSession.ts"));
   copy("src/BffKeyring.ts",join(root,"templates/BffKeyring.ts"));
+  copy("src/ProviderWebhookVerifier.ts",join(root,"templates/ProviderWebhookVerifier.ts"));
   write("package.json",JSON.stringify({name:"protocolia-nest-generated",
     private:true,version:"0.0.1",
     scripts:{build:"tsc -p tsconfig.json",start:"node dist/main.js"},
