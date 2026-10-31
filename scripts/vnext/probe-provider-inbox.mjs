@@ -108,9 +108,10 @@ try{
     "VALUES ('OT-CAND','CAR-CAND','Synthetic receipt proof',1.25,1.25,0,'opened');");
   sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
     "VALUES ('PAY-CAND','OT-CAND',1.25,'card','Synthetic account','posted','unverified');");
-  const candidate=(event,digest,receipt="PAY-CAND",order="OT-CAND",amount="1.25")=>
+  const candidate=(event,digest,receipt="PAY-CAND",order="OT-CAND",amount="1.25",
+    provider="sandbox_provider")=>
     "SELECT protocolia_record_provider_receipt_candidate("+
-    ["sandbox_provider",event,digest,receipt,order].map(literal).join(",")+
+    [provider,event,digest,receipt,order].map(literal).join(",")+
     ","+amount+"::numeric);";
   const before=value("SELECT charge_total::text||'/'||available::text FROM work_order WHERE number='OT-CAND';");
   assert.equal(value(candidate("evt_cand_missing",digestA,"NOT-THERE")),"missing");
@@ -135,6 +136,31 @@ try{
   assert.equal(results.filter(x=>x==="stored").length,1,JSON.stringify(results));
   assert.equal(results.filter(x=>x==="duplicate").length,9,JSON.stringify(results));
   assert.equal(value(candidate(candidateEvent,digestB)),"conflict");
+  // S2c-1c4a: a second event, even from another provider, cannot silently
+  // claim the same receipt as a new candidate or create an inbox fragment.
+  assert.equal(value(candidate("evt_second_same_receipt",digestA)),"conflict");
+  assert.equal(value(candidate("evt_other_provider_123",digestA,
+    "PAY-CAND","OT-CAND","1.25","another_provider")),"conflict");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox WHERE "+
+    "event_id IN ('evt_second_same_receipt','evt_other_provider_123');"),"0");
+  // Ten distinct event IDs racing to claim a fresh receipt: exactly one wins.
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-CAND-RACE','CAR-CAND','Synthetic competing events',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-CAND-RACE','OT-CAND-RACE',1.25,'card','Synthetic account','posted','unverified');");
+  const racingEvents=Array.from({length:10},(_,i)=>"evt_race_"+String(i).padStart(8,"0"));
+  const racing=await concurrent(racingEvents.map(event=>candidate(event,digestA,
+    "PAY-CAND-RACE","OT-CAND-RACE")));
+  assert.equal(racing.filter(x=>x==="stored").length,1,JSON.stringify(racing));
+  assert.equal(racing.filter(x=>x==="conflict").length,9,JSON.stringify(racing));
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
+    "WHERE receipt_id='PAY-CAND-RACE';"),"1");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id LIKE 'evt_race_%';"),"1");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-RACE';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4A_UNIQUE_RECEIPT_BINDING_PASS "+build.target);
+
   assert.equal(value(candidate(candidateEvent,digestA,"PAY-CAND","OT-CAND","1.26")),"conflict");
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate;"),"1");
   assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox WHERE event_id="+
