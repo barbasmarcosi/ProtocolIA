@@ -281,7 +281,42 @@ function appendProviderCandidate(plans,ddl){
     END $lifecycle_observation$;`,
     `CREATE TRIGGER protocolia_provider_lifecycle_observation_immutable_guard
       BEFORE UPDATE OR DELETE ON protocolia_provider_lifecycle_observation
-      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
+      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`,
+    // S2c-1c4d: single-snapshot, read-only causal diagnostic. A coherent
+    // synthetic report stream is NEVER bank-cleared settlement authority.
+    `CREATE FUNCTION protocolia_provider_lifecycle_causal_projection(v_receipt TEXT)
+      RETURNS TABLE(causal_integrity TEXT,last_coherent_phase TEXT,observation_count BIGINT)
+      LANGUAGE SQL STABLE AS $causal_projection$
+      WITH ordered AS (
+        SELECT event_sequence,reported_phase,
+          ROW_NUMBER() OVER (ORDER BY event_sequence) AS expected_sequence,
+          LAG(reported_phase) OVER (ORDER BY event_sequence) AS previous_phase
+        FROM protocolia_provider_lifecycle_observation
+        WHERE receipt_id=v_receipt
+      ), evaluated AS (
+        SELECT COUNT(*)::BIGINT AS n,
+          COALESCE(BOOL_OR(event_sequence<>expected_sequence),FALSE) AS has_gap,
+          COALESCE(BOOL_OR(CASE
+            WHEN previous_phase IS NULL THEN reported_phase<>'reported_pending'
+            WHEN previous_phase='reported_pending' THEN
+              reported_phase NOT IN ('reported_pending','reported_success','reported_failure')
+            WHEN previous_phase='reported_success' THEN
+              reported_phase NOT IN ('reported_success','reported_reversal')
+            WHEN previous_phase='reported_failure' THEN reported_phase<>'reported_failure'
+            WHEN previous_phase='reported_reversal' THEN reported_phase<>'reported_reversal'
+            ELSE TRUE END),FALSE) AS invalid_transition,
+          (ARRAY_AGG(reported_phase ORDER BY event_sequence DESC))[1] AS latest
+        FROM ordered
+      )
+      SELECT (CASE WHEN n=0 THEN 'unobserved'
+        WHEN has_gap THEN 'gap'
+        WHEN invalid_transition THEN 'contradictory'
+        ELSE 'coherent' END)::TEXT,
+        (CASE WHEN n>0 AND NOT has_gap AND NOT invalid_transition
+          THEN latest ELSE NULL END)::TEXT,
+        n
+      FROM evaluated;
+    $causal_projection$;`
   );
   return ddl;
 }
