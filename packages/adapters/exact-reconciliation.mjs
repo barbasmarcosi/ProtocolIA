@@ -17,6 +17,12 @@ export function compileExactReconciliations(ir){
     const fk=child?.fields.find(f=>f.name===cfg.referenceField);
     const amount=child?.fields.find(f=>f.name===cfg.amountField);
     const state=child?.fields.find(f=>f.name===cfg.stateField);
+    const proof=child?.fields.find(f=>f.name===cfg.unverifiedProofField);
+    if(cfg.unverifiedProofField!==undefined&&
+      (!ident(cfg.unverifiedProofField)||!proof||proof.type!=="string"||
+       !proof.required||proof.nullable||proof.fixedInitial!==true||
+       proof.initial!=="unverified"))
+      throw Error("Invalid unverified provider proof binding "+op.name);
     const original=of("create",child?.name).filter(x=>x.behavior.debitExact&&
       x.behavior.debitExact.stockEntity===parent?.name&&
       x.behavior.debitExact.availableField===cfg.availableField&&
@@ -62,7 +68,7 @@ export function compileExactReconciliations(ir){
       throw Error("Invalid exact charge source "+op.name);
     if(!parent||!child||parent===child||
       ![parent.name,parent.publicIdentity,child.name,child.publicIdentity,
-        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview"&&k!=="adjustmentJournal").map(([,v])=>v)].every(ident)||
+        ...Object.entries(cfg).filter(([k])=>k!=="serverOnly"&&k!=="chargeSources"&&k!=="lifecycle"&&k!=="adjustmentPreview"&&k!=="adjustmentJournal"&&k!=="unverifiedProofField").map(([,v])=>v)].every(ident)||
       !stateValue(cfg.postedState)||!stateValue(cfg.reversedState)||cfg.postedState===cfg.reversedState||
       op.behavior.kind!=="reconcileExact"||op.method!=="GET"||
       ![200,401,403,404].every(code=>op.statuses?.includes(code))||
@@ -140,6 +146,14 @@ export function compileExactReconciliations(ir){
     const pt=snake(parent.name),ct=snake(child.name),pk=snake(parent.publicIdentity);
     const fkCol=snake(cfg.referenceField),amountCol=snake(cfg.amountField),stateCol=snake(cfg.stateField);
     const oc=snake(cfg.openingField),bc=snake(cfg.availableField);
+    const proofSql=proof?
+      ", COALESCE(j.unverified_posted,0)::text AS \"unverifiedPostedTotal\""+
+      ", COALESCE(j.unverified_count,0)::text AS \"unverifiedPostingCount\"":"";
+    const proofAggregate=proof?
+      ", SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' AND c."+
+      snake(proof.name)+"='unverified' THEN c."+amountCol+" ELSE 0 END) AS unverified_posted"+
+      ", COUNT(*) FILTER (WHERE c."+stateCol+"='"+cfg.postedState+
+      "' AND c."+snake(proof.name)+"='unverified') AS unverified_count":"";
     const calc="(p."+oc+"-COALESCE(j.posted,0))";
     const balanced="(p."+bc+"="+calc+(sourceGood?" AND "+sourceGood:"")+")";
     const previewEligible=cfg.adjustmentPreview===true?
@@ -159,7 +173,7 @@ export function compileExactReconciliations(ir){
       calc+"::text AS \"expectedAvailable\", "+
       "(p."+bc+"-"+calc+")::text AS \"difference\", "+
       "COALESCE(j.posting_count,0)::text AS \"postingCount\", "+
-      balanced+" AS \"balanced\""+previewSql+
+      balanced+" AS \"balanced\""+previewSql+proofSql+
       (journalTable?", COALESCE(a.adjustment_count,0)::text AS \"adjustmentCount\"":"")+
       (cfg.lifecycle===true?
         ", CASE WHEN NOT "+balanced+" THEN 'inconsistent'"+
@@ -170,11 +184,12 @@ export function compileExactReconciliations(ir){
       " FROM "+pt+" p LEFT JOIN LATERAL (SELECT "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.postedState+"' THEN c."+amountCol+" ELSE 0 END) AS posted, "+
       "SUM(CASE WHEN c."+stateCol+"='"+cfg.reversedState+"' THEN c."+amountCol+" ELSE 0 END) AS reversed, "+
-      "COUNT(*) AS posting_count FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
+      "COUNT(*) AS posting_count"+proofAggregate+" FROM "+ct+" c WHERE c."+fkCol+"=p."+pk+
       ") j ON TRUE"+sourceJoin+journalJoin+" WHERE p."+pk+"=";
     plans.set(op.name,{parentEntity:parent.name,sqlNest:select+"$1",sqlSpring:select+":identity",
       childReadCapability:childReader.capability,openingField:opening.name,availableField:available.name,
       chargeSources:chargeNames,
+      ...(proof?{unverifiedProofField:proof.name}:{}),
       ...(cfg.serverOnly===true?{serverOnly:true}:{}),
       ...(cfg.lifecycle===true?{lifecycle:true}:{}),
       ...(cfg.adjustmentPreview===true?{adjustmentPreview:true}:{}),
