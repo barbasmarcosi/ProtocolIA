@@ -1554,8 +1554,10 @@ export function compileDomain(p: Program): IrDocument | undefined {
           stateField:String(reconciliation.stateField),
           postedState:String(reconciliation.postedState),
           reversedState:String(reconciliation.reversedState),
-          ...(chargeNames.length===1?{chargeSource:chargeNames[0]}:{})
-          ,...(chargeNames.length>=2?{chargeSources:chargeNames}:{}),
+          ...(reconciliation.chargeSource!==undefined?
+            (String(reconciliation.chargeSource).includes(",")?
+              {chargeSources:String(reconciliation.chargeSource).split(",").map(v=>v.trim())}:
+              {chargeSource:String(reconciliation.chargeSource)}):{}),
           ...(reconciliation.serverOnly===true?{serverOnly:true}:{})
         }} : {}),
         ...(exactReverse ? {reverseExact:{
