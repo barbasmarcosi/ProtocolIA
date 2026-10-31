@@ -509,8 +509,13 @@ export function generate(ir, openapi, outDir) {
   const resources=entities.map(entity=>{
     const ledger=ops.find(op=>op.entity===entity.name&&
       op.behavior.kind==="reconcileExact")?.behavior.reconcileExact;
+    const chargeCreator=ops.find(x=>x.entity===entity.name&&
+      x.behavior.createDetails?.chargeAmountField);
+    const financialChild=ops.some(x=>x.behavior.createDetails?.chargeAmountField&&
+      x.behavior.createDetails.childEntity===entity.name);
     const internal=new Set(ledger?.serverOnly===true?
-      [ledger.openingField,ledger.availableField]:[]);
+      [ledger.openingField,ledger.availableField,
+        ...(chargeCreator?[chargeCreator.behavior.createDetails.chargeTotalField]:[])]:[]);
     return {
     entity:{...entity,fields:entity.fields.map(field=>({
       ...field,...(internal.has(field.name)?{serverDerived:true}:{})
@@ -518,7 +523,8 @@ export function generate(ir, openapi, outDir) {
     transitions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="transition").map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
     patchFieldsOptions:ops.filter(op=>op.entity===entity.name&&op.behavior.kind==="patchFields")
       .map(op=>({name:op.name,method:op.method,path:op.path,capability:op.capability,behavior:op.behavior})),
-    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition").map(op=>[
+    operations:Object.fromEntries(ops.filter(op=>op.entity===entity.name&&op.behavior.kind!=="health"&&op.behavior.kind!=="transition"&&
+      !(financialChild&&op.behavior.kind==="create")).map(op=>[
       op.behavior.kind,{method:op.method,path:op.path,capability:op.capability,behavior:op.behavior}
     ]))
   };
