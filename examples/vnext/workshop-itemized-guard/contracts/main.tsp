@@ -336,7 +336,7 @@ namespace TallerPaymentGuard {
 
   @route("/api/work-orders/{number}/adjustments/{adjustmentId}")
   @get @behavior("lookupExactAdjustment","WorkOrder") @capability("orders.adjust")
-  op lookupWorkOrderAdjustment(@path number: string, @path adjustmentId: string):
+  op lookupWorkOrderAdjustment(@path number: string, @path @minLength(8) @maxLength(64) adjustmentId: string):
     ExactAdjustmentOutcome | BadRequest | NotFound | Unauthorized | Forbidden;
 
   @route("/api/work-orders/{number}/reconciliation")
