@@ -1204,18 +1204,19 @@ export function compileDomain(p: Program): IrDocument | undefined {
         metadata(p,"behavior",candidate)?.kind==="adjustExact"&&
         metadata(p,"behavior",candidate)?.entity===entity.name);
       const writer=writers.length===1?writers[0]:undefined;
+      const writerPath=writer?getHttpOperation(p,writer)[0]?.path:undefined;
       const journal=relevant.filter(candidate=>
         metadata(p,"behavior",candidate)?.kind==="reconcileExact"&&
         metadata(p,"behavior",candidate)?.entity===entity.name&&
         metadata(p,"reconcileExact",candidate)?.adjustmentJournal===true);
-      const keys=[...http.path.matchAll(/\\{([^}]+)\\}/g)].map(x=>x[1]);
+      const keys=[...http.path.matchAll(/\{([^}]+)\}/g)].map(x=>x[1]);
       const params=[...op.parameters.properties.keys()];
       if(!writer||journal.length!==1||
         metadata(p,"capability",writer)?.name!==cap.name||cap.name==="public"||
         relevant.filter(candidate=>metadata(p,"behavior",candidate)?.kind==="lookupExactAdjustment"&&
           metadata(p,"behavior",candidate)?.entity===entity.name).length!==1||
         http.verb!=="get"||http.parameters.body!==undefined||
-        http.path!=="/api/work-orders/{"+entity.publicIdentity+"}/adjustments/{adjustmentId}"||
+        http.path!==writerPath+"/{adjustmentId}"||
         keys.join(",")!==entity.publicIdentity+",adjustmentId"||
         params.length!==2||!params.includes(entity.publicIdentity)||!params.includes("adjustmentId")||
         ![200,400,401,403,404].every(code=>statuses.includes(code))||
