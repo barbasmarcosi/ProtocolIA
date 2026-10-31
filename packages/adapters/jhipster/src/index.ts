@@ -81,7 +81,7 @@ export interface IrOperation {
     debitExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     reverseExact?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     relatedSum?: {childEntity:string;referenceField:string;quantityField:string;stateField:string;activeState:string};
-    reconcileExact?: {openingField:string;availableField:string;childEntity:string;referenceField:string;amountField:string;stateField:string;postedState:string;reversedState:string;chargeSource?:string};
+    reconcileExact?: {openingField:string;availableField:string;childEntity:string;referenceField:string;amountField:string;stateField:string;postedState:string;reversedState:string;chargeSource?:string;serverOnly?:boolean};
     release?: {stockEntity: string; availableField: string; referenceField: string; quantityField: string};
     audit?: string[];
     filters?: {parameter:string;field:string;via?:string;operator:"eq"|"gte"|"lte"|"contains";type:IrField["type"]}[];
