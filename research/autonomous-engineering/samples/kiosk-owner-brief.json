@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "protocolia-agent-brief/v0.1",
+  "project": {
+    "namespace": "KioscoInventory",
+    "title": "Kiosco — bounded inventory draft",
+    "entity": "Product",
+    "view": "Productos",
+    "resource": "products",
+    "identity": {
+      "name": "sku",
+      "maxLength": 40
+    },
+    "label": {
+      "name": "name",
+      "maxLength": 120
+    },
+    "quantity": {
+      "name": "quantity",
+      "maxValue": 1000000
+    },
+    "capabilityRoot": "inventory"
+  },
+  "facts": [
+    {
+      "id": "K-01",
+      "text": "Register products with unique SKUs and a name.",
+      "scope": "supported",
+      "expectedOperations": [
+        "createProduct",
+        "getProduct",
+        "listProducts"
+      ]
+    },
+    {
+      "id": "K-02",
+      "text": "Track a nonnegative count and change it atomically.",
+      "scope": "supported",
+      "expectedOperations": [
+        "increaseProductQuantity"
+      ]
+    },
+    {
+      "id": "K-03",
+      "text": "Permit authorized updates to product names.",
+      "scope": "supported",
+      "expectedOperations": [
+        "renameProduct"
+      ]
+    },
+    {
+      "id": "K-04",
+      "text": "Determine whether registered customers receive discounts and how returns work.",
+      "scope": "deferred",
+      "expectedOperations": []
+    }
+  ],
+  "knownQuestions": [
+    {
+      "id": "K-Q01",
+      "question": "What discount and stacking policy should apply to regular customers?",
+      "classification": "material_business",
+      "affectsSupported": false
+    },
+    {
+      "id": "K-Q02",
+      "question": "What is the required return/refund window?",
+      "classification": "material_business",
+      "affectsSupported": false
+    }
+  ]
+}
