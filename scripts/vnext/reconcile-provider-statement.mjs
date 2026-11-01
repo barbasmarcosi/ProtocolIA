@@ -16,8 +16,8 @@ try {
       throw Error("Duplicate, missing or malformed flag");
     flags.set(args[i],args[i+1]);
   }
-  const keys=["--internal","--links","--external","--currency","--scale"];
-  const optional=["--internal-returns","--expected-order","--expected-provider","--external-attestation",
+  const keys=["--internal","--links","--external","--currency","--scale","--expected-order"];
+  const optional=["--internal-returns","--expected-provider","--external-attestation",
     "--provider-public-key","--trusted-key-sha256","--local-replay-dir",
     "--local-event-replay-dir"];
   const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
@@ -31,7 +31,7 @@ try {
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
      [...flags.keys()].some(key=>![...keys,...optional].includes(key)))
-    throw Error("Usage: reconcile-provider-statement --internal receipts.json [--expected-order OT-1] [--internal-returns returns.json] --links map.json --external statement.json --currency ARS --scale 2");
+    throw Error("Usage: reconcile-provider-statement --internal receipts.json --expected-order OT-1 [--internal-returns returns.json] --links map.json --external statement.json --currency ARS --scale 2");
   const rawScale=flags.get("--scale");
   if(!/^[0-6]$/.test(rawScale)) throw Error("Explicit scale 0..6 required");
   const snapshots=[];
@@ -44,12 +44,10 @@ try {
     return snapshot;
   };
   const internal=readSource("--internal","internal").data;
-  if(flags.has("--expected-order")) {
-    const expected=flags.get("--expected-order");
-    if(!ID.test(expected) || internal.length===0 ||
-       internal.some(row=>row?.orderId!==expected))
-      throw Error("internal: snapshot missing or outside expected order");
-  }
+  const expected=flags.get("--expected-order");
+  if(!ID.test(expected) || internal.length===0 ||
+     internal.some(row=>row?.orderId!==expected))
+    throw Error("internal: snapshot missing or outside expected order");
   const external=readSource("--external","external");
   const attestation=supplied===3 ?
     readSource("--external-attestation","external attestation",true).data : null;

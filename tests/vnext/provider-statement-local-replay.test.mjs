@@ -163,3 +163,20 @@ test("SIGKILL after durable marker before stdout fails closed on restart",()=>{
     assert.match(retried.stderr,/local replay guard/);
   });
 });
+
+
+test("signed replay state is untouched when internal export belongs to another order",()=>{
+  withFixture(f=>{
+    const source=join(f.dir,"internal.json");
+    writeFileSync(source,JSON.stringify([{...payment,orderId:"OT-2"}]));
+    const denied=run(f.args);
+    assert.equal(denied.status,1,denied.stderr);
+    assert.equal(denied.stdout,"");
+    assert.match(denied.stderr,/outside expected order/);
+    assert.equal(readdirSync(f.guard).length,0);
+    writeFileSync(source,JSON.stringify([payment]));
+    const accepted=run(f.args);
+    assert.equal(accepted.status,0,accepted.stderr);
+    assert.equal(readdirSync(f.guard).length,1);
+  });
+});
