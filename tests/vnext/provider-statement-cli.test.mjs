@@ -102,6 +102,15 @@ test("mandatory expected-order scope accepts only the selected nonempty snapshot
   const invalid=run([payment],[link],[capture],undefined,"O1' OR TRUE");
   assert.equal(invalid.status,1);
 });
+test("fully matched mixed-order export cannot yield an apparently clean comparison",()=>{
+  const other={...payment,receiptId:"P2",orderId:"O2",amount:"2.00"};
+  const otherLink={...link,receiptId:"P2",transactionId:"T2"};
+  const otherCapture={...capture,transactionId:"T2",eventId:"E2",amount:"2.00"};
+  const denied=run([payment,other],[link,otherLink],[capture,otherCapture]);
+  assert.equal(denied.status,1,denied.stderr);
+  assert.equal(denied.stdout,"");
+  assert.match(denied.stderr,/outside expected order/);
+});
 test("missing order scope is rejected even when all amounts agree",()=>{
   const r=run([payment],[link],[capture],undefined,null);
   assert.equal(r.status,1,r.stderr);
