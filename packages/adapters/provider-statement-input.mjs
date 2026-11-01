@@ -5,6 +5,44 @@ import {openSync,closeSync,fstatSync,lstatSync,readSync,constants} from "node:fs
 import {resolve} from "node:path";
 
 export const MAX_STATEMENT_INPUT_BYTES=4*1024*1024;
+
+// JSON.parse silently accepts duplicate object members and keeps the last
+// value. Financial inputs must not depend on that parser-specific precedence:
+// e.g. {"amount":"100.00","amount":"1.00"} is ambiguous evidence.
+// Validate syntax with the native parser first, then scan string tokens to
+// reject repeated *decoded* keys within the same object (including Unicode
+// escape aliases). Keys may legitimately recur in different array rows.
+function parseUnambiguousJson(text) {
+  const parsed=JSON.parse(text);
+  const frames=[];
+  for(let i=0;i<text.length;) {
+    const ch=text[i];
+    if(ch==='"') {
+      const start=i++;
+      while(i<text.length) {
+        if(text[i]==="\\") {i+=2;continue;}
+        if(text[i++]==='"') break;
+      }
+      let next=i;
+      while(next<text.length && /[\\t\\n\\r ]/.test(text[next]))next++;
+      if(text[next]===":") {
+        const keys=frames[frames.length-1];
+        if(!(keys instanceof Set))throw Error("ambiguous JSON structure");
+        const key=JSON.parse(text.slice(start,i));
+        if(keys.has(key))throw Error("ambiguous duplicate JSON member");
+        keys.add(key);
+      }
+    } else if(ch==="{" || ch==="[") {
+      if(frames.length>=64)throw Error("excessive JSON nesting");
+      frames.push(ch==="{" ? new Set() : null);
+      i++;
+    } else if(ch==="}" || ch==="]") {
+      frames.pop();i++;
+    } else i++;
+  }
+  return parsed;
+}
+
 const realIO={openSync,closeSync,fstatSync,lstatSync,readSync};
 
 export function loadStatementArray(file,name,io=realIO) {
@@ -44,9 +82,9 @@ export function loadStatementArray(file,name,io=realIO) {
       throw Error(name + ": input changed during read or exceeded 4 MiB");
     try {
       const text=new TextDecoder("utf-8",{fatal:true}).decode(buffer.subarray(0,used));
-      data=JSON.parse(text);
+      data=parseUnambiguousJson(text);
     } catch {
-      throw Error(name + ": invalid JSON or UTF-8");
+      throw Error(name + ": invalid or ambiguous JSON or UTF-8");
     }
   } finally {
     io.closeSync(fd);
