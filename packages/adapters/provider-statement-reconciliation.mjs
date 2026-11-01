@@ -3,6 +3,14 @@
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MONEY = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const TYPES = new Set(["capture", "refund", "chargeback"]);
+// Match PostgreSQL NUMERIC(38, scale): a valid individual value does not
+// imply that a sum of otherwise valid values remains representable.
+const MAX_MINOR = 10n ** 38n;
+function addBounded(a, b, label) {
+  const sum = a + b;
+  if (sum >= MAX_MINOR) throw Error(label + ": unsupported aggregate precision");
+  return sum;
+}
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 function object(value, fields, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value) ||
@@ -27,7 +35,7 @@ function amount(value, scale, label) {
     throw Error(label + ": unsupported precision");
   const minor = BigInt(whole) * (10n ** BigInt(scale)) +
     BigInt(fraction.padEnd(scale, "0") || "0");
-  if (minor <= 0n || minor >= 10n ** 38n)
+  if (minor <= 0n || minor >= MAX_MINOR)
     throw Error(label + ": positive bounded amount required");
   return minor;
 }
@@ -81,7 +89,8 @@ export function reconcileProviderStatement(input) {
     const cents = amount(row.amount, scale, "internal[" + i + "].amount");
     invariant(!internal.has(receiptId), "Duplicate internal receipt identity");
     internal.set(receiptId, { ...row, minor: cents });
-    if (row.status === "posted") postedTotal += cents;
+    if (row.status === "posted")
+      postedTotal = addBounded(postedTotal,cents,"posted internal total");
   }
   // A zero-row export can mean a mistyped order, missing permissions or an
   // incomplete snapshot. Never report zero exceptions as positive coverage.
@@ -105,8 +114,11 @@ export function reconcileProviderStatement(input) {
     if (!internalReturns.has(receiptId))
       internalReturns.set(receiptId, {refund:0n,chargeback:0n});
     if (row.status === "recorded") {
-      internalReturns.get(receiptId)[row.kind] += minor;
-      internalReturnTotal += minor;
+      const recorded = internalReturns.get(receiptId);
+      recorded[row.kind] = addBounded(recorded[row.kind],minor,
+        "recorded return total per receipt");
+      internalReturnTotal = addBounded(internalReturnTotal,minor,
+        "recorded return total");
     }
   }
   for (const [i, row] of array(input.links, "links").entries()) {
@@ -136,15 +148,24 @@ export function reconcileProviderStatement(input) {
     if (!external.has(k)) external.set(k, {capture:0n,refund:0n,chargeback:0n,returned:0n,count:0});
     const aggregate = external.get(k);
     aggregate.count++;
-    if (row.kind === "capture") {aggregate.capture += minor;captureTotal += minor;}
-    else {aggregate[row.kind] += minor;aggregate.returned += minor;returnedTotal += minor;}
+    if (row.kind === "capture") {
+      aggregate.capture = addBounded(aggregate.capture,minor,"external transaction capture");
+      captureTotal = addBounded(captureTotal,minor,"external capture total");
+    } else {
+      aggregate[row.kind] = addBounded(aggregate[row.kind],minor,
+        "external transaction return kind");
+      aggregate.returned = addBounded(aggregate.returned,minor,
+        "external transaction returned total");
+      returnedTotal = addBounded(returnedTotal,minor,"external returned total");
+    }
   }
 
   const rows = [];
   for (const [receiptId, receipt] of [...internal].sort(([a],[b])=>a.localeCompare(b, "en"))) {
     const link = links.get(receiptId);
     const recorded = internalReturns.get(receiptId) ?? {refund:0n,chargeback:0n};
-    const recordedTotal = recorded.refund + recorded.chargeback;
+    const recordedTotal = addBounded(recorded.refund,recorded.chargeback,
+      "recorded return total per receipt");
     let classification;
     if (!link) {
       classification = "unlinked";
