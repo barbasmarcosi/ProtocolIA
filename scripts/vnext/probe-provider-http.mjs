@@ -385,6 +385,19 @@ try{
   assert.equal((await send(rollbackEvent)).status,202);
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
     "WHERE event_id="+quote(rollbackEvent)),"1");
+  // Revoking the ingress writer mid-flight must fail closed with no claim.
+  // Restore the reviewed grant and prove the *same* signed event is recoverable.
+  const revokedEvent="evt_http_split_revoked_12345678";
+  sql("SET ROLE "+ownerRole+"; REVOKE EXECUTE ON FUNCTION "+writer+
+    " FROM "+ingressRole+";");
+  const rejected=await send(revokedEvent);
+  assert.ok([500,503].includes(rejected.status),
+    "Revoked ingress function must never report an accepted event: "+rejected.status);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id="+quote(revokedEvent)),"0");
+  sql("SET ROLE "+ownerRole+"; GRANT EXECUTE ON FUNCTION "+writer+
+    " TO "+ingressRole+";");
+  assert.equal((await send(revokedEvent)).status,202);
   // Restart with the same distinct credentials: persisted evidence must remain
   // replay-safe, while the runtime DB principal still cannot fabricate writes.
   docker(["restart","app"]);
