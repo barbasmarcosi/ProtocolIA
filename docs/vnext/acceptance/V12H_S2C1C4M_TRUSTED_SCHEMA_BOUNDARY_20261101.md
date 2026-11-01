@@ -29,7 +29,7 @@ npm run app:test -- /tmp/pia-m-spring
 node scripts/vnext/probe-provider-inbox.mjs /tmp/pia-m-spring
 ```
 
-The real disposable PostgreSQL probe, for **each generated backend**, must reject (a) an unrelated owner of `public`, (b) a separate role with an explicit `CREATE` grant, and (c) `PUBLIC CREATE`, while preserving `prosecdef=false` after each rejected attempt. It then restores the trusted namespace, executes the preexisting rollback/concurrent/idempotent privilege-isolation scenarios, and proves valid function-mediated first-time writes, replay, denied direct journal DML/DDL, and unchanged settlement state. Expected additional log marker: `PROTOCOLIA_S2C1C4M_TRUSTED_SCHEMA_BOUNDARY_PASS`. This marker is an **acceptance expectation**, not proof until exact-commit CI logs show it for Spring and NestJS.
+The real disposable PostgreSQL probe, for **each generated backend**, must reject (a) an unrelated owner of `public`, (b) a separate role with an explicit `CREATE` grant, and (c) `PUBLIC CREATE`, while preserving `prosecdef=false` after each rejected attempt. In the `PUBLIC CREATE` case the existing effective runtime-privilege guard rejects first (because the runtime inherits `PUBLIC`); the unrelated-role case exercises the new all-grantees check. It then restores the trusted namespace, executes the preexisting rollback/concurrent/idempotent privilege-isolation scenarios, and proves valid function-mediated first-time writes, replay, denied direct journal DML/DDL, and unchanged settlement state. Expected additional log marker: `PROTOCOLIA_S2C1C4M_TRUSTED_SCHEMA_BOUNDARY_PASS`. This marker is an **acceptance expectation**, not proof until exact-commit CI logs show it for Spring and NestJS.
 
 ## Operational boundaries and next gates
 
