@@ -508,6 +508,50 @@ try{
   console.log("PROTOCOLIA_S2C1C4Q_PINNED_MIGRATOR_RUNTIME_SECRET_BOUNDARY_PASS "+
     build.target+" one-shot handoff, no shared SQL credentials, HMAC replay, restart");
 
+  // S2c-1c4r: intentionally drift a SECONDARY writer and a different
+  // journal ACL. The historical single-function startup probe missed both.
+  // Restart the actual generated image; failure must occur before HTTP binds.
+  async function rejectAclDrift(label){
+    isolated(["up","-d","--no-deps","--force-recreate","app"]);
+    const id=isolated(["ps","-a","-q","app"]).stdout.trim();
+    assert.match(id,/^[a-f0-9]{12,64}$/);
+    let stopped=false;
+    for(let attempt=0;attempt<45;attempt++){
+      const state=spawnSync("docker",["inspect","--format","{{.State.Status}}",id],
+        {encoding:"utf8",timeout:15000});
+      assert.equal(state.status,0,state.stderr);
+      if(state.stdout.trim()==="exited"){stopped=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    const logs=spawnSync("docker",["logs",id],{encoding:"utf8",timeout:15000});
+    assert.ok(stopped,"ACL drift did not stop generated "+build.target+
+      " HTTP process: "+label+" "+String(logs.stdout+logs.stderr).slice(-900));
+    assert.match(logs.stdout+logs.stderr,/Provider (writer|direct journal) ACL drift/,
+      "Expected explicit fail-closed ACL rejection: "+label);
+  }
+  const candidateWriter="public.protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)";
+  sql("SET ROLE "+ownerRole+"; GRANT EXECUTE ON FUNCTION "+
+    candidateWriter+" TO "+runtimeRole+";");
+  await rejectAclDrift("runtime gained candidate writer");
+  sql("SET ROLE "+ownerRole+"; REVOKE EXECUTE ON FUNCTION "+
+    candidateWriter+" FROM "+runtimeRole+";");
+  isolated(["up","-d","--no-deps","--force-recreate","app"]);
+  await ready();
+  assert.equal((await send(pinnedEvent)).status,200);
+  const lifecycleJournal="public.protocolia_provider_lifecycle_observation";
+  sql("SET ROLE "+ownerRole+"; GRANT SELECT ON TABLE "+
+    lifecycleJournal+" TO "+ingressRole+";");
+  await rejectAclDrift("ingress gained lifecycle journal SELECT");
+  sql("SET ROLE "+ownerRole+"; REVOKE SELECT ON TABLE "+
+    lifecycleJournal+" FROM "+ingressRole+";");
+  isolated(["up","-d","--no-deps","--force-recreate","app"]);
+  await ready();
+  assert.equal((await send(pinnedEvent)).status,200);
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4R_COMPLETE_ACL_BOOT_PREFLIGHT_PASS "+build.target+
+    " secondary writer drift, unrelated journal read drift, recovery, no settlement");
+
   console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
     " 1 stored/9 duplicate, out-of-order 3-1-2, no settlement");
