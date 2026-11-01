@@ -1,4 +1,5 @@
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
+import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import {createHash} from "node:crypto";
 import {buildQueryPlan,assertQueryOpenApi} from "../query-plan.mjs";
@@ -509,6 +510,8 @@ export function generate(ir,spec,out){
     providerInboxEnabled:[...exactReconciliations.values()].some(x=>x.unverifiedProofField)};
   write("src/manifest.json",JSON.stringify(manifest,null,2)+"\n");
   write("src/schema.sql",schema.join("\n")+"\n");
+  if([...exactReconciliations.values()].some(x=>x.unverifiedProofField))
+    write("protocolia-provider-journal-truncate-upgrade.sql",providerJournalTruncateUpgradeSql());
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
   mkdirSync(join(out,"src/migrations"),{recursive:true});
