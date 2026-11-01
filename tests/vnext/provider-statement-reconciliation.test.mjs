@@ -285,3 +285,18 @@ test("external returns cannot overflow by kind, combined kind or across transact
   c.external=[base,{...base,eventId:"RF-2",transactionId:"tx-2"}];
   assert.throws(()=>compare(c),/external returned total: unsupported aggregate precision/);
 });
+
+
+test("composite JSON field names cannot masquerade as adjacent required keys",()=>{
+  const a=sample();
+  a.internal[0]["amount|currency"]="1.00";
+  delete a.internal[0].amount;
+  delete a.internal[0].currency;
+  assert.throws(()=>compare(a),/internal\[0\]: unexpected, missing or malformed fields/);
+
+  const b=sample();
+  b["currency|external"]="ARS";
+  delete b.currency;
+  delete b.external;
+  assert.throws(()=>compare(b),/statement: unexpected, missing or malformed fields/);
+});
