@@ -289,6 +289,103 @@ try{
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  // S2c-1c4p: end-to-end HMAC HTTP with a DB identity unavailable to the
+  // ordinary application. Exercise the actual operator-reviewed SQL split,
+  // not merely a second connection string pointing to the same superuser.
+  const runtimeRole="pia_http_runtime_"+randomBytes(4).toString("hex");
+  const ingressRole="pia_http_ingress_"+randomBytes(4).toString("hex");
+  const ownerRole="pia_http_owner_"+randomBytes(4).toString("hex");
+  const runtimePassword=randomBytes(24).toString("hex");
+  const ingressPassword=randomBytes(24).toString("hex");
+  const quote=value=>"'"+value.replaceAll("'","''")+"'";
+  sql("CREATE ROLE "+ownerRole+"; CREATE ROLE "+runtimeRole+
+    " LOGIN PASSWORD "+quote(runtimePassword)+"; CREATE ROLE "+ingressRole+
+    " LOGIN PASSWORD "+quote(ingressPassword)+";");
+  sql("ALTER SCHEMA public OWNER TO "+ownerRole+"; "+
+    "GRANT SELECT ON payment TO "+ownerRole+"; "+
+    "GRANT UPDATE(status) ON payment TO "+ownerRole+";");
+  for(const table of [
+    "protocolia_provider_envelope_inbox",
+    "protocolia_provider_receipt_candidate",
+    "protocolia_provider_lifecycle_observation"
+  ])sql("ALTER TABLE public."+table+" OWNER TO "+ownerRole+";");
+  for(const signature of [
+    "protocolia_provider_envelope_immutable()",
+    "protocolia_record_provider_envelope_digest(text,text,text)",
+    "protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)",
+    "protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)",
+    "protocolia_provider_lifecycle_causal_projection(text)",
+    "protocolia_provider_receipt_integrity_projection(text)"
+  ])sql("ALTER FUNCTION public."+signature+" OWNER TO "+ownerRole+";");
+  const isolation=readFileSync(join(root,
+    "protocolia-provider-journal-runtime-isolation.sql"),"utf8");
+  sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+quote(runtimeRole)+
+    "; SET LOCAL protocolia.provider_ingress_role="+quote(ingressRole)+
+    "; "+isolation+" COMMIT;");
+  const writer="public.protocolia_record_provider_envelope_digest(text,text,text)";
+  assert.equal(sql("SELECT has_function_privilege("+quote(runtimeRole)+","+
+    quote(writer)+",'EXECUTE');"),"f");
+  assert.equal(sql("SELECT has_function_privilege("+quote(ingressRole)+","+
+    quote(writer)+",'EXECUTE');"),"t");
+  const deniedDirect=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
+    "-U","protocolia","-d","protocolia","-Atc",
+    "SET ROLE "+runtimeRole+"; SELECT "+writer+
+    "('sandbox_provider','evt_denied_http_12345678','"+ "a".repeat(64)+"');"],true);
+  assert.notEqual(deniedDirect.status,0);
+  assert.match(deniedDirect.stderr,/permission denied/);
+  env.PROTOCOLIA_RUNTIME_DB_USER=runtimeRole;
+  env.PROTOCOLIA_RUNTIME_DB_PASSWORD=runtimePassword;
+  env.PROTOCOLIA_MIGRATION_DB_USER="protocolia";
+  env.PROTOCOLIA_MIGRATION_DB_PASSWORD=env.PROTOCOLIA_DB_PASSWORD;
+  env.PROTOCOLIA_PROVIDER_INGRESS_DB_USER=ingressRole;
+  env.PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD=ingressPassword;
+  writeFileSync(join(scratch,"env"),Object.entries(env).map(([k,v])=>k+"="+v).join("\n")+"\n");
+  docker(["up","-d","--force-recreate","--wait","app"]);
+  await ready();
+  const ingressEvent="evt_http_split_12345678";
+  const ingressResponses=await Promise.all(Array.from({length:10},()=>
+    send(ingressEvent)));
+  assert.equal(ingressResponses.filter(x=>x.status===202).length,1,
+    JSON.stringify(ingressResponses));
+  assert.equal(ingressResponses.filter(x=>x.status===200).length,9,
+    JSON.stringify(ingressResponses));
+  assert.equal((await send(ingressEvent,changed,signed(ingressEvent,changed))).status,409);
+  assert.equal((await send("evt_http_split_bad_sig",changed,
+    signed("evt_http_split_bad_sig",body))).status,401);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id="+quote(ingressEvent)),"1");
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-HTTP-SPLIT','CAR-HTTP-LINK','Isolated HMAC test',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-HTTP-SPLIT','OT-HTTP-SPLIT',1.25,'card','Synthetic account','posted','unverified');");
+  const candidateEvent="evt_http_split_candidate_12345678";
+  const candidateBody=claim("PAY-HTTP-SPLIT","OT-HTTP-SPLIT");
+  assert.equal((await linked(candidateEvent,candidateBody)).status,202);
+  assert.equal((await linked(candidateEvent,candidateBody)).status,200);
+  const lifeEventSplit="evt_http_split_life_12345678";
+  const lifeBodySplit=lifeClaim("1","reported_pending",candidateEvent,
+    "PAY-HTTP-SPLIT","OT-HTTP-SPLIT");
+  assert.equal((await lifecycle(lifeEventSplit,lifeBodySplit)).status,202);
+  assert.equal((await lifecycle(lifeEventSplit,lifeBodySplit)).status,200);
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
+    "WHERE event_id="+quote(candidateEvent)),"1");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
+    "WHERE event_id="+quote(lifeEventSplit)),"1");
+  // Restart with the same distinct credentials: persisted evidence must remain
+  // replay-safe, while the runtime DB principal still cannot fabricate writes.
+  docker(["restart","app"]);
+  await ready();
+  assert.equal((await send(ingressEvent)).status,200);
+  assert.equal((await linked(candidateEvent,candidateBody)).status,200);
+  assert.equal((await lifecycle(lifeEventSplit,lifeBodySplit)).status,200);
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4P_SIGNED_HTTP_DISTINCT_DB_PRINCIPAL_PASS "+build.target+
+    " real split ACL, 10-way replay, candidate/lifecycle, bad HMAC, restart, no settlement");
+
   console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
     " 1 stored/9 duplicate, out-of-order 3-1-2, no settlement");
