@@ -106,6 +106,19 @@ BEGIN
       RAISE EXCEPTION 'Provider journal missing or not owned by operator: %',journal
         USING ERRCODE='23514';
     END IF;
+    -- Runtime/PUBLIC grants are explicitly revoked below. A third-party
+    -- grant must NOT survive: even a SELECT leaks evidence, and INSERT can
+    -- fabricate immutable-looking records without using a vetted function.
+    -- Reject rather than silently revoke unrelated operator grants.
+    IF EXISTS (
+      SELECT 1 FROM pg_class c,
+        LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE c.oid=journal_oid
+        AND a.grantee NOT IN (operator_oid,runtime_oid,0)
+    ) THEN
+      RAISE EXCEPTION 'Provider journal has unrelated privilege grantee: %',journal
+        USING ERRCODE='23514';
+    END IF;
     row_guard:=CASE journal WHEN 'protocolia_provider_envelope_inbox'
       THEN 'protocolia_provider_envelope_immutable_guard'
       ELSE journal||'_immutable_guard' END;
@@ -180,6 +193,17 @@ BEGIN
     IF has_table_privilege(runtime_role,'public.'||journal,
       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
       RAISE EXCEPTION 'Provider runtime inherited direct journal access: %',journal
+        USING ERRCODE='23514';
+    END IF;
+    -- After revoking PUBLIC/runtime, ONLY the trusted owner may retain any
+    -- explicit table privilege. This also checks new PG privilege classes.
+    IF EXISTS (
+      SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace,
+        LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE n.nspname='public' AND c.relname=journal
+        AND a.grantee<>operator_oid
+    ) THEN
+      RAISE EXCEPTION 'Provider journal ACL postcondition failed: %',journal
         USING ERRCODE='23514';
     END IF;
   END LOOP;
