@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "protocolia-intake-project/v0.1",
+  "project": {
+    "namespace": "KioscoInventory",
+    "title": "Kiosco — bounded inventory draft",
+    "entity": "Product",
+    "view": "Productos",
+    "resource": "products",
+    "identity": {
+      "name": "sku",
+      "maxLength": 40
+    },
+    "label": {
+      "name": "name",
+      "maxLength": 120
+    },
+    "quantity": {
+      "name": "quantity",
+      "maxValue": 1000000
+    },
+    "capabilityRoot": "inventory"
+  },
+  "requirements": [
+    {
+      "id": "K-01",
+      "text": "Register products with unique SKUs and a name.",
+      "origin": "explicit_owner",
+      "evidenceRefs": [
+        "synthetic-brief:K-01"
+      ],
+      "scope": "supported",
+      "operations": [
+        "createProduct",
+        "getProduct",
+        "listProducts"
+      ]
+    },
+    {
+      "id": "K-02",
+      "text": "Track a nonnegative count and change it atomically.",
+      "origin": "explicit_owner",
+      "evidenceRefs": [
+        "synthetic-brief:K-02"
+      ],
+      "scope": "supported",
+      "operations": [
+        "increaseProductQuantity"
+      ]
+    },
+    {
+      "id": "K-03",
+      "text": "Permit authorized updates to product names.",
+      "origin": "explicit_owner",
+      "evidenceRefs": [
+        "synthetic-brief:K-03"
+      ],
+      "scope": "supported",
+      "operations": [
+        "renameProduct"
+      ]
+    },
+    {
+      "id": "K-04",
+      "text": "Determine whether registered customers receive discounts and how returns work.",
+      "origin": "agent_assumption",
+      "evidenceRefs": [],
+      "scope": "deferred",
+      "operations": []
+    }
+  ],
+  "questions": [
+    {
+      "id": "K-Q01",
+      "question": "What discount and stacking policy should apply to regular customers?",
+      "classification": "material_business",
+      "state": "unresolved",
+      "affectsSupported": false,
+      "origin": "agent_assumption",
+      "evidenceRefs": []
+    },
+    {
+      "id": "K-Q02",
+      "question": "What is the required return/refund window?",
+      "classification": "material_business",
+      "state": "unresolved",
+      "affectsSupported": false,
+      "origin": "agent_assumption",
+      "evidenceRefs": []
+    },
+    {
+      "id": "K-Q03",
+      "question": "Use compact mobile form grouping?",
+      "classification": "reversible_technical",
+      "state": "provisional",
+      "affectsSupported": false,
+      "origin": "agent_assumption",
+      "evidenceRefs": [],
+      "decision": "Prefer compact grouping in the candidate UI"
+    }
+  ]
+}
