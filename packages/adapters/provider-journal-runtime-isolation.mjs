@@ -1,4 +1,4 @@
-// S2c-1c4l: opt-in, operator-reviewed runtime/migration DB privilege split.
+// S2c-1c4l/o: opt-in runtime/migration isolation and distinct webhook ingress principal.
 // Never run this during generation, application boot or ordinary migrations.
 // The operator must own all provider journal objects and supply a pre-created,
 // unprivileged runtime role through a transaction-local custom GUC.
@@ -7,11 +7,22 @@ export function providerJournalRuntimeIsolationSql() {
 -- Operator-only; run after S2c-1c4k with a verified backup and restored rehearsal.
 -- Example (same psql session): BEGIN; SET LOCAL protocolia.provider_runtime_role =
 -- 'protocolia_runtime'; \\i protocolia-provider-journal-runtime-isolation.sql; COMMIT;
+-- Optional stronger split: SET LOCAL protocolia.provider_ingress_role =
+-- 'protocolia_webhook_ingress'; (in the same operator transaction).
+-- When supplied, runtime gets only two read-only projections and ingress gets
+-- only three synthetic-event writer entrypoints. No table DML is granted.
+-- Reapplying without the ingress role after a split is rejected (no downgrade).
+-- IMPORTANT: the generated webhook app must use separately configured ingress
+-- DB credentials before applying this option; it is NOT wired automatically.
+-- This SQL does not verify a real provider or clear/refund any money.
 -- The runtime role must not own or inherit ownership of any provider objects.
 -- Never execute this from an app connection or grant runtime schema CREATE.
 DO $protocolia_provider_runtime_acl$
 DECLARE
   runtime_role TEXT := nullif(current_setting('protocolia.provider_runtime_role',true),'');
+  ingress_role TEXT := nullif(current_setting('protocolia.provider_ingress_role',true),'');
+  ingress_oid OID;
+  ingress_record RECORD;
   runtime_oid OID;
   operator_oid OID := current_user::regrole;
   role_record RECORD;
@@ -36,6 +47,29 @@ BEGIN
       USING ERRCODE='23514';
   END IF;
   runtime_oid:=role_record.oid;
+  -- Optional dedicated webhook ingress principal. The general application
+  -- runtime must not fabricate synthetic provider evidence through SQL.
+  IF ingress_role IS NOT NULL THEN
+    IF ingress_role !~ '^[a-z][a-z0-9_]{0,62}$' OR ingress_role=runtime_role THEN
+      RAISE EXCEPTION 'Unsafe or identical provider ingress role'
+        USING ERRCODE='23514';
+    END IF;
+    SELECT oid,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls
+      INTO ingress_record FROM pg_roles WHERE rolname=ingress_role;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Provider ingress role does not exist'
+        USING ERRCODE='23514';
+    END IF;
+    ingress_oid:=ingress_record.oid;
+    IF ingress_oid=operator_oid OR ingress_record.rolsuper OR
+       ingress_record.rolcreaterole OR ingress_record.rolcreatedb OR
+       ingress_record.rolreplication OR ingress_record.rolbypassrls OR
+       pg_has_role(ingress_oid,operator_oid,'MEMBER') OR
+       has_schema_privilege(ingress_role,'public','CREATE') THEN
+      RAISE EXCEPTION 'Provider ingress role has elevated or owner privileges'
+        USING ERRCODE='23514';
+    END IF;
+  END IF;
   -- SECURITY DEFINER must NEVER elevate the app to a superuser/CREATEROLE
   -- owner. A dedicated, unprivileged migration owner is mandatory.
   IF EXISTS (SELECT 1 FROM pg_roles WHERE oid=operator_oid AND
@@ -60,6 +94,14 @@ BEGIN
       AND pg_has_role(r.oid,operator_oid,'MEMBER')
   ) THEN
     RAISE EXCEPTION 'Provider migration owner has untrusted role members'
+      USING ERRCODE='23514';
+  END IF;
+  -- No other non-superuser may inherit the ingress writer authority.
+  IF ingress_oid IS NOT NULL AND EXISTS (
+    SELECT 1 FROM pg_roles r WHERE r.oid<>ingress_oid AND NOT r.rolsuper
+      AND pg_has_role(r.oid,ingress_oid,'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Provider ingress role has untrusted role members'
       USING ERRCODE='23514';
   END IF;
   -- SECURITY DEFINER functions resolve generated relations in public.
@@ -167,6 +209,19 @@ BEGIN
         USING ERRCODE='23514';
     END IF;
   END LOOP;
+  -- Do not undo a previously established split with a legacy invocation.
+  IF ingress_oid IS NULL AND EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid IN (
+      to_regprocedure('public.protocolia_record_provider_envelope_digest(text,text,text)'),
+      to_regprocedure('public.protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)'),
+      to_regprocedure('public.protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)')
+    ) AND p.prosecdef
+      AND NOT has_function_privilege(runtime_role,p.oid,'EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'Provider ingress split requires explicit ingress role on reapply'
+      USING ERRCODE='23514';
+  END IF;
   -- All preconditions hold. Run inside this single atomic DO statement.
   FOREACH journal IN ARRAY ARRAY[
     'protocolia_provider_envelope_inbox',
@@ -177,6 +232,9 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I',journal,runtime_role);
   END LOOP;
   EXECUTE format('GRANT USAGE ON SCHEMA public TO %I',runtime_role);
+  IF ingress_oid IS NOT NULL THEN
+    EXECUTE format('GRANT USAGE ON SCHEMA public TO %I',ingress_role);
+  END IF;
   FOREACH signature IN ARRAY ARRAY[
     'protocolia_record_provider_envelope_digest(text,text,text)',
     'protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)',
@@ -192,6 +250,24 @@ BEGIN
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %I',signature,runtime_role);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO %I',signature,runtime_role);
   END LOOP;
+  -- The webhook-ingress DB principal gets three writer entrypoints; ordinary
+  -- runtime retains only the two read-only diagnostic projections.
+  IF ingress_oid IS NOT NULL THEN
+    FOREACH signature IN ARRAY ARRAY[
+      'protocolia_record_provider_envelope_digest(text,text,text)',
+      'protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)',
+      'protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)'
+    ] LOOP
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%s FROM %I',signature,runtime_role);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO %I',signature,ingress_role);
+    END LOOP;
+    FOREACH signature IN ARRAY ARRAY[
+      'protocolia_provider_lifecycle_causal_projection(text)',
+      'protocolia_provider_receipt_integrity_projection(text)'
+    ] LOOP
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%s FROM %I',signature,ingress_role);
+    END LOOP;
+  END IF;
   EXECUTE 'REVOKE ALL ON FUNCTION public.protocolia_provider_envelope_immutable() FROM PUBLIC';
   EXECUTE format('REVOKE ALL ON FUNCTION public.protocolia_provider_envelope_immutable() FROM %I',runtime_role);
   -- Fail closed on privileges inherited from other groups, which direct
@@ -204,6 +280,11 @@ BEGIN
     IF has_table_privilege(runtime_role,'public.'||journal,
       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
       RAISE EXCEPTION 'Provider runtime inherited direct journal access: %',journal
+        USING ERRCODE='23514';
+    END IF;
+    IF ingress_oid IS NOT NULL AND has_table_privilege(ingress_role,'public.'||journal,
+      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+      RAISE EXCEPTION 'Provider ingress inherited direct journal access: %',journal
         USING ERRCODE='23514';
     END IF;
     -- After revoking PUBLIC/runtime, ONLY the trusted owner may retain any
@@ -225,9 +306,19 @@ BEGIN
     'protocolia_provider_lifecycle_causal_projection(text)',
     'protocolia_provider_receipt_integrity_projection(text)'
   ] LOOP
-    IF NOT has_function_privilege(runtime_role,'public.'||signature,'EXECUTE') THEN
-      RAISE EXCEPTION 'Provider runtime missing required function access: %',signature
-        USING ERRCODE='23514';
+    IF signature LIKE 'protocolia_record_provider_%' AND ingress_oid IS NOT NULL THEN
+      IF has_function_privilege(runtime_role,'public.'||signature,'EXECUTE') OR
+         NOT has_function_privilege(ingress_role,'public.'||signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'Provider writer ingress separation failed: %',signature
+          USING ERRCODE='23514';
+      END IF;
+    ELSE
+      IF NOT has_function_privilege(runtime_role,'public.'||signature,'EXECUTE') OR
+         (ingress_oid IS NOT NULL AND
+           has_function_privilege(ingress_role,'public.'||signature,'EXECUTE')) THEN
+        RAISE EXCEPTION 'Provider projection access separation failed: %',signature
+          USING ERRCODE='23514';
+      END IF;
     END IF;
     -- An old explicit grant to an unrelated role would become a backdoor
     -- into SECURITY DEFINER, even after PUBLIC EXECUTE is revoked.
@@ -236,7 +327,8 @@ BEGIN
         LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
       WHERE p.oid=to_regprocedure('public.'||signature)
         AND a.privilege_type='EXECUTE'
-        AND a.grantee NOT IN (operator_oid,runtime_oid)
+        AND a.grantee<>operator_oid AND a.grantee<>runtime_oid
+        AND (ingress_oid IS NULL OR a.grantee<>ingress_oid)
     ) THEN
       RAISE EXCEPTION 'Unexpected provider function EXECUTE grantee: %',signature
         USING ERRCODE='23514';

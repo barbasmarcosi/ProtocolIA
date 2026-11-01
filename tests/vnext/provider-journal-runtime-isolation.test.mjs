@@ -51,7 +51,7 @@ test("runtime isolation is opt-in, deterministic, atomic and does not mutate fin
   assert.doesNotMatch(sql,/\b(?:CREATE ROLE|DROP TABLE|TRUNCATE TABLE|INSERT INTO payment|UPDATE payment|SET provider_settlement_state)\b/i);
 });
 
-test("runtime receives no direct journal access; five vetted functions are the only gateway",()=>{
+test("legacy runtime receives no direct journal access; entrypoints are explicitly gated",()=>{
   const sql=providerJournalRuntimeIsolationSql();
   for(const table of tables)assert.ok(sql.includes("'"+table+"'"),table);
   for(const fn of functions)assert.ok(sql.includes("'"+fn+"'"),fn);
@@ -65,6 +65,27 @@ test("runtime receives no direct journal access; five vetted functions are the o
   assert.match(sql,/REVOKE ALL ON FUNCTION public\.protocolia_provider_envelope_immutable\(\) FROM PUBLIC/);
   assert.match(sql,/has_function_privilege\(runtime_role/);
   assert.match(sql,/Unexpected provider function EXECUTE grantee/);
-  assert.match(sql,/a\.grantee NOT IN \(operator_oid,runtime_oid\)/);
+  assert.match(sql,/a\.grantee<>operator_oid AND a\.grantee<>runtime_oid/);
+  assert.match(sql,/ingress_oid IS NULL OR a\.grantee<>ingress_oid/);
   assert.ok(sql.indexOf("Preflight every object")<sql.indexOf("All preconditions hold"));
+});
+
+test("opt-in ingress split is fail-closed and never silently downgrades on legacy reapply",()=>{
+  const sql=providerJournalRuntimeIsolationSql();
+  assert.match(sql,/current_setting\('protocolia\.provider_ingress_role',true\)/);
+  assert.match(sql,/Unsafe or identical provider ingress role/);
+  assert.match(sql,/Provider ingress role does not exist/);
+  assert.match(sql,/Provider ingress role has elevated or owner privileges/);
+  assert.match(sql,/Provider ingress role has untrusted role members/);
+  assert.match(sql,/Provider ingress split requires explicit ingress role on reapply/);
+  assert.match(sql,/Provider writer ingress separation failed/);
+  assert.match(sql,/Provider projection access separation failed/);
+  assert.match(sql,/Provider ingress inherited direct journal access/);
+  assert.match(sql,/REVOKE EXECUTE ON FUNCTION public\.%s FROM %I/);
+  assert.match(sql,/GRANT EXECUTE ON FUNCTION public\.%s TO %I/);
+  assert.match(sql,/has_function_privilege\(ingress_role/);
+  assert.ok(sql.indexOf("Provider ingress split requires explicit ingress role on reapply")<
+    sql.indexOf("All preconditions hold"));
+  assert.ok(sql.indexOf("Provider writer ingress separation failed")>
+    sql.indexOf("All preconditions hold"));
 });
