@@ -1,4 +1,5 @@
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
+import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
 import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
 import {providerJournalRuntimeIsolationSql} from "../provider-journal-runtime-isolation.mjs";
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
@@ -514,6 +515,7 @@ export function generate(ir,spec,out){
   if([...exactReconciliations.values()].some(x=>x.unverifiedProofField)) {
     write("protocolia-provider-journal-truncate-upgrade.sql",providerJournalTruncateUpgradeSql());
     write("protocolia-provider-journal-runtime-isolation.sql",providerJournalRuntimeIsolationSql());
+    write("protocolia-reconciliation-internal-export.sql",providerInternalStatementExportSql(exactReconciliations));
   }
   if(overdueRules.length)write("protocolia-overdue-rules.json",JSON.stringify(
     overdueRules.map(({ddl,...policy})=>policy),null,2)+"\n");
