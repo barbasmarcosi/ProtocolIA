@@ -13,8 +13,11 @@ function addBounded(a, b, label) {
 }
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 function object(value, fields, label) {
+  // Comparing joined field names is ambiguous when an untrusted JSON key
+  // itself contains the delimiter (e.g. "amount|currency").
   if (value === null || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).sort().join("|") !== [...fields].sort().join("|"))
+      Object.keys(value).length !== fields.length ||
+      !fields.every(field => own(value, field)))
     throw Error(label + ": unexpected, missing or malformed fields");
 }
 function identity(value, label) {
