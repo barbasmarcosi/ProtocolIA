@@ -1,0 +1,71 @@
+name: R2 model proposal runner (mock HTTP only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/model-proposal-runner.mjs'
+      - 'tests/research/model-proposal-runner.test.mjs'
+      - 'docs/research/autonomous-engineering/R2_MODEL_PROPOSAL_RUNNER.md'
+      - '.github/workflows/model-proposal-runner-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  model-only-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax validation
+        run: node --check scripts/research/model-proposal-runner.mjs
+      - name: Real HTTP protocol against a local mock (NO paid model API)
+        run: node --test tests/research/model-proposal-runner.test.mjs
+      - name: Existing source admission and TypeSpec draft unit tests
+        run: node --test tests/research/agent-intake-gateway.test.mjs tests/research/intake-to-typespec.test.mjs
+
+  existing-typespec-and-postgres-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Reproduce source-bound proposal from synthetic fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.r2-model.XXXXXXXX")"
+          echo "MODEL_TMP=$TMP" >> "$GITHUB_ENV"
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");
+            const [brief,template,dest]=process.argv.slice(1);
+            const x=JSON.parse(fs.readFileSync(template,"utf8"));
+            x.briefSha256=crypto.createHash("sha256").update(fs.readFileSync(brief)).digest("hex");
+            fs.writeFileSync(dest,JSON.stringify(x,null,2)+"\n");' \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            research/autonomous-engineering/samples/kiosk-agent-proposal-template.json "$TMP/proposal.json"
+          node scripts/research/agent-intake-gateway.mjs admit \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            "$TMP/proposal.json" "$TMP/admitted"
+          node scripts/research/intake-to-typespec.mjs generate \
+            "$TMP/admitted/intake.json" "$TMP/contracts"
+      - name: Independently build and exercise generated Nest app in disposable environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$MODEL_TMP/contracts" --target nestjs --out "$RUNNER_TEMP/kiosk-model-app"
+          npm run app:test -- "$RUNNER_TEMP/kiosk-model-app"
+      - name: Cross-check behavior is still draft-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const fs=require("node:fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            if(x.status!=="PARTIAL_DRAFT_UNVERIFIED"||x.deferredRequirements.length!==2)process.exit(1)' \
+            "$MODEL_TMP/contracts/protocolia-intake-report.json"
