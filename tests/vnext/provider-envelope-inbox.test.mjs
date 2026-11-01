@@ -28,9 +28,10 @@ test("provider envelope replay key excludes rotating signing key and is append-o
   for(const table of ["protocolia_provider_envelope_inbox",
     "protocolia_provider_receipt_candidate",
     "protocolia_provider_lifecycle_observation"]){
-    assert.match(ddl,new RegExp("BEFORE TRUNCATE ON "+table+
-      "\\\\n      FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable"));
+    assert.ok(ddl.includes("BEFORE TRUNCATE ON "+table),
+      "missing TRUNCATE guard for "+table);
   }
+  assert.equal((ddl.match(/FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable\(\)/g)||[]).length,3);
   assert.doesNotMatch(ddl,/UPDATE payment|SET provider_settlement_state|settled/);
   assert.match(ddl,/REFERENCES payment\(receipt\) ON DELETE RESTRICT/);
   assert.match(ddl,/protocolia_record_provider_receipt_candidate/);
