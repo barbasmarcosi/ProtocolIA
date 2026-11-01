@@ -25,7 +25,8 @@ For TypeSpec compilation, package resolution requires the pinned local node_modu
 Generated files:
 - contracts/main.tsp and tspconfig.yaml: actual canonical TypeSpec project.
 - requirements.json: declared requirement/operation links, not independently authenticated owner evidence.
-- protocolia-intake-report.json: partial status and deferred questions.
+- decisions.json: full unresolved/provisional questions with origin, proposed choice and references; all self-declared, never authenticated approval.
+- protocolia-intake-report.json: partial status and deferred questions, including question text and source.
 - protocolia-intake.lock.json: deterministic unsigned source/output hashes.
 
 The verify command runs before TypeSpec generates tsp-output and rejects any edited or unknown output. Manual contract changes are expected, but they make draft verification fail intentionally: the edited TypeSpec revision must then be managed as a new authoritative contract, not overwritten from stale intake.
@@ -42,7 +43,7 @@ The verify command runs before TypeSpec generates tsp-output and rejects any edi
 ## CI
 
 - Tests: node --test tests/research/intake-to-typespec.test.mjs
-- Compile generated TypeSpec against the real ProtocolIA emitter, then generate and verify a linked Project Passport.
+- Compile generated TypeSpec against the real ProtocolIA emitter, then generate and verify a linked Project Passport, including its decision-ledger page and source hashes.
 - Generate a NestJS application and run ordinary conformance against disposable PostgreSQL if the job succeeds.
 
 **Still open:** agent tool comparison, true autonomous clarification, third-party customer evidence, full kiosk functionality, independently measured effort reduction, and the complete two-year handoff. Keep research issue #106 open.
