@@ -32,15 +32,17 @@ function absent(path) {
 export function consumeLocalSignedEvents({directory,metadata,external}) {
   if(typeof directory!=="string" || directory.length===0 ||
      !metadata || typeof metadata!=="object" ||
-     !ID.test(metadata.providerId) || !ID.test(metadata.orderId) ||
-     !SHA.test(metadata.statementSha256) ||
+     typeof metadata.providerId!=="string" || !ID.test(metadata.providerId) ||
+     typeof metadata.orderId!=="string" || !ID.test(metadata.orderId) ||
+     typeof metadata.statementSha256!=="string" || !SHA.test(metadata.statementSha256) ||
      !Array.isArray(external) || external.length<1 ||
      external.length>MAX_EVENTS)throw Error(INVALID);
   const ids=new Set();
   for(const row of external) {
     if(!row || typeof row!=="object" || Array.isArray(row) ||
-       row.providerId!==metadata.providerId || !ID.test(row.eventId) ||
-       !ID.test(row.transactionId) ||
+       row.providerId!==metadata.providerId ||
+       typeof row.eventId!=="string" || !ID.test(row.eventId) ||
+       typeof row.transactionId!=="string" || !ID.test(row.transactionId) ||
        !["capture","refund","chargeback"].includes(row.kind) ||
        typeof row.amount!=="string" || typeof row.currency!=="string" ||
        ids.has(row.eventId))throw Error(INVALID);
@@ -50,7 +52,7 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     "ProtocolIA-S2C-event-v1",metadata.providerId,id])).sort();
   const lockName=".pia-event-lock-"+digest([
     "ProtocolIA-S2C-provider-lock-v1",metadata.providerId]);
-  let dirFd,lockFd,locked=false,committed=false;
+  let dirFd,lockFd;
   const path=resolve(directory);
   const checkDirectory=opened=>{
     if(!same(lstatSync(path),opened) || !privateDir(opened))throw Error(INVALID);
@@ -65,7 +67,6 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // claim the same provider event ID concurrently.
     lockFd=openSync(join(path,lockName),
       constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
-    locked=true;
     writeFileSync(lockFd,JSON.stringify({version:1,providerId:metadata.providerId,
       statementSha256:metadata.statementSha256})+"\n");
     fsyncSync(lockFd);
@@ -77,7 +78,6 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
       checkDirectory(opened);
       unlinkSync(join(path,lockName));
       fsyncSync(dirFd);
-      locked=false;
       throw Error(INVALID);
     }
     for(const name of markers) {
@@ -98,8 +98,6 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     fsyncSync(dirFd); // Event claims durable before lock removal.
     unlinkSync(join(path,lockName));
     fsyncSync(dirFd);
-    locked=false;
-    committed=true;
     return {replayProtection:"single_host_local_event_markers",
       consumedEventCount:markers.length};
   } catch {
