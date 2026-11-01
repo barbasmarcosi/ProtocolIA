@@ -29,6 +29,10 @@ test("outputs compilable TypeSpec, diffable requirement map and explicit partial
    assert.ok(tsp.includes(token),token);
  assert.ok(!/discount|refund/i.test(tsp),"unsupported business logic must not be silently generated");
  const report=JSON.parse(readFileSync(join(out,"protocolia-intake-report.json"),"utf8"));
+ const decisions=JSON.parse(readFileSync(join(out,"decisions.json"),"utf8"));
+ assert.equal(decisions.authority,"SELF_DECLARED_UNVERIFIED");
+ assert.match(decisions.decisions.find(d=>d.id==="K-Q01").question,/discount/);
+ assert.equal(decisions.decisions.find(d=>d.id==="K-Q03").decision,"Prefer compact grouping in the candidate UI");
  assert.deepEqual(report.deferredRequirements,["K-04"]);
  assert.ok(report.questions.some(q=>q.id==="K-Q01"&&q.state==="unresolved"));
  const map=JSON.parse(readFileSync(join(out,"requirements.json"),"utf8"));
