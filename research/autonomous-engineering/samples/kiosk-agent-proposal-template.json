@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "protocolia-agent-proposal/v0.1",
+  "briefSha256": "__REPLACE_WITH_ACTUAL_BRIEF_SHA256__",
+  "mappings": [
+    {
+      "sourceId": "K-01",
+      "operations": [
+        "createProduct",
+        "getProduct",
+        "listProducts"
+      ]
+    },
+    {
+      "sourceId": "K-02",
+      "operations": [
+        "increaseProductQuantity"
+      ]
+    },
+    {
+      "sourceId": "K-03",
+      "operations": [
+        "renameProduct"
+      ]
+    },
+    {
+      "sourceId": "K-04",
+      "operations": []
+    }
+  ],
+  "discoveredQuestions": [
+    {
+      "id": "K-Q03",
+      "question": "Would compact mobile forms improve inventory intake?",
+      "classification": "reversible_technical",
+      "affectsSupported": false,
+      "provisionalDecision": "Prefer compact grouping in prototype UI"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "K-05",
+      "text": "Possible future expiration-date tracking; not requested or supported"
+    }
+  ]
+}
