@@ -47,3 +47,32 @@ Código de salida: **0** cuando no hay discrepancias sintácticas o contables de
 Este incremento **no está conectado todavía** al exportador automático de NestJS/Spring ni a archivos autenticados de un banco o adquirente. El mapeo debe producirse con identificadores de transacción provistos por el proveedor, NO inferirse de eventos de webhook. Falta la importación firmada/autorizada del extracto, vinculación validada con un proveedor real, conciliación persistida con auditores, manejo de devoluciones de verdad, recuperación y operación segura. **TL-14 #57 sigue OPEN**.
 
 Pruebas: `node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-cli.test.mjs`. CI aislada en Node 22/24, sin secretos ni operaciones externas. No se debe confundir esta herramienta provider-neutral con paridad HTTP/PostgreSQL productiva de Spring/Nest.
+
+## Exportación TypeSpec → Spring/NestJS — S2c siguiente incremento
+
+En el perfil de conciliación exacta, **ambos generadores** emiten
+`protocolia-reconciliation-internal-export.sql` derivado del mismo IR canónico.
+Contiene exclusivamente un `SELECT` de recibos, con montos `NUMERIC::text`,
+identificadores, estado interno y `proofState`. **No** genera ni adivina
+`transactionId` externos a partir de `eventId` de webhooks.
+
+Invocación manual en un entorno de **prueba**, usando un usuario PostgreSQL
+autorizado de **solo lectura**, sin compartir credenciales de migración:
+
+```sh
+psql -X -v ON_ERROR_STOP=1 -v currency=ARS -At \
+  -f /ruta/app-generada/protocolia-reconciliation-internal-export.sql \
+  > internal.json
+```
+
+Esta consulta puede ver todos los recibos accesibles al principal SQL;
+**no demuestra aislamiento multitenant**. Está prohibido utilizarla para
+exportaciones productivas hasta tener un perfil de autorización tenant-scoped
+verificado. No publica datos ni solicita credenciales y debe ejecutarse solo
+por acción consciente del operador. El archivo `links.json` continúa siendo
+un mapeo externo revisado; el generador no puede inventarlo.
+
+Prueba de integración: el probe PostgreSQL del workflow de proveedores ahora
+ejecuta realmente el SQL emitido en **ambos targets**, valida un `PAY-CAND`
+con monto decimal exacto, procesa el JSON con la CLI/reconciliador y comprueba
+que el estado de liquidación permanece `unverified`.
