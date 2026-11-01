@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Offline comparison; detached signature proves only integrity relative to a pinned key.
 // Never treats the key as independently verified provider identity or bank settlement.
-import {loadStatementArray,loadStatementArrayWithDigest,loadStatementObject} from "../../packages/adapters/provider-statement-input.mjs";
+import {loadStatementArrayWithDigest,loadStatementObjectWithDigest,
+  assertStatementSnapshotsUnchanged} from "../../packages/adapters/provider-statement-input.mjs";
 import {verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapters/provider-statement-signature.mjs";
 import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
 import {consumeLocalSignedEvents} from "../../packages/adapters/provider-statement-event-replay.mjs";
@@ -33,16 +34,25 @@ try {
     throw Error("Usage: reconcile-provider-statement --internal receipts.json [--expected-order OT-1] [--internal-returns returns.json] --links map.json --external statement.json --currency ARS --scale 2");
   const rawScale=flags.get("--scale");
   if(!/^[0-6]$/.test(rawScale)) throw Error("Explicit scale 0..6 required");
-  const internal=loadStatementArray(flags.get("--internal"),"internal");
+  const snapshots=[];
+  const readSource=(flag,name,object=false)=>{
+    const file=flags.get(flag);
+    const snapshot=object
+      ? loadStatementObjectWithDigest(file,name)
+      : loadStatementArrayWithDigest(file,name);
+    snapshots.push({file,name,sha256:snapshot.sha256,identity:snapshot.identity});
+    return snapshot;
+  };
+  const internal=readSource("--internal","internal").data;
   if(flags.has("--expected-order")) {
     const expected=flags.get("--expected-order");
     if(!ID.test(expected) || internal.length===0 ||
        internal.some(row=>row?.orderId!==expected))
       throw Error("internal: snapshot missing or outside expected order");
   }
-  const external=loadStatementArrayWithDigest(flags.get("--external"),"external");
+  const external=readSource("--external","external");
   const attestation=supplied===3 ?
-    loadStatementObject(flags.get("--external-attestation"),"external attestation") : null;
+    readSource("--external-attestation","external attestation",true).data : null;
   const signature=supplied===3 ? verifyDetachedStatement({
     metadata:attestation,
     statementSha256:external.sha256,external:external.data,
@@ -52,14 +62,18 @@ try {
     publicKeyPem:readPinnedPublicKey(flags.get("--provider-public-key")),
     trustedKeySha256:flags.get("--trusted-key-sha256")
   }) : null;
+  const links=readSource("--links","links").data;
+  const internalReturns=flags.has("--internal-returns")
+    ? readSource("--internal-returns","internalReturns").data : undefined;
   const result=reconcileProviderStatement({
     internal,
-    ...(flags.has("--internal-returns") ?
-      {internalReturns:loadStatementArray(flags.get("--internal-returns"),"internalReturns")} : {}),
-    links:loadStatementArray(flags.get("--links"),"links"),
-    external:external.data,
+    ...(internalReturns!==undefined ? {internalReturns} : {}),
+    links,external:external.data,
     currency:flags.get("--currency"),scale:Number(rawScale)
   });
+  // All sources must still be the same files/bytes after every read and
+  // reconciliation step, before writing any replay marker or report.
+  assertStatementSnapshotsUnchanged(snapshots);
   if(signature) {
     if(flags.has("--local-replay-dir")) {
       const marker=consumeLocalSignedStatement({
