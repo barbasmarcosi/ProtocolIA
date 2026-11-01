@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "protocolia-intake/v1",
+  "caseId": "kiosk-v1",
+  "policy": "autonomous_reviewable",
+  "decisions": [
+    {
+      "ambiguityId": "K-A01",
+      "classification": "material_business",
+      "origin": "agent_assumption",
+      "choice": "Offer a 10% recurring-customer discount",
+      "rationale": "Illustrative unsafe guess; must be rejected",
+      "evidenceRefs": []
+    },
+    {
+      "ambiguityId": "K-A02",
+      "classification": "material_business",
+      "origin": "explicit_owner",
+      "choice": "All returns are accepted",
+      "rationale": "Illustrative fabricated owner statement with no evidence; must be rejected",
+      "evidenceRefs": []
+    },
+    {
+      "ambiguityId": "K-A03",
+      "classification": "reversible_technical",
+      "origin": "agent_assumption",
+      "choice": "Use bottom navigation on small screens",
+      "rationale": "Reversible layout default; provisional until tested",
+      "evidenceRefs": []
+    },
+    {
+      "ambiguityId": "K-A04",
+      "classification": "security_privilege",
+      "origin": "agent_assumption",
+      "choice": "Allow exports by all cashiers",
+      "rationale": "Illustrative unsafe privilege proposal; must be rejected",
+      "evidenceRefs": []
+    }
+  ]
+}
