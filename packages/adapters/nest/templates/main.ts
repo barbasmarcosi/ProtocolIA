@@ -165,6 +165,7 @@ function equalSecrets(a:string,b:string):boolean{
 class RuntimeService{
   private readonly pool:Pool;
   private readonly migrationPool:Pool|null;
+  private readonly providerIngressPool:Pool|null;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
   private readonly browserAuth:{mode:"demo"|"jwt";enabled:boolean;issuer?:string;authorizationEndpoint?:string;tokenEndpoint?:string;clientId?:string;redirectUri?:string;scope?:string;requireIssuerResponse?:boolean;requireIdToken?:boolean};
   private readonly scopedUser:{username:string;password:string;capabilities:string[]}|null=null;
@@ -189,6 +190,24 @@ class RuntimeService{
       migration.password=migrationPassword;
       this.migrationPool=new Pool({connectionString:migration.toString(),max:2});
     }else this.migrationPool=null;
+    // Opt-in: HMAC-verified sandbox HTTP must never reuse the ordinary runtime
+    // or privileged migrator SQL identity after operator-applied journal ACLs.
+    const ingressUser=process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER??"";
+    const ingressPassword=process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD??"";
+    if(Boolean(ingressUser)!==Boolean(ingressPassword))
+      throw Error("Provider ingress requires both DB user and password");
+    if(ingressUser){
+      if(process.env.PROTOCOLIA_EXECUTION_MODE==="migrate"||
+         !spec.providerInboxEnabled||process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED!=="true"||
+         process.env.PROTOCOLIA_AUTH_MODE!=="demo"||
+         ingressUser===connection.username||ingressUser===migrationUser||
+         ingressPassword.length<16)
+        throw Error("Unsafe or unsupported provider ingress SQL identity");
+      const ingress=new URL(source);
+      ingress.username=ingressUser;
+      ingress.password=ingressPassword;
+      this.providerIngressPool=new Pool({connectionString:ingress.toString(),max:3});
+    }else this.providerIngressPool=null;
     const mode=process.env.PROTOCOLIA_AUTH_MODE??"demo";
     if(!["demo","jwt"].includes(mode))throw Error("Unsupported ProtocolIA authentication mode");
     if(mode==="jwt"){
@@ -409,8 +428,31 @@ class RuntimeService{
       console.log("PROTOCOLIA_NEST_RUNTIME_SCHEMA_READY");
     }finally{db.release();}
   }
+  async verifyProviderIngress():Promise<void>{
+    if(!this.providerIngressPool)return;
+    // Fail startup before accepting HTTP if the operator has not applied the
+    // exact runtime/ingress split. A valid HMAC must not be recorded as 500.
+    const role=await this.providerIngressPool.query(
+      "SELECT current_user AS principal, "+
+      "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser, "+
+      "has_function_privilege(current_user,'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE') AS writer, "+
+      "has_function_privilege(current_user,'public.protocolia_provider_receipt_integrity_projection(text)','EXECUTE') AS reader, "+
+      "has_table_privilege(current_user,'public.protocolia_provider_envelope_inbox','INSERT') AS direct_insert");
+    const runtime=await this.pool.query(
+      "SELECT current_user AS principal, "+
+      "has_function_privilege(current_user,'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE') AS writer");
+    const ingress=role.rows[0],ordinary=runtime.rows[0];
+    if(role.rows.length!==1||runtime.rows.length!==1||
+       ingress.principal!==process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER||
+       ingress.superuser!==false||ingress.writer!==true||
+       ingress.reader!==false||ingress.direct_insert!==false||
+       ordinary.principal===ingress.principal||ordinary.writer!==false)
+      throw Error("Provider ingress DB privileges do not match the reviewed split");
+    console.log("PROTOCOLIA_NEST_PROVIDER_INGRESS_PRINCIPAL_READY");
+  }
   async closePools():Promise<void>{
     if(this.migrationPool)await this.migrationPool.end();
+    if(this.providerIngressPool)await this.providerIngressPool.end();
     await this.pool.end();
   }
   private browserAuthConfig(mode:string):typeof this.browserAuth{
@@ -1579,7 +1621,7 @@ class RuntimeService{
         statement="SELECT protocolia_record_provider_lifecycle_observation($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9) AS outcome";
         params=[...params,match[1],match[2],match[3],match[4],match[5],match[6]];
       }
-      const result=await this.pool.query(statement,params);
+      const result=await (this.providerIngressPool??this.pool).query(statement,params);
       const outcome=result.rows[0]?.outcome;
       if(!["stored","duplicate","conflict","missing","mismatch"].includes(outcome))
         throw new Error("Unexpected provider inbox outcome");
@@ -1735,6 +1777,7 @@ async function bootstrap(){
   const engine=app.get(RuntimeService);
   if(execution==="runtime")await engine.verifyRuntimeReady();
   else await engine.init();
+  await engine.verifyProviderIngress();
   await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
   if(spec.hasOverdueRules && process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"){
