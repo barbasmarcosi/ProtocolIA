@@ -74,3 +74,37 @@ test("same inode and stable metadata are accepted by the fault-injection seam",(
   assert.deepEqual(load("synthetic.json","statement",io),[]);
   assert.equal(closed,1);
 });
+
+test("rejects duplicate JSON object members, including escaped aliases and nested objects",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-ambiguous-"));
+  try {
+    const file=join(dir,"statement.json");
+    const invalid=[
+      '[{"amount":"100.00","amount":"1.00"}]',
+      String.raw`[{"amount":"100.00","\u0061mount":"1.00"}]`,
+      '[{"receipt":{"status":"posted","status":"reversed"}}]',
+      '[{"safe":"x","safe":"y"}]'
+    ];
+    for(const payload of invalid) {
+      writeFileSync(file,payload);
+      assert.throws(()=>load(file,"statement"),/duplicate JSON object member/);
+    }
+    // A key in a JSON string value is not an object member. Repeating a
+    // field in distinct array rows is valid and must not be rejected.
+    const valid=[{note:'literal "amount": "x" inside value',amount:"1.00"},
+      {note:"second receipt",amount:"2.00"}];
+    writeFileSync(file,JSON.stringify(valid));
+    assert.deepEqual(load(file,"statement"),valid);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("rejects excessive JSON nesting without leaking sensitive input",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-depth-"));
+  try {
+    const file=join(dir,"statement.json");
+    writeFileSync(file,"[".repeat(65)+"0"+"]".repeat(65));
+    assert.throws(()=>load(file,"statement"),/excessive JSON nesting/);
+    writeFileSync(file,"[".repeat(63)+"0"+"]".repeat(63));
+    assert.deepEqual(load(file,"statement"),JSON.parse("[".repeat(63)+"0"+"]".repeat(63)));
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});

@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
+      - 'packages/adapters/provider-statement-input.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
   workflow_dispatch:

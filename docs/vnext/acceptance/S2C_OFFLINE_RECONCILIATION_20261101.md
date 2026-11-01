@@ -79,6 +79,24 @@ vacío produce `empty_internal_snapshot` y salida **2**, no un falso éxito
 de conciliación. La opción no convierte un filtro de orden en autorización
 multitenant ni garantiza completitud del extracto externo.
 
+## Parser de fuentes financieras sin ambigüedad (S2c)
+
+La lectura local rechaza **claves JSON repetidas dentro de un mismo objeto**,
+incluidos alias equivalentes por escapes Unicode (por ejemplo `amount` y
+`\u0061mount`). El `JSON.parse` convencional acepta silenciosamente el
+último valor; dos herramientas de auditoría podrían interpretar el mismo
+extracto de manera diferente. La detección funciona para los cuatro archivos
+(`internal`, `links`, `external`, `internalReturns`), no revela valores
+sensibles al fallar y admite las mismas claves en objetos de filas diferentes.
+Se rechaza también una anidación JSON mayor de 64 niveles. El límite de
+4 MiB y las defensas del descriptor siguen vigentes.
+
+Reproducción: `node --test tests/vnext/provider-statement-input.test.mjs
+tests/vnext/provider-statement-cli.test.mjs`. La CI S2c ahora se activa
+también en `push` cuando cambia exclusivamente el parser de entrada.
+Esta validación **no** autentica el origen, vigencia, completitud ni autoridad
+del extracto; el resultado sigue siendo comparación no vinculante.
+
 ## Alcance / próximos gates obligatorios
 
 Este incremento **no está conectado todavía** al exportador automático de NestJS/Spring ni a archivos autenticados de un banco o adquirente. El mapeo debe producirse con identificadores de transacción provistos por el proveedor, NO inferirse de eventos de webhook. Falta la importación firmada/autorizada del extracto, vinculación validada con un proveedor real, conciliación persistida con auditores, manejo de devoluciones de verdad, recuperación y operación segura. **TL-14 #57 sigue OPEN**.
