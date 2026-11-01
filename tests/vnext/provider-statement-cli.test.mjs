@@ -67,3 +67,19 @@ test("CLI flags internal-only return and never modifies local journal",()=>{
     "internal_return_not_externally_reported");
   assert.deepEqual(recorded,before);
 });
+
+test("malformed external statement never echoes sensitive JSON fragments",()=>{
+  const tmp=mkdtempSync(join(tmpdir(),"pia-private-"));
+  try {
+    writeFileSync(join(tmp,"internal.json"),JSON.stringify([payment]));
+    writeFileSync(join(tmp,"links.json"),JSON.stringify([link]));
+    writeFileSync(join(tmp,"external.json"),'{"account":"SECRET_ACCOUNT_12345", malformed');
+    const r=spawnSync(process.execPath,[cli,"--internal",join(tmp,"internal.json"),
+      "--links",join(tmp,"links.json"),"--external",join(tmp,"external.json"),
+      "--currency","ARS","--scale","2"],{encoding:"utf8",timeout:10000});
+    assert.equal(r.status,1);
+    assert.match(r.stderr,/external: invalid JSON/);
+    assert.doesNotMatch(r.stderr,/SECRET_ACCOUNT_12345/);
+    assert.equal(r.stdout,"");
+  }finally{rmSync(tmp,{recursive:true,force:true});}
+});
