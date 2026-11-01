@@ -346,7 +346,8 @@ function appendProviderCandidate(plans,ddl){
         WHEN projection.causal_integrity='unobserved' THEN 'no_lifecycle'
         WHEN projection.causal_integrity='gap' THEN 'causal_gap'
         WHEN projection.causal_integrity='contradictory' THEN 'causal_contradictory'
-        ELSE 'synthetic_only' END)::TEXT,
+        WHEN projection.causal_integrity='coherent' THEN 'synthetic_only'
+        ELSE 'causal_unknown' END)::TEXT,
         projection.causal_integrity,projection.last_coherent_phase,
         projection.observation_count
       FROM (SELECT 1) anchor
