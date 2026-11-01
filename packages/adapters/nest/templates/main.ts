@@ -430,24 +430,74 @@ class RuntimeService{
   }
   async verifyProviderIngress():Promise<void>{
     if(!this.providerIngressPool)return;
-    // Fail startup before accepting HTTP if the operator has not applied the
-    // exact runtime/ingress split. A valid HMAC must not be recorded as 500.
-    const role=await this.providerIngressPool.query(
-      "SELECT current_user AS principal, "+
-      "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser, "+
-      "has_function_privilege(current_user,'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE') AS writer, "+
-      "has_function_privilege(current_user,'public.protocolia_provider_receipt_integrity_projection(text)','EXECUTE') AS reader, "+
-      "has_table_privilege(current_user,'public.protocolia_provider_envelope_inbox','INSERT') AS direct_insert");
-    const runtime=await this.pool.query(
-      "SELECT current_user AS principal, "+
-      "has_function_privilege(current_user,'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE') AS writer");
-    const ingress=role.rows[0],ordinary=runtime.rows[0];
-    if(role.rows.length!==1||runtime.rows.length!==1||
-       ingress.principal!==process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER||
-       ingress.superuser!==false||ingress.writer!==true||
-       ingress.reader!==false||ingress.direct_insert!==false||
-       ordinary.principal===ingress.principal||ordinary.writer!==false)
-      throw Error("Provider ingress DB privileges do not match the reviewed split");
+    // Verify the *entire* provider journal capability matrix, not just inbox.
+    // A partial ACL upgrade must fail at boot before accepting signed events.
+    const writers=[
+      "public.protocolia_record_provider_envelope_digest(text,text,text)",
+      "public.protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)",
+      "public.protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)"
+    ];
+    const projections=[
+      "public.protocolia_provider_lifecycle_causal_projection(text)",
+      "public.protocolia_provider_receipt_integrity_projection(text)"
+    ];
+    const journals=[
+      "public.protocolia_provider_envelope_inbox",
+      "public.protocolia_provider_receipt_candidate",
+      "public.protocolia_provider_lifecycle_observation"
+    ];
+    const ingressName=process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER!;
+    const check=async(pool:Pool,other:string,ingress:boolean):Promise<void>=>{
+      const result=await pool.query(
+        "SELECT current_user AS principal, "+
+        "(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls "+
+        "FROM pg_roles WHERE rolname=current_user) AS elevated, "+
+        "has_schema_privilege(current_user,'public','CREATE') AS schema_create, "+
+        "pg_has_role(current_user,$1::name,'MEMBER') AS cross_member, "+
+        "NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles me ON me.oid=m.member "+
+        "WHERE me.rolname=current_user) AS no_memberships, "+
+        "NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname<>current_user "+
+        "AND NOT r.rolsuper AND pg_has_role(r.oid,"+
+        "(SELECT oid FROM pg_roles WHERE rolname=current_user),'MEMBER')) AS no_delegates",[other]);
+      const role=result.rows[0];
+      if(result.rows.length!==1||role.elevated!==false||
+         role.schema_create!==false||role.cross_member!==false||
+         role.no_memberships!==true||role.no_delegates!==true)
+        throw Error("Provider SQL role is privileged or inherits another process identity");
+      for(const signature of writers){
+        const value=await pool.query(
+          "SELECT has_function_privilege(current_user,$1::regprocedure,'EXECUTE') AS allowed",
+          [signature]);
+        if(value.rows.length!==1||value.rows[0].allowed!==ingress)
+          throw Error("Provider writer ACL drift: "+signature);
+      }
+      for(const signature of projections){
+        const value=await pool.query(
+          "SELECT has_function_privilege(current_user,$1::regprocedure,'EXECUTE') AS allowed",
+          [signature]);
+        if(value.rows.length!==1||value.rows[0].allowed===ingress)
+          throw Error("Provider projection ACL drift: "+signature);
+      }
+      for(const journal of journals){
+        const value=await pool.query(
+          "SELECT has_table_privilege(current_user,$1::regclass,"+
+          "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS table_allowed, "+
+          "has_any_column_privilege(current_user,$1::regclass,"+
+          "'SELECT,INSERT,UPDATE,REFERENCES') AS column_allowed",
+          [journal]);
+        if(value.rows.length!==1||value.rows[0].table_allowed!==false||
+           value.rows[0].column_allowed!==false)
+          throw Error("Provider direct journal ACL drift: "+journal);
+      }
+    };
+    const ordinary=await this.pool.query("SELECT current_user AS principal");
+    const ingress=await this.providerIngressPool.query("SELECT current_user AS principal");
+    if(ordinary.rows.length!==1||ingress.rows.length!==1||
+       ingress.rows[0].principal!==ingressName||
+       ordinary.rows[0].principal===ingressName)
+      throw Error("Provider ingress DB principal mismatch");
+    await check(this.pool,ingressName,false);
+    await check(this.providerIngressPool,ordinary.rows[0].principal,true);
     console.log("PROTOCOLIA_NEST_PROVIDER_INGRESS_PRINCIPAL_READY");
   }
   async closePools():Promise<void>{

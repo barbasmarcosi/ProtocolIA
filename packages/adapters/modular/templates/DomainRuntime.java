@@ -65,28 +65,78 @@ public class DomainRuntime {
     var isolated=new NamedParameterJdbcTemplate(
       new DriverManagerDataSource(url,user,password));
     String principal=isolated.queryForObject("SELECT current_user",Map.of(),String.class);
-    Boolean superuser=isolated.queryForObject(
-      "SELECT rolsuper FROM pg_roles WHERE rolname=current_user",Map.of(),Boolean.class);
-    Boolean writer=isolated.queryForObject(
-      "SELECT has_function_privilege(current_user,"+
-      "'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE')",
-      Map.of(),Boolean.class);
-    Boolean reader=isolated.queryForObject(
-      "SELECT has_function_privilege(current_user,"+
-      "'public.protocolia_provider_receipt_integrity_projection(text)','EXECUTE')",
-      Map.of(),Boolean.class);
-    Boolean directInsert=isolated.queryForObject(
-      "SELECT has_table_privilege(current_user,"+
-      "'public.protocolia_provider_envelope_inbox','INSERT')",Map.of(),Boolean.class);
-    Boolean ordinaryWriter=jdbc.queryForObject(
-      "SELECT has_function_privilege(current_user,"+
-      "'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE')",
-      Map.of(),Boolean.class);
-    if(!user.equals(principal)||!Boolean.FALSE.equals(superuser)||
-       !Boolean.TRUE.equals(writer)||!Boolean.FALSE.equals(reader)||
-       !Boolean.FALSE.equals(directInsert)||!Boolean.FALSE.equals(ordinaryWriter))
-      throw new IllegalStateException(
-        "Provider ingress DB privileges do not match the reviewed split");
+    String ordinaryPrincipal=jdbc.queryForObject("SELECT current_user",Map.of(),String.class);
+    if(!user.equals(principal)||principal.equals(ordinaryPrincipal))
+      throw new IllegalStateException("Provider ingress DB principal mismatch");
+    // Both SQL connections must satisfy the complete reviewed capability
+    // matrix, including candidate/lifecycle and all three immutable journals.
+    // Checking only the inbox writer allowed partially drifted roles to boot.
+    String[] writers={
+      "public.protocolia_record_provider_envelope_digest(text,text,text)",
+      "public.protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)",
+      "public.protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)"
+    };
+    String[] projections={
+      "public.protocolia_provider_lifecycle_causal_projection(text)",
+      "public.protocolia_provider_receipt_integrity_projection(text)"
+    };
+    String[] journals={
+      "public.protocolia_provider_envelope_inbox",
+      "public.protocolia_provider_receipt_candidate",
+      "public.protocolia_provider_lifecycle_observation"
+    };
+    for(var role:new NamedParameterJdbcTemplate[]{jdbc,isolated}){
+      boolean isIngress=role==isolated;
+      String other=isIngress?ordinaryPrincipal:principal;
+      Boolean elevated=role.queryForObject(
+        "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls "+
+        "FROM pg_roles WHERE rolname=current_user",Map.of(),Boolean.class);
+      Boolean schemaCreate=role.queryForObject(
+        "SELECT has_schema_privilege(current_user,'public','CREATE')",
+        Map.of(),Boolean.class);
+      Boolean crossMember=role.queryForObject(
+        "SELECT pg_has_role(current_user,CAST(:other AS name),'MEMBER')",
+        Map.of("other",other),Boolean.class);
+      Boolean noMemberships=role.queryForObject(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members m "+
+        "JOIN pg_roles me ON me.oid=m.member WHERE me.rolname=current_user)",
+        Map.of(),Boolean.class);
+      Boolean noDelegates=role.queryForObject(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname<>current_user "+
+        "AND NOT r.rolsuper AND pg_has_role(r.oid,"+
+        "(SELECT oid FROM pg_roles WHERE rolname=current_user),'MEMBER'))",
+        Map.of(),Boolean.class);
+      if(!Boolean.FALSE.equals(elevated)||!Boolean.FALSE.equals(schemaCreate)||
+         !Boolean.FALSE.equals(crossMember)||!Boolean.TRUE.equals(noMemberships)||
+         !Boolean.TRUE.equals(noDelegates))
+        throw new IllegalStateException("Provider SQL role is privileged or inherits another process identity");
+      for(String signature:writers){
+        Boolean allowed=role.queryForObject(
+          "SELECT has_function_privilege(current_user,CAST(:signature AS regprocedure),'EXECUTE')",
+          Map.of("signature",signature),Boolean.class);
+        if(!Boolean.valueOf(isIngress).equals(allowed))
+          throw new IllegalStateException("Provider writer ACL drift: "+signature);
+      }
+      for(String signature:projections){
+        Boolean allowed=role.queryForObject(
+          "SELECT has_function_privilege(current_user,CAST(:signature AS regprocedure),'EXECUTE')",
+          Map.of("signature",signature),Boolean.class);
+        if(!Boolean.valueOf(!isIngress).equals(allowed))
+          throw new IllegalStateException("Provider projection ACL drift: "+signature);
+      }
+      for(String journal:journals){
+        Boolean tableAllowed=role.queryForObject(
+          "SELECT has_table_privilege(current_user,CAST(:journal AS regclass),"+
+          "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')",
+          Map.of("journal",journal),Boolean.class);
+        Boolean columnAllowed=role.queryForObject(
+          "SELECT has_any_column_privilege(current_user,CAST(:journal AS regclass),"+
+          "'SELECT,INSERT,UPDATE,REFERENCES')",
+          Map.of("journal",journal),Boolean.class);
+        if(!Boolean.FALSE.equals(tableAllowed)||!Boolean.FALSE.equals(columnAllowed))
+          throw new IllegalStateException("Provider direct journal ACL drift: "+journal);
+      }
+    }
     this.providerIngressJdbc=isolated;
     System.out.println("PROTOCOLIA_SPRING_PROVIDER_INGRESS_PRINCIPAL_READY");
   }
