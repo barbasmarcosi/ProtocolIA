@@ -10,6 +10,7 @@ The existing SQL revoked direct journal table privileges only from `PUBLIC` and 
 
 ## Implementation
 
+- Reject any non-superuser role that is directly or indirectly a member of the migration-owner role (even with no explicit table ACL): such a principal can use owner-level access. Superusers remain outside the boundary.
 - During the preflight, after verifying each journal is owned by the dedicated operator but **before any ALTER/REVOKE/GRANT**, enumerate PostgreSQL ACL entries using `aclexplode(coalesce(relacl,acldefault('r',relowner)))`. Reject **any** unrelated grantee (including future privilege types) with SQLSTATE `23514`. Explicit runtime and PUBLIC grants are allowed solely because the same atomic statement revokes them.
 - After revocation, independently verify the effective runtime table privilege set is empty **and** every explicit ACL grantee on each journal is the operator. Rejecting either postcondition rolls back all changes.
 - Preserve the previous owner, trusted `public` schema, function owner, row/TRUNCATE guards, advisory/table locks, function EXECUTE restrictions, and read-only provider settlement semantics.
@@ -27,7 +28,7 @@ npm run app:test -- /tmp/pia-n-spring
 node scripts/vnext/probe-provider-inbox.mjs /tmp/pia-n-spring
 ```
 
-The disposable PostgreSQL probe explicitly grants unrelated roles `SELECT` and `INSERT` on different journals, verifies those grants exist, requires isolation to fail without elevating functions or changing historical rows, and revokes the test grants. It then grants historical direct `PUBLIC SELECT` and runtime `INSERT`, verifies a successful concurrent/repeated isolation removes both, and exercises function-mediated writes, replay, denied direct journal access, rollback and unchanged financial settlement. The new expected marker is `PROTOCOLIA_S2C1C4N_THIRD_PARTY_JOURNAL_ACL_PASS` **on both** generated targets. This marker is an expectation until exact-head CI is inspected; a passing unit test alone is not PostgreSQL acceptance.
+The disposable PostgreSQL probe first grants a third-party role membership in the migration owner and requires atomic refusal. It then explicitly grants unrelated roles `SELECT` and `INSERT` on different journals, verifies those grants exist, requires isolation to fail without elevating functions or changing historical rows, and revokes the test grants. It then grants historical direct `PUBLIC SELECT` and runtime `INSERT`, verifies a successful concurrent/repeated isolation removes both, and exercises function-mediated writes, replay, denied direct journal access, rollback and unchanged financial settlement. The new expected marker is `PROTOCOLIA_S2C1C4N_THIRD_PARTY_JOURNAL_ACL_PASS` **on both** generated targets. This marker is an expectation until exact-head CI is inspected; a passing unit test alone is not PostgreSQL acceptance.
 
 ## Limitations / next gates
 
