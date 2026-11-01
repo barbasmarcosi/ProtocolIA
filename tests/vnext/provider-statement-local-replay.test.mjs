@@ -5,6 +5,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,
   rmSync,symlinkSync,chmodSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {spawn,spawnSync} from "node:child_process";
 import {signedStatementMessage} from "../../packages/adapters/provider-statement-signature.mjs";
 import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
@@ -140,5 +141,24 @@ test("marker survives failed subsequent attempt; unsigned mode cannot claim repl
     assert.equal(r.status,1);
     assert.equal(r.stdout,"");
     assert.match(r.stderr,/Detached signature/);
+  });
+});
+
+test("SIGKILL after durable marker before stdout fails closed on restart",()=>{
+  withFixture(f=>{
+    const meta=JSON.parse(readFileSync(join(f.dir,"attestation.json"),"utf8"));
+    const moduleUrl=pathToFileURL(resolve("packages/adapters/provider-statement-local-replay.mjs")).href;
+    const childCode=`import {consumeLocalSignedStatement} from ${JSON.stringify(moduleUrl)};
+      consumeLocalSignedStatement({directory:${JSON.stringify(f.guard)},metadata:${JSON.stringify(meta)}});
+      process.kill(process.pid,"SIGKILL");`;
+    const crashed=spawnSync(process.execPath,["--input-type=module","-e",childCode],
+      {encoding:"utf8",timeout:10000});
+    assert.equal(crashed.signal,"SIGKILL",crashed.stderr);
+    assert.equal(crashed.stdout,"");
+    assert.equal(readdirSync(f.guard).length,1);
+    const retried=run(f.args);
+    assert.equal(retried.status,1,retried.stderr);
+    assert.equal(retried.stdout,"");
+    assert.match(retried.stderr,/local replay guard/);
   });
 });
