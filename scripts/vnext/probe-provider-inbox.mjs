@@ -596,7 +596,9 @@ try{
     "; GRANT "+inheritedRole+" TO "+runtimeRole+";");
   const inheritedAcl=sql(applyAcl,{allowFail:true});
   assert.notEqual(inheritedAcl.status,0,"Inherited journal privilege must fail closed");
-  assert.match(inheritedAcl.stderr,/inherited direct journal access/);
+  // The new all-grantees preflight rejects the group's explicit table
+  // privilege before the older runtime-inheritance postcondition is reached.
+  assert.match(inheritedAcl.stderr,/journal has unrelated privilege grantee/);
   assert.equal(securityDefiner(),"f");
   sql("REVOKE "+inheritedRole+" FROM "+runtimeRole+
     "; REVOKE SELECT ON protocolia_provider_envelope_inbox FROM "+inheritedRole+";");
