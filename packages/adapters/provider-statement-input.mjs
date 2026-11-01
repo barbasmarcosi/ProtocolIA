@@ -45,6 +45,10 @@ function parseUnambiguousJson(text) {
 }
 
 const realIO={openSync,closeSync,fstatSync,lstatSync,readSync};
+const identity=stat=>({dev:stat.dev,ino:stat.ino,size:stat.size,
+  mtimeMs:stat.mtimeMs,ctimeMs:stat.ctimeMs});
+const sameIdentity=(a,b)=>a && b && a.dev===b.dev && a.ino===b.ino &&
+  a.size===b.size && a.mtimeMs===b.mtimeMs && a.ctimeMs===b.ctimeMs;
 
 function loadStatementValue(file,name,io=realIO) {
   const path=resolve(file);
@@ -59,7 +63,7 @@ function loadStatementValue(file,name,io=realIO) {
   } catch {
     throw Error(name + ": input must be an accessible regular, non-symlink file");
   }
-  let data,digest;
+  let data,digest,openedIdentity;
   try {
     const stat=io.fstatSync(fd);
     if(!stat.isFile() || stat.size<0 || stat.size>MAX_STATEMENT_INPUT_BYTES)
@@ -81,6 +85,13 @@ function loadStatementValue(file,name,io=realIO) {
        after.size!==stat.size || after.mtimeMs!==stat.mtimeMs ||
        after.ctimeMs!==stat.ctimeMs)
       throw Error(name + ": input changed during read or exceeded 4 MiB");
+    // The pathname must still resolve to the same inode after the read.
+    // This is a best-effort local snapshot check, not a multi-file transaction.
+    const finalPath=io.lstatSync(path);
+    if(!finalPath.isFile() || finalPath.isSymbolicLink() ||
+       finalPath.dev!==after.dev || finalPath.ino!==after.ino)
+      throw Error(name + ": input path changed during read");
+    openedIdentity=identity(after);
     digest=createHash("sha256").update(buffer.subarray(0,used)).digest("hex");
     try {
       const text=new TextDecoder("utf-8",{fatal:true}).decode(buffer.subarray(0,used));
@@ -96,7 +107,7 @@ function loadStatementValue(file,name,io=realIO) {
   } finally {
     io.closeSync(fd);
   }
-  return {data,sha256:digest};
+  return {data,sha256:digest,identity:openedIdentity};
 }
 
 export function loadStatementArrayWithDigest(file,name,io=realIO) {
@@ -107,9 +118,36 @@ export function loadStatementArrayWithDigest(file,name,io=realIO) {
 export function loadStatementArray(file,name,io=realIO) {
   return loadStatementArrayWithDigest(file,name,io).data;
 }
-export function loadStatementObject(file,name,io=realIO) {
+export function loadStatementObjectWithDigest(file,name,io=realIO) {
   const result=loadStatementValue(file,name,io);
   if(result.data===null || typeof result.data!=="object" || Array.isArray(result.data))
     throw Error(name + ": expected JSON object");
-  return result.data;
+  return result;
+}
+export function loadStatementObject(file,name,io=realIO) {
+  return loadStatementObjectWithDigest(file,name,io).data;
+}
+
+/**
+ * Detect observable cross-file skew before emitting a financial comparison
+ * or consuming replay state. Re-read every original path with the same strict
+ * parser and descriptor checks, then compare both bytes and inode metadata.
+ * This is not an atomic database snapshot: cooperating exporters must still
+ * supply a consistent, immutable batch.
+ */
+export function assertStatementSnapshotsUnchanged(snapshots,io=realIO) {
+  if(!Array.isArray(snapshots) || snapshots.length===0 ||
+     snapshots.length>8)throw Error("statement: invalid snapshot set");
+  for(const snapshot of snapshots) {
+    if(!snapshot || typeof snapshot.file!=="string" ||
+       typeof snapshot.name!=="string" ||
+       !/^[a-zA-Z][a-zA-Z ]{0,39}$/.test(snapshot.name) ||
+       typeof snapshot.sha256!=="string" ||
+       !/^[0-9a-f]{64}$/.test(snapshot.sha256) ||
+       !snapshot.identity)throw Error("statement: invalid snapshot token");
+    const fresh=loadStatementValue(snapshot.file,snapshot.name,io);
+    if(fresh.sha256!==snapshot.sha256 ||
+       !sameIdentity(fresh.identity,snapshot.identity))
+      throw Error(snapshot.name + ": input changed after snapshot read");
+  }
 }
