@@ -38,9 +38,9 @@ test("runtime isolation is opt-in, deterministic, atomic and does not mutate fin
   assert.match(sql,/inherited direct journal access/);
   assert.match(sql,/Provider journal has unrelated privilege grantee/);
   assert.match(sql,/Provider journal ACL postcondition failed/);
-  assert.match(sql,/aclexplode\\(coalesce\\(c\\.relacl,acldefault\\('r',c\\.relowner\\)\\)\\)/);
-  assert.match(sql,/a\\.grantee NOT IN \\(operator_oid,runtime_oid,0\\)/);
-  assert.match(sql,/a\\.grantee<>operator_oid/);
+  assert.ok(sql.includes("aclexplode(coalesce(c.relacl,acldefault('r',c.relowner)))"));
+  assert.ok(sql.includes("a.grantee NOT IN (operator_oid,runtime_oid,0)"));
+  assert.ok(sql.includes("a.grantee<>operator_oid"));
   assert.ok(sql.indexOf('Provider journal has unrelated privilege grantee')<
     sql.indexOf('All preconditions hold'));
   assert.ok(sql.indexOf('Provider journal ACL postcondition failed')>
