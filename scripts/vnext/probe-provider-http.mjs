@@ -374,6 +374,17 @@ try{
     "WHERE event_id="+quote(candidateEvent)),"1");
   assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
     "WHERE event_id="+quote(lifeEventSplit)),"1");
+  // A low-privilege ingress transaction interrupted before COMMIT must not
+  // leave a replay claim; the later signed HTTP delivery must still succeed.
+  const rollbackEvent="evt_http_split_rollback_12345678";
+  sql("BEGIN; SET ROLE "+ingressRole+
+    "; SELECT protocolia_record_provider_envelope_digest('sandbox_provider',"+
+    quote(rollbackEvent)+","+quote("b".repeat(64))+"); ROLLBACK;");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id="+quote(rollbackEvent)),"0");
+  assert.equal((await send(rollbackEvent)).status,202);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id="+quote(rollbackEvent)),"1");
   // Restart with the same distinct credentials: persisted evidence must remain
   // replay-safe, while the runtime DB principal still cannot fabricate writes.
   docker(["restart","app"]);
