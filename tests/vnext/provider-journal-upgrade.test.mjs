@@ -31,7 +31,8 @@ test("historical guard names and immutable trigger function are pinned",()=>{
   const sql=providerJournalTruncateUpgradeSql();
   assert.ok(sql.includes("'protocolia_provider_envelope_immutable_guard'"));
   assert.ok(sql.includes("journal||'_immutable_guard'"));
-  assert.ok(sql.includes("row_guard||'_truncate'"));
+  assert.ok(sql.includes("left(row_guard||'_truncate',63)"),
+    "PostgreSQL stores trigger identifiers at most 63 bytes");
   assert.ok(sql.includes("public.protocolia_provider_envelope_immutable()"));
   assert.ok(sql.indexOf("Validate the complete historical guard set")<
     sql.indexOf("Every historical object is valid"));
