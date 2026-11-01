@@ -384,7 +384,7 @@ try{
   // S2c-1c4k: emulate a populated installation created BEFORE the TRUNCATE
   // hardening, then rehearse the emitted upgrade without touching V1 history.
   const upgrade=readFileSync(join(root,"protocolia-provider-journal-truncate-upgrade.sql"),"utf8");
-  assert.match(upgrade,/DO \\$protocolia_provider_upgrade\\$/);
+  assert.ok(upgrade.includes("DO $protocolia_provider_upgrade$"));
   const oldGuards=immutableProviderTables.map(table=>({
     table,
     name:(table==="protocolia_provider_envelope_inbox"
@@ -411,7 +411,7 @@ try{
     "DISABLE TRIGGER protocolia_provider_receipt_candidate_immutable_guard; "+
     upgrade,{allowFail:true});
   assert.notEqual(drift.status,0,"Unsafe historical guard drift must abort upgrade");
-  assert.match(drift.stderr,/row guard missing\\/drifted/);
+  assert.ok(drift.stderr.includes("row guard missing/drifted"));
   assert.equal(triggerCount(),"0","Failed upgrade must not partially harden schema");
   assert.equal(value("SELECT t.tgenabled FROM pg_trigger t JOIN pg_class c "+
     "ON c.oid=t.tgrelid WHERE c.relname='protocolia_provider_receipt_candidate' "+
