@@ -56,7 +56,7 @@ test("reversal does not hide amount or return mismatch or local double-credit ri
   assert.equal(r.counts.exceptions,4);
 });
 
-test("refund with no capture reports both missing capture and impossible return",()=>{
+test("refund without capture in this snapshot reports both incomplete coverage signals",()=>{
   const s=base();
   s.external=[returned("R-EXT","0.25")];
   s.internalReturns=[recorded("0.25")];
@@ -65,7 +65,7 @@ test("refund with no capture reports both missing capture and impossible return"
   assert.deepEqual(codes(r),["external_returns_exceed_capture","no_capture_reported"]);
 });
 
-test("unmapped external refund cannot hide impossible provider arithmetic",()=>{
+test("unmapped external refund still reports snapshot-level return excess",()=>{
   const s=base();
   s.external.push({providerId:"sandbox",transactionId:"OTHER",eventId:"ORPHAN-R",
     kind:"refund",amount:"0.50",currency:"ARS"});
