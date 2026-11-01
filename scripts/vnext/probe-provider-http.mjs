@@ -547,6 +547,15 @@ try{
   isolated(["up","-d","--no-deps","--force-recreate","app"]);
   await ready();
   assert.equal((await send(pinnedEvent)).status,200);
+  // Table-level checks alone miss column-specific SELECT privileges.
+  sql("SET ROLE "+ownerRole+"; GRANT SELECT (event_id) ON TABLE "+
+    lifecycleJournal+" TO "+ingressRole+";");
+  await rejectAclDrift("ingress gained column-only lifecycle journal SELECT");
+  sql("SET ROLE "+ownerRole+"; REVOKE SELECT (event_id) ON TABLE "+
+    lifecycleJournal+" FROM "+ingressRole+";");
+  isolated(["up","-d","--no-deps","--force-recreate","app"]);
+  await ready();
+  assert.equal((await send(pinnedEvent)).status,200);
   // NOINHERIT membership still permits SET ROLE and must not bypass ACLs.
   sql("GRANT "+ingressRole+" TO "+runtimeRole+" WITH INHERIT FALSE;");
   await rejectAclDrift("runtime can SET ROLE to ingress despite NOINHERIT");
@@ -557,7 +566,7 @@ try{
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
   console.log("PROTOCOLIA_S2C1C4R_COMPLETE_ACL_BOOT_PREFLIGHT_PASS "+build.target+
-    " secondary writer, journal read, NOINHERIT membership drift, recovery, no settlement");
+    " secondary writer, table/column journal read, NOINHERIT membership drift, recovery, no settlement");
 
   console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
