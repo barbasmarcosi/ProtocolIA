@@ -481,9 +481,12 @@ class RuntimeService{
       for(const journal of journals){
         const value=await pool.query(
           "SELECT has_table_privilege(current_user,$1::regclass,"+
-          "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS allowed",
+          "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS table_allowed, "+
+          "has_any_column_privilege(current_user,$1::regclass,"+
+          "'SELECT,INSERT,UPDATE,REFERENCES') AS column_allowed",
           [journal]);
-        if(value.rows.length!==1||value.rows[0].allowed!==false)
+        if(value.rows.length!==1||value.rows[0].table_allowed!==false||
+           value.rows[0].column_allowed!==false)
           throw Error("Provider direct journal ACL drift: "+journal);
       }
     };
