@@ -14,7 +14,7 @@ independent observed conditions**, not just the highest-priority one:
 
 - Nonzero capture differs from internal receipt amount.
 - Provider-reported refund plus chargeback exceeds captured amount, even with
-  zero captures or when the provider transaction is unmatched.
+  zero captures or when the provider transaction is unmatched. This is a\n  **snapshot-level review signal**, not proof that a historic capture never\n  happened outside the supplied statement window.
 - An externally captured receipt is internally reversed.
 - When a separate internal return journal was supplied, provider-reported
   refund and chargeback amounts disagree with it **by kind**.
