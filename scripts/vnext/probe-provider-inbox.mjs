@@ -370,6 +370,50 @@ try{
     "event_id='evt_after_reverse_1234';"),"0");
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
     "unverified");
+  // S2c-1c4j: row-level UPDATE/DELETE triggers do not intercept TRUNCATE.
+  // Test as the generated database owner, not a deliberately unprivileged role.
+  // Direct, multi-table and cascading truncations must all fail before removing
+  // any immutable envelope, receipt binding or lifecycle evidence.
+  const immutableProviderTables=[
+    "protocolia_provider_envelope_inbox",
+    "protocolia_provider_receipt_candidate",
+    "protocolia_provider_lifecycle_observation"
+  ];
+  const journalCounts=immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";"));
+  for(const [statement,expectTrigger] of [
+    // Parent tables can be blocked by FK constraints even before triggers.
+    // CASCADE is required to demonstrate the trigger, not just an FK error.
+    ...immutableProviderTables.map(table=>[
+      "TRUNCATE TABLE "+table+";",
+      table==="protocolia_provider_lifecycle_observation"
+    ]),
+    ...immutableProviderTables.map(table=>["TRUNCATE TABLE "+table+" CASCADE;",true]),
+    ["TRUNCATE TABLE protocolia_provider_envelope_inbox, "+
+      "protocolia_provider_receipt_candidate, "+
+      "protocolia_provider_lifecycle_observation RESTART IDENTITY CASCADE;",true]
+  ]){
+    const attempt=sql(statement,{allowFail:true});
+    assert.notEqual(attempt.status,0,
+      "Append-only provider evidence was erased by: "+statement);
+    if(expectTrigger)assert.match(attempt.stderr,/append-only/,
+      "Expected the immutable trigger to reject: "+statement);
+    assert.deepEqual(immutableProviderTables.map(table=>
+      value("SELECT COUNT(*) FROM "+table+";")),journalCounts,
+      "TRUNCATE rejection must preserve every journal row");
+  }
+  assert.equal(value(candidate(candidateEvent,digestA)),"duplicate",
+    "Historical signed replay remains idempotent after rejected TRUNCATE");
+  assert.equal(value(observation(sameEvent,4)),"duplicate",
+    "Lifecycle replay remains idempotent after rejected TRUNCATE");
+  assert.equal(integrity("PAY-CAND-ROLL"),
+    "synthetic_failure/coherent/reported_failure/3",
+    "Read-only causal history survives rejected TRUNCATE");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4J_PROVIDER_JOURNAL_TRUNCATE_GUARD_PASS "+
+    build.target+" direct, cascading and multi-table TRUNCATE rejected");
+
   console.log("PROTOCOLIA_S2C1C4I_PHASE_AWARE_SYNTHETIC_INTEGRITY_PASS "+build.target+
     " pending, success, failure, reversal, contradiction, rollback, unverified balances");
   console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
