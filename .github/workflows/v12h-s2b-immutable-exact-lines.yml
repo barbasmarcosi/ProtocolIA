@@ -44,7 +44,11 @@ jobs:
       - name: Generic generated app conformance on isolated PostgreSQL
         run: npm run app:test -- "${{ runner.temp }}/itemized-app"
       - name: Install deterministic Chromium
+        timeout-minutes: 12
         run: |
+          # Hosted Ubuntu runners can use an unreachable Azure HTTP apt mirror.
+          # Match the already-verified drift-safe finance workflow's HTTPS source.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           npm install --no-save --ignore-scripts playwright@1.56.1
           npx playwright install --with-deps chromium
       - name: Verify immutable exact lines, finance, transactions and mobile UI
