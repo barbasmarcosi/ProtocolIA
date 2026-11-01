@@ -24,6 +24,7 @@ jobs:
           node-version: '24'
       - run: node --check scripts/research/intake-to-typespec.mjs
       - run: node --test tests/research/intake-to-typespec.test.mjs
+      - run: node --test tests/research/project-passport.test.mjs
   real-typespec:
     runs-on: ubuntu-latest
     timeout-minutes: 18
@@ -62,13 +63,17 @@ jobs:
           node scripts/research/project-passport.mjs generate \
             --ir "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json" \
             --requirements "$INTAKE_OUT/requirements.json" \
+            --decisions "$INTAKE_OUT/decisions.json" \
             --out "$RUNNER_TEMP/kiosk-passport"
           node scripts/research/project-passport.mjs verify \
             --ir "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json" \
             --requirements "$INTAKE_OUT/requirements.json" \
+            --decisions "$INTAKE_OUT/decisions.json" \
             --out "$RUNNER_TEMP/kiosk-passport"
           node -e 'const x=require(process.argv[1]); if(x.requirements.some(r=>r.verification!=="NOT_RUN")||x.traceAuthority!=="DECLARED_UNVERIFIED")process.exit(1)' \
             "$RUNNER_TEMP/kiosk-passport/docs/traceability.json"
+          grep -q "What discount and stacking policy" "$RUNNER_TEMP/kiosk-passport/docs/domain/decisions.md"
+          grep -q "UNKNOWN / unresolved" "$RUNNER_TEMP/kiosk-passport/docs/domain/decisions.md"
   generated-app-nest:
     runs-on: ubuntu-latest
     timeout-minutes: 30
