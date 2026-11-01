@@ -453,10 +453,16 @@ class RuntimeService{
         "(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls "+
         "FROM pg_roles WHERE rolname=current_user) AS elevated, "+
         "has_schema_privilege(current_user,'public','CREATE') AS schema_create, "+
-        "pg_has_role(current_user,$1::name,'MEMBER') AS cross_member",[other]);
+        "pg_has_role(current_user,$1::name,'MEMBER') AS cross_member, "+
+        "NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles me ON me.oid=m.member "+
+        "WHERE me.rolname=current_user) AS no_memberships, "+
+        "NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname<>current_user "+
+        "AND NOT r.rolsuper AND pg_has_role(r.oid,"+
+        "(SELECT oid FROM pg_roles WHERE rolname=current_user),'MEMBER')) AS no_delegates",[other]);
       const role=result.rows[0];
       if(result.rows.length!==1||role.elevated!==false||
-         role.schema_create!==false||role.cross_member!==false)
+         role.schema_create!==false||role.cross_member!==false||
+         role.no_memberships!==true||role.no_delegates!==true)
         throw Error("Provider SQL role is privileged or inherits another process identity");
       for(const signature of writers){
         const value=await pool.query(
