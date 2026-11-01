@@ -51,6 +51,17 @@ BEGIN
     RAISE EXCEPTION 'Provider runtime role has elevated or owner privileges'
       USING ERRCODE='23514';
   END IF;
+  -- A third-party member of the migration-owner role can exercise owner
+  -- privileges (or SET ROLE), bypassing all table ACL checks. Superusers are
+  -- already outside this database-level boundary; reject other members.
+  IF EXISTS (
+    SELECT 1 FROM pg_roles r
+    WHERE r.oid<>operator_oid AND NOT r.rolsuper
+      AND pg_has_role(r.oid,operator_oid,'MEMBER')
+  ) THEN
+    RAISE EXCEPTION 'Provider migration owner has untrusted role members'
+      USING ERRCODE='23514';
+  END IF;
   -- SECURITY DEFINER functions resolve generated relations in public.
   -- Its owner must be the same dedicated migration principal: a different
   -- owner could grant CREATE to an attacker after a one-time ACL preflight.
