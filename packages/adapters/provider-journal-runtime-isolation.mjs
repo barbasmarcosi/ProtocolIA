@@ -6,7 +6,7 @@ export function providerJournalRuntimeIsolationSql() {
   return `-- ProtocolIA S2c-1c4l: isolate synthetic provider journal runtime access.
 -- Operator-only; run after S2c-1c4k with a verified backup and restored rehearsal.
 -- Example (same psql session): BEGIN; SET LOCAL protocolia.provider_runtime_role =
--- 'protocolia_runtime'; \i protocolia-provider-journal-runtime-isolation.sql; COMMIT;
+-- 'protocolia_runtime'; \\i protocolia-provider-journal-runtime-isolation.sql; COMMIT;
 -- The runtime role must not own or inherit ownership of any provider objects.
 -- Never execute this from an app connection or grant runtime schema CREATE.
 DO $protocolia_provider_runtime_acl$
