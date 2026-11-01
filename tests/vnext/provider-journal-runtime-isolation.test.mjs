@@ -30,12 +30,24 @@ test("runtime isolation is opt-in, deterministic, atomic and does not mutate fin
   assert.match(sql,/pg_has_role/);
   assert.match(sql,/has_schema_privilege\(runtime_role,'public','CREATE'\)/);
   assert.match(sql,/Public schema permits untrusted CREATE/);
+  assert.match(sql,/Provider migration owner has untrusted role members/);
+  assert.ok(sql.includes("pg_has_role(r.oid,operator_oid,'MEMBER')"));
+  assert.ok(sql.includes("NOT r.rolsuper"));
   assert.match(sql,/n\.nspowner=operator_oid/);
   assert.match(sql,/a\.privilege_type='CREATE'/);
   assert.match(sql,/a\.grantee<>operator_oid/);
   assert.doesNotMatch(sql,/a\.grantee=0 AND a\.privilege_type='CREATE'/);
   assert.match(sql,/has_table_privilege\(runtime_role/);
   assert.match(sql,/inherited direct journal access/);
+  assert.match(sql,/Provider journal has unrelated privilege grantee/);
+  assert.match(sql,/Provider journal ACL postcondition failed/);
+  assert.ok(sql.includes("aclexplode(coalesce(c.relacl,acldefault('r',c.relowner)))"));
+  assert.ok(sql.includes("a.grantee NOT IN (operator_oid,runtime_oid,0)"));
+  assert.ok(sql.includes("a.grantee<>operator_oid"));
+  assert.ok(sql.indexOf('Provider journal has unrelated privilege grantee')<
+    sql.indexOf('All preconditions hold'));
+  assert.ok(sql.indexOf('Provider journal ACL postcondition failed')>
+    sql.indexOf('All preconditions hold'));
   assert.doesNotMatch(sql,/\b(?:CREATE ROLE|DROP TABLE|TRUNCATE TABLE|INSERT INTO payment|UPDATE payment|SET provider_settlement_state)\b/i);
 });
 
