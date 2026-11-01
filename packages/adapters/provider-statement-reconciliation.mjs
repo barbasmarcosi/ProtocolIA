@@ -85,7 +85,7 @@ export function reconcileProviderStatement(input) {
   }
   // Internal return journal is a separate operator-supplied source, not proof
   // that a refund or chargeback cleared. Voided local entries contribute zero.
-  for (const [i, row] of array(input.internalReturns ?? [], "internalReturns").entries()) {
+  for (const [i, row] of array(returnsSupplied ? input.internalReturns : [], "internalReturns").entries()) {
     object(row, ["receiptId","returnId","kind","amount","currency","status"],
       "internalReturns[" + i + "]");
     const receiptId = identity(row.receiptId, "return receipt");
