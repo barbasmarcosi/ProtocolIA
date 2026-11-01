@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync,createHash,sign} from "node:crypto";
-import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
+import {mkdtempSync,writeFileSync,rmSync,symlinkSync,openSync,closeSync,fstatSync,lstatSync,readSync,utimesSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
-import {signedStatementMessage,verifyDetachedStatement} from "../../packages/adapters/provider-statement-signature.mjs";
+import {signedStatementMessage,verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapters/provider-statement-signature.mjs";
 import {loadStatementArrayWithDigest,loadStatementObject} from "../../packages/adapters/provider-statement-input.mjs";
 
 const cli=resolve("scripts/vnext/reconcile-provider-statement.mjs");
@@ -33,7 +33,7 @@ function fixture(){
 function check(f,overrides={}){
   return verifyDetachedStatement({
     metadata:f.metadata,statementSha256:f.metadata.statementSha256,
-    external:[capture],expectedOrder:"OT-1",currency:"ARS",scale:2,
+    external:[capture],expectedOrder:"OT-1",expectedProvider:"sandbox",currency:"ARS",scale:2,
     publicKeyPem:f.pem,trustedKeySha256:f.fingerprint,now:f.now,...overrides
   });
 }
@@ -54,6 +54,11 @@ test("rejects tamper, key substitution, wrong order/currency/provider and signat
     {publicKeyPem:wrong},
     {trustedKeySha256:"f".repeat(64)},
     {expectedOrder:"OT-2"},
+    {expectedProvider:"other"},
+    {expectedProvider:undefined},
+    {expectedProvider:"sandbox/other"},
+    {metadata:f.signed({...f.metadata,providerId:"other",signature:undefined}),
+      external:[{...capture,providerId:"other"}]},
     {currency:"USD"},
     {scale:3},
     {external:[{...capture,providerId:"other"}]},
@@ -86,6 +91,7 @@ function run(dir,f,additional=[]){
   const args=[cli,"--internal",join(dir,"internal.json"),
     "--links",join(dir,"links.json"),"--external",join(dir,"external.json"),
     "--currency","ARS","--scale","2","--expected-order","OT-1",
+    "--expected-provider","sandbox",
     "--external-attestation",join(dir,"attestation.json"),
     "--provider-public-key",join(dir,"key.pem"),
     "--trusted-key-sha256",f.fingerprint,...additional];
@@ -137,5 +143,85 @@ test("CLI rejects missing trust flag, invalid pin, ambiguous attestation, expire
     assert.equal(ambiguous.status,1);
     assert.match(ambiguous.stderr,/duplicate JSON object member/);
     assert.equal(ambiguous.stdout,"");
+  });
+});
+
+test("operator provider scope is mandatory and rejects a valid other-provider signature",()=>{
+  withFiles(dir=>{
+    const f=fixture();prepare(dir,f);
+    const without=run(dir,f);
+    assert.equal(without.status,0,without.stderr);
+    const args=[cli,"--internal",join(dir,"internal.json"),
+      "--links",join(dir,"links.json"),"--external",join(dir,"external.json"),
+      "--currency","ARS","--scale","2","--expected-order","OT-1",
+      "--external-attestation",join(dir,"attestation.json"),
+      "--provider-public-key",join(dir,"key.pem"),
+      "--trusted-key-sha256",f.fingerprint];
+    const missing=spawnSync(process.execPath,args,{encoding:"utf8",timeout:10000});
+    assert.equal(missing.status,1);
+    assert.equal(missing.stdout,"");
+    assert.match(missing.stderr,/--expected-provider/);
+    const alternate={...f.metadata,providerId:"other"};
+    writeFileSync(join(dir,"external.json"),JSON.stringify([{...capture,providerId:"other"}]));
+    const bytes=JSON.stringify([{...capture,providerId:"other"}]);
+    writeFileSync(join(dir,"attestation.json"),JSON.stringify(f.signed({
+      ...alternate,statementSha256:createHash("sha256").update(bytes).digest("hex"),
+      signature:undefined
+    })));
+    const wrong=run(dir,f);
+    assert.equal(wrong.status,1,wrong.stderr);
+    assert.equal(wrong.stdout,"");
+    assert.match(wrong.stderr,/external attestation/);
+  });
+});
+
+test("pinned public key descriptor rejects symlink, inode swap, growth and invalid UTF-8",()=>{
+  withFiles(dir=>{
+    const f=fixture();const key=join(dir,"key.pem"),other=join(dir,"other.pem");
+    writeFileSync(key,f.pem);
+    writeFileSync(other,f.pem);
+    assert.equal(readPinnedPublicKey(key),f.pem);
+    const alias=join(dir,"alias.pem");symlinkSync(key,alias);
+    assert.throws(()=>readPinnedPublicKey(alias),/external attestation/);
+    const swapIO={lstatSync:path=>lstatSync(path),
+      openSync:()=>openSync(other,"r"),fstatSync,readSync,closeSync};
+    assert.throws(()=>readPinnedPublicKey(key,swapIO),/external attestation/);
+    let statCalls=0;
+    const growingIO={lstatSync,openSync,closeSync,readSync,
+      fstatSync:fd=>{
+        const stat=fstatSync(fd);
+        return ++statCalls===2 ? Object.assign(Object.create(stat),{size:stat.size+1}) : stat;
+      }};
+    assert.throws(()=>readPinnedPublicKey(key,growingIO),/external attestation/);
+    assert.equal(statCalls,2,"growth is detected after descriptor read");
+    let mutated=false;
+    const rewritingIO={lstatSync,openSync,closeSync,fstatSync,
+      readSync:(fd,...args)=>{
+        const n=readSync(fd,...args);
+        if(!mutated) {
+          mutated=true;
+          const old=new Date("2000-01-01T00:00:00Z");
+          utimesSync(key,old,old);
+        }
+        return n;
+      }};
+    assert.throws(()=>readPinnedPublicKey(key,rewritingIO),/external attestation/);
+    assert.equal(mutated,true,"same-inode observable mutation was exercised");
+    writeFileSync(key,Buffer.from([0xff,0xfe]));
+    assert.throws(()=>readPinnedPublicKey(key),/external attestation/);
+  });
+});
+
+test("unsigned mode refuses a provider trust claim without a detached signature",()=>{
+  withFiles(dir=>{
+    const f=fixture();prepare(dir,f);
+    const args=[cli,"--internal",join(dir,"internal.json"),
+      "--links",join(dir,"links.json"),"--external",join(dir,"external.json"),
+      "--currency","ARS","--scale","2","--expected-order","OT-1",
+      "--expected-provider","sandbox"];
+    const result=spawnSync(process.execPath,args,{encoding:"utf8",timeout:10000});
+    assert.equal(result.status,1);
+    assert.equal(result.stdout,"");
+    assert.match(result.stderr,/Detached signature requires/);
   });
 });

@@ -2,7 +2,7 @@
 // A valid signature authenticates bytes relative to the supplied public key,
 // NOT the provider's legal identity, bank clearing, or replay uniqueness.
 import {createHash,createPublicKey,verify} from "node:crypto";
-import {readFileSync,lstatSync} from "node:fs";
+import {openSync,closeSync,fstatSync,lstatSync,readSync,constants} from "node:fs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HEX=/^[0-9a-f]{64}$/;
 const UTC=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -24,12 +24,14 @@ export function signedStatementMessage(meta) {
     meta.validFrom,meta.validUntil,""].join("\n"),"utf8");
 }
 export function verifyDetachedStatement({metadata,statementSha256,external,
-  expectedOrder,currency,scale,publicKeyPem,trustedKeySha256,now=Date.now()}) {
+  expectedOrder,expectedProvider,currency,scale,publicKeyPem,trustedKeySha256,now=Date.now()}) {
   if(!exact(metadata,FIELDS) || metadata.version!==1 ||
      typeof metadata.providerId!=="string" || !ID.test(metadata.providerId) ||
      typeof metadata.keyId!=="string" || !ID.test(metadata.keyId) ||
      typeof expectedOrder!=="string" || !ID.test(expectedOrder) ||
-     metadata.orderId!==expectedOrder || metadata.currency!==currency ||
+     metadata.orderId!==expectedOrder ||
+     typeof expectedProvider!=="string" || !ID.test(expectedProvider) ||
+     metadata.providerId!==expectedProvider || metadata.currency!==currency ||
      metadata.scale!==scale || !HEX.test(statementSha256) ||
      metadata.statementSha256!==statementSha256 ||
      !HEX.test(trustedKeySha256) || !Array.isArray(external) ||
@@ -58,11 +60,36 @@ export function verifyDetachedStatement({metadata,statementSha256,external,
     providerId:metadata.providerId,keyId:metadata.keyId,
     keyFingerprint:fingerprint,statementSha256,validUntil:metadata.validUntil};
 }
-export function readPinnedPublicKey(file) {
-  // The out-of-band SHA-256 pin is mandatory; a path alone is never trusted.
+const keyIO={openSync,closeSync,fstatSync,lstatSync,readSync};
+/**
+ * Read an operator-supplied pinned key from the exact regular-file descriptor
+ * inspected before opening. No symlink, FIFO, inode substitution, growth,
+ * or observable in-place rewrite may silently change the trust input.
+ * The independent SHA-256 SPKI pin is still mandatory in verification.
+ */
+export function readPinnedPublicKey(file,io=keyIO) {
+  let fd;
   try {
-    const stat=lstatSync(file);
-    if(!stat.isFile() || stat.isSymbolicLink() || stat.size>8192)fail();
-    return readFileSync(file,"utf8");
+    const before=io.lstatSync(file);
+    if(!before.isFile() || before.isSymbolicLink() ||
+       before.size<1 || before.size>8192)fail();
+    fd=io.openSync(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+    const opened=io.fstatSync(fd);
+    if(!opened.isFile() || opened.dev!==before.dev || opened.ino!==before.ino ||
+       opened.size!==before.size || opened.size<1 || opened.size>8192)fail();
+    const bytes=Buffer.allocUnsafe(opened.size+1);
+    let used=0;
+    while(used<bytes.length) {
+      const n=io.readSync(fd,bytes,used,bytes.length-used,null);
+      if(n===0)break;
+      used+=n;
+    }
+    const after=io.fstatSync(fd);
+    if(used!==opened.size || used>8192 ||
+       after.dev!==opened.dev || after.ino!==opened.ino ||
+       after.size!==opened.size || after.mtimeMs!==opened.mtimeMs ||
+       after.ctimeMs!==opened.ctimeMs)fail();
+    return new TextDecoder("utf-8",{fatal:true}).decode(bytes.subarray(0,used));
   }catch{fail();}
+  finally {if(fd!==undefined)io.closeSync(fd);}
 }

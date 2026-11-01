@@ -8,7 +8,8 @@ bytes, reordering entries, or re-signing a revised snapshot changes that digest
 and can bypass byte-level replay detection.
 
 New opt-in `--local-event-replay-dir <existing-private-directory>` requires
-the complete detached Ed25519 trust flags and `--expected-order`. It cannot be
+the complete detached Ed25519 trust flags, `--expected-order` and the
+independent operator `--expected-provider`. It cannot be
 combined with `--local-replay-dir` (two independent commits would be unsafe).
 A statement must contain **1–512** distinct valid provider events. The caller
 must provision a POSIX directory owned by its UID, mode 0700, on trusted local

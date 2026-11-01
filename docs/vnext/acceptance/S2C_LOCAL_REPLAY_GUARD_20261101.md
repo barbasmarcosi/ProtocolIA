@@ -8,7 +8,8 @@ Previously, the **same signed snapshot could be reconciled repeatedly**, which
 is dangerous if downstream operators mistake repeated reports for new evidence.
 
 The CLI now accepts **`--local-replay-dir <existing-private-directory>`** only
-alongside all three signature trust flags and `--expected-order`. The directory
+alongside all three signature trust flags, `--expected-order` and the now
+mandatory independent operator `--expected-provider`. The directory
 must be a real (not symlinked) POSIX directory owned by the invoking UID, with
 no group/other permissions. The operator must provision it on **trusted local
 storage**, for example `mkdir -m 700 /path/to/private-s2c-state`. Do not put

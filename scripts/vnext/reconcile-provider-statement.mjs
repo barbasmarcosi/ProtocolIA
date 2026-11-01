@@ -16,15 +16,17 @@ try {
     flags.set(args[i],args[i+1]);
   }
   const keys=["--internal","--links","--external","--currency","--scale"];
-  const optional=["--internal-returns","--expected-order","--external-attestation",
+  const optional=["--internal-returns","--expected-order","--expected-provider","--external-attestation",
     "--provider-public-key","--trusted-key-sha256","--local-replay-dir",
     "--local-event-replay-dir"];
   const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
   const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
-  if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order"))) ||
+  if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order") ||
+       !flags.has("--expected-provider"))) ||
+     (supplied===0 && flags.has("--expected-provider")) ||
      ((flags.has("--local-replay-dir") || flags.has("--local-event-replay-dir")) && supplied!==3) ||
      (flags.has("--local-replay-dir") && flags.has("--local-event-replay-dir")) )
-    throw Error("Detached signature requires all three trust flags and --expected-order");
+    throw Error("Detached signature requires all three trust flags, --expected-order and --expected-provider");
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
      [...flags.keys()].some(key=>![...keys,...optional].includes(key)))
@@ -44,7 +46,8 @@ try {
   const signature=supplied===3 ? verifyDetachedStatement({
     metadata:attestation,
     statementSha256:external.sha256,external:external.data,
-    expectedOrder:flags.get("--expected-order"),currency:flags.get("--currency"),
+    expectedOrder:flags.get("--expected-order"),
+    expectedProvider:flags.get("--expected-provider"),currency:flags.get("--currency"),
     scale:Number(rawScale),
     publicKeyPem:readPinnedPublicKey(flags.get("--provider-public-key")),
     trustedKeySha256:flags.get("--trusted-key-sha256")

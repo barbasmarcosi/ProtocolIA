@@ -153,7 +153,9 @@ el flujo histórico sin firma sigue disponible y continúa siendo no autenticado
 
 Se requieren conjuntamente `--external-attestation attestation.json`,
 `--provider-public-key provider-public.pem`,
-`--trusted-key-sha256 <64 hex>` y `--expected-order OT-1`.
+`--trusted-key-sha256 <64 hex>`, `--expected-order OT-1` y
+`--expected-provider sandbox` (identidad esperada provista por el operador,
+no extraída de los metadatos firmados).
 No se acepta una clave de confianza derivada de la propia declaración firmada.
 El hash se calcula sobre el **mismo descriptor abierto y verificado** que
 produjo el array externo, no mediante una segunda lectura susceptible a
