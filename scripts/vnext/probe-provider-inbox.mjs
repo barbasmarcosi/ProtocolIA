@@ -478,8 +478,26 @@ try{
   assert.ok(isolation.includes("DO $protocolia_provider_runtime_acl$"));
   const runtimeRole="pia_runtime_"+randomBytes(4).toString("hex");
   const inheritedRole="pia_group_"+randomBytes(4).toString("hex");
-  sql("CREATE ROLE "+runtimeRole+" LOGIN; CREATE ROLE "+inheritedRole+";");
-  const applyAcl="BEGIN; SET LOCAL protocolia.provider_runtime_role="+
+  const ownerRole="pia_owner_"+randomBytes(4).toString("hex");
+  sql("CREATE ROLE "+runtimeRole+" LOGIN; CREATE ROLE "+inheritedRole+
+    "; CREATE ROLE "+ownerRole+";");
+  // Never make a superuser the owner of SECURITY DEFINER entrypoints.
+  // The disposable migration principal owns only the provider journal objects
+  // and has read access to the receipt table required by canonical functions.
+  sql("ALTER SCHEMA public OWNER TO "+ownerRole+
+    "; GRANT SELECT ON payment TO "+ownerRole+";");
+  for(const table of immutableProviderTables)
+    sql("ALTER TABLE public."+table+" OWNER TO "+ownerRole+";");
+  for(const signature of [
+    "protocolia_provider_envelope_immutable()",
+    "protocolia_record_provider_envelope_digest(text,text,text)",
+    "protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)",
+    "protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)",
+    "protocolia_provider_lifecycle_causal_projection(text)",
+    "protocolia_provider_receipt_integrity_projection(text)"
+  ])sql("ALTER FUNCTION public."+signature+" OWNER TO "+ownerRole+";");
+  const applyAcl="BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+
     literal(runtimeRole)+"; "+isolation+" COMMIT;";
   const securityDefiner=()=>value("SELECT prosecdef FROM pg_proc WHERE oid="+
     "'public.protocolia_record_provider_envelope_digest(text,text,text)'::regprocedure;");
@@ -488,18 +506,23 @@ try{
     "An unspecified runtime role must not trigger an ACL change");
   assert.notEqual(sql("BEGIN; SET LOCAL protocolia.provider_runtime_role='protocolia'; "+
     isolation,{allowFail:true}).status,0,
-    "An owner/superuser must never be configured as the runtime identity");
+    "A superuser migration owner must never run SECURITY DEFINER isolation");
+  assert.notEqual(sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(ownerRole)+"; "+
+    isolation,{allowFail:true}).status,0,
+    "A runtime identity must not equal its migration owner");
   assert.equal(securityDefiner(),"f","Rejected ACL must not modify functions");
   // A missing immutable guard must reject the entire privilege transition.
   const unsafeAcl=sql("BEGIN; ALTER TABLE protocolia_provider_envelope_inbox "+
     "DISABLE TRIGGER protocolia_provider_envelope_immutable_guard_truncate; "+
-    "SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+"; "+
-    isolation,{allowFail:true});
+    "SET ROLE "+ownerRole+"; SET LOCAL protocolia.provider_runtime_role="+
+    literal(runtimeRole)+"; "+isolation,{allowFail:true});
   assert.notEqual(unsafeAcl.status,0);
   assert.match(unsafeAcl.stderr,/TRUNCATE guard drifted/);
   assert.equal(securityDefiner(),"f");
   // Explicit rollback of a valid ACL rehearsal must leave all grants unchanged.
-  sql("BEGIN; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+  sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
     "; "+isolation+" ROLLBACK;");
   assert.equal(securityDefiner(),"f");
   // A group with inherited journal read access is a bypass of direct REVOKE.
