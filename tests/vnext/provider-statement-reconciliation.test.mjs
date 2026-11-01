@@ -190,3 +190,16 @@ test("partial multi-return arithmetic, replay-free concurrent comparisons and de
   const results=await Promise.all(Array.from({length:32},async()=>compare(s)));
   for(const r of results)assert.deepEqual(r,expected);
 });
+
+test("impossible over-return is reported even with missing mapping or missing statement",()=>{
+  const s=sample();
+  s.internalReturns=[{receiptId:"PAY-2",returnId:"REF-OVER",kind:"refund",
+    amount:"10.01",currency:"ARS",status:"recorded"}];
+  s.links.pop();
+  s.external.pop();
+  const r=compare(s);
+  assert.equal(r.rows[1].classification,"unlinked");
+  assert.deepEqual(r.exceptions.map(e=>e.code).filter(x=>x==="internal_returns_exceed_receipt"),
+    ["internal_returns_exceed_receipt"]);
+  assert.equal(r.counts.exceptions,2);
+});
