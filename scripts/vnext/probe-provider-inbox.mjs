@@ -485,7 +485,8 @@ try{
   // The disposable migration principal owns only the provider journal objects
   // and has read access to the receipt table required by canonical functions.
   sql("ALTER SCHEMA public OWNER TO "+ownerRole+
-    "; GRANT SELECT ON payment TO "+ownerRole+";");
+    "; GRANT SELECT ON payment TO "+ownerRole+
+    "; GRANT UPDATE(status) ON payment TO "+ownerRole+";");
   for(const table of immutableProviderTables)
     sql("ALTER TABLE public."+table+" OWNER TO "+ownerRole+";");
   for(const signature of [
@@ -577,10 +578,29 @@ try{
   assert.equal(asRuntime("SELECT internal_integrity FROM "+
     "protocolia_provider_receipt_integrity_projection('PAY-CAND-ROLL');"),
     "synthetic_failure","Read-only integrity projection must remain callable");
+  // Exercise first-time candidate and lifecycle writes, not only duplicates:
+  // the migration owner must hold precisely the row-lock privilege needed
+  // by SELECT ... FOR UPDATE on the referenced payment.
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-ACL','CAR-CAND','Runtime ACL test',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-ACL','OT-ACL',1.25,'card','Synthetic account','posted','unverified');");
+  const aclCandidateEvent="evt_acl_candidate_12345678";
+  const aclLifecycleEvent="evt_acl_lifecycle_12345678";
+  assert.equal(asRuntime(candidate(aclCandidateEvent,digestA,
+    "PAY-ACL","OT-ACL")),"stored",
+    "New candidate must be inserted only through validated function");
+  assert.equal(asRuntime(observation(aclLifecycleEvent,1,"reported_pending",
+    aclCandidateEvent,"PAY-ACL","OT-ACL")),"stored",
+    "New lifecycle must be inserted only through validated function");
+  assert.equal(asRuntime(observation(aclLifecycleEvent,1,"reported_pending",
+    aclCandidateEvent,"PAY-ACL","OT-ACL")),"duplicate");
   assert.deepEqual(immutableProviderTables.map(table=>
     value("SELECT COUNT(*) FROM "+table+";")),
-    journalCounts.map((n,i)=>String(Number(n)+(i===0?1:0))),
-    "Only the one authenticated-style synthetic inbox insert may add a row");
+    journalCounts.map((n,i)=>String(Number(n)+(i===0?3:1))),
+    "Only three function-mediated envelopes, one candidate and one lifecycle may be added");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-ACL';"),"unverified");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
   console.log("PROTOCOLIA_S2C1C4L_RUNTIME_ROLE_ISOLATION_PASS "+build.target+
