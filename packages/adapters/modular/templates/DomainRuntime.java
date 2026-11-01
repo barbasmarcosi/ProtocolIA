@@ -23,6 +23,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.core.Authentication;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +39,57 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class DomainRuntime {
   private final NamedParameterJdbcTemplate jdbc;
-  public DomainRuntime(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
+  private final NamedParameterJdbcTemplate providerIngressJdbc;
+  public DomainRuntime(NamedParameterJdbcTemplate jdbc) {
+    this.jdbc=jdbc;
+    String user=System.getenv().getOrDefault("PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER","");
+    String password=System.getenv().getOrDefault("PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD","");
+    if(user.isEmpty()!=password.isEmpty())
+      throw new IllegalStateException("Provider ingress requires both DB user and password");
+    if(user.isEmpty()) {
+      this.providerIngressJdbc=jdbc; // Legacy sandbox mode, never bank authority.
+      return;
+    }
+    String runtimeUser=System.getenv().getOrDefault("PROTOCOLIA_JDBC_USER","");
+    String migrationUser=System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_JDBC_USER","");
+    String url=System.getenv().getOrDefault("PROTOCOLIA_JDBC_URL","");
+    if(!Manifest.PROVIDER_INBOX_ENABLED||
+       !"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED"))||
+       !"demo".equals(System.getenv("PROTOCOLIA_AUTH_MODE"))||
+       "migrate".equals(System.getenv("PROTOCOLIA_EXECUTION_MODE"))||
+       user.equals(runtimeUser)||user.equals(migrationUser)||
+       password.length()<16||!url.startsWith("jdbc:postgresql://"))
+      throw new IllegalStateException("Unsafe or unsupported provider ingress SQL identity");
+    // Dedicated unpooled connections: no application transaction, migration,
+    // session or other domain handler can accidentally borrow this identity.
+    var isolated=new NamedParameterJdbcTemplate(
+      new DriverManagerDataSource(url,user,password));
+    String principal=isolated.queryForObject("SELECT current_user",Map.of(),String.class);
+    Boolean superuser=isolated.queryForObject(
+      "SELECT rolsuper FROM pg_roles WHERE rolname=current_user",Map.of(),Boolean.class);
+    Boolean writer=isolated.queryForObject(
+      "SELECT has_function_privilege(current_user,"+
+      "'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE')",
+      Map.of(),Boolean.class);
+    Boolean reader=isolated.queryForObject(
+      "SELECT has_function_privilege(current_user,"+
+      "'public.protocolia_provider_receipt_integrity_projection(text)','EXECUTE')",
+      Map.of(),Boolean.class);
+    Boolean directInsert=isolated.queryForObject(
+      "SELECT has_table_privilege(current_user,"+
+      "'public.protocolia_provider_envelope_inbox','INSERT')",Map.of(),Boolean.class);
+    Boolean ordinaryWriter=jdbc.queryForObject(
+      "SELECT has_function_privilege(current_user,"+
+      "'public.protocolia_record_provider_envelope_digest(text,text,text)','EXECUTE')",
+      Map.of(),Boolean.class);
+    if(!user.equals(principal)||!Boolean.FALSE.equals(superuser)||
+       !Boolean.TRUE.equals(writer)||!Boolean.FALSE.equals(reader)||
+       !Boolean.FALSE.equals(directInsert)||!Boolean.FALSE.equals(ordinaryWriter))
+      throw new IllegalStateException(
+        "Provider ingress DB privileges do not match the reviewed split");
+    this.providerIngressJdbc=isolated;
+    System.out.println("PROTOCOLIA_SPRING_PROVIDER_INGRESS_PRINCIPAL_READY");
+  }
 
   private static final class InvalidInputField extends ResponseStatusException {
     final String field;
@@ -163,7 +214,7 @@ public class DomainRuntime {
           .addValue("orderId",matcher.group(3)).addValue("amount",matcher.group(4))
           .addValue("sequence",matcher.group(5)).addValue("phase",matcher.group(6));
       }
-      outcome=jdbc.queryForObject(query,args,String.class);
+      outcome=providerIngressJdbc.queryForObject(query,args,String.class);
     }catch(DataAccessException error){
       if(constraintSqlState(error,"40001"))
         throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Retry provider inbox",error);
