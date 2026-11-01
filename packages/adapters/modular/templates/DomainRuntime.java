@@ -125,11 +125,15 @@ public class DomainRuntime {
           throw new IllegalStateException("Provider projection ACL drift: "+signature);
       }
       for(String journal:journals){
-        Boolean allowed=role.queryForObject(
+        Boolean tableAllowed=role.queryForObject(
           "SELECT has_table_privilege(current_user,CAST(:journal AS regclass),"+
           "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')",
           Map.of("journal",journal),Boolean.class);
-        if(!Boolean.FALSE.equals(allowed))
+        Boolean columnAllowed=role.queryForObject(
+          "SELECT has_any_column_privilege(current_user,CAST(:journal AS regclass),"+
+          "'SELECT,INSERT,UPDATE,REFERENCES')",
+          Map.of("journal",journal),Boolean.class);
+        if(!Boolean.FALSE.equals(tableAllowed)||!Boolean.FALSE.equals(columnAllowed))
           throw new IllegalStateException("Provider direct journal ACL drift: "+journal);
       }
     }
