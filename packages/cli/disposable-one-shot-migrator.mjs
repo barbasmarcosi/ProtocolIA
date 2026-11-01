@@ -6,7 +6,8 @@ import {resolve,dirname,relative,isAbsolute,sep} from "node:path";
 import {ephemeralCutoverProject} from "./cutover-recovery.mjs";
 const reject=m=>{throw Error("Disposable one-shot migrator refused: "+m);};
 const quote=v=>JSON.stringify(v);
-export function oneShotOverlay(imageId,target){
+export function oneShotOverlay(imageId,target,{providerIngress=false}={}){
+  if(typeof providerIngress!=="boolean")reject("Invalid provider ingress isolation option");
   if(!/^sha256:[0-9a-f]{64}$/.test(imageId))
     reject("Require previously staged exact Docker image ID, never mutable tag");
   if(!["nestjs","modular-spring"].includes(target))
@@ -26,7 +27,21 @@ export function oneShotOverlay(imageId,target){
     "      PROTOCOLIA_MIGRATION_FAILPOINT: !reset null",
     "      PROTOCOLIA_MIGRATION_JDBC_USER: !reset null",
     "      PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null",
+    // Never allow the base Compose's superuser fallback into HTTP runtime.
+    '      PROTOCOLIA_JDBC_USER: ${PROTOCOLIA_RUNTIME_DB_USER:?set distinct PROTOCOLIA_RUNTIME_DB_USER}',
+    '      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_RUNTIME_DB_PASSWORD:?set distinct PROTOCOLIA_RUNTIME_DB_PASSWORD}',
+    ...(providerIngress?[
+      '      PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER: ${PROTOCOLIA_PROVIDER_INGRESS_DB_USER:?set separate ingress DB user}',
+      '      PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD: ${PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD:?set separate ingress DB password}',
+      '      PROTOCOLIA_PROVIDER_SANDBOX_ENABLED: "true"',
+      "      PROTOCOLIA_AUTH_MODE: demo",
+    ]:[]),
     "  migrate:",
+    "    profiles: [migration]",
+    '    restart: "no"',
+    "    depends_on:",
+    "      db:",
+    "        condition: service_healthy",
     "    image: "+imageId,
     "    pull_policy: never",
     "    environment:",
@@ -46,8 +61,9 @@ export function oneShotOverlay(imageId,target){
   ].join("\n");
 }
 export function oneShotOverlayOptions(args){
-  if(args.length!==9||args[1]!=="--target"||args[3]!=="--image"||
-     args[5]!=="--project"||args[7]!=="--out")
+  if(![9,10].includes(args.length)||args[1]!=="--target"||args[3]!=="--image"||
+     args[5]!=="--project"||args[7]!=="--out"||
+     (args.length===10&&args[9]!=="--provider-ingress"))
     reject("Usage: <generated-app> --target nestjs|modular-spring --image sha256:... --project pia_ckpt_<hex> --out <new-private.yaml>");
   const [dir,,target,,imageId,,project,,out]=args;
   ephemeralCutoverProject(project);
@@ -56,7 +72,9 @@ export function oneShotOverlayOptions(args){
   if(rel===""||(rel!==".."&&!rel.startsWith(".."+sep)&&!isAbsolute(rel))||
      !dest.endsWith(".yaml")||!existsSync(dirname(dest))||existsSync(dest))
     reject("Overlay must be newly created outside generated app");
-  return {target,imageId,project,dest,contents:oneShotOverlay(imageId,target)};
+  const providerIngress=args.length===10;
+  return {target,imageId,project,dest,providerIngress,
+    contents:oneShotOverlay(imageId,target,{providerIngress})};
 }
 export function writeOneShotOverlay(args){
   const o=oneShotOverlayOptions(args);
@@ -65,7 +83,8 @@ export function writeOneShotOverlay(args){
   if(!stat.isFile()||(stat.mode&0o077)!==0)reject("Owner-only YAML file required");
   console.log("PROTOCOLIA_V11_ONE_SHOT_OVERLAY_READY "+JSON.stringify({
     target:o.target,imageId:o.imageId,project:o.project,
-    migrationsOneShot:true,httpWithoutPrivilegedSqlSecret:true
+    migrationsOneShot:true,httpWithoutPrivilegedSqlSecret:true,
+    providerIngressIsolated:o.providerIngress
   }));
   return o;
 }

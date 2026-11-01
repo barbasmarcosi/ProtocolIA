@@ -616,7 +616,8 @@ test("one-shot migration uses immutable pinned image and removes privileged vars
   const staged="sha256:"+"e".repeat(64);
   for(const target of ["nestjs","modular-spring"]){
     const yaml=oneShotOverlay(staged,target);
-    assert.match(yaml,/  migrate:\n    image: sha256:/);
+    assert.match(yaml,/  migrate:\n    profiles: \[migration\]/);
+    assert.match(yaml,/    image: sha256:/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: migrate/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: runtime/);
     assert.match(yaml,/      PROTOCOLIA_MIGRATION_HANDOFF_ID: e{64}/);
@@ -642,6 +643,40 @@ test("one-shot migration uses immutable pinned image and removes privileged vars
     /outside generated app/);
   assert.throws(()=>oneShotOverlayOptions([...args.slice(0,6),"production",...args.slice(7)]),
     /Recovery rehearsal refused/);
+});
+
+test("S2c provider one-shot overlay keeps migrator and HMAC ingress secrets out of opposite processes",()=>{
+  const image="sha256:"+"b".repeat(64);
+  for(const target of ["nestjs","modular-spring"]){
+    const yaml=oneShotOverlay(image,target,{providerIngress:true});
+    const app=yaml.split("  migrate:")[0];
+    const migrator="  migrate:"+yaml.split("  migrate:")[1];
+    assert.match(app,/PROTOCOLIA_EXECUTION_MODE: runtime/);
+    assert.match(app,/PROTOCOLIA_JDBC_USER: \$\{PROTOCOLIA_RUNTIME_DB_USER:\?/);
+    assert.match(app,/PROTOCOLIA_JDBC_PASSWORD: \$\{PROTOCOLIA_RUNTIME_DB_PASSWORD:\?/);
+    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER: \$\{PROTOCOLIA_PROVIDER_INGRESS_DB_USER:\?/);
+    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD: \$\{PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD:\?/);
+    assert.match(app,/PROTOCOLIA_MIGRATION_JDBC_USER: !reset null/);
+    assert.match(app,/PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null/);
+    assert.match(migrator,/profiles: \[migration\]/);
+    assert.match(migrator,/condition: service_healthy/);
+    assert.match(migrator,/PROTOCOLIA_EXECUTION_MODE: migrate/);
+    assert.doesNotMatch(migrator,/PROTOCOLIA_PROVIDER_INGRESS_(?:DB|JDBC)_/);
+    assert.doesNotMatch(migrator,/PROTOCOLIA_RUNTIME_DB_PASSWORD/);
+    assert.doesNotMatch(app,/PROTOCOLIA_DB_PASSWORD:/);
+    assert.doesNotMatch(app,/PROTOCOLIA_MIGRATION_DB_PASSWORD:/);
+  }
+  assert.throws(()=>oneShotOverlay(image,"nestjs",{providerIngress:"true"}),
+    /Invalid provider ingress isolation option/);
+  const f=makeStageFixture(),out=join(f.root,"provider-one-shot.yaml");
+  const args=[f.dir,"--target","nestjs","--image",image,
+    "--project","pia_ckpt_012345abcd","--out",out,"--provider-ingress"];
+  assert.equal(oneShotOverlayOptions(args).providerIngress,true);
+  writeOneShotOverlay(args);
+  assert.equal(statSync(out).mode&0o077,0);
+  assert.match(readFileSync(out,"utf8"),/PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER/);
+  assert.throws(()=>oneShotOverlayOptions([...args.slice(0,-1),"--unsafe"]),
+    /Disposable one-shot migrator refused/);
 });
 
 test("one-shot template sources refuse incomplete image migration handoffs and expose transactional failpoints",()=>{

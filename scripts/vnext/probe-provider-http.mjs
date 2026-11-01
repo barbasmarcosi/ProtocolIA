@@ -7,12 +7,13 @@ import {mkdtempSync,writeFileSync,rmSync,readFileSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {createServer} from "node:net";
+import {oneShotOverlay} from "../../packages/cli/disposable-one-shot-migrator.mjs";
 
 const root=resolve(process.argv[2]??"");
 const build=JSON.parse(readFileSync(join(root,"protocolia-build.json"),"utf8"));
 assert.ok(["nestjs","modular-spring"].includes(build.target));
 const scratch=mkdtempSync(join(tmpdir(),"pia-provider-http-"));
-const project="pia_http_"+randomBytes(5).toString("hex");
+const project="pia_ckpt_"+randomBytes(5).toString("hex");
 const key=randomBytes(32);
 const rotatedKey=randomBytes(32);
 const env={
@@ -409,6 +410,103 @@ try{
     "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
   console.log("PROTOCOLIA_S2C1C4P_SIGNED_HTTP_DISTINCT_DB_PRINCIPAL_PASS "+build.target+
     " real split ACL, 10-way replay, candidate/lifecycle, bad HMAC, restart, no settlement");
+
+  // S2c-1c4q: a second, genuinely isolated lifecycle on the SAME populated
+  // disposable PostgreSQL. One pinned image is used first as a one-shot
+  // migrator, then as HTTP runtime; only the runtime receives HMAC ingress
+  // credentials, and only the migrator receives privileged SQL credentials.
+  // The existing legacy Compose remains backward compatible, not secure.
+  const existingApp=docker(["ps","-q","app"]).stdout.trim();
+  assert.match(existingApp,/^[a-f0-9]{12,64}$/);
+  const inspected=spawnSync("docker",["inspect","--format","{{.Image}}",existingApp],
+    {encoding:"utf8",timeout:15000});
+  assert.equal(inspected.status,0,inspected.stderr);
+  const imageId=inspected.stdout.trim();
+  assert.match(imageId,/^sha256:[a-f0-9]{64}$/);
+  const overlay=join(scratch,"provider-one-shot.yaml");
+  writeFileSync(overlay,oneShotOverlay(imageId,build.target,
+    {providerIngress:true}),{mode:0o600,flag:"wx"});
+  const isolatedBase=[...compose.slice(0,1),
+    "--project-name",project,"--env-file",join(scratch,"env"),
+    "-f",join(root,"compose.yaml"),"-f",overlay];
+  const isolated=(args,allowFail=false)=>{
+    const result=spawnSync("docker",[...isolatedBase,...args],{
+      cwd:root,env:{...process.env,...env},encoding:"utf8",
+      timeout:600000,maxBuffer:3*1024*1024});
+    if(!allowFail&&(result.error||result.status!==0))
+      throw Error("Isolated Compose "+args.join(" ")+": "+
+        String(result.stderr||result.error?.message).slice(-1800));
+    return result;
+  };
+  // PostgreSQL information_schema only lists columns visible to the role.
+  // Read-only grants are sufficient for the generated runtime readiness gate;
+  // never grant runtime direct journal DML or settlement writes.
+  const readable=sql("SELECT tablename FROM pg_tables WHERE schemaname='public' "+
+    "AND tablename NOT LIKE 'protocolia_%' AND tablename<>'flyway_schema_history' "+
+    "ORDER BY tablename").split("\n").filter(Boolean);
+  for(const table of readable){
+    assert.match(table,/^[a-z][a-z0-9_]*$/);
+    sql("GRANT SELECT ON TABLE public."+table+" TO "+runtimeRole);
+  }
+  docker(["stop","app"]);
+  const config=JSON.parse(isolated(["--profile","migration","config","--format","json"]).stdout);
+  const appConfig=config.services.app, migratorConfig=config.services.migrate;
+  assert.equal(appConfig.image,imageId);
+  assert.equal(migratorConfig.image,imageId);
+  assert.equal(appConfig.environment.PROTOCOLIA_EXECUTION_MODE,"runtime");
+  assert.equal(migratorConfig.environment.PROTOCOLIA_EXECUTION_MODE,"migrate");
+  assert.equal(appConfig.environment.PROTOCOLIA_JDBC_USER,runtimeRole);
+  assert.equal(appConfig.environment.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER,ingressRole);
+  assert.equal(migratorConfig.environment.PROTOCOLIA_JDBC_USER,"protocolia");
+  assert.deepEqual(migratorConfig.profiles,["migration"]);
+  for(const key of ["PROTOCOLIA_MIGRATION_JDBC_USER",
+    "PROTOCOLIA_MIGRATION_JDBC_PASSWORD","PROTOCOLIA_DB_PASSWORD"]){
+    assert.equal(appConfig.environment[key],undefined,
+      "Privileged SQL secret leaked into HTTP runtime: "+key);
+  }
+  for(const key of ["PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER",
+    "PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD"]){
+    assert.equal(migratorConfig.environment[key],undefined,
+      "HMAC ingress identity leaked into migrator: "+key);
+  }
+  assert.ok(appConfig.build==null,"Pinned runtime must not rebuild");
+  // Runtime cannot start before a successful one-shot schema handoff.
+  const premature=isolated(["run","--rm","--no-deps","app"],true);
+  assert.notEqual(premature.status,0,"Missing migration handoff must fail closed");
+  assert.equal(sql("SELECT to_regclass('public.protocolia_migration_handoff_v1') IS NULL"),"t");
+  isolated(["run","--rm","migrate"]);
+  assert.equal(sql("SELECT COUNT(*) FROM public.protocolia_migration_handoff_v1 "+
+    "WHERE image_digest='"+imageId.slice(7)+"'"),"1");
+  isolated(["up","-d","--no-deps","--force-recreate","app"]);
+  await ready();
+  const pinnedApp=isolated(["ps","-q","app"]).stdout.trim();
+  assert.match(pinnedApp,/^[a-f0-9]{12,64}$/);
+  const inspectRuntime=spawnSync("docker",["inspect","--format",
+    "{{json .Config.Env}}",pinnedApp],{encoding:"utf8",timeout:15000});
+  assert.equal(inspectRuntime.status,0);
+  const runtimeEnv=JSON.parse(inspectRuntime.stdout);
+  assert.ok(runtimeEnv.includes("PROTOCOLIA_EXECUTION_MODE=runtime"));
+  assert.ok(runtimeEnv.includes("PROTOCOLIA_JDBC_USER="+runtimeRole));
+  assert.ok(runtimeEnv.includes("PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER="+ingressRole));
+  assert.ok(!runtimeEnv.some(v=>v.startsWith("PROTOCOLIA_MIGRATION_JDBC_")||
+    v.startsWith("PROTOCOLIA_DB_PASSWORD=")));
+  assert.equal(isolated(["--profile","migration","ps","-q","migrate"]).stdout.trim(),"",
+    "Privileged one-shot migrator must not remain running");
+  const pinnedEvent="evt_http_pinned_12345678";
+  const pinnedReplies=await Promise.all(Array.from({length:10},()=>send(pinnedEvent)));
+  assert.equal(pinnedReplies.filter(x=>x.status===202).length,1);
+  assert.equal(pinnedReplies.filter(x=>x.status===200).length,9);
+  assert.equal((await send("evt_http_pinned_bad_sig",changed,
+    signed("evt_http_pinned_bad_sig",body))).status,401);
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox "+
+    "WHERE event_id='"+pinnedEvent+"'"),"1");
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
+  isolated(["restart","app"]);
+  await ready();
+  assert.equal((await send(pinnedEvent)).status,200);
+  console.log("PROTOCOLIA_S2C1C4Q_PINNED_MIGRATOR_RUNTIME_SECRET_BOUNDARY_PASS "+
+    build.target+" one-shot handoff, no shared SQL credentials, HMAC replay, restart");
 
   console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
