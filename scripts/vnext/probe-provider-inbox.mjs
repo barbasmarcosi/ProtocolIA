@@ -471,6 +471,152 @@ try{
   console.log("PROTOCOLIA_S2C1C4J_PROVIDER_JOURNAL_TRUNCATE_GUARD_PASS "+
     build.target+" direct, cascading and multi-table TRUNCATE rejected");
 
+  // S2c-1c4l: operator-only, opt-in runtime/migration privilege separation.
+  // Exercise actual PostgreSQL role ACLs and SECURITY DEFINER entrypoints.
+  const isolation=readFileSync(join(root,
+    "protocolia-provider-journal-runtime-isolation.sql"),"utf8");
+  assert.ok(isolation.includes("DO $protocolia_provider_runtime_acl$"));
+  const runtimeRole="pia_runtime_"+randomBytes(4).toString("hex");
+  const inheritedRole="pia_group_"+randomBytes(4).toString("hex");
+  const ownerRole="pia_owner_"+randomBytes(4).toString("hex");
+  sql("CREATE ROLE "+runtimeRole+" LOGIN; CREATE ROLE "+inheritedRole+
+    "; CREATE ROLE "+ownerRole+";");
+  // Never make a superuser the owner of SECURITY DEFINER entrypoints.
+  // The disposable migration principal owns only the provider journal objects
+  // and has read access to the receipt table required by canonical functions.
+  sql("ALTER SCHEMA public OWNER TO "+ownerRole+
+    "; GRANT SELECT ON payment TO "+ownerRole+
+    "; GRANT UPDATE(status) ON payment TO "+ownerRole+";");
+  for(const table of immutableProviderTables)
+    sql("ALTER TABLE public."+table+" OWNER TO "+ownerRole+";");
+  for(const signature of [
+    "protocolia_provider_envelope_immutable()",
+    "protocolia_record_provider_envelope_digest(text,text,text)",
+    "protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)",
+    "protocolia_record_provider_lifecycle_observation(text,text,text,text,text,text,numeric,numeric,text)",
+    "protocolia_provider_lifecycle_causal_projection(text)",
+    "protocolia_provider_receipt_integrity_projection(text)"
+  ])sql("ALTER FUNCTION public."+signature+" OWNER TO "+ownerRole+";");
+  const applyAcl="BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+
+    literal(runtimeRole)+"; "+isolation+" COMMIT;";
+  const securityDefiner=()=>value("SELECT prosecdef FROM pg_proc WHERE oid="+
+    "'public.protocolia_record_provider_envelope_digest(text,text,text)'::regprocedure;");
+  assert.equal(securityDefiner(),"f");
+  assert.notEqual(sql(isolation,{allowFail:true}).status,0,
+    "An unspecified runtime role must not trigger an ACL change");
+  assert.notEqual(sql("BEGIN; SET LOCAL protocolia.provider_runtime_role='protocolia'; "+
+    isolation,{allowFail:true}).status,0,
+    "A superuser migration owner must never run SECURITY DEFINER isolation");
+  assert.notEqual(sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(ownerRole)+"; "+
+    isolation,{allowFail:true}).status,0,
+    "A runtime identity must not equal its migration owner");
+  assert.equal(securityDefiner(),"f","Rejected ACL must not modify functions");
+  // A missing immutable guard must reject the entire privilege transition.
+  const unsafeAcl=sql("BEGIN; ALTER TABLE protocolia_provider_envelope_inbox "+
+    "DISABLE TRIGGER protocolia_provider_envelope_immutable_guard_truncate; "+
+    "SET ROLE "+ownerRole+"; SET LOCAL protocolia.provider_runtime_role="+
+    literal(runtimeRole)+"; "+isolation,{allowFail:true});
+  assert.notEqual(unsafeAcl.status,0);
+  assert.match(unsafeAcl.stderr,/TRUNCATE guard drifted/);
+  assert.equal(securityDefiner(),"f");
+  // Explicit rollback of a valid ACL rehearsal must leave all grants unchanged.
+  sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+    "; "+isolation+" ROLLBACK;");
+  assert.equal(securityDefiner(),"f");
+  // A group with inherited journal read access is a bypass of direct REVOKE.
+  // The postcondition must abort atomically, including function ALTERs.
+  sql("GRANT SELECT ON protocolia_provider_envelope_inbox TO "+inheritedRole+
+    "; GRANT "+inheritedRole+" TO "+runtimeRole+";");
+  const inheritedAcl=sql(applyAcl,{allowFail:true});
+  assert.notEqual(inheritedAcl.status,0,"Inherited journal privilege must fail closed");
+  assert.match(inheritedAcl.stderr,/inherited direct journal access/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE "+inheritedRole+" FROM "+runtimeRole+
+    "; REVOKE SELECT ON protocolia_provider_envelope_inbox FROM "+inheritedRole+";");
+  // An unrelated role with an explicit old EXECUTE grant must not be allowed
+  // to invoke a newly elevated SECURITY DEFINER entrypoint.
+  const digestSignature="public.protocolia_record_provider_envelope_digest(text,text,text)";
+  sql("GRANT EXECUTE ON FUNCTION "+digestSignature+" TO "+inheritedRole+";");
+  const rogueFunctionAcl=sql(applyAcl,{allowFail:true});
+  assert.notEqual(rogueFunctionAcl.status,0,
+    "Explicit third-party function EXECUTE grant must fail closed");
+  assert.match(rogueFunctionAcl.stderr,/Unexpected provider function EXECUTE grantee/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE EXECUTE ON FUNCTION "+digestSignature+" FROM "+inheritedRole+";");
+  // Two operator sessions can race: advisory lock serializes the atomic
+  // changes, and repeating a successful transition must be idempotent.
+  const aclRuns=await concurrent([applyAcl,applyAcl]);
+  assert.equal(aclRuns.length,2);
+  sql(applyAcl);
+  assert.equal(securityDefiner(),"t");
+  for(const table of immutableProviderTables){
+    assert.equal(value("SELECT has_table_privilege("+literal(runtimeRole)+
+      ","+literal("public."+table)+
+      ",'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER');"),"f",
+      "Runtime must have no direct journal access: "+table);
+  }
+  const asRuntime=query=>sql("SET ROLE "+runtimeRole+"; "+query)
+    .stdout.trim().split("\n").at(-1);
+  const deniedAsRuntime=query=>{
+    const attempt=sql("SET ROLE "+runtimeRole+"; "+query,{allowFail:true});
+    assert.notEqual(attempt.status,0,"Runtime unexpectedly allowed: "+query);
+    assert.match(attempt.stderr,/permission denied|must be owner/,
+      "Expected a real PostgreSQL permission failure");
+  };
+  deniedAsRuntime("SELECT * FROM protocolia_provider_envelope_inbox;");
+  deniedAsRuntime("INSERT INTO protocolia_provider_envelope_inbox "+
+    "(provider_id,event_id,payload_sha256) VALUES "+
+    "('sandbox_provider','evt_acl_direct_01',"+literal(digestA)+");");
+  deniedAsRuntime("UPDATE protocolia_provider_envelope_inbox "+
+    "SET payload_sha256="+literal(digestB)+";");
+  deniedAsRuntime("DELETE FROM protocolia_provider_envelope_inbox;");
+  deniedAsRuntime("TRUNCATE protocolia_provider_lifecycle_observation CASCADE;");
+  deniedAsRuntime("ALTER FUNCTION public.protocolia_record_provider_envelope_digest"+
+    "(text,text,text) SECURITY INVOKER;");
+  deniedAsRuntime("CREATE TABLE public.pia_runtime_ddl_attack (id INT);");
+  assert.equal(asRuntime(call("sandbox_provider","evt_acl_valid_1234",digestA)),
+    "stored","Validated SECURITY DEFINER inbox function must remain usable");
+  assert.equal(asRuntime(call("sandbox_provider","evt_acl_valid_1234",digestA)),
+    "duplicate","Runtime signed-event replay must remain idempotent");
+  assert.equal(asRuntime(candidate(candidateEvent,digestA)),"duplicate",
+    "Validated candidate entrypoint must remain callable");
+  assert.equal(asRuntime(observation(sameEvent,4)),"duplicate",
+    "Validated lifecycle entrypoint must remain callable");
+  assert.equal(asRuntime("SELECT internal_integrity FROM "+
+    "protocolia_provider_receipt_integrity_projection('PAY-CAND-ROLL');"),
+    "synthetic_failure","Read-only integrity projection must remain callable");
+  // Exercise first-time candidate and lifecycle writes, not only duplicates:
+  // the migration owner must hold precisely the row-lock privilege needed
+  // by SELECT ... FOR UPDATE on the referenced payment.
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-ACL','CAR-CAND','Runtime ACL test',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-ACL','OT-ACL',1.25,'card','Synthetic account','posted','unverified');");
+  const aclCandidateEvent="evt_acl_candidate_12345678";
+  const aclLifecycleEvent="evt_acl_lifecycle_12345678";
+  assert.equal(asRuntime(candidate(aclCandidateEvent,digestA,
+    "PAY-ACL","OT-ACL")),"stored",
+    "New candidate must be inserted only through validated function");
+  assert.equal(asRuntime(observation(aclLifecycleEvent,1,"reported_pending",
+    aclCandidateEvent,"PAY-ACL","OT-ACL")),"stored",
+    "New lifecycle must be inserted only through validated function");
+  assert.equal(asRuntime(observation(aclLifecycleEvent,1,"reported_pending",
+    aclCandidateEvent,"PAY-ACL","OT-ACL")),"duplicate");
+  assert.deepEqual(immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";")),
+    journalCounts.map((n,i)=>String(Number(n)+(i===0?3:1))),
+    "Only three function-mediated envelopes, one candidate and one lifecycle may be added");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-ACL';"),"unverified");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4L_RUNTIME_ROLE_ISOLATION_PASS "+build.target+
+    " denied direct journal DML/DDL, validated entrypoints, inherited grants, "+
+    "rollback, concurrent operator upgrades and no settlement");
+
   console.log("PROTOCOLIA_S2C1C4I_PHASE_AWARE_SYNTHETIC_INTEGRITY_PASS "+build.target+
     " pending, success, failure, reversal, contradiction, rollback, unverified balances");
   console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+

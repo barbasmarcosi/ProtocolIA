@@ -10,6 +10,8 @@ on:
       - 'packages/adapters/provider-envelope-inbox.mjs'
       - 'packages/adapters/provider-journal-upgrade.mjs'
       - 'tests/vnext/provider-journal-upgrade.test.mjs'
+      - 'packages/adapters/provider-journal-runtime-isolation.mjs'
+      - 'tests/vnext/provider-journal-runtime-isolation.test.mjs'
       - 'scripts/vnext/probe-provider-inbox.mjs'
       - 'scripts/vnext/probe-provider-http.mjs'
       - 'packages/adapters/nest/generate.mjs'
@@ -55,7 +57,7 @@ jobs:
           java -cp "${{ runner.temp }}/provider-proof-classes" \
             dev.protocolia.modular.ProviderWebhookVerifierTest
       - name: Unit-check opt-in provider inbox schema and fail-closed contracts
-        run: node --test tests/vnext/provider-envelope-inbox.test.mjs tests/vnext/provider-journal-upgrade.test.mjs
+        run: node --test tests/vnext/provider-envelope-inbox.test.mjs tests/vnext/provider-journal-upgrade.test.mjs tests/vnext/provider-journal-runtime-isolation.test.mjs
       - name: Generate independent target from unchanged canonical workshop TypeSpec
         run: npm run app:build -- examples/vnext/workshop-itemized-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/provider-preflight-app"
       - name: Real PostgreSQL and HTTP generated conformance, no provider calls
