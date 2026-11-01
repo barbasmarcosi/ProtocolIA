@@ -97,8 +97,18 @@ public class DomainRuntime {
       Boolean crossMember=role.queryForObject(
         "SELECT pg_has_role(current_user,CAST(:other AS name),'MEMBER')",
         Map.of("other",other),Boolean.class);
+      Boolean noMemberships=role.queryForObject(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members m "+
+        "JOIN pg_roles me ON me.oid=m.member WHERE me.rolname=current_user)",
+        Map.of(),Boolean.class);
+      Boolean noDelegates=role.queryForObject(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname<>current_user "+
+        "AND NOT r.rolsuper AND pg_has_role(r.oid,"+
+        "(SELECT oid FROM pg_roles WHERE rolname=current_user),'MEMBER'))",
+        Map.of(),Boolean.class);
       if(!Boolean.FALSE.equals(elevated)||!Boolean.FALSE.equals(schemaCreate)||
-         !Boolean.FALSE.equals(crossMember))
+         !Boolean.FALSE.equals(crossMember)||!Boolean.TRUE.equals(noMemberships)||
+         !Boolean.TRUE.equals(noDelegates))
         throw new IllegalStateException("Provider SQL role is privileged or inherits another process identity");
       for(String signature:writers){
         Boolean allowed=role.queryForObject(
