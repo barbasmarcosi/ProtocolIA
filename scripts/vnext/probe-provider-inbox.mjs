@@ -799,11 +799,16 @@ try{
   const snapshotReceipt=internalSnapshot.find(row=>row.receiptId==="PAY-CAND");
   assert.deepEqual(snapshotReceipt,{
     receiptId:"PAY-CAND",orderId:"OT-CAND",amount:"1.25",
-    currency:"ARS",status:"posted",proofState:"unverified"
+    currency:"ARS",status:"reversed",proofState:"unverified"
   });
+  const postedSnapshot=internalSnapshot.find(row=>row.receiptId==="PAY-INGRESS");
+  assert.equal(postedSnapshot.status,"posted");
+  assert.equal(postedSnapshot.amount,"1.25");
+  assert.equal(postedSnapshot.proofState,"unverified");
   const comparison=reconcileProviderStatement({currency:"ARS",scale:2,
-    internal:[snapshotReceipt],links:[],external:[]});
+    internal:[snapshotReceipt,postedSnapshot],links:[],external:[]});
   assert.equal(comparison.rows[0].classification,"unlinked");
+  assert.equal(comparison.rows[1].classification,"unlinked");
   assert.equal(comparison.independentlyAuthenticated,false);
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
     "unverified");
