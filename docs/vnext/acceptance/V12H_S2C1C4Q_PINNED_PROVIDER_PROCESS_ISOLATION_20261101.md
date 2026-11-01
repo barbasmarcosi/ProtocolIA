@@ -1,6 +1,6 @@
 # S2c-1c4q — Pinned one-shot migrator and HMAC ingress process isolation
 
-**Status: implementation proposed; runtime CI must be checked before claiming acceptance.** This is a disposable, opt-in sandbox boundary, not a production provider or settlement integration.
+**Status: bounded real dual-target PostgreSQL/HTTP CI verified on functional SHA `da40bab3ccf1d73555818a1d2b9582ecda0e7467`; not deployed.** This is a disposable, opt-in sandbox boundary, not a production provider or settlement integration.
 
 ## Threat, scope and invariant
 
@@ -35,3 +35,11 @@ The exact local image must already exist, and the runtime, migrator and ingress 
 ## Remaining blockers
 
 This verifies a bounded local process-level separation only. It does **not** prove external provider identity, independent cleared settlement reconciliation, real refunds/chargebacks, multi-tenant production IAM, durable backup/restore, production secret orchestration or third-party business acceptance. Issue #57 stays open. No production deploy, live money operation or stable financial tag.
+
+## Verified CI evidence (2026-11-01 UTC)
+
+- [Provider dual-target CI #41299635931](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41299635931) **SUCCESS**, with `PROTOCOLIA_S2C1C4Q_PINNED_MIGRATOR_RUNTIME_SECRET_BOUNDARY_PASS` in both independently generated **Spring and NestJS** PostgreSQL/HTTP jobs. The earlier S2c-1c4p HMAC ingress marker also passed in both. This is a populated disposable database, not a live bank.
+- [Quality #41299635954](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41299635954) **SUCCESS**; [exact finance/Chromium #41299635989](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41299635989) **SUCCESS**; [itemized finance/Chromium #41299635964](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41299635964) **SUCCESS**.
+- An initial run failed because a historical unit assertion expected the migrator image to appear before the new Compose profile. After correcting the assertion, a second run exposed that `docker compose config` hides services behind inactive profiles; the probe now explicitly activates the migration profile for inspection. The final functional revision passed all four workflows. These were test-harness corrections, not waived product assertions.
+
+The CI evidence applies to the tested functional revision. Any subsequent documentation-only commit must not be represented as tested until its own checks finish.
