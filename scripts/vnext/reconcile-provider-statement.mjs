@@ -5,10 +5,14 @@ import {resolve} from "node:path";
 import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
 function load(file, name) {
   const path=resolve(file);
-  const stat=lstatSync(path);
+  let stat;
+  try { stat=lstatSync(path); }
+  catch { throw Error(name + ": input inaccessible"); }
   if(!stat.isFile() || stat.isSymbolicLink() || stat.size>4*1024*1024)
     throw Error(name + ": input must be a regular, non-symlink file <= 4 MiB");
-  const data=JSON.parse(readFileSync(path,"utf8"));
+  let data;
+  try { data=JSON.parse(readFileSync(path,"utf8")); }
+  catch { throw Error(name + ": invalid JSON or unreadable file"); }
   if(!Array.isArray(data)) throw Error(name + ": expected JSON array");
   return data;
 }
