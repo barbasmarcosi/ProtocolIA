@@ -53,7 +53,12 @@ export function providerEnvelopeInboxSql(exactReconciliations) {
         USING ERRCODE='23514'; END $provider_immutable$;`,
     `CREATE TRIGGER protocolia_provider_envelope_immutable_guard
       BEFORE UPDATE OR DELETE ON protocolia_provider_envelope_inbox
-      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
+      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`,
+    // Row-level UPDATE/DELETE triggers do not fire for TRUNCATE. Reject even
+    // owner-initiated bulk truncation before any journal row can be erased.
+    `CREATE TRIGGER protocolia_provider_envelope_immutable_guard_truncate
+      BEFORE TRUNCATE ON protocolia_provider_envelope_inbox
+      FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
   ];
   return appendProviderCandidate(plans,ddl);
 }
@@ -165,7 +170,12 @@ function appendProviderCandidate(plans,ddl){
     END $receipt_candidate$;`,
     `CREATE TRIGGER protocolia_provider_receipt_candidate_immutable_guard
       BEFORE UPDATE OR DELETE ON protocolia_provider_receipt_candidate
-      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
+      FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`,
+    // Row-level UPDATE/DELETE triggers do not fire for TRUNCATE. Reject even
+    // owner-initiated bulk truncation before any journal row can be erased.
+    `CREATE TRIGGER protocolia_provider_receipt_candidate_immutable_guard_truncate
+      BEFORE TRUNCATE ON protocolia_provider_receipt_candidate
+      FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable();`
   );
 
   // S2c-1c4b: append-only, *non-authoritative* synthetic lifecycle signals.
@@ -282,6 +292,11 @@ function appendProviderCandidate(plans,ddl){
     `CREATE TRIGGER protocolia_provider_lifecycle_observation_immutable_guard
       BEFORE UPDATE OR DELETE ON protocolia_provider_lifecycle_observation
       FOR EACH ROW EXECUTE FUNCTION protocolia_provider_envelope_immutable();`,
+    // Row-level UPDATE/DELETE triggers do not fire for TRUNCATE. Reject even
+    // owner-initiated bulk truncation before any journal row can be erased.
+    `CREATE TRIGGER protocolia_provider_lifecycle_observation_immutable_guard_truncate
+      BEFORE TRUNCATE ON protocolia_provider_lifecycle_observation
+      FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable();`,
     // S2c-1c4d: single-snapshot, read-only causal diagnostic. A coherent
     // synthetic report stream is NEVER bank-cleared settlement authority.
     `CREATE FUNCTION protocolia_provider_lifecycle_causal_projection(v_receipt TEXT)
