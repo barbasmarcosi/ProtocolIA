@@ -153,15 +153,19 @@ function prepare(input,inputBytes){
  const report={schemaVersion:"protocolia-intake-report/v0.1",status:details.length||draft.requirements.some(r=>r.scope==="deferred")?
   "PARTIAL_DRAFT_UNVERIFIED":"DRAFT_UNVERIFIED",sourceSha256:sha(inputBytes),
   generatedOperations:Object.values(n),deferredRequirements:draft.requirements.filter(r=>r.scope==="deferred").map(r=>r.id),
-  questions:details.map(q=>({id:q.id,state:q.state,classification:q.classification,affectsSupported:q.affectsSupported})),
+  questions:details.map(q=>({id:q.id,question:q.question,state:q.state,classification:q.classification,affectsSupported:q.affectsSupported,origin:q.origin,evidenceRefs:q.evidenceRefs,...(q.decision?{decision:q.decision}:{})})),
   limitations:["No AI agent or customer evidence was authenticated","Only one 3-field administrative profile with 5 operations was generated",
    "Unimplemented or unresolved requirements remain visible","No app execution or production authorization is implied"]};
  const mapping={schemaVersion:"protocolia-requirements/v1",requirements:draft.requirements.map(r=>({
   id:r.id,text:r.text,origin:r.origin,evidenceRefs:r.evidenceRefs,operations:r.operations
  }))};
+ const ledger={schemaVersion:"protocolia-decision-ledger/v0.1",authority:"SELF_DECLARED_UNVERIFIED",sourceSha256:sha(inputBytes),
+  decisions:draft.questions.map(q=>({id:q.id,question:q.question,classification:q.classification,state:q.state,
+   affectsSupported:q.affectsSupported,origin:q.origin,evidenceRefs:q.evidenceRefs,...(q.decision?{decision:q.decision}:{})}))};
  const files=new Map([
   ["contracts/main.tsp",specFor(draft.project,n)],["tspconfig.yaml",tspConfig],
-  ["requirements.json",json(mapping)],["protocolia-intake-report.json",json(report)]
+  ["requirements.json",json(mapping)],["decisions.json",json(ledger)],
+  ["protocolia-intake-report.json",json(report)]
  ]);
  const lock={schemaVersion:"protocolia-intake-lock/v0.1",generator:"protocolia-structured-intake@0.1.0",
   sourceSha256:sha(inputBytes),files:Object.fromEntries([...files].map(([p,v])=>[p,sha(v)]).sort((a,b)=>a[0].localeCompare(b[0])))};
