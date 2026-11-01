@@ -112,6 +112,8 @@ test("receipt integrity projection rejects stale internal state and never grants
   assert.match(projection,/c\.amount IS DISTINCT FROM r\.amount/);
   assert.match(projection,/r\.receipt_state IS DISTINCT FROM 'posted'/);
   assert.match(projection,/r\.proof_state IS DISTINCT FROM 'unverified'/);
+  assert.match(projection,/WHEN projection\.causal_integrity='coherent' THEN 'synthetic_only'/);
+  assert.match(projection,/ELSE 'causal_unknown' END/);
   for(const state of ["missing","unbound","claim_mismatch","not_posted",
     "proof_changed","no_lifecycle","causal_gap","causal_contradictory",
     "synthetic_only","causal_unknown"])
