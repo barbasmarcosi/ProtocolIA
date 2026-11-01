@@ -5,7 +5,7 @@ import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 const cli=resolve("scripts/vnext/reconcile-provider-statement.mjs");
-function run(internal,links,external,internalReturns=undefined,expectedOrder=undefined) {
+function run(internal,links,external,internalReturns=undefined,expectedOrder="O1") {
   const tmp=mkdtempSync(join(tmpdir(),"pia-offline-"));
   try {
     for(const [name,value] of Object.entries({internal,links,external}))
@@ -17,7 +17,7 @@ function run(internal,links,external,internalReturns=undefined,expectedOrder=und
       writeFileSync(join(tmp,"internalReturns.json"),JSON.stringify(internalReturns));
       args.push("--internal-returns",join(tmp,"internalReturns.json"));
     }
-    if(expectedOrder!==undefined)args.push("--expected-order",expectedOrder);
+    if(expectedOrder!==null)args.push("--expected-order",expectedOrder);
     return spawnSync(process.execPath,args,{encoding:"utf8",timeout:10000});
   }finally{rmSync(tmp,{recursive:true,force:true});}
 }
@@ -77,7 +77,7 @@ test("malformed external statement never echoes sensitive JSON fragments",()=>{
     writeFileSync(join(tmp,"external.json"),'{"account":"SECRET_ACCOUNT_12345", malformed');
     const r=spawnSync(process.execPath,[cli,"--internal",join(tmp,"internal.json"),
       "--links",join(tmp,"links.json"),"--external",join(tmp,"external.json"),
-      "--currency","ARS","--scale","2"],{encoding:"utf8",timeout:10000});
+      "--currency","ARS","--scale","2","--expected-order","O1"],{encoding:"utf8",timeout:10000});
     assert.equal(r.status,1);
     assert.match(r.stderr,/external: invalid JSON/);
     assert.doesNotMatch(r.stderr,/SECRET_ACCOUNT_12345/);
@@ -85,7 +85,7 @@ test("malformed external statement never echoes sensitive JSON fragments",()=>{
   }finally{rmSync(tmp,{recursive:true,force:true});}
 });
 
-test("optional expected-order scope accepts only the selected nonempty snapshot",()=>{
+test("mandatory expected-order scope accepts only the selected nonempty snapshot",()=>{
   const good=run([payment],[link],[capture],undefined,"O1");
   assert.equal(good.status,0,good.stderr);
   const wrong=run([payment],[link],[capture],undefined,"O2");
@@ -102,10 +102,17 @@ test("optional expected-order scope accepts only the selected nonempty snapshot"
   const invalid=run([payment],[link],[capture],undefined,"O1' OR TRUE");
   assert.equal(invalid.status,1);
 });
-test("empty exports without expected-order are incomplete, never exit success",()=>{
+test("missing order scope is rejected even when all amounts agree",()=>{
+  const r=run([payment],[link],[capture],undefined,null);
+  assert.equal(r.status,1,r.stderr);
+  assert.equal(r.stdout,"");
+  assert.match(r.stderr,/--expected-order|Usage/);
+});
+test("empty exports with explicit order cannot produce a financial report",()=>{
   const r=run([],[],[]);
-  assert.equal(r.status,2,r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout).exceptions.map(x=>x.code),["empty_internal_snapshot"]);
+  assert.equal(r.status,1,r.stderr);
+  assert.equal(r.stdout,"");
+  assert.match(r.stderr,/snapshot missing or outside expected order/);
 });
 test("symlinked and oversized inputs are rejected without echoing their contents",()=>{
   const tmp=mkdtempSync(join(tmpdir(),"pia-fd-"));
@@ -114,7 +121,7 @@ test("symlinked and oversized inputs are rejected without echoing their contents
     writeFileSync(real,JSON.stringify([payment]));
     symlinkSync(real,linked);
     const args=[cli,"--internal",linked,"--links",real,"--external",real,
-      "--currency","ARS","--scale","2"];
+      "--currency","ARS","--scale","2","--expected-order","O1"];
     const linkedResult=spawnSync(process.execPath,args,{encoding:"utf8",timeout:10000});
     assert.equal(linkedResult.status,1,linkedResult.stderr);
     assert.match(linkedResult.stderr,/non-symlink/);
@@ -150,7 +157,7 @@ test("CLI rejects duplicate financial keys in each independent source, with no d
         "--internal-returns",join(dir,"internalReturns.json"),
         "--links",join(dir,"links.json"),
         "--external",join(dir,"external.json"),
-        "--currency","ARS","--scale","2"],{encoding:"utf8",timeout:10000});
+        "--currency","ARS","--scale","2","--expected-order","O1"],{encoding:"utf8",timeout:10000});
       assert.equal(result.status,1,source+": "+result.stderr);
       assert.match(result.stderr,new RegExp(source+": duplicate JSON object member"));
       assert.doesNotMatch(result.stderr,/SECRET_FINANCIAL_VALUE/);
