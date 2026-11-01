@@ -449,7 +449,7 @@ try{
     sql("GRANT SELECT ON TABLE public."+table+" TO "+runtimeRole);
   }
   docker(["stop","app"]);
-  const config=JSON.parse(isolated(["config","--format","json"]).stdout);
+  const config=JSON.parse(isolated(["--profile","migration","config","--format","json"]).stdout);
   const appConfig=config.services.app, migratorConfig=config.services.migrate;
   assert.equal(appConfig.image,imageId);
   assert.equal(migratorConfig.image,imageId);
