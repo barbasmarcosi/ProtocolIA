@@ -536,7 +536,10 @@ try{
   sql("GRANT CREATE ON SCHEMA public TO PUBLIC;");
   const anonymousSchemaCreate=sql(applyAcl,{allowFail:true});
   assert.notEqual(anonymousSchemaCreate.status,0);
-  assert.match(anonymousSchemaCreate.stderr,/Public schema permits untrusted CREATE/);
+  // PUBLIC CREATE is inherited by the runtime itself, so the existing
+  // runtime privilege guard rejects this case before the global ACL check.
+  assert.match(anonymousSchemaCreate.stderr,
+    /Provider runtime role has elevated or owner privileges/);
   assert.equal(securityDefiner(),"f");
   sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC;");
   // A missing immutable guard must reject the entire privilege transition.
