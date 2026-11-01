@@ -651,13 +651,13 @@ test("S2c provider one-shot overlay keeps migrator and HMAC ingress secrets out 
     const app=yaml.split("  migrate:")[0];
     const migrator="  migrate:"+yaml.split("  migrate:")[1];
     assert.match(app,/PROTOCOLIA_EXECUTION_MODE: runtime/);
-    assert.match(app,/PROTOCOLIA_JDBC_USER: \\$\\{PROTOCOLIA_RUNTIME_DB_USER:\?/);
-    assert.match(app,/PROTOCOLIA_JDBC_PASSWORD: \\$\\{PROTOCOLIA_RUNTIME_DB_PASSWORD:\?/);
-    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER: \\$\\{PROTOCOLIA_PROVIDER_INGRESS_DB_USER:\?/);
-    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD: \\$\\{PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD:\?/);
+    assert.match(app,/PROTOCOLIA_JDBC_USER: \$\{PROTOCOLIA_RUNTIME_DB_USER:\?/);
+    assert.match(app,/PROTOCOLIA_JDBC_PASSWORD: \$\{PROTOCOLIA_RUNTIME_DB_PASSWORD:\?/);
+    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER: \$\{PROTOCOLIA_PROVIDER_INGRESS_DB_USER:\?/);
+    assert.match(app,/PROTOCOLIA_PROVIDER_INGRESS_JDBC_PASSWORD: \$\{PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD:\?/);
     assert.match(app,/PROTOCOLIA_MIGRATION_JDBC_USER: !reset null/);
     assert.match(app,/PROTOCOLIA_MIGRATION_JDBC_PASSWORD: !reset null/);
-    assert.match(migrator,/profiles: \\[migration\\]/);
+    assert.match(migrator,/profiles: \[migration\]/);
     assert.match(migrator,/condition: service_healthy/);
     assert.match(migrator,/PROTOCOLIA_EXECUTION_MODE: migrate/);
     assert.doesNotMatch(migrator,/PROTOCOLIA_PROVIDER_INGRESS_(?:DB|JDBC)_/);
