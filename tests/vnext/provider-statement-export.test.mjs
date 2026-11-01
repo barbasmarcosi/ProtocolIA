@@ -7,7 +7,7 @@ const plans=()=>new Map([["one",{unverifiedProofField:"providerSettlementState",
     referenceColumn:"order_number",amountColumn:"amount",
     stateColumn:"status",proofColumn:"provider_settlement_state",
     postedState:"posted",scale:2}}]]);
-test("canonical statement exporter is read-only and emits the CLI's exact DTO fields",()=>{
+test("canonical statement exporter is read-only, order-scoped and emits exact DTO fields",()=>{
   const sql=generate(plans());
   assert.match(sql,/SELECT COALESCE\(jsonb_agg\(/);
   assert.match(sql,/'receiptId',p.receipt::text/);
@@ -17,7 +17,10 @@ test("canonical statement exporter is read-only and emits the CLI's exact DTO fi
   assert.match(sql,/'proofState',p.provider_settlement_state::text/);
   assert.match(sql,/'currency',:'currency'/);
   assert.match(sql,/ORDER BY p.receipt::text/);
-  assert.match(sql,/FROM payment p/);
+  assert.match(sql,/FROM payment p\nWHERE p.order_number = :'order_id';/);
+  assert.doesNotMatch(sql,/WHERE p.order_number = :order_id;/,
+    "Unquoted psql interpolation could turn the operator scope into SQL");
+  assert.match(sql,/tenant-scoped READ-ONLY/);
   assert.doesNotMatch(sql,/\b(INSERT|UPDATE|DELETE|TRUNCATE|GRANT|REVOKE|DO|EXECUTE)\b/i);
   assert.doesNotMatch(sql,/transactionId|event_id|provider_id/i,
     "Webhook event ID cannot stand in for a provider transaction ID");
@@ -29,6 +32,8 @@ test("canonical exporter requires exactly one safe bounded ledger, not guesses",
   let p=plans();p.set("two",{...p.get("one")});
   assert.throws(()=>generate(p),/Ambiguous exact/);
   p=plans();p.get("one").providerCandidate.childTable="payment;DROP TABLE x";
+  assert.throws(()=>generate(p),/Unsupported or unsafe/);
+  p=plans();p.get("one").providerCandidate.referenceColumn="order_number OR true";
   assert.throws(()=>generate(p),/Unsupported or unsafe/);
   p=plans();p.get("one").providerCandidate.scale=7;
   assert.throws(()=>generate(p),/Unsupported or unsafe/);
