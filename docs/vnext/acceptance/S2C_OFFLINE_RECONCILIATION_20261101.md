@@ -62,6 +62,23 @@ node scripts/vnext/reconcile-provider-statement.mjs \
 - Acepta solamente el estado de prueba `proofState=unverified`; no reinterpreta un campo `verified` como prueba bancaria.
 - El resultado es determinista frente al orden de los arrays; límites de tamaño y cantidad de registros restringen archivos de entrada.
 
+## Integridad de los archivos y alcance de orden (S2c)
+
+La CLI abre cada archivo por descriptor con `O_NOFOLLOW` y `O_NONBLOCK`
+(en Linux), verifica que sea un archivo regular y limita a 4 MiB tanto
+el tamaño inicial como los bytes realmente leídos. Compara tamaño y tiempos
+del mismo descriptor después de la lectura; rechaza archivos modificados
+durante ella. Esta defensa evita sustituciones de ruta por symlinks/FIFO
+entre la comprobación y la lectura, pero **no** autentica su origen ni
+sustituye la custodia y revisión independiente de los archivos.
+
+Para un snapshot SQL exportado de **una sola orden**, pasar además
+`--expected-order OT-1`. Rechaza identificadores inválidos, recibos de
+otras órdenes y exportaciones vacías. Sin esa opción, un snapshot interno
+vacío produce `empty_internal_snapshot` y salida **2**, no un falso éxito
+de conciliación. La opción no convierte un filtro de orden en autorización
+multitenant ni garantiza completitud del extracto externo.
+
 ## Alcance / próximos gates obligatorios
 
 Este incremento **no está conectado todavía** al exportador automático de NestJS/Spring ni a archivos autenticados de un banco o adquirente. El mapeo debe producirse con identificadores de transacción provistos por el proveedor, NO inferirse de eventos de webhook. Falta la importación firmada/autorizada del extracto, vinculación validada con un proveedor real, conciliación persistida con auditores, manejo de devoluciones de verdad, recuperación y operación segura. **TL-14 #57 sigue OPEN**.
