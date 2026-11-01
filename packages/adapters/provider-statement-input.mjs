@@ -24,7 +24,7 @@ function parseUnambiguousJson(text) {
         if(text[i++]==='"') break;
       }
       let next=i;
-      while(next<text.length && /[\\t\\n\\r ]/.test(text[next]))next++;
+      while(next<text.length && /[\t\n\r ]/.test(text[next]))next++;
       if(text[next]===":") {
         const keys=frames[frames.length-1];
         if(!(keys instanceof Set))throw Error("ambiguous JSON structure");
