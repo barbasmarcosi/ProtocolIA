@@ -616,7 +616,8 @@ test("one-shot migration uses immutable pinned image and removes privileged vars
   const staged="sha256:"+"e".repeat(64);
   for(const target of ["nestjs","modular-spring"]){
     const yaml=oneShotOverlay(staged,target);
-    assert.match(yaml,/  migrate:\n    image: sha256:/);
+    assert.match(yaml,/  migrate:\n    profiles: \[migration\]/);
+    assert.match(yaml,/    image: sha256:/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: migrate/);
     assert.match(yaml,/      PROTOCOLIA_EXECUTION_MODE: runtime/);
     assert.match(yaml,/      PROTOCOLIA_MIGRATION_HANDOFF_ID: e{64}/);
