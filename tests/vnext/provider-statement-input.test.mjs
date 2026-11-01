@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,writeFileSync,rmSync,symlinkSync} from "node:fs";
+import {mkdtempSync,writeFileSync,rmSync,symlinkSync,renameSync,unlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {loadStatementArray as load} from "../../packages/adapters/provider-statement-input.mjs";
+import {loadStatementArray as load,loadStatementArrayWithDigest,
+  loadStatementObjectWithDigest,assertStatementSnapshotsUnchanged
+} from "../../packages/adapters/provider-statement-input.mjs";
 
 test("real regular UTF-8 JSON array is accepted; malformed bytes and symlinks fail closed",()=>{
   const dir=mkdtempSync(join(tmpdir(),"pia-input-"));
@@ -107,4 +109,82 @@ test("rejects excessive JSON nesting without leaking sensitive input",()=>{
     writeFileSync(file,"[".repeat(63)+"0"+"]".repeat(63));
     assert.deepEqual(load(file,"statement"),JSON.parse("[".repeat(63)+"0"+"]".repeat(63)));
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("stable multi-file financial snapshots pass the final freshness barrier",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-snapshot-"));
+  try {
+    const files=[["internal","[{\"receiptId\":\"P1\"}]"],
+      ["external","[{\"eventId\":\"E1\"}]"],
+      ["external attestation",'{\"version\":1}']];
+    const snapshots=files.map(([name,bytes],i)=>{
+      const file=join(dir,"source-"+i+".json");
+      writeFileSync(file,bytes);
+      const initial=i===2
+        ? loadStatementObjectWithDigest(file,name)
+        : loadStatementArrayWithDigest(file,name);
+      return {file,name,sha256:initial.sha256,identity:initial.identity};
+    });
+    assert.doesNotThrow(()=>assertStatementSnapshotsUnchanged(snapshots));
+    assert.equal(snapshots.length,3);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("cross-source rewrite after initial read fails before any replay commit",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-snapshot-drift-"));
+  try {
+    const internal=join(dir,"internal.json"),external=join(dir,"external.json");
+    writeFileSync(internal,'[{\"amount\":\"10.00\"}]');
+    writeFileSync(external,'[{\"amount\":\"10.00\"}]');
+    const snapshots=[["internal",internal],["external",external]].map(([name,file])=>{
+      const initial=loadStatementArrayWithDigest(file,name);
+      return {file,name,sha256:initial.sha256,identity:initial.identity};
+    });
+    writeFileSync(internal,'[{\"amount\":\"90.00\"}]');
+    assert.throws(()=>assertStatementSnapshotsUnchanged(snapshots),
+      /internal: input changed after snapshot read/);
+    // Even if the bytes are restored, the originally opened file was mutated.
+    writeFileSync(internal,'[{\"amount\":\"10.00\"}]');
+    // Filesystems can round timestamps: use a guaranteed inode replacement.
+    const replacement=join(dir,"replacement.json");
+    writeFileSync(replacement,'[{\"amount\":\"10.00\"}]');
+    renameSync(replacement,internal);
+    assert.throws(()=>assertStatementSnapshotsUnchanged(snapshots),
+      /internal: input changed after snapshot read/);
+    // Deletion must fail closed, never become a zero-row successful report.
+    unlinkSync(external);
+    assert.throws(()=>assertStatementSnapshotsUnchanged([snapshots[1]]),
+      /input must be an accessible regular/);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("same-content inode replacement is detected, not merely compared by hash",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-snapshot-rename-"));
+  try {
+    const file=join(dir,"statement.json"),replacement=join(dir,"new.json");
+    writeFileSync(file,"[]");
+    const initial=loadStatementArrayWithDigest(file,"statement");
+    writeFileSync(replacement,"[]");
+    renameSync(replacement,file);
+    assert.equal(loadStatementArrayWithDigest(file,"statement").sha256,initial.sha256);
+    assert.throws(()=>assertStatementSnapshotsUnchanged([{
+      file,name:"statement",sha256:initial.sha256,identity:initial.identity
+    }]),/input changed after snapshot read/);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("path replacement after descriptor read is rejected at the final pathname check",()=>{
+  let stats=0,closed=0,reads=0;
+  const io={
+    lstatSync:()=>++stats===1?meta(101):meta(102),
+    openSync:()=>77,fstatSync:()=>meta(101),
+    readSync:(_fd,buf,offset)=>{
+      if(reads++)return 0;
+      Buffer.from("[]").copy(buf,offset);return 2;
+    },closeSync:()=>{closed++;}
+  };
+  assert.throws(()=>load("synthetic.json","statement",io),
+    /input path changed during read/);
+  assert.equal(stats,2);
+  assert.equal(closed,1);
 });
