@@ -80,3 +80,36 @@ test("rejects unsupported semantic values rather than guessing",()=>{
  bad.entities[0].fields[1].type="int32";bad.entities[0].publicIdentity="missing";
  assert.throws(()=>validateIr(bad),/missing public identity/);
 });
+
+test("Passport renders unresolved questions with declared provenance, never invents rationale",()=>fixture(({base,source,out})=>{
+ const path=join(base,"decisions.json");
+ const decisions={schemaVersion:"protocolia-decision-ledger/v0.1",authority:"SELF_DECLARED_UNVERIFIED",
+  sourceSha256:"a".repeat(64),decisions:[
+   {id:"K-Q01",question:"What refund policy applies?",classification:"material_business",
+    state:"unresolved",affectsSupported:false,origin:"agent_assumption",evidenceRefs:[]},
+   {id:"K-Q02",question:"Which mobile layout?",classification:"reversible_technical",
+    state:"provisional",affectsSupported:false,origin:"agent_assumption",
+    evidenceRefs:[],decision:"Compact cards for first candidate"}
+  ]};
+ writeFileSync(path,JSON.stringify(decisions));
+ generatePassport(source,out,undefined,path);
+ assert.equal(verifyPassport(source,out,undefined,path).status,"PASS_PORTABLE_INTEGRITY_ONLY");
+ const doc=readFileSync(join(out,"docs/domain/decisions.md"),"utf8");
+ assert.match(doc,/What refund policy applies/);
+ assert.match(doc,/UNKNOWN \/ unresolved/);
+ assert.match(doc,/Compact cards for first candidate/);
+ assert.match(doc,/NOT authenticated owner intent/);
+ decisions.decisions[0].question="Was it changed?";
+ writeFileSync(path,JSON.stringify(decisions));
+ assert.throws(()=>verifyPassport(source,out,undefined,path),/drift|stale/);
+}));
+test("Passport cannot bless fabricated owner approval for agent assumptions",()=>fixture(({base,source,out})=>{
+ const path=join(base,"decisions.json");
+ const d={schemaVersion:"protocolia-decision-ledger/v0.1",authority:"SELF_DECLARED_UNVERIFIED",
+  sourceSha256:"b".repeat(64),decisions:[
+    {id:"K-Q01",question:"Allow real refunds?",classification:"external_effect",state:"resolved",
+     affectsSupported:true,origin:"agent_assumption",evidenceRefs:[],decision:"Yes"}
+  ]};
+ writeFileSync(path,JSON.stringify(d));
+ assert.throws(()=>generatePassport(source,out,undefined,path),/resolved decision lacks declared evidence/);
+}));
