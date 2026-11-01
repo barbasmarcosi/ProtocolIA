@@ -542,6 +542,17 @@ try{
     /Provider runtime role has elevated or owner privileges/);
   assert.equal(securityDefiner(),"f");
   sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC;");
+  // A third party can inherit owner-level journal privileges even with no
+  // explicit table ACL. Reject all non-superuser owner-role members.
+  sql("GRANT "+ownerRole+" TO "+inheritedRole+";");
+  assert.equal(value("SELECT pg_has_role("+literal(inheritedRole)+","+
+    literal(ownerRole)+",'MEMBER');"),"t");
+  const ownerMember=sql(applyAcl,{allowFail:true});
+  assert.notEqual(ownerMember.status,0,
+    "Third-party migration-owner membership must block privilege elevation");
+  assert.match(ownerMember.stderr,/migration owner has untrusted role members/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE "+ownerRole+" FROM "+inheritedRole+";");
   // S2c-1c4n: direct grants to unrelated roles survive a runtime-only
   // REVOKE and can expose evidence or allow fabricated append-only rows.
   // Neither case may elevate the five SECURITY DEFINER entrypoints.
@@ -675,7 +686,7 @@ try{
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
   console.log("PROTOCOLIA_S2C1C4N_THIRD_PARTY_JOURNAL_ACL_PASS "+build.target+
-    " unrelated SELECT/INSERT grants rejected, PUBLIC/runtime grants revoked, "+
+    " owner-role membership and unrelated SELECT/INSERT grants rejected, PUBLIC/runtime grants revoked, "+
     "rollback, concurrent replay and financial state preserved");
   console.log("PROTOCOLIA_S2C1C4M_TRUSTED_SCHEMA_BOUNDARY_PASS "+build.target+
     " foreign schema owner, third-party and PUBLIC CREATE rejected atomically");
