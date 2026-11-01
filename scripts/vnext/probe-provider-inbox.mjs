@@ -381,17 +381,22 @@ try{
   ];
   const journalCounts=immutableProviderTables.map(table=>
     value("SELECT COUNT(*) FROM "+table+";"));
-  for(const statement of [
-    ...immutableProviderTables.map(table=>"TRUNCATE TABLE "+table+";"),
-    "TRUNCATE TABLE protocolia_provider_envelope_inbox CASCADE;",
-    "TRUNCATE TABLE protocolia_provider_envelope_inbox, "+
+  for(const [statement,expectTrigger] of [
+    // Parent tables can be blocked by FK constraints even before triggers.
+    // CASCADE is required to demonstrate the trigger, not just an FK error.
+    ...immutableProviderTables.map(table=>[
+      "TRUNCATE TABLE "+table+";",
+      table==="protocolia_provider_lifecycle_observation"
+    ]),
+    ...immutableProviderTables.map(table=>["TRUNCATE TABLE "+table+" CASCADE;",true]),
+    ["TRUNCATE TABLE protocolia_provider_envelope_inbox, "+
       "protocolia_provider_receipt_candidate, "+
-      "protocolia_provider_lifecycle_observation RESTART IDENTITY CASCADE;"
+      "protocolia_provider_lifecycle_observation RESTART IDENTITY CASCADE;",true]
   ]){
     const attempt=sql(statement,{allowFail:true});
     assert.notEqual(attempt.status,0,
       "Append-only provider evidence was erased by: "+statement);
-    assert.match(attempt.stderr,/append-only/,
+    if(expectTrigger)assert.match(attempt.stderr,/append-only/,
       "Expected the immutable trigger to reject: "+statement);
     assert.deepEqual(immutableProviderTables.map(table=>
       value("SELECT COUNT(*) FROM "+table+";")),journalCounts,
