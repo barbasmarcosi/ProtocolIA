@@ -526,7 +526,7 @@ try{
     const logs=spawnSync("docker",["logs",id],{encoding:"utf8",timeout:15000});
     assert.ok(stopped,"ACL drift did not stop generated "+build.target+
       " HTTP process: "+label+" "+String(logs.stdout+logs.stderr).slice(-900));
-    assert.match(logs.stdout+logs.stderr,/Provider (writer|direct journal) ACL drift/,
+    assert.match(logs.stdout+logs.stderr,/Provider (writer|direct journal) ACL drift|Provider SQL role is privileged or inherits another process identity/,
       "Expected explicit fail-closed ACL rejection: "+label);
   }
   const candidateWriter="public.protocolia_record_provider_receipt_candidate(text,text,text,text,text,numeric)";
@@ -547,10 +547,17 @@ try{
   isolated(["up","-d","--no-deps","--force-recreate","app"]);
   await ready();
   assert.equal((await send(pinnedEvent)).status,200);
+  // NOINHERIT membership still permits SET ROLE and must not bypass ACLs.
+  sql("GRANT "+ingressRole+" TO "+runtimeRole+" WITH INHERIT FALSE;");
+  await rejectAclDrift("runtime can SET ROLE to ingress despite NOINHERIT");
+  sql("REVOKE "+ingressRole+" FROM "+runtimeRole+";");
+  isolated(["up","-d","--no-deps","--force-recreate","app"]);
+  await ready();
+  assert.equal((await send(pinnedEvent)).status,200);
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-SPLIT'"),"unverified");
   console.log("PROTOCOLIA_S2C1C4R_COMPLETE_ACL_BOOT_PREFLIGHT_PASS "+build.target+
-    " secondary writer drift, unrelated journal read drift, recovery, no settlement");
+    " secondary writer, journal read, NOINHERIT membership drift, recovery, no settlement");
 
   console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
