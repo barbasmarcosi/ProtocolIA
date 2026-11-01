@@ -513,6 +513,35 @@ try{
     isolation,{allowFail:true}).status,0,
     "A runtime identity must not equal its migration owner");
   assert.equal(securityDefiner(),"f","Rejected ACL must not modify functions");
+  // S2c-1c4m: the SECURITY DEFINER search_path contains public. Its owner
+  // must be the trusted migration owner, not an unrelated principal that can
+  // grant CREATE to an attacker after a one-time preflight.
+  sql("ALTER SCHEMA public OWNER TO "+inheritedRole+";");
+  const foreignSchemaOwner=sql(applyAcl,{allowFail:true});
+  assert.notEqual(foreignSchemaOwner.status,0,
+    "Foreign schema ownership must reject privilege elevation");
+  assert.match(foreignSchemaOwner.stderr,/schema owner is not migration owner/);
+  assert.equal(securityDefiner(),"f");
+  sql("ALTER SCHEMA public OWNER TO "+ownerRole+";");
+  // A third-party CREATE grant can shadow objects resolved by definer
+  // functions even when PUBLIC and runtime themselves cannot CREATE.
+  sql("GRANT CREATE ON SCHEMA public TO "+inheritedRole+";");
+  const rogueSchemaCreate=sql(applyAcl,{allowFail:true});
+  assert.notEqual(rogueSchemaCreate.status,0,
+    "Unrelated role with CREATE in public must fail closed");
+  assert.match(rogueSchemaCreate.stderr,/Public schema permits untrusted CREATE/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE CREATE ON SCHEMA public FROM "+inheritedRole+";");
+  // PUBLIC CREATE is a separate unsafe case; restore before valid upgrades.
+  sql("GRANT CREATE ON SCHEMA public TO PUBLIC;");
+  const anonymousSchemaCreate=sql(applyAcl,{allowFail:true});
+  assert.notEqual(anonymousSchemaCreate.status,0);
+  // PUBLIC CREATE is inherited by the runtime itself, so the existing
+  // runtime privilege guard rejects this case before the global ACL check.
+  assert.match(anonymousSchemaCreate.stderr,
+    /Provider runtime role has elevated or owner privileges/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC;");
   // A missing immutable guard must reject the entire privilege transition.
   const unsafeAcl=sql("BEGIN; ALTER TABLE protocolia_provider_envelope_inbox "+
     "DISABLE TRIGGER protocolia_provider_envelope_immutable_guard_truncate; "+
@@ -613,6 +642,8 @@ try{
     "WHERE receipt='PAY-ACL';"),"unverified");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4M_TRUSTED_SCHEMA_BOUNDARY_PASS "+build.target+
+    " foreign schema owner, third-party and PUBLIC CREATE rejected atomically");
   console.log("PROTOCOLIA_S2C1C4L_RUNTIME_ROLE_ISOLATION_PASS "+build.target+
     " denied direct journal DML/DDL, validated entrypoints, inherited grants, "+
     "rollback, concurrent operator upgrades and no settlement");

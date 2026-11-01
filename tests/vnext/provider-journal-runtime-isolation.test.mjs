@@ -30,6 +30,10 @@ test("runtime isolation is opt-in, deterministic, atomic and does not mutate fin
   assert.match(sql,/pg_has_role/);
   assert.match(sql,/has_schema_privilege\(runtime_role,'public','CREATE'\)/);
   assert.match(sql,/Public schema permits untrusted CREATE/);
+  assert.match(sql,/n\.nspowner=operator_oid/);
+  assert.match(sql,/a\.privilege_type='CREATE'/);
+  assert.match(sql,/a\.grantee<>operator_oid/);
+  assert.doesNotMatch(sql,/a\.grantee=0 AND a\.privilege_type='CREATE'/);
   assert.match(sql,/has_table_privilege\(runtime_role/);
   assert.match(sql,/inherited direct journal access/);
   assert.doesNotMatch(sql,/\b(?:CREATE ROLE|DROP TABLE|TRUNCATE TABLE|INSERT INTO payment|UPDATE payment|SET provider_settlement_state)\b/i);
