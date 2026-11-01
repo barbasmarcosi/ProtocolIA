@@ -77,20 +77,31 @@ identificadores, estado interno y `proofState`. **No** genera ni adivina
 `transactionId` externos a partir de `eventId` de webhooks.
 
 Invocación manual en un entorno de **prueba**, usando un usuario PostgreSQL
-autorizado de **solo lectura**, sin compartir credenciales de migración:
+autorizado de **solo lectura**, sin compartir credenciales de migración.
+**Es obligatorio seleccionar una orden concreta** con `order_id`:
 
 ```sh
-psql -X -v ON_ERROR_STOP=1 -v currency=ARS -At \
+psql -X -v ON_ERROR_STOP=1 -v currency=ARS -v order_id=OT-1 -At \
   -f /ruta/app-generada/protocolia-reconciliation-internal-export.sql \
-  > internal.json
+  > internal-OT-1.json
 ```
 
-Esta consulta puede ver todos los recibos accesibles al principal SQL;
-**no demuestra aislamiento multitenant**. Está prohibido utilizarla para
-exportaciones productivas hasta tener un perfil de autorización tenant-scoped
-verificado. No publica datos ni solicita credenciales y debe ejecutarse solo
-por acción consciente del operador. El archivo `links.json` continúa siendo
-un mapeo externo revisado; el generador no puede inventarlo.
+El SQL generado usa `WHERE p.order_number = :'order_id'` (columna derivada
+del contrato TypeSpec, valor como **literal SQL escapado por psql**). Omitir
+`order_id` provoca error con `ON_ERROR_STOP=1`, sin exportación global.
+Un valor que intente inyectar `OR TRUE` no modifica el predicado.
+Para comparar varias órdenes, exportar cada una por separado y unir
+explícitamente sus arrays JSON antes de ejecutar la CLI; **no** concatenar
+textualmente archivos JSON. La exportación devuelve `[]` si no hay recibos
+en la orden seleccionada, lo cual no acredita que esa orden exista.
+
+**El filtro por orden NO es un control de autorización ni demuestra aislamiento
+multitenant.** Un operador con acceso SQL global todavía podría solicitar otra
+orden. No usar para datos productivos hasta validar credenciales de solo lectura,
+RLS/tenant-scoping real, autorizaciones y trazabilidad de acceso. No publica datos
+ni solicita credenciales y se ejecuta solo por acción consciente del operador.
+El archivo `links.json` continúa siendo un mapeo externo revisado; el
+generador no puede inventarlo.
 
 Prueba de integración: el probe PostgreSQL del workflow de proveedores ahora
 ejecuta realmente el SQL emitido en **ambos targets**, valida un `PAY-CAND`

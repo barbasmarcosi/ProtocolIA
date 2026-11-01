@@ -790,18 +790,37 @@ try{
   // actual PostgreSQL values, not mocks or fabricated settlement assertions.
   const exportQuery=readFileSync(join(root,"protocolia-reconciliation-internal-export.sql"),"utf8");
   assert.match(exportQuery,/^SELECT COALESCE\(jsonb_agg\(/m);
-  const snapshotResponse=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
+  const exportFor=orderId=>docker(["exec","-T","db","psql","-X",
+    "-v","ON_ERROR_STOP=1","-v","currency=ARS","-v","order_id="+orderId,
+    "-U","protocolia","-d","protocolia","-At"],{input:exportQuery+"\n"});
+  const missingScope=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
     "-v","currency=ARS","-U","protocolia","-d","protocolia","-At"],
-    {input:exportQuery+"\n"});
-  assert.equal(snapshotResponse.status,0,snapshotResponse.stderr);
-  const internalSnapshot=JSON.parse(snapshotResponse.stdout.trim());
-  assert.ok(Array.isArray(internalSnapshot));
-  const snapshotReceipt=internalSnapshot.find(row=>row.receiptId==="PAY-CAND");
+    {input:exportQuery+"\n",allowFail:true});
+  assert.notEqual(missingScope.status,0,"Missing order scope must fail closed");
+  assert.equal(missingScope.stdout.trim(),"","Missing scope must not export any receipts");
+  const injectedScope=exportFor("OT-CAND' OR TRUE --");
+  assert.equal(injectedScope.status,0,injectedScope.stderr);
+  assert.deepEqual(JSON.parse(injectedScope.stdout.trim()),[],
+    "Operator-supplied scope must be a SQL literal, never executable SQL");
+  const candidateResponse=exportFor("OT-CAND");
+  const ingressResponse=exportFor("OT-INGRESS");
+  assert.equal(candidateResponse.status,0,candidateResponse.stderr);
+  assert.equal(ingressResponse.status,0,ingressResponse.stderr);
+  const candidateSnapshot=JSON.parse(candidateResponse.stdout.trim());
+  const ingressSnapshot=JSON.parse(ingressResponse.stdout.trim());
+  assert.ok(candidateSnapshot.length>0,"Candidate order must have receipts");
+  assert.ok(ingressSnapshot.length>0,"Ingress order must have receipts");
+  assert.ok(candidateSnapshot.every(row=>row.orderId==="OT-CAND"),
+    "Candidate scope must not leak receipts belonging to another order");
+  assert.ok(ingressSnapshot.every(row=>row.orderId==="OT-INGRESS"),
+    "Ingress scope must not leak receipts belonging to another order");
+  const snapshotReceipt=candidateSnapshot.find(row=>row.receiptId==="PAY-CAND");
   assert.deepEqual(snapshotReceipt,{
     receiptId:"PAY-CAND",orderId:"OT-CAND",amount:"1.25",
     currency:"ARS",status:"reversed",proofState:"unverified"
   });
-  const postedSnapshot=internalSnapshot.find(row=>row.receiptId==="PAY-INGRESS");
+  const postedSnapshot=ingressSnapshot.find(row=>row.receiptId==="PAY-INGRESS");
+  assert.ok(postedSnapshot,"Posted ingress receipt must be in its own order scope");
   assert.equal(postedSnapshot.status,"posted");
   assert.equal(postedSnapshot.amount,"1.25");
   assert.equal(postedSnapshot.proofState,"unverified");
@@ -813,7 +832,7 @@ try{
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
     "unverified");
   console.log("PROTOCOLIA_S2C_EXPORT_REAL_PG_PASS "+build.target+
-    " deterministic JSON receipt, exact decimal, offline comparison and no financial writes");
+    " scoped JSON receipts, SQL-injection and missing-scope refusal, exact decimal and no writes");
 
   console.log("PROTOCOLIA_S2C1C4O_INGRESS_RUNTIME_SPLIT_PASS "+build.target+
     " separate writer/read roles, inherited/CREATE rejection, concurrent reapply, "+
