@@ -112,10 +112,20 @@ test("receipt integrity projection rejects stale internal state and never grants
   assert.match(projection,/c\.amount IS DISTINCT FROM r\.amount/);
   assert.match(projection,/r\.receipt_state IS DISTINCT FROM 'posted'/);
   assert.match(projection,/r\.proof_state IS DISTINCT FROM 'unverified'/);
-  assert.match(projection,/WHEN projection\.causal_integrity='coherent' THEN 'synthetic_only'/);
+  // Coherent is a causal property, not proof of a successful outcome.
+  // Pending, failure and reversal must never be flattened to synthetic_only.
+  for(const [phase,state] of [
+    ["reported_pending","synthetic_pending"],
+    ["reported_failure","synthetic_failure"],
+    ["reported_reversal","synthetic_reversal"],
+    ["reported_success","synthetic_only"]
+  ])assert.match(projection,new RegExp(
+    "WHEN projection\\.causal_integrity='coherent' AND\\s+"+
+    "projection\\.last_coherent_phase='"+phase+"' THEN '"+state+"'"));
   assert.match(projection,/ELSE 'causal_unknown' END/);
   for(const state of ["missing","unbound","claim_mismatch","not_posted",
     "proof_changed","no_lifecycle","causal_gap","causal_contradictory",
+    "synthetic_pending","synthetic_failure","synthetic_reversal",
     "synthetic_only","causal_unknown"])
     assert.ok(projection.includes("'"+state+"'"),state);
   assert.doesNotMatch(projection,/UPDATE |DELETE |INSERT |SECURITY DEFINER|SET provider_settlement_state/);

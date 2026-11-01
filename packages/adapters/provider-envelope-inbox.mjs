@@ -346,7 +346,17 @@ function appendProviderCandidate(plans,ddl){
         WHEN projection.causal_integrity='unobserved' THEN 'no_lifecycle'
         WHEN projection.causal_integrity='gap' THEN 'causal_gap'
         WHEN projection.causal_integrity='contradictory' THEN 'causal_contradictory'
-        WHEN projection.causal_integrity='coherent' THEN 'synthetic_only'
+        -- A coherent stream can still report pending, failure or reversal.
+        -- Never collapse those outcomes into a success-looking integrity state.
+        -- Preserve synthetic_only for the previously exposed success case.
+        WHEN projection.causal_integrity='coherent' AND
+          projection.last_coherent_phase='reported_pending' THEN 'synthetic_pending'
+        WHEN projection.causal_integrity='coherent' AND
+          projection.last_coherent_phase='reported_failure' THEN 'synthetic_failure'
+        WHEN projection.causal_integrity='coherent' AND
+          projection.last_coherent_phase='reported_reversal' THEN 'synthetic_reversal'
+        WHEN projection.causal_integrity='coherent' AND
+          projection.last_coherent_phase='reported_success' THEN 'synthetic_only'
         ELSE 'causal_unknown' END)::TEXT,
         projection.causal_integrity,projection.last_coherent_phase,
         projection.observation_count
