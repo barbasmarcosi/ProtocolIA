@@ -443,7 +443,7 @@ try{
   // never grant runtime direct journal DML or settlement writes.
   const readable=sql("SELECT tablename FROM pg_tables WHERE schemaname='public' "+
     "AND tablename NOT LIKE 'protocolia_%' AND tablename<>'flyway_schema_history' "+
-    "ORDER BY tablename").split("\\n").filter(Boolean);
+    "ORDER BY tablename").split("\n").filter(Boolean);
   for(const table of readable){
     assert.match(table,/^[a-z][a-z0-9_]*$/);
     sql("GRANT SELECT ON TABLE public."+table+" TO "+runtimeRole);
@@ -469,7 +469,7 @@ try{
     assert.equal(migratorConfig.environment[key],undefined,
       "HMAC ingress identity leaked into migrator: "+key);
   }
-  assert.equal(appConfig.build,undefined,"Pinned runtime must not rebuild");
+  assert.ok(appConfig.build==null,"Pinned runtime must not rebuild");
   // Runtime cannot start before a successful one-shot schema handoff.
   const premature=isolated(["run","--rm","--no-deps","app"],true);
   assert.notEqual(premature.status,0,"Missing migration handoff must fail closed");
