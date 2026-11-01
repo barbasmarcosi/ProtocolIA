@@ -44,8 +44,12 @@ function withFixture(fn){
       "--external-attestation",join(dir,"attestation.json"),
       "--provider-public-key",join(dir,"key.pem"),
       "--trusted-key-sha256",fingerprint,"--local-replay-dir",guard];
-    return fn({dir,guard,args,metadata,signed});
-  } finally {rmSync(dir,{recursive:true,force:true});}
+    const outcome=fn({dir,guard,args,metadata,signed});
+    if(outcome && typeof outcome.then==="function")
+      return outcome.finally(()=>rmSync(dir,{recursive:true,force:true}));
+    rmSync(dir,{recursive:true,force:true});
+    return outcome;
+  } catch(error) {rmSync(dir,{recursive:true,force:true});throw error;}
 }
 const run=args=>spawnSync(process.execPath,args,{encoding:"utf8",timeout:15000});
 function parallel(args){
