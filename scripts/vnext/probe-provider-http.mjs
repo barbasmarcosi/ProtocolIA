@@ -330,7 +330,7 @@ try{
     quote(writer)+",'EXECUTE');"),"t");
   const deniedDirect=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
     "-U","protocolia","-d","protocolia","-Atc",
-    "SET ROLE "+runtimeRole+"; SELECT "+writer+
+    "SET ROLE "+runtimeRole+"; SELECT public.protocolia_record_provider_envelope_digest"+
     "('sandbox_provider','evt_denied_http_12345678','"+ "a".repeat(64)+"');"],true);
   assert.notEqual(deniedDirect.status,0);
   assert.match(deniedDirect.stderr,/permission denied/);
