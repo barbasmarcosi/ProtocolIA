@@ -19,7 +19,7 @@ test("exact multi-capture decimal arithmetic; agreement remains explicitly UNVER
   const result=compare(sample());
   assert.equal(result.result,"comparison_only_not_settlement_verification");
   assert.equal(result.independentlyAuthenticated,false);
-  assert.deepEqual(result.totals,{postedInternal:"10.30",purportedCaptured:"10.30",purportedReturned:"0.00"});
+  assert.deepEqual(result.totals,{postedInternal:"10.30",internallyRecordedReturns:null,purportedCaptured:"10.30",purportedReturned:"0.00"});
   assert.equal(result.counts.exceptions,0);
   assert.equal(result.rows[0].classification,"amounts_agree_unverified");
   assert.equal(result.rows[0].externalCapture,"0.30");
@@ -100,4 +100,111 @@ test("deterministic independent of input ordering; no mutations",()=>{
   const t=clone(s);
   t.internal.reverse();t.links.reverse();t.external.reverse();
   assert.deepEqual(compare(t),result);
+});
+
+test("separate internal refund journal exactly matches external refund without clearing money",()=>{
+  const s=sample();
+  s.internalReturns=[{receiptId:"PAY-2",returnId:"REFUND-1",kind:"refund",
+    amount:"1.50",currency:"ARS",status:"recorded"}];
+  s.external.push({providerId:"sandbox",transactionId:"tx-2",eventId:"external-refund-1",
+    kind:"refund",amount:"1.50",currency:"ARS"});
+  const r=compare(s);
+  assert.equal(r.counts.exceptions,0);
+  assert.equal(r.counts.returnsAgreeUnverified,1);
+  assert.equal(r.rows[1].classification,"returns_agree_unverified");
+  assert.equal(r.rows[1].internalRecordedRefund,"1.50");
+  assert.equal(r.rows[1].externalRefund,"1.50");
+  assert.equal(r.totals.internallyRecordedReturns,"1.50");
+  assert.equal(r.independentlyAuthenticated,false);
+});
+test("refund and chargeback are distinct: equal aggregate totals with wrong kind is a discrepancy",()=>{
+  const s=sample();
+  s.internalReturns=[{receiptId:"PAY-2",returnId:"CB-1",kind:"chargeback",
+    amount:"2.00",currency:"ARS",status:"recorded"}];
+  s.external.push({providerId:"sandbox",transactionId:"tx-2",eventId:"RF-1",
+    kind:"refund",amount:"2.00",currency:"ARS"});
+  const r=compare(s);
+  assert.equal(r.rows[1].classification,"return_amount_or_kind_mismatch");
+  assert.equal(r.rows[1].internalRecordedChargeback,"2.00");
+  assert.equal(r.rows[1].externalChargeback,"0.00");
+  assert.equal(r.counts.exceptions,1);
+});
+test("internal-only returns and external-only returns both require independent review",()=>{
+  const s=sample();
+  s.internalReturns=[{receiptId:"PAY-2",returnId:"RF-1",kind:"refund",
+    amount:"1.00",currency:"ARS",status:"recorded"}];
+  assert.equal(compare(s).rows[1].classification,"internal_return_not_externally_reported");
+  const t=sample();t.internalReturns=[];
+  t.external.push({providerId:"sandbox",transactionId:"tx-2",eventId:"RF-2",
+    kind:"refund",amount:"1.00",currency:"ARS"});
+  assert.equal(compare(t).rows[1].classification,"external_return_requires_review");
+  const u=sample();delete u.internalReturns;
+  u.external.push({...t.external[3]});
+  assert.equal(compare(u).rows[1].classification,"external_return_requires_review");
+  assert.equal(compare(u).totals.internallyRecordedReturns,null);
+});
+test("voided internal returns are not posted, but duplicate IDs still fail closed",()=>{
+  const s=sample();
+  const item={receiptId:"PAY-2",returnId:"RF-1",kind:"refund",
+    amount:"1.00",currency:"ARS",status:"voided"};
+  s.internalReturns=[item];
+  assert.equal(compare(s).totals.internallyRecordedReturns,"0.00");
+  s.internalReturns.push({...item,status:"recorded"});
+  assert.throws(()=>compare(s),/Duplicate internal return identity/);
+});
+test("rejects missing receipt, currency drift, unsafe status, precision and over-return",()=>{
+  const item={receiptId:"PAY-2",returnId:"RF-1",kind:"refund",
+    amount:"1.00",currency:"ARS",status:"recorded"};
+  for(const [field,value,pattern] of [
+    ["receiptId","missing",/missing receipt/],
+    ["currency","USD",/currency mismatch/],
+    ["status","settled",/Unknown internal return status/],
+    ["kind","capture",/Unknown internal return kind/],
+    ["amount",1.00,/decimal string/],
+    ["amount","1.001",/precision/]
+  ]) {
+    const s=sample();s.internalReturns=[{...item,[field]:value}];
+    assert.throws(()=>compare(s),pattern,field);
+  }
+  const s=sample();s.internalReturns=[{...item,amount:"10.01"}];
+  assert.equal(compare(s).rows[1].classification,"internal_returns_exceed_receipt");
+});
+test("partial multi-return arithmetic, replay-free concurrent comparisons and deterministic order",async()=>{
+  const s=sample();
+  s.internalReturns=[
+    {receiptId:"PAY-2",returnId:"RF-1",kind:"refund",amount:"0.10",currency:"ARS",status:"recorded"},
+    {receiptId:"PAY-2",returnId:"RF-2",kind:"refund",amount:"0.20",currency:"ARS",status:"recorded"},
+    {receiptId:"PAY-2",returnId:"CB-1",kind:"chargeback",amount:"1.00",currency:"ARS",status:"recorded"}];
+  s.external.push(
+    {providerId:"sandbox",transactionId:"tx-2",eventId:"EXT-RF1",kind:"refund",amount:"0.30",currency:"ARS"},
+    {providerId:"sandbox",transactionId:"tx-2",eventId:"EXT-CB1",kind:"chargeback",amount:"1.00",currency:"ARS"});
+  const before=clone(s), expected=compare(s);
+  assert.equal(expected.rows[1].classification,"returns_agree_unverified");
+  assert.equal(expected.rows[1].internalRecordedRefund,"0.30");
+  assert.equal(expected.rows[1].externalChargeback,"1.00");
+  assert.deepEqual(s,before);
+  const reversed=clone(s);
+  reversed.internalReturns.reverse();reversed.internal.reverse();
+  reversed.links.reverse();reversed.external.reverse();
+  assert.deepEqual(compare(reversed),expected);
+  const results=await Promise.all(Array.from({length:32},async()=>compare(s)));
+  for(const r of results)assert.deepEqual(r,expected);
+});
+
+test("impossible over-return is reported even with missing mapping or missing statement",()=>{
+  const s=sample();
+  s.internalReturns=[{receiptId:"PAY-2",returnId:"REF-OVER",kind:"refund",
+    amount:"10.01",currency:"ARS",status:"recorded"}];
+  s.links.pop();
+  s.external.pop();
+  const r=compare(s);
+  assert.equal(r.rows[1].classification,"unlinked");
+  assert.deepEqual(r.exceptions.map(e=>e.code).filter(x=>x==="internal_returns_exceed_receipt"),
+    ["internal_returns_exceed_receipt"]);
+  assert.equal(r.counts.exceptions,2);
+});
+
+test("explicitly null internal return journal is rejected, never silently treated as empty",()=>{
+  const s=sample();s.internalReturns=null;
+  assert.throws(()=>compare(s),/internalReturns: expected bounded array/);
 });

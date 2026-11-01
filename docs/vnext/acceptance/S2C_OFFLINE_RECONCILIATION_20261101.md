@@ -33,6 +33,26 @@ node scripts/vnext/reconcile-provider-statement.mjs \
 
 Código de salida: **0** cuando no hay discrepancias sintácticas o contables dentro de los datos suministrados (aun así NO hay autoridad), **2** con excepciones y reporte JSON completo, **1** cuando las fuentes no pueden validarse. Ninguna salida contiene booleanos de pago verificado ni cambia saldos.
 
+## Cruce exacto de devoluciones y contracargos (opt-in)
+
+El parámetro opcional `--internal-returns returns.json` incorpora un **cuarto archivo independiente** con eventos de devolución registrados internamente:
+
+```json
+[{"receiptId":"PAY-1","returnId":"RF-1","kind":"refund","amount":"1.30","currency":"ARS","status":"recorded"}]
+```
+
+Se admite `kind=refund|chargeback` y `status=recorded|voided`. Un evento `voided` se valida pero no contribuye al monto contabilizado. Los `returnId` deben ser únicos; cada evento debe referenciar un recibo interno existente y tener monto positivo exacto. El comparador calcula por separado devoluciones y contracargos **por recibo y transacción**, nunca solo por total neto. Dos fuentes con importes agregados idénticos pero tipos distintos producen `return_amount_or_kind_mismatch`. También identifica `internal_return_not_externally_reported`, `internal_returns_exceed_receipt` y `external_returns_exceed_capture`.
+
+Cuando ambas fuentes coinciden, la única clasificación es `returns_agree_unverified`: **no significa devolución ejecutada, contracargo resuelto ni dinero acreditado**. Si no se suministra `--internal-returns`, la comparación no presupone que no hubo devoluciones internas; cualquier movimiento externo de retorno conserva `external_return_requires_review`. La ausencia del archivo NO equivale a un diario interno vacío auditado.
+
+Ejemplo:
+
+```sh
+node scripts/vnext/reconcile-provider-statement.mjs \
+  --internal internal.json --internal-returns returns.json \
+  --links links.json --external external.json --currency ARS --scale 2
+```
+
 ## Invariantes comprobables
 
 - Cálculo decimal por `BigInt`, con cadenas monetarias estrictas, moneda/escala explícitas; rechaza `number` de JavaScript, notación exponencial, precisión excesiva, negativos y cero.
