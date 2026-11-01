@@ -749,6 +749,16 @@ try{
     assert.notEqual(denied.status,0,"Ingress must not read journal/projections directly");
     assert.match(denied.stderr,/permission denied/);
   }
+  // Neither low-privilege connection may mutate payment/settlement state
+  // directly; the operator remains a separate privileged migration identity.
+  for(const role of [runtimeRole,ingressRole]){
+    const deniedPayment=sql("SET ROLE "+role+"; UPDATE payment "+
+      "SET provider_settlement_state='settled' WHERE receipt='PAY-ACL';",
+      {allowFail:true});
+    assert.notEqual(deniedPayment.status,0,
+      "Provider DB principal must never directly change financial settlement");
+    assert.match(deniedPayment.stderr,/permission denied/);
+  }
   const ingressEvent="evt_ingress_only_12345678";
   assert.equal(asIngress(call("sandbox_provider",ingressEvent,digestA)),"stored");
   assert.equal(asIngress(call("sandbox_provider",ingressEvent,digestA)),"duplicate");
