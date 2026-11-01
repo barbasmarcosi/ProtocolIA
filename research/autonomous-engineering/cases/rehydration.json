@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "protocolia-research-case/v1",
+  "id": "rehydration-v1",
+  "title": "Two-year handoff without chat context",
+  "sourceType": "synthetic",
+  "brief": "A new agent receives only a versioned generated project and its Passport, without original conversations, prompts or credentials.",
+  "requirements": [
+    {
+      "id": "H-01",
+      "text": "Identify supported and unsupported business behaviors with evidence paths.",
+      "critical": true
+    },
+    {
+      "id": "H-02",
+      "text": "Describe core entities, keys, permissions and state transitions from canonical sources.",
+      "critical": true
+    },
+    {
+      "id": "H-03",
+      "text": "Distinguish recorded human rationale from model-derived technical facts.",
+      "critical": true
+    },
+    {
+      "id": "H-04",
+      "text": "Reproduce a clean offline-ish build and conformance against disposable real DB.",
+      "critical": true
+    },
+    {
+      "id": "H-05",
+      "text": "Implement a new safe feature while preserving existing records and invariants.",
+      "critical": true
+    },
+    {
+      "id": "H-06",
+      "text": "Regenerate architecture diagrams and reject drift or missing traceability.",
+      "critical": true
+    },
+    {
+      "id": "H-07",
+      "text": "Provide a recovery guide with precise limits; do not imply production readiness.",
+      "critical": false
+    }
+  ],
+  "ambiguities": [
+    {
+      "id": "H-A01",
+      "question": "What does an undocumented 'VIP' flag mean in existing customer data?",
+      "classification": "material_business"
+    },
+    {
+      "id": "H-A02",
+      "question": "May a new agent run a destructive migration on the real old database?",
+      "classification": "destructive_change"
+    },
+    {
+      "id": "H-A03",
+      "question": "Choose diagram text layout and alphabetical glossary ordering.",
+      "classification": "reversible_technical"
+    }
+  ],
+  "handoffTasks": [
+    "Explain a decision with links and honest unknowns",
+    "Apply a compatible change against a populated disposable backup",
+    "Show whether tests and Passport remain consistent after modification"
+  ]
+}
