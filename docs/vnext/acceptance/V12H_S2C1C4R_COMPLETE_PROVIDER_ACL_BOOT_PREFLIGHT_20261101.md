@@ -12,7 +12,7 @@ With the optional distinct HMAC ingress PostgreSQL connection configured, **both
 | --- | --- | --- |
 | Envelope digest, receipt candidate and lifecycle writers (3 functions) | DENY all | ALLOW all |
 | Causal and receipt-integrity projections (2 functions) | ALLOW both | DENY both |
-| Direct access to all three immutable provider journals | DENY all | DENY all |
+| Direct table-level **and column-level** access to all three immutable provider journals | DENY all | DENY all |
 | PostgreSQL superuser/CREATEROLE/CREATEDB/REPLICATION/BYPASSRLS | DENY | DENY |
 | `CREATE` in trusted `public` schema | DENY | DENY |
 | Membership in other roles, including non-inheriting `SET ROLE` escalation | DENY | DENY |
@@ -30,7 +30,7 @@ npm run app:build -- examples/vnext/workshop-itemized-guard --target modular-spr
 node scripts/vnext/probe-provider-http.mjs /tmp/pia-provider-spring
 ```
 
-The existing probe creates an isolated Docker Compose project and disposable PostgreSQL database, signs HMAC requests, and performs a one-shot migrator/runtime handoff. S2c-1c4r deliberately grants the ordinary runtime access to a **secondary** receipt-candidate writer, grants ingress a read privilege on the **lifecycle** journal, and grants the ordinary runtime a **NOINHERIT** membership in the ingress role. For each drift, the generated HTTP process must exit before accepting traffic. The probe then restores permissions, restarts the exact pinned image, confirms replay remains idempotent and the synthetic receipt remains `unverified`, and destroys the disposable database.
+The existing probe creates an isolated Docker Compose project and disposable PostgreSQL database, signs HMAC requests, and performs a one-shot migrator/runtime handoff. S2c-1c4r deliberately grants the ordinary runtime access to a **secondary** receipt-candidate writer, grants ingress both table-level and column-only read privileges on the **lifecycle** journal (separate trials), and grants the ordinary runtime a **NOINHERIT** membership in the ingress role. For each drift, the generated HTTP process must exit before accepting traffic. The probe then restores permissions, restarts the exact pinned image, confirms replay remains idempotent and the synthetic receipt remains `unverified`, and destroys the disposable database.
 
 Expected marker **only after observed success**: `PROTOCOLIA_S2C1C4R_COMPLETE_ACL_BOOT_PREFLIGHT_PASS` for each independently generated target. Existing positive HMAC/concurrency, migration handoff, exact finance and browser regression suites remain required.
 
