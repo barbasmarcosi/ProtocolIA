@@ -5,6 +5,7 @@ on:
     paths:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
       - 'packages/adapters/provider-statement-input.mjs'
+      - 'packages/adapters/provider-statement-signature.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
       - '.github/workflows/v12h-s2c-offline-reconciliation.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
       - 'packages/adapters/provider-statement-input.mjs'
+      - 'packages/adapters/provider-statement-signature.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
   workflow_dispatch:
@@ -40,6 +42,7 @@ jobs:
         run: |
           node --check packages/adapters/provider-statement-reconciliation.mjs
           node --check packages/adapters/provider-statement-input.mjs
+          node --check packages/adapters/provider-statement-signature.mjs
           node --check scripts/vnext/reconcile-provider-statement.mjs
       - name: Exact statement comparison, exceptions, and actual CLI exit codes
-        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-input.test.mjs tests/vnext/provider-statement-cli.test.mjs
+        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-input.test.mjs tests/vnext/provider-statement-cli.test.mjs tests/vnext/provider-statement-signature.test.mjs

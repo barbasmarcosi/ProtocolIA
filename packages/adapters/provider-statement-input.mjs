@@ -3,6 +3,7 @@
 // File integrity is NOT proof that a bank or provider authored the contents.
 import {openSync,closeSync,fstatSync,lstatSync,readSync,constants} from "node:fs";
 import {resolve} from "node:path";
+import {createHash} from "node:crypto";
 
 export const MAX_STATEMENT_INPUT_BYTES=4*1024*1024;
 
@@ -45,7 +46,7 @@ function parseUnambiguousJson(text) {
 
 const realIO={openSync,closeSync,fstatSync,lstatSync,readSync};
 
-export function loadStatementArray(file,name,io=realIO) {
+function loadStatementValue(file,name,io=realIO) {
   const path=resolve(file);
   let initial,fd;
   try {
@@ -58,7 +59,7 @@ export function loadStatementArray(file,name,io=realIO) {
   } catch {
     throw Error(name + ": input must be an accessible regular, non-symlink file");
   }
-  let data;
+  let data,digest;
   try {
     const stat=io.fstatSync(fd);
     if(!stat.isFile() || stat.size<0 || stat.size>MAX_STATEMENT_INPUT_BYTES)
@@ -80,6 +81,7 @@ export function loadStatementArray(file,name,io=realIO) {
        after.size!==stat.size || after.mtimeMs!==stat.mtimeMs ||
        after.ctimeMs!==stat.ctimeMs)
       throw Error(name + ": input changed during read or exceeded 4 MiB");
+    digest=createHash("sha256").update(buffer.subarray(0,used)).digest("hex");
     try {
       const text=new TextDecoder("utf-8",{fatal:true}).decode(buffer.subarray(0,used));
       data=parseUnambiguousJson(text);
@@ -94,6 +96,20 @@ export function loadStatementArray(file,name,io=realIO) {
   } finally {
     io.closeSync(fd);
   }
-  if(!Array.isArray(data)) throw Error(name + ": expected JSON array");
-  return data;
+  return {data,sha256:digest};
+}
+
+export function loadStatementArrayWithDigest(file,name,io=realIO) {
+  const result=loadStatementValue(file,name,io);
+  if(!Array.isArray(result.data)) throw Error(name + ": expected JSON array");
+  return result;
+}
+export function loadStatementArray(file,name,io=realIO) {
+  return loadStatementArrayWithDigest(file,name,io).data;
+}
+export function loadStatementObject(file,name,io=realIO) {
+  const result=loadStatementValue(file,name,io);
+  if(result.data===null || typeof result.data!=="object" || Array.isArray(result.data))
+    throw Error(name + ": expected JSON object");
+  return result.data;
 }
