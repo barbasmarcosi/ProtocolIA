@@ -42,6 +42,12 @@ isolated real PostgreSQL and HTTP. The new probe exercises:
 
 Run Node syntax checking with
 `node --check scripts/vnext/probe-provider-http.mjs`.
+The itemized regression workflow also bounds Playwright/Chromium
+installation to 12 minutes and uses the HTTPS Ubuntu archive instead of
+the sometimes unresponsive Azure HTTP mirror, matching the previously
+verified financial workflow. This is a CI reliability correction, not a
+change in financial behavior.
+
 Confirm the actual provider workflow, quality and financial CI jobs
 before merge. Do not infer passing CI from this plan.
 
