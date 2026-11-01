@@ -381,6 +381,63 @@ try{
   ];
   const journalCounts=immutableProviderTables.map(table=>
     value("SELECT COUNT(*) FROM "+table+";"));
+  // S2c-1c4k: emulate a populated installation created BEFORE the TRUNCATE
+  // hardening, then rehearse the emitted upgrade without touching V1 history.
+  const upgrade=readFileSync(join(root,"protocolia-provider-journal-truncate-upgrade.sql"),"utf8");
+  assert.ok(upgrade.includes("DO $protocolia_provider_upgrade$"));
+  const oldGuards=immutableProviderTables.map(table=>({
+    table,
+    name:(table==="protocolia_provider_envelope_inbox"
+      ?"protocolia_provider_envelope_immutable_guard"
+      :table+"_immutable_guard")+"_truncate"
+  })).map(({table,name})=>({table,name:name.slice(0,63)}));
+  // PostgreSQL truncates identifiers at 63 bytes. The lifecycle guard
+  // originally requested a 66-byte name; query its stored catalog name.
+  const triggerCount=()=>value("SELECT COUNT(*) FROM pg_trigger t "+
+    "JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relname LIKE "+
+    "'protocolia_provider_%' AND t.tgname IN ("+
+    oldGuards.map(({name})=>literal(name)).join(",")+") AND NOT t.tgisinternal;");
+  assert.equal(triggerCount(),"3");
+  for(const {table,name} of oldGuards)
+    sql("DROP TRIGGER "+name+" ON "+table+";");
+  assert.equal(triggerCount(),"0");
+  // Demonstrate the historical hole WITHOUT deleting a committed row.
+  sql("BEGIN; TRUNCATE protocolia_provider_lifecycle_observation; ROLLBACK;");
+  assert.deepEqual(immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";")),journalCounts);
+  // A transaction rollback must not leave even one partially created guard.
+  sql("BEGIN; "+upgrade+" ROLLBACK;");
+  assert.equal(triggerCount(),"0");
+  // A missing/disabled historical row-level guard is drift: fail closed.
+  const drift=sql("BEGIN; ALTER TABLE protocolia_provider_receipt_candidate "+
+    "DISABLE TRIGGER protocolia_provider_receipt_candidate_immutable_guard; "+
+    upgrade,{allowFail:true});
+  assert.notEqual(drift.status,0,"Unsafe historical guard drift must abort upgrade");
+  assert.ok(drift.stderr.includes("row guard missing/drifted"));
+  assert.equal(triggerCount(),"0","Failed upgrade must not partially harden schema");
+  assert.equal(value("SELECT t.tgenabled FROM pg_trigger t JOIN pg_class c "+
+    "ON c.oid=t.tgrelid WHERE c.relname='protocolia_provider_receipt_candidate' "+
+    "AND t.tgname='protocolia_provider_receipt_candidate_immutable_guard';"),"O",
+    "Drift simulation must rollback");
+  // Two concurrent migration clients serialize on the advisory lock:
+  // exactly three guards are created, neither client sees partial state.
+  const concurrentUpgrades=await concurrent([upgrade,upgrade]);
+  assert.equal(concurrentUpgrades.length,2);
+  assert.equal(triggerCount(),"3");
+  // A later independent application is a safe no-op.
+  sql(upgrade);
+  assert.equal(triggerCount(),"3");
+  assert.deepEqual(immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";")),journalCounts);
+  assert.equal(value(candidate(candidateEvent,digestA)),"duplicate");
+  assert.equal(value(observation(sameEvent,4)),"duplicate");
+  assert.equal(integrity("PAY-CAND-ROLL"),
+    "synthetic_failure/coherent/reported_failure/3");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4K_POPULATED_JOURNAL_UPGRADE_PASS "+build.target+
+    " preserved populated replay, drift rejection, rollback and repeat");
+
   for(const [statement,expectTrigger] of [
     // Parent tables can be blocked by FK constraints even before triggers.
     // CASCADE is required to demonstrate the trigger, not just an FK error.
