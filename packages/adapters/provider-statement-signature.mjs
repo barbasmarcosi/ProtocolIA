@@ -9,8 +9,8 @@ const UTC=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const FIELDS=["version","providerId","keyId","orderId","currency","scale",
   "statementSha256","validFrom","validUntil","signature"];
 const exact=(value,keys)=>value!==null && typeof value==="object" &&
-  !Array.isArray(value) &&
-  Object.keys(value).sort().join("|")===keys.slice().sort().join("|");
+  !Array.isArray(value) && Object.keys(value).length===keys.length &&
+  keys.every(key=>Object.hasOwn(value,key));
 function fail(){throw Error("external attestation: invalid, untrusted, expired or mismatched");}
 function time(value) {
   if(typeof value!=="string" || !UTC.test(value))fail();
