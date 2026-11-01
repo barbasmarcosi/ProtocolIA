@@ -687,6 +687,98 @@ try{
     "WHERE receipt='PAY-ACL';"),"unverified");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+
+  // S2c-1c4o: the ordinary application runtime must not be a synthetic
+  // provider-event writer. This is an opt-in split, NOT provider authentication.
+  const ingressRole="pia_ingress_"+randomBytes(4).toString("hex");
+  sql("CREATE ROLE "+ingressRole+" LOGIN;");
+  const applySplit="BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+    "; SET LOCAL protocolia.provider_ingress_role="+literal(ingressRole)+
+    "; "+isolation+" COMMIT;";
+  const invalidSameRole=sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+    "; SET LOCAL protocolia.provider_ingress_role="+literal(runtimeRole)+
+    "; "+isolation,{allowFail:true});
+  assert.notEqual(invalidSameRole.status,0);
+  assert.match(invalidSameRole.stderr,/Unsafe or identical provider ingress role/);
+  sql("GRANT CREATE ON SCHEMA public TO "+ingressRole+";");
+  const ingressCreate=sql(applySplit,{allowFail:true});
+  assert.notEqual(ingressCreate.status,0);
+  assert.match(ingressCreate.stderr,/Provider ingress role has elevated or owner privileges/);
+  sql("REVOKE CREATE ON SCHEMA public FROM "+ingressRole+";");
+  sql("GRANT "+ingressRole+" TO "+inheritedRole+";");
+  const inheritedIngress=sql(applySplit,{allowFail:true});
+  assert.notEqual(inheritedIngress.status,0);
+  assert.match(inheritedIngress.stderr,/Provider ingress role has untrusted role members/);
+  sql("REVOKE "+ingressRole+" FROM "+inheritedRole+";");
+  const writerSignature="public.protocolia_record_provider_envelope_digest(text,text,text)";
+  assert.equal(value("SELECT has_function_privilege("+literal(runtimeRole)+
+    ","+literal(writerSignature)+",'EXECUTE');"),"t");
+  // A transaction rehearsal may not silently revoke live runtime privileges.
+  sql("BEGIN; SET ROLE "+ownerRole+
+    "; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+    "; SET LOCAL protocolia.provider_ingress_role="+literal(ingressRole)+
+    "; "+isolation+" ROLLBACK;");
+  assert.equal(value("SELECT has_function_privilege("+literal(runtimeRole)+
+    ","+literal(writerSignature)+",'EXECUTE');"),"t");
+  const splitRuns=await concurrent([applySplit,applySplit]);
+  assert.equal(splitRuns.length,2);
+  sql(applySplit);
+  assert.equal(value("SELECT has_function_privilege("+literal(runtimeRole)+
+    ","+literal(writerSignature)+",'EXECUTE');"),"f");
+  assert.equal(value("SELECT has_function_privilege("+literal(ingressRole)+
+    ","+literal(writerSignature)+",'EXECUTE');"),"t");
+  const downgrade=sql(applyAcl,{allowFail:true});
+  assert.notEqual(downgrade.status,0,"Legacy reapply must never restore runtime writes");
+  assert.match(downgrade.stderr,/ingress split requires explicit ingress role/);
+  const deniedRuntimeWrite=sql("SET ROLE "+runtimeRole+"; "+
+    call("sandbox_provider","evt_runtime_denied_12345678",digestA),{allowFail:true});
+  assert.notEqual(deniedRuntimeWrite.status,0);
+  assert.match(deniedRuntimeWrite.stderr,/permission denied for function/);
+  assert.equal(asRuntime("SELECT internal_integrity FROM "+
+    "protocolia_provider_receipt_integrity_projection('PAY-CAND-ROLL');"),
+    "synthetic_failure");
+  const asIngress=query=>sql("SET ROLE "+ingressRole+"; "+query)
+    .stdout.trim().split("\n").at(-1);
+  for(const query of [
+    "SELECT * FROM protocolia_provider_envelope_inbox;",
+    "SELECT * FROM protocolia_provider_receipt_integrity_projection('PAY-CAND-ROLL');"
+  ]){
+    const denied=sql("SET ROLE "+ingressRole+"; "+query,{allowFail:true});
+    assert.notEqual(denied.status,0,"Ingress must not read journal/projections directly");
+    assert.match(denied.stderr,/permission denied/);
+  }
+  const ingressEvent="evt_ingress_only_12345678";
+  assert.equal(asIngress(call("sandbox_provider",ingressEvent,digestA)),"stored");
+  assert.equal(asIngress(call("sandbox_provider",ingressEvent,digestA)),"duplicate");
+  assert.equal(asIngress(call("sandbox_provider",ingressEvent,digestB)),"conflict");
+  sql("INSERT INTO work_order(number,vehicle_plate,symptom,charge_total,opening_balance,available,status) "+
+    "VALUES ('OT-INGRESS','CAR-CAND','Isolated ingress test',1.25,1.25,0,'opened');");
+  sql("INSERT INTO payment(receipt,order_number,amount,method,destination_account,status,provider_settlement_state) "+
+    "VALUES ('PAY-INGRESS','OT-INGRESS',1.25,'card','Synthetic account','posted','unverified');");
+  const ingressCandidate="evt_ingress_candidate_12345678";
+  const ingressLifecycle="evt_ingress_lifecycle_12345678";
+  assert.equal(asIngress(candidate(ingressCandidate,digestA,"PAY-INGRESS","OT-INGRESS")),"stored");
+  assert.equal(asIngress(observation(ingressLifecycle,1,"reported_pending",
+    ingressCandidate,"PAY-INGRESS","OT-INGRESS")),"stored");
+  assert.equal(asIngress(observation(ingressLifecycle,1,"reported_pending",
+    ingressCandidate,"PAY-INGRESS","OT-INGRESS")),"duplicate");
+  assert.equal(asRuntime("SELECT internal_integrity FROM "+
+    "protocolia_provider_receipt_integrity_projection('PAY-INGRESS');"),
+    "synthetic_pending");
+  const beforeRollback=value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox;");
+  sql("BEGIN; SET ROLE "+ingressRole+"; "+
+    call("sandbox_provider","evt_ingress_rollback_12345678",digestA)+" ROLLBACK;");
+  assert.equal(value("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox;"),beforeRollback);
+  assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-INGRESS';"),
+    "unverified");
+  assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order "+
+    "WHERE number='OT-INGRESS';"),"1.25/0.00");
+  console.log("PROTOCOLIA_S2C1C4O_INGRESS_RUNTIME_SPLIT_PASS "+build.target+
+    " separate writer/read roles, inherited/CREATE rejection, concurrent reapply, "+
+    "legacy downgrade blocked, rollback, replay and unverified money");
+
   console.log("PROTOCOLIA_S2C1C4N_THIRD_PARTY_JOURNAL_ACL_PASS "+build.target+
     " owner-role membership and unrelated SELECT/INSERT grants rejected, PUBLIC/runtime grants revoked, "+
     "rollback, concurrent replay and financial state preserved");
