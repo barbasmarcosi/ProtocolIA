@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
+      - 'packages/adapters/provider-statement-input.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
       - '.github/workflows/v12h-s2c-offline-reconciliation.yml'
@@ -37,6 +38,7 @@ jobs:
       - name: Syntax verify CLI and independent reconciliation module
         run: |
           node --check packages/adapters/provider-statement-reconciliation.mjs
+          node --check packages/adapters/provider-statement-input.mjs
           node --check scripts/vnext/reconcile-provider-statement.mjs
       - name: Exact statement comparison, exceptions, and actual CLI exit codes
-        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-cli.test.mjs
+        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-input.test.mjs tests/vnext/provider-statement-cli.test.mjs

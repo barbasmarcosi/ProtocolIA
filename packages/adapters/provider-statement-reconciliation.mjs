@@ -176,13 +176,42 @@ export function reconcileProviderStatement(input) {
       if (!["amounts_agree_unverified","returns_agree_unverified"].includes(classification))
         push(classification,receiptId,link.providerId,link.transactionId);
     }
+    const agg=link && external.get(key(link.providerId,link.transactionId));
+    // Classification is a backwards-compatible primary label, NOT a complete
+    // exception set. Independent financial failures must remain visible when
+    // another condition wins precedence (e.g. a wrong capture plus over-refund).
+    if (agg) {
+      const extra = code => {
+        if (code !== classification)
+          push(code,receiptId,link.providerId,link.transactionId);
+      };
+      if (agg.capture > 0n && agg.capture !== receipt.minor)
+        extra("capture_amount_mismatch");
+      if (agg.returned > agg.capture)
+        extra("external_returns_exceed_capture");
+      if (receipt.status === "reversed" && agg.capture > 0n)
+        extra("internal_reversal_requires_review");
+      if (returnsSupplied &&
+          (agg.refund !== recorded.refund || agg.chargeback !== recorded.chargeback)) {
+        const mismatch = recordedTotal === 0n && agg.returned > 0n
+          ? "external_return_requires_review"
+          : recordedTotal > 0n && agg.returned === 0n
+            ? "internal_return_not_externally_reported"
+            : "return_amount_or_kind_mismatch";
+        extra(mismatch);
+      }
+    }
+    // A local reversal and a separately recorded return on the same receipt
+    // may double-credit funds. Report it even if no provider mapping exists.
+    if (returnsSupplied && receipt.status === "reversed" && recordedTotal > 0n)
+      push("reversed_receipt_has_recorded_return",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     // The internal journal must never conceal an over-return merely because
     // the external transaction or crosswalk is absent or the receipt reversed.
     if (returnsSupplied && recordedTotal > receipt.minor &&
         classification !== "internal_returns_exceed_receipt")
       push("internal_returns_exceed_receipt",receiptId,
         link?.providerId ?? null,link?.transactionId ?? null);
-    const agg=link && external.get(key(link.providerId,link.transactionId));
     rows.push({receiptId,orderId:receipt.orderId,status:receipt.status,
       internalAmount:format(receipt.minor,scale),
       internalRecordedRefund:returnsSupplied ? format(recorded.refund,scale) : null,
@@ -198,10 +227,13 @@ export function reconcileProviderStatement(input) {
     if (!internal.has(receiptId))
       push("orphan_mapping",receiptId,link.providerId,link.transactionId);
   }
-  for (const k of external.keys()) {
+  for (const [k, aggregate] of external) {
     if (!linkOwners.has(k)) {
       const [providerId,transactionId] = JSON.parse(k);
       push("unmatched_external_transaction",null,providerId,transactionId);
+      // Orphan provider rows are still subject to their own arithmetic.
+      if (aggregate.returned > aggregate.capture)
+        push("external_returns_exceed_capture",null,providerId,transactionId);
     }
   }
   issues.sort((a,b) =>
