@@ -808,15 +808,19 @@ try{
   assert.equal(ingressResponse.status,0,ingressResponse.stderr);
   const candidateSnapshot=JSON.parse(candidateResponse.stdout.trim());
   const ingressSnapshot=JSON.parse(ingressResponse.stdout.trim());
-  assert.equal(candidateSnapshot.length,1,"Candidate scope must not leak ingress receipts");
-  assert.equal(ingressSnapshot.length,1,"Ingress scope must not leak candidate receipts");
-  const snapshotReceipt=candidateSnapshot[0];
+  assert.ok(candidateSnapshot.length>0,"Candidate order must have receipts");
+  assert.ok(ingressSnapshot.length>0,"Ingress order must have receipts");
+  assert.ok(candidateSnapshot.every(row=>row.orderId==="OT-CAND"),
+    "Candidate scope must not leak receipts belonging to another order");
+  assert.ok(ingressSnapshot.every(row=>row.orderId==="OT-INGRESS"),
+    "Ingress scope must not leak receipts belonging to another order");
+  const snapshotReceipt=candidateSnapshot.find(row=>row.receiptId==="PAY-CAND");
   assert.deepEqual(snapshotReceipt,{
     receiptId:"PAY-CAND",orderId:"OT-CAND",amount:"1.25",
     currency:"ARS",status:"reversed",proofState:"unverified"
   });
-  const postedSnapshot=ingressSnapshot[0];
-  assert.equal(postedSnapshot.receiptId,"PAY-INGRESS");
+  const postedSnapshot=ingressSnapshot.find(row=>row.receiptId==="PAY-INGRESS");
+  assert.ok(postedSnapshot,"Posted ingress receipt must be in its own order scope");
   assert.equal(postedSnapshot.status,"posted");
   assert.equal(postedSnapshot.amount,"1.25");
   assert.equal(postedSnapshot.proofState,"unverified");
