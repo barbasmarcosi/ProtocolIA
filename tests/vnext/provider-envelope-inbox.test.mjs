@@ -13,7 +13,7 @@ test("provider inbox is opt-in only for fixed unverified ledger proof",()=>{
   assert.deepEqual(providerEnvelopeInboxSql(new Map([["ordinary",{}]])),[]);
   assert.deepEqual(providerEnvelopeInboxSql(new Map([
     ["ordinary",{}],["financial",plan]
-  ])).length,12);
+  ])).length,15);
 });
 test("provider envelope replay key excludes rotating signing key and is append-only",()=>{
   const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
