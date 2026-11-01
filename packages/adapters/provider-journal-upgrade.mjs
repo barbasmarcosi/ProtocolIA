@@ -64,7 +64,7 @@ BEGIN
       RAISE EXCEPTION 'Provider journal row guard missing/drifted: %',journal
         USING ERRCODE='23514';
     END IF;
-    bulk_guard:=row_guard||'_truncate';
+    bulk_guard:=left(row_guard||'_truncate',63);
     SELECT t.tgfoid,t.tgtype,t.tgenabled INTO existing
       FROM pg_trigger t WHERE t.tgrelid=journal_oid
         AND t.tgname=bulk_guard AND NOT t.tgisinternal;
@@ -85,7 +85,7 @@ BEGIN
       WHEN 'protocolia_provider_envelope_inbox'
         THEN 'protocolia_provider_envelope_immutable_guard'
       ELSE journal||'_immutable_guard' END;
-    bulk_guard:=row_guard||'_truncate';
+    bulk_guard:=left(row_guard||'_truncate',63);
     SELECT c.oid INTO journal_oid FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='public' AND c.relname=journal AND c.relkind='r';
