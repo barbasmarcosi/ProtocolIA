@@ -55,13 +55,15 @@ async function boundedResponse(response,max=1048576){
  return Buffer.concat(chunks,size).toString("utf8");
 }
 function parseReply(raw){
- const response=JSON.parse(raw);
+ let response;
+ try{response=JSON.parse(raw);}catch{throw Error("invalid completion JSON");}
  assert(object(response)&&Array.isArray(response.choices)&&response.choices.length===1,"unexpected completion response");
  const item=response.choices[0];
  assert(item.finish_reason==="stop","incomplete/refused/tool-using completion");
  assert(object(item.message)&&item.message.role==="assistant"&&!item.message.tool_calls&&!item.message.function_call,"non-text model output");
  assert(typeof item.message.content==="string"&&item.message.content.length>0&&item.message.content.length<=262144,"invalid text model content");
- const proposal=JSON.parse(item.message.content);
+ let proposal;
+ try{proposal=JSON.parse(item.message.content);}catch{throw Error("invalid proposal JSON");}
  assert(object(proposal),"model proposal must be a JSON object");
  return {proposal,usage:strictUsage(response.usage),
   responseId:typeof response.id==="string"&&response.id.length<=160?response.id:null,
@@ -89,7 +91,8 @@ function validateOpts(options){
 export async function runModelProposal(options,transport=fetch){
  const c=validateOpts(options);
  const source=boundedFile(c.brief),brief=checkBrief(JSON.parse(source.toString("utf8")));
- const prompt=promptForBrief(c.brief); // includes frozen SHA of the exact bytes used
+ const prompt=promptForBrief(c.brief); // includes SHA of the source bytes
+ assert(sha(boundedFile(c.brief))===sha(source),"brief mutated during prompt creation");
  const request={
   model:options.model,
   messages:[
