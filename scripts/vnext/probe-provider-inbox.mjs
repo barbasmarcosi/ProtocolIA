@@ -390,11 +390,13 @@ try{
     name:(table==="protocolia_provider_envelope_inbox"
       ?"protocolia_provider_envelope_immutable_guard"
       :table+"_immutable_guard")+"_truncate"
-  }));
+  })).map(({table,name})=>({table,name:name.slice(0,63)}));
+  // PostgreSQL truncates identifiers at 63 bytes. The lifecycle guard
+  // originally requested a 66-byte name; query its stored catalog name.
   const triggerCount=()=>value("SELECT COUNT(*) FROM pg_trigger t "+
     "JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relname LIKE "+
-    "'protocolia_provider_%' AND t.tgname LIKE '%_immutable_guard_truncate' "+
-    "AND NOT t.tgisinternal;");
+    "'protocolia_provider_%' AND t.tgname IN ("+
+    oldGuards.map(({name})=>literal(name)).join(",")+") AND NOT t.tgisinternal;");
   assert.equal(triggerCount(),"3");
   for(const {table,name} of oldGuards)
     sql("DROP TRIGGER "+name+" ON "+table+";");
