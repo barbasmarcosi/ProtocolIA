@@ -33,7 +33,7 @@ node --test tests/research/autonomy-r1.test.mjs
 node scripts/research/autonomy-r1.mjs check research/autonomous-engineering/cases/kiosk.json
 node scripts/research/autonomy-r1.mjs check research/autonomous-engineering/cases/workshop.json
 node scripts/research/autonomy-r1.mjs check research/autonomous-engineering/cases/rehydration.json
-node scripts/research/autonomy-r1.mjs audit research/autonomous-engineering/samples/kiosk-autonomous-intake.json
+node scripts/research/autonomy-r1.mjs audit research/autonomous-engineering/cases/kiosk.json research/autonomous-engineering/samples/kiosk-autonomous-intake.json\n# expected exit code: 2 (deliberately blocked assumptions)
 ```
 
 The `audit` command checks recorded decisions against the bounded policy; it does **not** call an AI, produce TypeSpec, attest that an evidence URL is genuine or evaluate a candidate tool. Those capabilities belong to later empirical stages.
