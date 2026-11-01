@@ -795,7 +795,7 @@ try{
     "-U","protocolia","-d","protocolia","-At"],{input:exportQuery+"\n"});
   const missingScope=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
     "-v","currency=ARS","-U","protocolia","-d","protocolia","-At"],
-    {input:exportQuery+"\n"});
+    {input:exportQuery+"\n",allowFail:true});
   assert.notEqual(missingScope.status,0,"Missing order scope must fail closed");
   assert.equal(missingScope.stdout.trim(),"","Missing scope must not export any receipts");
   const injectedScope=exportFor("OT-CAND' OR TRUE --");
