@@ -80,35 +80,41 @@ public class DomainRuntime {
   // Deliberately demo-only. This records authenticated envelope digests, not money.
   @PostMapping("/api/_protocolia/provider/sandbox/inbox")
   public ResponseEntity<Map<String,String>> receiveSandboxProvider(
-      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    return processSandboxProvider(request,rawBody,0);
+      HttpServletRequest request) throws java.io.IOException {
+    return processSandboxProvider(request,0);
   }
 
   @PostMapping("/api/_protocolia/provider/sandbox/receipt-candidate")
   public ResponseEntity<Map<String,String>> receiveSandboxReceiptCandidate(
-      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    return processSandboxProvider(request,rawBody,1);
+      HttpServletRequest request) throws java.io.IOException {
+    return processSandboxProvider(request,1);
   }
 
   @PostMapping("/api/_protocolia/provider/sandbox/lifecycle-observation")
   public ResponseEntity<Map<String,String>> receiveSandboxLifecycle(
-      HttpServletRequest request,@RequestBody(required=false) byte[] rawBody){
-    return processSandboxProvider(request,rawBody,2);
+      HttpServletRequest request) throws java.io.IOException {
+    return processSandboxProvider(request,2);
   }
 
   private ResponseEntity<Map<String,String>> processSandboxProvider(
-      HttpServletRequest request,byte[] rawBody,int mode){
+      HttpServletRequest request,int mode) throws java.io.IOException {
     if(!Manifest.PROVIDER_INBOX_ENABLED||!"true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED")))
       throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Sandbox ingress disabled");
-    if(!"demo".equals(System.getenv().getOrDefault("PROTOCOLIA_AUTH_MODE","demo")))
+    if(!"demo".equals(System.getenv("PROTOCOLIA_AUTH_MODE")))
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox forbidden outside demo");
     var keys=ProviderWebhookVerifier.parseSandboxKeys(
       System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX"),
       System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_KEYS"));
     if(keys==null)
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Sandbox keys unavailable");
+    // Avoid @RequestBody byte[]: MVC would materialize an unbounded untrusted
+    // body before the 64 KiB application check. Bound Content-Length and
+    // chunked/unknown-length streams before authentication or SQL.
     if(!"application/json".equals(request.getContentType())||
-       rawBody==null||rawBody.length<1||rawBody.length>65536)
+       request.getContentLengthLong()>65536)
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid raw provider body");
+    byte[] rawBody=request.getInputStream().readNBytes(65537);
+    if(rawBody.length<1||rawBody.length>65536)
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid raw provider body");
     String[] names={"X-ProtocolIA-Key-Id","X-ProtocolIA-Timestamp",
       "X-ProtocolIA-Event-Id","X-ProtocolIA-Signature"};
