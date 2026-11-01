@@ -181,6 +181,18 @@ BEGIN
       RAISE EXCEPTION 'Provider runtime missing required function access: %',signature
         USING ERRCODE='23514';
     END IF;
+    -- An old explicit grant to an unrelated role would become a backdoor
+    -- into SECURITY DEFINER, even after PUBLIC EXECUTE is revoked.
+    IF EXISTS (
+      SELECT 1 FROM pg_proc p,
+        LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+      WHERE p.oid=to_regprocedure('public.'||signature)
+        AND a.privilege_type='EXECUTE'
+        AND a.grantee NOT IN (operator_oid,runtime_oid)
+    ) THEN
+      RAISE EXCEPTION 'Unexpected provider function EXECUTE grantee: %',signature
+        USING ERRCODE='23514';
+    END IF;
   END LOOP;
 END $protocolia_provider_runtime_acl$;
 `;
