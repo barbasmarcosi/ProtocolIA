@@ -575,6 +575,8 @@ export function generate(ir,spec,out){
     "PROTOCOLIA_DB_PASSWORD=", "# Optional split: runtime DB uses restricted role; migration DB uses privileged role",
     "PROTOCOLIA_RUNTIME_DB_USER=", "PROTOCOLIA_RUNTIME_DB_PASSWORD=",
     "PROTOCOLIA_MIGRATION_DB_USER=", "PROTOCOLIA_MIGRATION_DB_PASSWORD=",
+    "# Optional HMAC-only sandbox ingress SQL principal; requires operator-applied journal split.",
+    "PROTOCOLIA_PROVIDER_INGRESS_DB_USER=", "PROTOCOLIA_PROVIDER_INGRESS_DB_PASSWORD=",
     "PROTOCOLIA_AUTH_MODE=demo",
     "# Use jwt for verified Bearer resource-server APIs (demo and jwt are mutually exclusive).",
     "PROTOCOLIA_JWT_ISSUER=","PROTOCOLIA_JWT_AUDIENCE=","PROTOCOLIA_JWT_JWKS_URI=",
