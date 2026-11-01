@@ -21,12 +21,16 @@ try {
     flags.set(args[i],args[i+1]);
   }
   const keys=["--internal","--links","--external","--currency","--scale"];
-  if(flags.size!==keys.length || keys.some(key=>!flags.has(key)))
-    throw Error("Usage: reconcile-provider-statement --internal receipts.json --links map.json --external statement.json --currency ARS --scale 2");
+  if((flags.size!==keys.length && flags.size!==keys.length+1) ||
+     keys.some(key=>!flags.has(key)) ||
+     [...flags.keys()].some(key=>![...keys,"--internal-returns"].includes(key)))
+    throw Error("Usage: reconcile-provider-statement --internal receipts.json [--internal-returns returns.json] --links map.json --external statement.json --currency ARS --scale 2");
   const rawScale=flags.get("--scale");
   if(!/^[0-6]$/.test(rawScale)) throw Error("Explicit scale 0..6 required");
   const result=reconcileProviderStatement({
     internal:load(flags.get("--internal"),"internal"),
+    ...(flags.has("--internal-returns") ?
+      {internalReturns:load(flags.get("--internal-returns"),"internalReturns")} : {}),
     links:load(flags.get("--links"),"links"),
     external:load(flags.get("--external"),"external"),
     currency:flags.get("--currency"),scale:Number(rawScale)
