@@ -51,12 +51,25 @@ BEGIN
     RAISE EXCEPTION 'Provider runtime role has elevated or owner privileges'
       USING ERRCODE='23514';
   END IF;
-  -- A SECURITY DEFINER search_path may include public only if anonymous
-  -- roles cannot create attacker-controlled objects there.
+  -- SECURITY DEFINER functions resolve generated relations in public.
+  -- Its owner must be the same dedicated migration principal: a different
+  -- owner could grant CREATE to an attacker after a one-time ACL preflight.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_namespace n
+      WHERE n.nspname='public' AND n.nspowner=operator_oid
+  ) THEN
+    RAISE EXCEPTION 'Provider public schema owner is not migration owner'
+      USING ERRCODE='23514';
+  END IF;
+  -- Checking only PUBLIC or the runtime role misses a third party with
+  -- CREATE in the trusted search_path. Reject ANY explicit CREATE grant to
+  -- another principal, including a group or a currently unused login role.
+  -- The schema owner's implicit CREATE privilege remains valid.
   IF EXISTS (
     SELECT 1 FROM pg_namespace n,
       LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a
-    WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='CREATE'
+    WHERE n.nspname='public' AND a.privilege_type='CREATE'
+      AND a.grantee<>operator_oid
   ) THEN
     RAISE EXCEPTION 'Public schema permits untrusted CREATE'
       USING ERRCODE='23514';
