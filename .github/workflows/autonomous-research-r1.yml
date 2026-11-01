@@ -1,0 +1,45 @@
+name: R1 autonomous engineering research gate
+
+on:
+  pull_request:
+    paths:
+      - 'docs/research/autonomous-engineering/**'
+      - 'research/autonomous-engineering/**'
+      - 'scripts/research/autonomy-r1.mjs'
+      - 'tests/research/autonomy-r1.test.mjs'
+      - '.github/workflows/autonomous-research-r1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Parse research gate
+        run: node --check scripts/research/autonomy-r1.mjs
+      - name: Validate fail-closed fixtures and decision decisions
+        run: node --test tests/research/autonomy-r1.test.mjs
+      - name: Independently validate all public smoke cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for candidate in kiosk workshop rehydration; do
+            node scripts/research/autonomy-r1.mjs check "research/autonomous-engineering/cases/${candidate}.json"
+          done
+      - name: Prove unsafe unattended intake is rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          node scripts/research/autonomy-r1.mjs audit             research/autonomous-engineering/cases/kiosk.json             research/autonomous-engineering/samples/kiosk-autonomous-intake.json > "${RUNNER_TEMP}/research-r1-audit.json"
+          code=$?
+          set -e
+          test "${code}" -eq 2
+          node -e 'const f=require(process.argv[1]);if(f.status!=="BLOCKED"||f.blockers.length<3)process.exit(1)'             "${RUNNER_TEMP}/research-r1-audit.json"
