@@ -113,7 +113,8 @@ test("receipt integrity projection rejects stale internal state and never grants
   assert.match(projection,/r\.receipt_state IS DISTINCT FROM 'posted'/);
   assert.match(projection,/r\.proof_state IS DISTINCT FROM 'unverified'/);
   for(const state of ["missing","unbound","claim_mismatch","not_posted",
-    "proof_changed","no_lifecycle","causal_gap","causal_contradictory","synthetic_only"])
+    "proof_changed","no_lifecycle","causal_gap","causal_contradictory",
+    "synthetic_only","causal_unknown"])
     assert.ok(projection.includes("'"+state+"'"),state);
   assert.doesNotMatch(projection,/UPDATE |DELETE |INSERT |SECURITY DEFINER|SET provider_settlement_state/);
 });
