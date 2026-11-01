@@ -5,7 +5,7 @@ import {createHash,createPublicKey,verify} from "node:crypto";
 import {readFileSync,lstatSync} from "node:fs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HEX=/^[0-9a-f]{64}$/;
-const UTC=/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$/;
+const UTC=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const FIELDS=["version","providerId","keyId","orderId","currency","scale",
   "statementSha256","validFrom","validUntil","signature"];
 const exact=(value,keys)=>value!==null && typeof value==="object" &&
@@ -21,7 +21,7 @@ function time(value) {
 export function signedStatementMessage(meta) {
   return Buffer.from(["ProtocolIA-S2C-Ed25519-v1",meta.version,meta.providerId,
     meta.keyId,meta.orderId,meta.currency,meta.scale,meta.statementSha256,
-    meta.validFrom,meta.validUntil,""].join("\\n"),"utf8");
+    meta.validFrom,meta.validUntil,""].join("\n"),"utf8");
 }
 export function verifyDetachedStatement({metadata,statementSha256,external,
   expectedOrder,currency,scale,publicKeyPem,trustedKeySha256,now=Date.now()}) {
@@ -38,7 +38,7 @@ export function verifyDetachedStatement({metadata,statementSha256,external,
   if(until<=from || until-from>24*60*60*1000 ||
      !Number.isFinite(now) || now<from || now>until)fail();
   if(typeof publicKeyPem!=="string" || publicKeyPem.length>8192 ||
-     !/^-----BEGIN PUBLIC KEY-----\\r?\\n/.test(publicKeyPem))fail();
+     !/^-----BEGIN PUBLIC KEY-----\r?\n/.test(publicKeyPem))fail();
   let key,der;
   try {
     key=createPublicKey(publicKeyPem);
