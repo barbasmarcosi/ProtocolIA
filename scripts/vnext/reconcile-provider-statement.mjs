@@ -4,6 +4,7 @@
 import {loadStatementArray,loadStatementArrayWithDigest,loadStatementObject} from "../../packages/adapters/provider-statement-input.mjs";
 import {verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapters/provider-statement-signature.mjs";
 import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
+import {consumeLocalSignedEvents} from "../../packages/adapters/provider-statement-event-replay.mjs";
 import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 try {
@@ -16,11 +17,13 @@ try {
   }
   const keys=["--internal","--links","--external","--currency","--scale"];
   const optional=["--internal-returns","--expected-order","--external-attestation",
-    "--provider-public-key","--trusted-key-sha256","--local-replay-dir"];
+    "--provider-public-key","--trusted-key-sha256","--local-replay-dir",
+    "--local-event-replay-dir"];
   const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
   const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
   if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order"))) ||
-     (flags.has("--local-replay-dir") && supplied!==3))
+     ((flags.has("--local-replay-dir") || flags.has("--local-event-replay-dir")) && supplied!==3) ||
+     (flags.has("--local-replay-dir") && flags.has("--local-event-replay-dir")) )
     throw Error("Detached signature requires all three trust flags and --expected-order");
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
@@ -62,6 +65,14 @@ try {
       });
       signature.replayProtection=marker.replayProtection;
       signature.localReplayMarkerSha256=marker.markerSha256;
+    }
+    if(flags.has("--local-event-replay-dir")) {
+      const claim=consumeLocalSignedEvents({
+        directory:flags.get("--local-event-replay-dir"),
+        metadata:attestation,external:external.data
+      });
+      signature.replayProtection=claim.replayProtection;
+      signature.consumedEventCount=claim.consumedEventCount;
     }
     result.externalStatementSignature=signature;
   }
