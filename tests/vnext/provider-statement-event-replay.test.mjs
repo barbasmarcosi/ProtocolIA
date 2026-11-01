@@ -55,6 +55,7 @@ function withFixture(fn) {
     const args=[cli,"--internal",join(dir,"internal.json"),
       "--links",join(dir,"links.json"),"--external",join(dir,"external.json"),
       "--currency","ARS","--scale","2","--expected-order","OT-1",
+      "--expected-provider","sandbox",
       "--external-attestation",join(dir,"attestation.json"),
       "--provider-public-key",join(dir,"key.pem"),
       "--trusted-key-sha256",fingerprint,"--local-event-replay-dir",guard];
