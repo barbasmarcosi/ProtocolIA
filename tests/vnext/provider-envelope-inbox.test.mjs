@@ -23,6 +23,14 @@ test("provider envelope replay key excludes rotating signing key and is append-o
   assert.match(ddl,/RETURN 'duplicate'/);
   assert.match(ddl,/RETURN 'conflict'/);
   assert.match(ddl,/BEFORE UPDATE OR DELETE/);
+  // PostgreSQL TRUNCATE bypasses row-level UPDATE/DELETE triggers entirely.
+  // The generated database owner must be unable to erase replay history.
+  for(const table of ["protocolia_provider_envelope_inbox",
+    "protocolia_provider_receipt_candidate",
+    "protocolia_provider_lifecycle_observation"]){
+    assert.match(ddl,new RegExp("BEFORE TRUNCATE ON "+table+
+      "\\\\n      FOR EACH STATEMENT EXECUTE FUNCTION protocolia_provider_envelope_immutable"));
+  }
   assert.doesNotMatch(ddl,/UPDATE payment|SET provider_settlement_state|settled/);
   assert.match(ddl,/REFERENCES payment\(receipt\) ON DELETE RESTRICT/);
   assert.match(ddl,/protocolia_record_provider_receipt_candidate/);
