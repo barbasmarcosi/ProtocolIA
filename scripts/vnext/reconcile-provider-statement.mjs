@@ -36,8 +36,10 @@ try {
       throw Error("internal: snapshot missing or outside expected order");
   }
   const external=loadStatementArrayWithDigest(flags.get("--external"),"external");
+  const attestation=supplied===3 ?
+    loadStatementObject(flags.get("--external-attestation"),"external attestation") : null;
   const signature=supplied===3 ? verifyDetachedStatement({
-    metadata:loadStatementObject(flags.get("--external-attestation"),"external attestation"),
+    metadata:attestation,
     statementSha256:external.sha256,external:external.data,
     expectedOrder:flags.get("--expected-order"),currency:flags.get("--currency"),
     scale:Number(rawScale),
@@ -56,7 +58,7 @@ try {
     if(flags.has("--local-replay-dir")) {
       const marker=consumeLocalSignedStatement({
         directory:flags.get("--local-replay-dir"),
-        metadata:loadStatementObject(flags.get("--external-attestation"),"external attestation")
+        metadata:attestation
       });
       signature.replayProtection=marker.replayProtection;
       signature.localReplayMarkerSha256=marker.markerSha256;
