@@ -7,6 +7,14 @@ export function providerJournalRuntimeIsolationSql() {
 -- Operator-only; run after S2c-1c4k with a verified backup and restored rehearsal.
 -- Example (same psql session): BEGIN; SET LOCAL protocolia.provider_runtime_role =
 -- 'protocolia_runtime'; \\i protocolia-provider-journal-runtime-isolation.sql; COMMIT;
+-- Optional stronger split: SET LOCAL protocolia.provider_ingress_role =
+-- 'protocolia_webhook_ingress'; (in the same operator transaction).
+-- When supplied, runtime gets only two read-only projections and ingress gets
+-- only three synthetic-event writer entrypoints. No table DML is granted.
+-- Reapplying without the ingress role after a split is rejected (no downgrade).
+-- IMPORTANT: the generated webhook app must use separately configured ingress
+-- DB credentials before applying this option; it is NOT wired automatically.
+-- This SQL does not verify a real provider or clear/refund any money.
 -- The runtime role must not own or inherit ownership of any provider objects.
 -- Never execute this from an app connection or grant runtime schema CREATE.
 DO $protocolia_provider_runtime_acl$
