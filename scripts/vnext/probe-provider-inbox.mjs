@@ -536,6 +536,16 @@ try{
   assert.equal(securityDefiner(),"f");
   sql("REVOKE "+inheritedRole+" FROM "+runtimeRole+
     "; REVOKE SELECT ON protocolia_provider_envelope_inbox FROM "+inheritedRole+";");
+  // An unrelated role with an explicit old EXECUTE grant must not be allowed
+  // to invoke a newly elevated SECURITY DEFINER entrypoint.
+  const digestSignature="public.protocolia_record_provider_envelope_digest(text,text,text)";
+  sql("GRANT EXECUTE ON FUNCTION "+digestSignature+" TO "+inheritedRole+";");
+  const rogueFunctionAcl=sql(applyAcl,{allowFail:true});
+  assert.notEqual(rogueFunctionAcl.status,0,
+    "Explicit third-party function EXECUTE grant must fail closed");
+  assert.match(rogueFunctionAcl.stderr,/Unexpected provider function EXECUTE grantee/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE EXECUTE ON FUNCTION "+digestSignature+" FROM "+inheritedRole+";");
   // Two operator sessions can race: advisory lock serializes the atomic
   // changes, and repeating a successful transition must be idempotent.
   const aclRuns=await concurrent([applyAcl,applyAcl]);
