@@ -18,6 +18,13 @@ DECLARE
 BEGIN
   -- Serialize concurrent upgrade attempts, including a repeated invocation.
   PERFORM pg_advisory_xact_lock(1927400411);
+  -- The advisory lock coordinates upgrades; real table locks also exclude
+  -- concurrent DML/TRUNCATE by clients unaware of our advisory lock.
+  -- NOWAIT rejects an active writer instead of risking an unbounded pause.
+  EXECUTE 'LOCK TABLE public.protocolia_provider_envelope_inbox,
+    public.protocolia_provider_receipt_candidate,
+    public.protocolia_provider_lifecycle_observation
+    IN SHARE ROW EXCLUSIVE MODE NOWAIT';
   SELECT to_regprocedure('public.protocolia_provider_envelope_immutable()')::oid
     INTO guard_oid;
   IF guard_oid IS NULL OR NOT EXISTS (
