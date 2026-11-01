@@ -36,6 +36,13 @@ BEGIN
       USING ERRCODE='23514';
   END IF;
   runtime_oid:=role_record.oid;
+  -- SECURITY DEFINER must NEVER elevate the app to a superuser/CREATEROLE
+  -- owner. A dedicated, unprivileged migration owner is mandatory.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE oid=operator_oid AND
+    (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)) THEN
+    RAISE EXCEPTION 'Provider migration owner has elevated privileges'
+      USING ERRCODE='23514';
+  END IF;
   IF runtime_oid=operator_oid OR role_record.rolsuper OR
      role_record.rolcreaterole OR role_record.rolcreatedb OR
      role_record.rolreplication OR role_record.rolbypassrls OR
