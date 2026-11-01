@@ -203,3 +203,8 @@ test("impossible over-return is reported even with missing mapping or missing st
     ["internal_returns_exceed_receipt"]);
   assert.equal(r.counts.exceptions,2);
 });
+
+test("explicitly null internal return journal is rejected, never silently treated as empty",()=>{
+  const s=sample();s.internalReturns=null;
+  assert.throws(()=>compare(s),/internalReturns: expected bounded array/);
+});
