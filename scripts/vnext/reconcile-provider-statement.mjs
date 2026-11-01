@@ -3,6 +3,7 @@
 // Never treats the key as independently verified provider identity or bank settlement.
 import {loadStatementArray,loadStatementArrayWithDigest,loadStatementObject} from "../../packages/adapters/provider-statement-input.mjs";
 import {verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapters/provider-statement-signature.mjs";
+import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
 import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 try {
@@ -15,10 +16,11 @@ try {
   }
   const keys=["--internal","--links","--external","--currency","--scale"];
   const optional=["--internal-returns","--expected-order","--external-attestation",
-    "--provider-public-key","--trusted-key-sha256"];
-  const signatureFlags=optional.slice(2);
+    "--provider-public-key","--trusted-key-sha256","--local-replay-dir"];
+  const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
   const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
-  if(supplied!==0 && (supplied!==3 || !flags.has("--expected-order")))
+  if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order"))) ||
+     (flags.has("--local-replay-dir") && supplied!==3))
     throw Error("Detached signature requires all three trust flags and --expected-order");
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
@@ -34,8 +36,10 @@ try {
       throw Error("internal: snapshot missing or outside expected order");
   }
   const external=loadStatementArrayWithDigest(flags.get("--external"),"external");
+  const attestation=supplied===3 ?
+    loadStatementObject(flags.get("--external-attestation"),"external attestation") : null;
   const signature=supplied===3 ? verifyDetachedStatement({
-    metadata:loadStatementObject(flags.get("--external-attestation"),"external attestation"),
+    metadata:attestation,
     statementSha256:external.sha256,external:external.data,
     expectedOrder:flags.get("--expected-order"),currency:flags.get("--currency"),
     scale:Number(rawScale),
@@ -50,7 +54,17 @@ try {
     external:external.data,
     currency:flags.get("--currency"),scale:Number(rawScale)
   });
-  if(signature) result.externalStatementSignature=signature;
+  if(signature) {
+    if(flags.has("--local-replay-dir")) {
+      const marker=consumeLocalSignedStatement({
+        directory:flags.get("--local-replay-dir"),
+        metadata:attestation
+      });
+      signature.replayProtection=marker.replayProtection;
+      signature.localReplayMarkerSha256=marker.markerSha256;
+    }
+    result.externalStatementSignature=signature;
+  }
   process.stdout.write(JSON.stringify(result,null,2)+"\n");
   process.exitCode=result.counts.exceptions ? 2 : 0;
 } catch(error) {
