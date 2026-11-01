@@ -128,3 +128,34 @@ test("symlinked and oversized inputs are rejected without echoing their contents
     assert.equal(oversized.stdout,"");
   }finally{rmSync(tmp,{recursive:true,force:true});}
 });
+
+test("CLI rejects duplicate financial keys in each independent source, with no data leak",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pia-ambiguous-cli-"));
+  try {
+    const files={
+      internal:JSON.stringify([payment]),
+      links:JSON.stringify([link]),
+      external:JSON.stringify([capture]),
+      internalReturns:"[]"
+    };
+    const names=Object.keys(files);
+    for(const [name,content] of Object.entries(files))
+      writeFileSync(join(dir,name+".json"),content);
+    for(const source of names) {
+      const path=join(dir,source+".json");
+      // Parser ambiguity is refused before shape validation or comparison.
+      writeFileSync(path,'[{"amount":"SECRET_FINANCIAL_VALUE","amount":"1.00"}]');
+      const result=spawnSync(process.execPath,[cli,
+        "--internal",join(dir,"internal.json"),
+        "--internal-returns",join(dir,"internalReturns.json"),
+        "--links",join(dir,"links.json"),
+        "--external",join(dir,"external.json"),
+        "--currency","ARS","--scale","2"],{encoding:"utf8",timeout:10000});
+      assert.equal(result.status,1,source+": "+result.stderr);
+      assert.match(result.stderr,new RegExp(source+": duplicate JSON object member"));
+      assert.doesNotMatch(result.stderr,/SECRET_FINANCIAL_VALUE/);
+      assert.equal(result.stdout,"");
+      writeFileSync(path,files[source]);
+    }
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
