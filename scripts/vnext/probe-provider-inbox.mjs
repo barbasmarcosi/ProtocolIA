@@ -6,6 +6,7 @@ import {spawn,spawnSync} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {mkdtempSync,readFileSync,writeFileSync,rmSync} from "node:fs";
 import {join,resolve} from "node:path";
+import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
 import {tmpdir} from "node:os";
 
 const root=resolve(process.argv[2]??"");
@@ -785,6 +786,35 @@ try{
     "unverified");
   assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order "+
     "WHERE number='OT-INGRESS';"),"1.25/0.00");
+  // End-to-end operator-only SQL export contract: both generators must emit
+  // actual PostgreSQL values, not mocks or fabricated settlement assertions.
+  const exportQuery=readFileSync(join(root,"protocolia-reconciliation-internal-export.sql"),"utf8");
+  assert.match(exportQuery,/^SELECT COALESCE\(jsonb_agg\(/m);
+  const snapshotResponse=docker(["exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
+    "-v","currency=ARS","-U","protocolia","-d","protocolia","-At"],
+    {input:exportQuery+"\n"});
+  assert.equal(snapshotResponse.status,0,snapshotResponse.stderr);
+  const internalSnapshot=JSON.parse(snapshotResponse.stdout.trim());
+  assert.ok(Array.isArray(internalSnapshot));
+  const snapshotReceipt=internalSnapshot.find(row=>row.receiptId==="PAY-CAND");
+  assert.deepEqual(snapshotReceipt,{
+    receiptId:"PAY-CAND",orderId:"OT-CAND",amount:"1.25",
+    currency:"ARS",status:"reversed",proofState:"unverified"
+  });
+  const postedSnapshot=internalSnapshot.find(row=>row.receiptId==="PAY-INGRESS");
+  assert.equal(postedSnapshot.status,"posted");
+  assert.equal(postedSnapshot.amount,"1.25");
+  assert.equal(postedSnapshot.proofState,"unverified");
+  const comparison=reconcileProviderStatement({currency:"ARS",scale:2,
+    internal:[snapshotReceipt,postedSnapshot],links:[],external:[]});
+  assert.equal(comparison.rows[0].classification,"unlinked");
+  assert.equal(comparison.rows[1].classification,"unlinked");
+  assert.equal(comparison.independentlyAuthenticated,false);
+  assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
+    "unverified");
+  console.log("PROTOCOLIA_S2C_EXPORT_REAL_PG_PASS "+build.target+
+    " deterministic JSON receipt, exact decimal, offline comparison and no financial writes");
+
   console.log("PROTOCOLIA_S2C1C4O_INGRESS_RUNTIME_SPLIT_PASS "+build.target+
     " separate writer/read roles, inherited/CREATE rejection, concurrent reapply, "+
     "legacy downgrade blocked, rollback, replay and unverified money");

@@ -60,6 +60,8 @@ jobs:
         run: node --test tests/vnext/provider-envelope-inbox.test.mjs tests/vnext/provider-journal-upgrade.test.mjs tests/vnext/provider-journal-runtime-isolation.test.mjs
       - name: Validate pinned one-shot migrator and ingress Compose isolation contracts
         run: node --test tests/vnext/runtime-stage.test.mjs
+      - name: Verify exact, provider-neutral exported receipt snapshots
+        run: node --test tests/vnext/provider-statement-export.test.mjs tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-cli.test.mjs
       - name: Generate independent target from unchanged canonical workshop TypeSpec
         run: npm run app:build -- examples/vnext/workshop-itemized-guard --target ${{ matrix.target }} --out "${{ runner.temp }}/provider-preflight-app"
       - name: Real PostgreSQL and HTTP generated conformance, no provider calls
