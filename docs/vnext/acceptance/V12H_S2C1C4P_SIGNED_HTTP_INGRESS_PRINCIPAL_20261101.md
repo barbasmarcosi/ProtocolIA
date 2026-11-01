@@ -1,6 +1,6 @@
 # S2c-1c4p — Signed sandbox HTTP through distinct PostgreSQL ingress principal
 
-**Status: implemented in feature branch; acceptance pending real dual-target CI.** This is a bounded, demo-only security hardening, not provider/bank settlement authority.
+**Status: bounded real dual-target PostgreSQL/HTTP acceptance verified in GitHub Actions; not deployed.** This is a bounded, demo-only security hardening, not provider/bank settlement authority.
 
 ## Threat and invariant
 
@@ -40,3 +40,12 @@ Prior tests also cover PostgreSQL role inheritance, ACL downgrade, immutable jou
 ## Remaining TL-14 blockers
 
 Provider-authoritative identity and event semantics; independent cleared-settlement reconciliation; real refunds/chargebacks and negative adjustments; operational credentials, tenant isolation, backup/restore and external acceptance. Keep [#57](https://github.com/barbasmarcosi/ProtocolIA/issues/57) open.
+
+## Verified CI evidence (2026-11-01 UTC)
+
+- [Provider HTTP/PostgreSQL ×2 #41295024518](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41295024518): both generated Spring and NestJS jobs **SUCCESS**. Both logs contain `PROTOCOLIA_S2C1C4P_SIGNED_HTTP_DISTINCT_DB_PRINCIPAL_PASS`, after actual PostgreSQL role separation, signed concurrent replay, candidate/lifecycle, invalid HMAC, ingress transaction rollback, ACL revocation and recovery, application restart, and unchanged `unverified` settlement state. The earlier S2c-1c4o role-isolation probe also passed on both targets.
+- [Quality #41295024524](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41295024524): all five jobs **SUCCESS**.
+- [Exact finance and mobile #41295024545](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41295024545): both target jobs **SUCCESS**.
+- [Itemized finance and mobile #41295024548](https://github.com/barbasmarcosi/ProtocolIA/actions/runs/41295024548): both target jobs **SUCCESS**.
+
+These CI results belong to the tested feature implementation; the subsequent evidence-only documentation update requires its own final-head check before merge. No bank provider, real settlement or production credential migration was exercised.
