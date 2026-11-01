@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "protocolia-research-case/v1",
+  "id": "workshop-v1",
+  "title": "Automotive workshop with work orders and receipts",
+  "sourceType": "synthetic",
+  "brief": "Customer, vehicle, parts, work-order and payment tracking. Do not claim bank-cleared settlement or fiscal invoicing without independent authority.",
+  "requirements": [
+    {
+      "id": "W-01",
+      "text": "Vehicles reference one customer with actual database referential integrity.",
+      "critical": true
+    },
+    {
+      "id": "W-02",
+      "text": "Orders have guarded lifecycle opened, underway and finished with immutable audit entries.",
+      "critical": true
+    },
+    {
+      "id": "W-03",
+      "text": "Parts reservation decrements nonnegative stock atomically under 10 concurrent requests.",
+      "critical": true
+    },
+    {
+      "id": "W-04",
+      "text": "Labor and parts amounts are exact decimal strings; avoid floating-point financial math.",
+      "critical": true
+    },
+    {
+      "id": "W-05",
+      "text": "Internal receipts never imply externally settled bank funds.",
+      "critical": true
+    },
+    {
+      "id": "W-06",
+      "text": "Read-only staff cannot create receipts or inspect privileged finance reports.",
+      "critical": true
+    },
+    {
+      "id": "W-07",
+      "text": "Mobile UI can create a vehicle, an order and inspect related detail.",
+      "critical": false
+    }
+  ],
+  "ambiguities": [
+    {
+      "id": "W-A01",
+      "question": "Define cancellation policy after billed parts have been consumed.",
+      "classification": "material_business"
+    },
+    {
+      "id": "W-A02",
+      "question": "Which jurisdiction-specific receipt or legal invoice rules must apply?",
+      "classification": "material_business"
+    },
+    {
+      "id": "W-A03",
+      "question": "May the system contact a bank provider or execute refunds on a real account?",
+      "classification": "external_effect"
+    },
+    {
+      "id": "W-A04",
+      "question": "Choose a responsive tab layout for the order detail.",
+      "classification": "reversible_technical"
+    }
+  ],
+  "handoffTasks": [
+    "Explain receipt versus bank settlement boundary",
+    "Introduce an itemized approved repricing rule without double debit",
+    "Restore a populated disposable DB through a documented migration"
+  ]
+}
