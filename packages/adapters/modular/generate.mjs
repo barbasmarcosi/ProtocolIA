@@ -1,5 +1,6 @@
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
+import {providerJournalRuntimeIsolationSql} from "../provider-journal-runtime-isolation.mjs";
 import {compileRecipientInboxes,recipientInboxSql,assertInboxOpenApi} from "../recipient-inbox.mjs";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -645,8 +646,10 @@ export function generate(ir, openapi, outDir) {
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
     sql.join("\n")+"\n");
-  if([...exactReconciliations.values()].some(x=>x.unverifiedProofField))
+  if([...exactReconciliations.values()].some(x=>x.unverifiedProofField)) {
     write("protocolia-provider-journal-truncate-upgrade.sql",providerJournalTruncateUpgradeSql());
+    write("protocolia-provider-journal-runtime-isolation.sql",providerJournalRuntimeIsolationSql());
+  }
   const manifest={
     adapter:"modular-spring-a0",irVersion:ir.irVersion,sourceSha256:createHash("sha256").update(JSON.stringify(ir)).digest("hex"),
     supportedKinds:[...supported].sort(),outcomes:"Generated; not proof of compilation or HTTP conformance",
