@@ -57,7 +57,28 @@ function claims(map,ir){
  }
  unique(all,"requirements");return ordered(map.requirements,"id");
 }
-function filesFor(ir,h,rs,rh){
+function decisionClaims(doc){
+ if(doc===undefined)return [];
+ check(obj(doc)&&doc.schemaVersion==="protocolia-decision-ledger/v0.1"&&doc.authority==="SELF_DECLARED_UNVERIFIED"&&
+   typeof doc.sourceSha256==="string"&&/^[0-9a-f]{64}$/.test(doc.sourceSha256)&&
+   Array.isArray(doc.decisions)&&doc.decisions.length<=100,"invalid decision ledger");
+ const types=new Set(["reversible_technical","material_business","security_privilege","external_effect","destructive_change"]);
+ const states=new Set(["resolved","unresolved","provisional"]);
+ const ids=[];
+ for(const d of doc.decisions){
+  check(obj(d)&&typeof d.id==="string"&&/^[A-Z][A-Z0-9-]{1,50}$/.test(d.id),"invalid decision ID");ids.push(d.id);
+  check(typeof d.question==="string"&&d.question.trim().length>0&&d.question.length<=1000,"invalid decision question");
+  check(types.has(d.classification)&&states.has(d.state),"unknown classification/state");
+  check(typeof d.affectsSupported==="boolean"&&ORIGINS.has(d.origin),"invalid decision origin/scope");
+  check(Array.isArray(d.evidenceRefs)&&d.evidenceRefs.length<=20&&d.evidenceRefs.every(x=>typeof x==="string"&&x.length>0&&x.length<=200),"invalid decision references");
+  if(d.decision!==undefined)check(typeof d.decision==="string"&&d.decision.trim().length>0&&d.decision.length<=500,"invalid proposed decision");
+  if(d.state==="resolved")check(typeof d.decision==="string"&&d.origin!=="agent_assumption"&&d.evidenceRefs.length>0,"resolved decision lacks declared evidence");
+  if(d.state==="provisional")check(d.classification==="reversible_technical"&&d.origin==="agent_assumption","unsafe provisional decision");
+ }
+ unique(ids,"decisions");return ordered(doc.decisions,"id");
+}
+function plain(v){return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/[\r\n]/g," ").replace(/\x60/g,"\\x60").replace(/\|/g,"\\|");}
+function filesFor(ir,h,rs,rh,ds,dh){
  const entities=ordered(ir.entities),ops=ordered(ir.operations);
  const er=["erDiagram"],edges=[];
  for(const e of entities)for(const f of ordered(e.fields))if(f.reference)edges.push("  "+f.reference.target+" "+(f.required&&!f.nullable?"||--o{":"o|--o{")+" "+e.name+" : \""+f.name+"\"");
@@ -71,11 +92,12 @@ function filesFor(ir,h,rs,rh){
   "> Generated from TypeSpec canonical IR. No deployment, tests or owner intentions are certified.","",
   "## Model","","- IR SHA-256: "+h,"- IR schema: "+ir.irVersion,
   "- Requirements map: "+(rh?"provided, assertions not independently verified":"absent"),
+  "- Decision ledger: "+(dh?"provided (self-declared only)":"absent (rationale UNKNOWN)"),
   "- Entities: "+entities.length+"; operations: "+ops.length+".",
   "- Public identities: "+entities.map(e=>e.name+"."+e.publicIdentity).join(", "),"",
   "## Read next","","- [Domain entities](docs/domain/entities.md)","- [Operations and permissions](docs/domain/operations.md)",
   "- [ER diagram](docs/architecture/data-model.mmd)","- [State diagram](docs/architecture/states.mmd)",
-  "- [Traceability](docs/traceability.json)","- [Operations and limitations](docs/operations/README.md)",
+  "- [Traceability](docs/traceability.json)","- [Decision ledger](docs/domain/decisions.md)","- [Operations and limitations](docs/operations/README.md)",
   "- [Agent handoff](AGENTS.md)","",
   "## Not recoverable solely from IR","","- Business rationale and human decision history.",
   "- Actual DB/HTTP/browser test outcomes, deployed IAM, backups, migrations or bank settlement.",
@@ -96,6 +118,14 @@ function filesFor(ir,h,rs,rh){
   "| Name | Route | Entity | Behavior | Capability |","|---|---|---|---|---|"];
  for(const op of ops)operationDoc.push("| "+op.name+" | "+op.method+" "+op.path+" | "+op.entity+" | "+op.behavior.kind+(op.behavior.kind==="transition"?" ("+op.behavior.from+" → "+op.behavior.to+")":"")+" | "+op.capability+" |");
  operationDoc.push("");
+ const decisionsDoc=["# Domain decisions and unresolved questions","","Candidate-supplied assertions; NOT authenticated owner intent or automatically implemented features.",""];
+ if(!dh)decisionsDoc.push("No decision ledger supplied. Business rationale remains UNKNOWN.","");
+ for(const d of ds)decisionsDoc.push("## "+plain(d.id)+" — "+plain(d.state),"",
+   "**Question:** "+plain(d.question),"","**Classification:** "+plain(d.classification),"",
+   "**Affects supported slice:** "+(d.affectsSupported?"yes":"no"),"",
+   "**Declared origin, unverified:** "+plain(d.origin),"",
+   "**Candidate decision:** "+(d.decision?plain(d.decision):"UNKNOWN / unresolved"),"",
+   "**Evidence references, unauthenticated:** "+(d.evidenceRefs.length?d.evidenceRefs.map(plain).join(", "):"none"),"");
  const trace={schemaVersion:"protocolia-passport-trace/v0.1",irSha256:h,traceAuthority:"DECLARED_UNVERIFIED",requirementMappingProvided:!!rh,
   requirements:rs.map(r=>({id:r.id,text:r.text,origin:r.origin,evidenceRefs:r.evidenceRefs,operations:[...r.operations].sort(),verification:"NOT_RUN"})),
   unmappedOperations:ops.filter(o=>!rs.some(r=>r.operations.includes(o.name))).map(o=>o.name),
@@ -116,6 +146,7 @@ function filesFor(ir,h,rs,rh){
   ["PROJECT_PASSPORT.md",intro.join("\n")+"\n"],
   ["docs/domain/entities.md",entityDoc.join("\n")+"\n"],
   ["docs/domain/operations.md",operationDoc.join("\n")+"\n"],
+  ["docs/domain/decisions.md",decisionsDoc.join("\n")+"\n"],
   ["docs/architecture/data-model.mmd",er.join("\n")+"\n"],
   ["docs/architecture/states.mmd",states.join("\n")+"\n"],
   ["docs/traceability.json",json(trace)],
@@ -123,29 +154,31 @@ function filesFor(ir,h,rs,rh){
   ["AGENTS.md",agents.join("\n")+"\n"]
  ]);
 }
-function expected(irPath,mappingPath){
+function expected(irPath,mappingPath,decisionsPath){
  const bytes=read(irPath),ir=validateIr(JSON.parse(bytes.toString("utf8")));
  const mbytes=mappingPath?read(mappingPath):null;
+ const dbytes=decisionsPath?read(decisionsPath):null;
  const req=mbytes?claims(JSON.parse(mbytes.toString("utf8")),ir):[];
- const h=sha(bytes),mh=mbytes?sha(mbytes):null,files=filesFor(ir,h,req,mh);
+ const dec=dbytes?decisionClaims(JSON.parse(dbytes.toString("utf8"))):[];
+ const h=sha(bytes),mh=mbytes?sha(mbytes):null,dh=dbytes?sha(dbytes):null,files=filesFor(ir,h,req,mh,dec,dh);
  const lock={schemaVersion:"protocolia-passport/v0.1",generator:"protocolia-passport@0.1.0",
-  source:{irSha256:h,requirementsSha256:mh},
+  source:{irSha256:h,requirementsSha256:mh,decisionsSha256:dh},
   files:Object.fromEntries([...files].map(([p,s])=>[p,sha(s)]).sort((a,b)=>a[0].localeCompare(b[0]))),
   limitations:["Unsigned local hash consistency only","No approval or production attestation inferred"]};
  return {files,lock};
 }
 function location(out,ir,req){const d=resolve(out);check(d!==resolve(ir)&&d!==resolve(req||"__missing__"),"output aliases input");if(existsSync(d))check(lstatSync(d).isDirectory()&&!lstatSync(d).isSymbolicLink(),"unsafe output directory");return d;}
 function enumerate(root){const found=[];function walk(dir){for(const e of readdirSync(dir,{withFileTypes:true})){check(!e.isSymbolicLink(),"symlink artifact");const p=join(dir,e.name);if(e.isDirectory())walk(p);else{check(e.isFile(),"invalid artifact");found.push(relative(root,p).split(sep).join("/"));}}}walk(root);return found.sort();}
-export function generatePassport(ir,out,map){
- const {files,lock}=expected(ir,map),dest=location(out,ir,map);
+export function generatePassport(ir,out,map,decisions){
+ const {files,lock}=expected(ir,map,decisions),dest=location(out,ir,map);
  check(!existsSync(dest)||readdirSync(dest).length===0,"output directory must be empty");
  if(!existsSync(dest))mkdirSync(dest,{recursive:true});
  for(const [p,s] of files){const file=join(dest,p);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,s,{flag:"wx"});}
  writeFileSync(join(dest,"protocolia-passport.lock.json"),json(lock),{flag:"wx"});
  return {status:"GENERATED_NOT_ATTESTED",files:files.size,irSha256:lock.source.irSha256};
 }
-export function verifyPassport(ir,out,map){
- const {files,lock}=expected(ir,map),dest=location(out,ir,map);
+export function verifyPassport(ir,out,map,decisions){
+ const {files,lock}=expected(ir,map,decisions),dest=location(out,ir,map);
  check(existsSync(dest)&&lstatSync(dest).isDirectory(),"Passport missing");
  check(JSON.stringify(enumerate(dest))===JSON.stringify([...files.keys(),"protocolia-passport.lock.json"].sort()),"missing or unexpected artifact");
  for(const [p,s] of files)check(sha(read(join(dest,p)))===sha(s),"Passport drift: "+p);
@@ -153,10 +186,10 @@ export function verifyPassport(ir,out,map){
  return {status:"PASS_PORTABLE_INTEGRITY_ONLY",files:files.size,irSha256:lock.source.irSha256};
 }
 export function main(argv){
- check(["generate","verify"].includes(argv[0]),"usage: project-passport.mjs generate|verify --ir <ir.json> --out <dir> [--requirements <map.json>]");
- const a={};for(let i=1;i<argv.length;i+=2){check(["--ir","--out","--requirements"].includes(argv[i])&&argv[i+1]&&!a[argv[i]],"unexpected option");a[argv[i]]=argv[i+1];}
+ check(["generate","verify"].includes(argv[0]),"usage: project-passport.mjs generate|verify --ir <ir.json> --out <dir> [--requirements <map.json>] [--decisions <ledger.json>]");
+ const a={};for(let i=1;i<argv.length;i+=2){check(["--ir","--out","--requirements","--decisions"].includes(argv[i])&&argv[i+1]&&!a[argv[i]],"unexpected option");a[argv[i]]=argv[i+1];}
  check(a["--ir"]&&a["--out"],"missing --ir or --out");
- const result=argv[0]==="generate"?generatePassport(a["--ir"],a["--out"],a["--requirements"]):verifyPassport(a["--ir"],a["--out"],a["--requirements"]);
+ const result=argv[0]==="generate"?generatePassport(a["--ir"],a["--out"],a["--requirements"],a["--decisions"]):verifyPassport(a["--ir"],a["--out"],a["--requirements"],a["--decisions"]);
  process.stdout.write(json(result));return 0;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
