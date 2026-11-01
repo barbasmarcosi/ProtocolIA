@@ -417,9 +417,12 @@ try{
     "ON c.oid=t.tgrelid WHERE c.relname='protocolia_provider_receipt_candidate' "+
     "AND t.tgname='protocolia_provider_receipt_candidate_immutable_guard';"),"O",
     "Drift simulation must rollback");
-  // Commit additive upgrade; second application is a safe no-op.
-  sql(upgrade);
+  // Two concurrent migration clients serialize on the advisory lock:
+  // exactly three guards are created, neither client sees partial state.
+  const concurrentUpgrades=await concurrent([upgrade,upgrade]);
+  assert.equal(concurrentUpgrades.length,2);
   assert.equal(triggerCount(),"3");
+  // A later independent application is a safe no-op.
   sql(upgrade);
   assert.equal(triggerCount(),"3");
   assert.deepEqual(immutableProviderTables.map(table=>
