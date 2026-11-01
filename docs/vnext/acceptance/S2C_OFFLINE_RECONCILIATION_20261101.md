@@ -83,7 +83,7 @@ multitenant ni garantiza completitud del extracto externo.
 
 La lectura local rechaza **claves JSON repetidas dentro de un mismo objeto**,
 incluidos alias equivalentes por escapes Unicode (por ejemplo `amount` y
-`\\u0061mount`). El `JSON.parse` convencional acepta silenciosamente el
+`\u0061mount`). El `JSON.parse` convencional acepta silenciosamente el
 último valor; dos herramientas de auditoría podrían interpretar el mismo
 extracto de manera diferente. La detección funciona para los cuatro archivos
 (`internal`, `links`, `external`, `internalReturns`), no revela valores
