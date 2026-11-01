@@ -147,11 +147,25 @@ test("direct guard rejects duplicate IDs, provider mismatches, empty or oversize
   withFixture(f=>{
     for(const external of [
       [],[event,event],[{...event,providerId:"other"}],
+      [{...event,eventId:123}], [{...event,transactionId:123}],
       Array.from({length:513},(_,i)=>({...event,eventId:"E-"+i}))
     ]) {
       assert.throws(()=>consumeLocalSignedEvents({
         directory:f.guard,metadata:f.metadata,external}),/local event replay guard/);
       assert.equal(readdirSync(f.guard).length,0);
     }
+  });
+});
+
+test("event identity is provider-wide across orders within one tenant directory",()=>{
+  withFixture(f=>{
+    const first=consumeLocalSignedEvents({
+      directory:f.guard,metadata:f.metadata,external:[event]});
+    assert.equal(first.consumedEventCount,1);
+    const otherOrder={...f.metadata,orderId:"OT-2"};
+    assert.throws(()=>consumeLocalSignedEvents({
+      directory:f.guard,metadata:otherOrder,external:[event]}),
+    /local event replay guard/);
+    assert.equal(readdirSync(f.guard).length,1);
   });
 });
