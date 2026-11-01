@@ -142,3 +142,61 @@ Prueba de integración: el probe PostgreSQL del workflow de proveedores ahora
 ejecuta realmente el SQL emitido en **ambos targets**, valida un `PAY-CAND`
 con monto decimal exacto, procesa el JSON con la CLI/reconciliador y comprueba
 que el estado de liquidación permanece `unverified`.
+
+
+## Firma Ed25519 desacoplada del extracto (opt-in, S2c)
+
+La CLI permite verificar la **integridad exacta de bytes** de \`external.json\`
+contra una firma Ed25519 desacoplada y una clave pública SPKI con SHA-256
+**fijado por un canal independiente del archivo**. Es una opción adicional:
+el flujo histórico sin firma sigue disponible y continúa siendo no autenticado.
+
+Se requieren conjuntamente \`--external-attestation attestation.json\`,
+\`--provider-public-key provider-public.pem\`,
+\`--trusted-key-sha256 <64 hex>\` y \`--expected-order OT-1\`.
+No se acepta una clave de confianza derivada de la propia declaración firmada.
+El hash se calcula sobre el **mismo descriptor abierto y verificado** que
+produjo el array externo, no mediante una segunda lectura susceptible a
+sustitución. La clave debe ser pública SPKI Ed25519; no se usan secretos ni
+se realizan llamadas de red.
+
+Ejemplo de metadatos (firma ilustrativa, **no válida**):
+
+\`\`\`json
+{
+  "version": 1,
+  "providerId": "sandbox",
+  "keyId": "key-2026",
+  "orderId": "OT-1",
+  "currency": "ARS",
+  "scale": 2,
+  "statementSha256": "<sha256-hex-de-los-bytes-exactos>",
+  "validFrom": "2026-11-01T12:00:00Z",
+  "validUntil": "2026-11-01T13:00:00Z",
+  "signature": "<base64-de-64-bytes-Ed25519>"
+}
+\`\`\`
+
+El mensaje firmado es UTF-8, con una línea por campo y salto de línea
+final: \`ProtocolIA-S2C-Ed25519-v1\`, \`version\`, \`providerId\`, \`keyId\`,
+\`orderId\`, \`currency\`, \`scale\`, \`statementSha256\`, \`validFrom\`,
+\`validUntil\`. Los metadatos rechazan claves adicionales o repetidas,
+cambios de orden/moneda/escala/proveedor, ventanas mayores de 24 horas,
+fechas fuera de vigencia, alteración de bytes, firma inválida o pin distinto.
+Todos los eventos externos deben pertenecer al proveedor declarado.
+
+La salida agrega \`externalStatementSignature.integrityVerified=true\`
+**solo** después de comprobar firma y pin; también conserva
+\`independentlyAuthenticated=false\`,
+\`providerIdentityVerified=false\`, \`settlementVerified=false\` y
+\`replayProtection="none_offline"\`. El pin suministrado por un operador
+**no demuestra que el banco haya emitido la clave**. Tampoco prueba
+completitud del extracto, liquidación, pertenencia del mapeo externo,
+identidad multitenant ni unicidad de consumo. La misma firma válida puede
+reutilizarse offline: la protección real contra replay exige un registro
+persistente y auditable de lotes firmados, una fuente de confianza externa
+y política de claves revocadas/rotadas.
+
+Pruebas reproducibles con claves sintéticas efímeras, sin operaciones
+financieras: \`node --test tests/vnext/provider-statement-signature.test.mjs\`.
+La CI S2c ejecuta también la regresión histórica en Node 22 y 24.
