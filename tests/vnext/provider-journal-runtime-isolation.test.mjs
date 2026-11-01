@@ -48,5 +48,7 @@ test("runtime receives no direct journal access; five vetted functions are the o
   assert.match(sql,/GRANT EXECUTE ON FUNCTION public\.%s TO %I/);
   assert.match(sql,/REVOKE ALL ON FUNCTION public\.protocolia_provider_envelope_immutable\(\) FROM PUBLIC/);
   assert.match(sql,/has_function_privilege\(runtime_role/);
+  assert.match(sql,/Unexpected provider function EXECUTE grantee/);
+  assert.match(sql,/a\.grantee NOT IN \(operator_oid,runtime_oid\)/);
   assert.ok(sql.indexOf("Preflight every object")<sql.indexOf("All preconditions hold"));
 });
