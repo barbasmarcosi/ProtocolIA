@@ -316,7 +316,44 @@ function appendProviderCandidate(plans,ddl){
           THEN latest ELSE NULL END)::TEXT,
         n
       FROM evaluated;
-    $causal_projection$;`
+    $causal_projection$;`,
+    // S2c-1c4h: one MVCC snapshot of INTERNAL receipt/candidate integrity
+    // and the synthetic causal report stream. Every result is non-authoritative;
+    // even 'synthetic_only' is NEVER bank-cleared settlement evidence.
+    `CREATE FUNCTION protocolia_provider_receipt_integrity_projection(v_receipt TEXT)
+      RETURNS TABLE(internal_integrity TEXT,causal_integrity TEXT,
+        last_coherent_phase TEXT,observation_count BIGINT)
+      LANGUAGE SQL STABLE AS $receipt_integrity$
+      WITH receipt AS (
+        SELECT p.${b.receiptColumn} AS receipt_id,
+          p.${b.referenceColumn} AS order_id,
+          p.${b.amountColumn} AS amount,
+          p.${b.stateColumn} AS receipt_state,
+          p.${b.proofColumn} AS proof_state
+        FROM ${b.childTable} p WHERE p.${b.receiptColumn}=v_receipt
+      ), binding AS (
+        SELECT c.receipt_id,c.order_id,c.amount
+        FROM protocolia_provider_receipt_candidate c
+        WHERE c.receipt_id=v_receipt
+      )
+      SELECT (CASE
+        WHEN r.receipt_id IS NULL THEN 'missing'
+        WHEN c.receipt_id IS NULL THEN 'unbound'
+        WHEN c.order_id IS DISTINCT FROM r.order_id OR
+          c.amount IS DISTINCT FROM r.amount THEN 'claim_mismatch'
+        WHEN r.receipt_state IS DISTINCT FROM 'posted' THEN 'not_posted'
+        WHEN r.proof_state IS DISTINCT FROM 'unverified' THEN 'proof_changed'
+        WHEN projection.causal_integrity='unobserved' THEN 'no_lifecycle'
+        WHEN projection.causal_integrity='gap' THEN 'causal_gap'
+        WHEN projection.causal_integrity='contradictory' THEN 'causal_contradictory'
+        ELSE 'synthetic_only' END)::TEXT,
+        projection.causal_integrity,projection.last_coherent_phase,
+        projection.observation_count
+      FROM (SELECT 1) anchor
+      LEFT JOIN receipt r ON TRUE
+      LEFT JOIN binding c ON TRUE
+      CROSS JOIN LATERAL protocolia_provider_lifecycle_causal_projection(v_receipt) projection;
+    $receipt_integrity$;`
   );
   return ddl;
 }

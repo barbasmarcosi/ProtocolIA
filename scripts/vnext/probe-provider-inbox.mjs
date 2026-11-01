@@ -233,6 +233,12 @@ try{
   // S2c-1c4d: a read-only, single-snapshot causal diagnostic. Neither
   // coherent nor reported_success grants externally verified settlement.
   assert.match(schema,/CREATE FUNCTION protocolia_provider_lifecycle_causal_projection/);
+  assert.match(schema,/CREATE FUNCTION protocolia_provider_receipt_integrity_projection/);
+  const integrity=receipt=>value("SELECT internal_integrity||'/'||causal_integrity||'/'||"+
+    "COALESCE(last_coherent_phase,'none')||'/'||observation_count::text "+
+    "FROM protocolia_provider_receipt_integrity_projection("+literal(receipt)+");");
+  assert.equal(integrity("UNKNOWN-RECEIPT"),"missing/unobserved/none/0");
+  assert.equal(integrity("PAY-REVERSED"),"unbound/unobserved/none/0");
   const causal=receipt=>value("SELECT causal_integrity||'/'||"+
     "COALESCE(last_coherent_phase,'none')||'/'||observation_count::text "+
     "FROM protocolia_provider_lifecycle_causal_projection("+literal(receipt)+");");
@@ -249,11 +255,14 @@ try{
   assert.equal(value(raceObservation("evt_proj_race_03",3,"reported_success")),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"gap/none/1",
     "A terminal-looking report at sequence 3 must not imply a complete history");
+  assert.equal(integrity("PAY-CAND-RACE"),"causal_gap/gap/none/1");
   assert.equal(value(raceObservation("evt_proj_race_01",1,"reported_pending")),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"gap/none/2");
   assert.equal(value(raceObservation("evt_proj_race_02",2,"reported_pending")),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"coherent/reported_success/3",
     "Filling a gap permits causal classification but never financial authority");
+  assert.equal(integrity("PAY-CAND-RACE"),"synthetic_only/coherent/reported_success/3",
+    "Even a complete synthetic success is not provider-cleared settlement");
   const raceReversal=raceObservation("evt_proj_race_04",4,"reported_reversal");
   assert.equal(value("BEGIN; "+raceReversal+" ROLLBACK; "+
     "SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation "+
@@ -265,10 +274,13 @@ try{
   assert.equal(value(raceObservation("evt_proj_race_05",5,"reported_pending")),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"contradictory/none/5",
     "A new pending report after reversal is not a valid causal transition");
+  assert.equal(integrity("PAY-CAND-RACE"),"causal_contradictory/contradictory/none/5");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-RACE';"),"unverified");
   assert.equal(value("SELECT charge_total::text||'/'||available::text "+
     "FROM work_order WHERE number='OT-CAND-RACE';"),raceBefore);
+  console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
+    " missing, unbound, gap, coherent synthetic-only, contradiction, reversal, no lifecycle");
   console.log("PROTOCOLIA_S2C1C4D_CAUSAL_PROJECTION_PASS "+build.target+
     " gap recovery, contradiction, rollback, unverified money");
 
@@ -296,6 +308,7 @@ try{
     " ROLLBACK; SELECT COUNT(*) FROM protocolia_provider_receipt_candidate "+
     "WHERE event_id='evt_cand_rollback';").split("\n").at(-1),"0");
   assert.equal(value(rollbackCandidate),"stored");
+  assert.equal(integrity("PAY-CAND-ROLL"),"no_lifecycle/unobserved/none/0");
   assert.notEqual(sql("UPDATE protocolia_provider_receipt_candidate SET amount=2.00 "+
     "WHERE event_id="+literal(candidateEvent)+";",{allowFail:true}).status,0);
   assert.notEqual(sql("DELETE FROM protocolia_provider_receipt_candidate "+
@@ -308,6 +321,8 @@ try{
   sql("BEGIN; UPDATE payment SET status='reversed' WHERE receipt='PAY-CAND'; "+
     "UPDATE work_order SET available=1.25 WHERE number='OT-CAND'; COMMIT;");
   assert.equal(value("SELECT available::text FROM work_order WHERE number='OT-CAND';"),"1.25");
+  assert.equal(integrity("PAY-CAND"),"not_posted/contradictory/none/6",
+    "Internal reversal overrides any earlier provider-reported phase");
   assert.equal(value(observation(sameEvent,4)),"duplicate",
     "Committed lifecycle replay survives later internal receipt reversal");
   assert.equal(value(observation("evt_life_after_reverse",7)),"mismatch",

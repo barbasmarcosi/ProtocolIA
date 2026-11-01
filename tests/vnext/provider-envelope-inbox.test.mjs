@@ -13,7 +13,7 @@ test("provider inbox is opt-in only for fixed unverified ledger proof",()=>{
   assert.deepEqual(providerEnvelopeInboxSql(new Map([["ordinary",{}]])),[]);
   assert.deepEqual(providerEnvelopeInboxSql(new Map([
     ["ordinary",{}],["financial",plan]
-  ])).length,11);
+  ])).length,12);
 });
 test("provider envelope replay key excludes rotating signing key and is append-only",()=>{
   const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
@@ -101,4 +101,19 @@ test("causal projection is read-only, gap-aware and cannot grant settlement auth
   assert.match(projection,/previous_phase='reported_failure'/);
   assert.match(projection,/previous_phase='reported_reversal'/);
   assert.doesNotMatch(projection,/UPDATE |DELETE |INSERT |SET provider_settlement_state|SECURITY DEFINER/);
+});
+
+test("receipt integrity projection rejects stale internal state and never grants settlement",()=>{
+  const ddl=providerEnvelopeInboxSql(new Map([["financial",plan]])).join("\n");
+  const projection=ddl.slice(ddl.indexOf("CREATE FUNCTION protocolia_provider_receipt_integrity_projection"));
+  assert.match(projection,/LANGUAGE SQL STABLE/);
+  assert.match(projection,/protocolia_provider_lifecycle_causal_projection\(v_receipt\)/);
+  assert.match(projection,/c\.order_id IS DISTINCT FROM r\.order_id/);
+  assert.match(projection,/c\.amount IS DISTINCT FROM r\.amount/);
+  assert.match(projection,/r\.receipt_state IS DISTINCT FROM 'posted'/);
+  assert.match(projection,/r\.proof_state IS DISTINCT FROM 'unverified'/);
+  for(const state of ["missing","unbound","claim_mismatch","not_posted",
+    "proof_changed","no_lifecycle","causal_gap","causal_contradictory","synthetic_only"])
+    assert.ok(projection.includes("'"+state+"'"),state);
+  assert.doesNotMatch(projection,/UPDATE |DELETE |INSERT |SECURITY DEFINER|SET provider_settlement_state/);
 });
