@@ -39,4 +39,4 @@ jobs:
           node --check packages/adapters/provider-statement-reconciliation.mjs
           node --check scripts/vnext/reconcile-provider-statement.mjs
       - name: Exact statement comparison, exceptions, and actual CLI exit codes
-        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-cli.test.mjs
+        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-cli.test.mjs
