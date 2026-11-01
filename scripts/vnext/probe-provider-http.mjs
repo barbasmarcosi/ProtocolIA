@@ -260,6 +260,36 @@ try{
     "WHERE event_id='evt_http_after_reverse_12'"),"0");
   assert.equal(sql("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  // S2c-1c4g: the HTTP receiver must not materialize an unbounded body.
+  // Verify the exact 64 KiB boundary, Content-Length and chunked transfer
+  // against both independently generated targets, with no financial mutation.
+  const envelopeCount=Number(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox"));
+  const paddingPrefix='{"padding":"',paddingSuffix='"}';
+  const exactBody=Buffer.from(paddingPrefix+
+    "x".repeat(65536-Buffer.byteLength(paddingPrefix+paddingSuffix))+paddingSuffix);
+  assert.equal(exactBody.length,65536);
+  assert.equal((await send("evt_body_exact_12345678",exactBody)).status,202);
+  const tooLarge=Buffer.from(paddingPrefix+
+    "x".repeat(65537-Buffer.byteLength(paddingPrefix+paddingSuffix))+paddingSuffix);
+  assert.equal(tooLarge.length,65537);
+  assert.ok([400,413].includes((await send("evt_body_large_12345678",tooLarge)).status),
+    "oversized declared-length request must be rejected");
+  const chunkedEvent="evt_body_chunked_12345678";
+  const chunked=await fetch(base+path,{
+    method:"POST",headers:signed(chunkedEvent,tooLarge),
+    body:new ReadableStream({start(controller){
+      controller.enqueue(tooLarge);controller.close();
+    }}),duplex:"half",signal:AbortSignal.timeout(20000)
+  });
+  assert.ok([400,413].includes(chunked.status),
+    "oversized unknown-length/chunked request must be rejected");
+  assert.equal(Number(sql("SELECT COUNT(*) FROM protocolia_provider_envelope_inbox")),
+    envelopeCount+1,"only the valid exact-boundary request may persist");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_receipt_candidate"),"1");
+  assert.equal(sql("SELECT COUNT(*) FROM protocolia_provider_lifecycle_observation"),"3");
+  assert.equal(sql("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-HTTP-LINK'"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4G_BOUNDED_SANDBOX_HTTP_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C4C_SIGNED_LIFECYCLE_HTTP_PASS "+build.target+
     " 1 stored/9 duplicate, out-of-order 3-1-2, no settlement");
   console.log("PROTOCOLIA_S2C1C4A_HTTP_UNIQUE_BINDING_PASS "+build.target);
