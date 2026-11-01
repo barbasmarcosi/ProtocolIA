@@ -79,7 +79,7 @@ export function reconcileProviderStatement(input) {
     invariant(row.proofState === "unverified",
       "Cannot infer authority from an existing proof state");
     const cents = amount(row.amount, scale, "internal[" + i + "].amount");
-    invariant(!internal.has(receiptId), "Duplicate internal receipt: " + receiptId);
+    invariant(!internal.has(receiptId), "Duplicate internal receipt identity");
     internal.set(receiptId, { ...row, minor: cents });
     if (row.status === "posted") postedTotal += cents;
   }
