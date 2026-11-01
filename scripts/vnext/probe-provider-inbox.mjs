@@ -542,6 +542,30 @@ try{
     /Provider runtime role has elevated or owner privileges/);
   assert.equal(securityDefiner(),"f");
   sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC;");
+  // S2c-1c4n: direct grants to unrelated roles survive a runtime-only
+  // REVOKE and can expose evidence or allow fabricated append-only rows.
+  // Neither case may elevate the five SECURITY DEFINER entrypoints.
+  sql("GRANT SELECT ON protocolia_provider_envelope_inbox TO "+inheritedRole+";");
+  assert.equal(value("SELECT has_table_privilege("+literal(inheritedRole)+
+    ",'public.protocolia_provider_envelope_inbox','SELECT');"),"t");
+  const thirdPartyRead=sql(applyAcl,{allowFail:true});
+  assert.notEqual(thirdPartyRead.status,0,
+    "Unrelated journal reader must not survive runtime isolation");
+  assert.match(thirdPartyRead.stderr,/journal has unrelated privilege grantee/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE SELECT ON protocolia_provider_envelope_inbox FROM "+inheritedRole+";");
+  sql("GRANT INSERT ON protocolia_provider_receipt_candidate TO "+inheritedRole+";");
+  assert.equal(value("SELECT has_table_privilege("+literal(inheritedRole)+
+    ",'public.protocolia_provider_receipt_candidate','INSERT');"),"t");
+  const thirdPartyWrite=sql(applyAcl,{allowFail:true});
+  assert.notEqual(thirdPartyWrite.status,0,
+    "Unrelated journal writer must not fabricate immutable provider evidence");
+  assert.match(thirdPartyWrite.stderr,/journal has unrelated privilege grantee/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE INSERT ON protocolia_provider_receipt_candidate FROM "+inheritedRole+";");
+  assert.deepEqual(immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";")),journalCounts,
+    "Rejected ACL transitions must preserve every historical journal row");
   // A missing immutable guard must reject the entire privilege transition.
   const unsafeAcl=sql("BEGIN; ALTER TABLE protocolia_provider_envelope_inbox "+
     "DISABLE TRIGGER protocolia_provider_envelope_immutable_guard_truncate; "+
@@ -575,12 +599,20 @@ try{
   assert.match(rogueFunctionAcl.stderr,/Unexpected provider function EXECUTE grantee/);
   assert.equal(securityDefiner(),"f");
   sql("REVOKE EXECUTE ON FUNCTION "+digestSignature+" FROM "+inheritedRole+";");
+  // PUBLIC and the intended runtime may have historical direct grants:
+  // the operator migration must remove both, not reject an otherwise safe
+  // revocation or leave direct access after successful privilege elevation.
+  sql("GRANT SELECT ON protocolia_provider_envelope_inbox TO PUBLIC; "+
+    "GRANT INSERT ON protocolia_provider_lifecycle_observation TO "+runtimeRole+";");
   // Two operator sessions can race: advisory lock serializes the atomic
   // changes, and repeating a successful transition must be idempotent.
   const aclRuns=await concurrent([applyAcl,applyAcl]);
   assert.equal(aclRuns.length,2);
   sql(applyAcl);
   assert.equal(securityDefiner(),"t");
+  assert.equal(value("SELECT has_table_privilege("+literal(inheritedRole)+
+    ",'public.protocolia_provider_envelope_inbox','SELECT');"),"f",
+    "PUBLIC journal grants must be revoked, not inherited by unrelated roles");
   for(const table of immutableProviderTables){
     assert.equal(value("SELECT has_table_privilege("+literal(runtimeRole)+
       ","+literal("public."+table)+
@@ -642,6 +674,9 @@ try{
     "WHERE receipt='PAY-ACL';"),"unverified");
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4N_THIRD_PARTY_JOURNAL_ACL_PASS "+build.target+
+    " unrelated SELECT/INSERT grants rejected, PUBLIC/runtime grants revoked, "+
+    "rollback, concurrent replay and financial state preserved");
   console.log("PROTOCOLIA_S2C1C4M_TRUSTED_SCHEMA_BOUNDARY_PASS "+build.target+
     " foreign schema owner, third-party and PUBLIC CREATE rejected atomically");
   console.log("PROTOCOLIA_S2C1C4L_RUNTIME_ROLE_ISOLATION_PASS "+build.target+
