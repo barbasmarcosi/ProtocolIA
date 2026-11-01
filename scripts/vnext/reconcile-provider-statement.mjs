@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Offline comparison; never authenticate a provider or authorize a financial write.
-import {loadStatementArray} from "../../packages/adapters/provider-statement-input.mjs";
+// Offline comparison; detached signature proves only integrity relative to a pinned key.
+// Never treats the key as independently verified provider identity or bank settlement.
+import {loadStatementArray,loadStatementArrayWithDigest,loadStatementObject} from "../../packages/adapters/provider-statement-input.mjs";
+import {verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapters/provider-statement-signature.mjs";
 import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 try {
@@ -12,7 +14,12 @@ try {
     flags.set(args[i],args[i+1]);
   }
   const keys=["--internal","--links","--external","--currency","--scale"];
-  const optional=["--internal-returns","--expected-order"];
+  const optional=["--internal-returns","--expected-order","--external-attestation",
+    "--provider-public-key","--trusted-key-sha256"];
+  const signatureFlags=optional.slice(2);
+  const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
+  if(supplied!==0 && (supplied!==3 || !flags.has("--expected-order")))
+    throw Error("Detached signature requires all three trust flags and --expected-order");
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
      [...flags.keys()].some(key=>![...keys,...optional].includes(key)))
@@ -26,14 +33,24 @@ try {
        internal.some(row=>row?.orderId!==expected))
       throw Error("internal: snapshot missing or outside expected order");
   }
+  const external=loadStatementArrayWithDigest(flags.get("--external"),"external");
+  const signature=supplied===3 ? verifyDetachedStatement({
+    metadata:loadStatementObject(flags.get("--external-attestation"),"external attestation"),
+    statementSha256:external.sha256,external:external.data,
+    expectedOrder:flags.get("--expected-order"),currency:flags.get("--currency"),
+    scale:Number(rawScale),
+    publicKeyPem:readPinnedPublicKey(flags.get("--provider-public-key")),
+    trustedKeySha256:flags.get("--trusted-key-sha256")
+  }) : null;
   const result=reconcileProviderStatement({
     internal,
     ...(flags.has("--internal-returns") ?
       {internalReturns:loadStatementArray(flags.get("--internal-returns"),"internalReturns")} : {}),
     links:loadStatementArray(flags.get("--links"),"links"),
-    external:loadStatementArray(flags.get("--external"),"external"),
+    external:external.data,
     currency:flags.get("--currency"),scale:Number(rawScale)
   });
+  if(signature) result.externalStatementSignature=signature;
   process.stdout.write(JSON.stringify(result,null,2)+"\n");
   process.exitCode=result.counts.exceptions ? 2 : 0;
 } catch(error) {
