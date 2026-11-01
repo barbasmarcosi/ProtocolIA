@@ -20,6 +20,8 @@ The optional mode fails closed when credentials are incomplete, the target lacks
 
 **No production deployment, migration, real provider call or financial operation is authorized by this feature.** PostgreSQL role separation cannot establish that a provider is genuine or that any funds were cleared.
 
+**Security limitation:** the legacy generated Compose profile still supplies migrator credentials to the application process. The isolated ingress connection prevents accidental use of the general runtime SQL principal for signed writes, but does not defend against a fully compromised application process that can read all of its environment variables. Production-grade separation requires the existing one-shot migrator/runtime split and distinct secret delivery to separate processes; that complete deployment topology is **not** validated here.
+
 ## Reproduction and expected evidence
 
 The existing CI matrix runs against `nestjs` and `modular-spring`:
