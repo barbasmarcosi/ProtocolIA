@@ -490,7 +490,7 @@ try{
   assert.ok(runtimeEnv.includes("PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER="+ingressRole));
   assert.ok(!runtimeEnv.some(v=>v.startsWith("PROTOCOLIA_MIGRATION_JDBC_")||
     v.startsWith("PROTOCOLIA_DB_PASSWORD=")));
-  assert.equal(isolated(["ps","-q","migrate"]).stdout.trim(),"",
+  assert.equal(isolated(["--profile","migration","ps","-q","migrate"]).stdout.trim(),"",
     "Privileged one-shot migrator must not remain running");
   const pinnedEvent="evt_http_pinned_12345678";
   const pinnedReplies=await Promise.all(Array.from({length:10},()=>send(pinnedEvent)));
