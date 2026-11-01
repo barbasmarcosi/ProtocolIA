@@ -176,6 +176,7 @@ export function reconcileProviderStatement(input) {
       if (!["amounts_agree_unverified","returns_agree_unverified"].includes(classification))
         push(classification,receiptId,link.providerId,link.transactionId);
     }
+    const agg=link && external.get(key(link.providerId,link.transactionId));
     // Classification is a backwards-compatible primary label, NOT a complete
     // exception set. Independent financial failures must remain visible when
     // another condition wins precedence (e.g. a wrong capture plus over-refund).
@@ -211,7 +212,6 @@ export function reconcileProviderStatement(input) {
         classification !== "internal_returns_exceed_receipt")
       push("internal_returns_exceed_receipt",receiptId,
         link?.providerId ?? null,link?.transactionId ?? null);
-    const agg=link && external.get(key(link.providerId,link.transactionId));
     rows.push({receiptId,orderId:receipt.orderId,status:receipt.status,
       internalAmount:format(receipt.minor,scale),
       internalRecordedRefund:returnsSupplied ? format(recorded.refund,scale) : null,
