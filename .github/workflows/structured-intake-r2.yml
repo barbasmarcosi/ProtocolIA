@@ -1,0 +1,99 @@
+name: R2 structured intake to TypeSpec
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/intake-to-typespec.mjs'
+      - 'tests/research/intake-to-typespec.test.mjs'
+      - 'research/autonomous-engineering/samples/kiosk-profile-draft.json'
+      - 'docs/research/autonomous-engineering/R2_STRUCTURED_INTAKE.md'
+      - '.github/workflows/structured-intake-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check scripts/research/intake-to-typespec.mjs
+      - run: node --test tests/research/intake-to-typespec.test.mjs
+  real-typespec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Emit kiosk TypeSpec from structured intake (never infer deferred business rules)
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d "$PWD/.r2-kiosk.XXXXXXXX")"
+          echo "INTAKE_OUT=$OUT" >> "$GITHUB_ENV"
+          node scripts/research/intake-to-typespec.mjs generate \
+            research/autonomous-engineering/samples/kiosk-profile-draft.json "$OUT"
+          node scripts/research/intake-to-typespec.mjs verify \
+            research/autonomous-engineering/samples/kiosk-profile-draft.json "$OUT"
+          node -e 'const x=require(process.argv[1]);if(x.status!=="PARTIAL_DRAFT_UNVERIFIED"||!x.deferredRequirements.includes("K-04"))process.exit(1)' \
+            "$OUT/protocolia-intake-report.json"
+      - name: Compile generated TypeSpec with real canonical emitter
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsp compile "$INTAKE_OUT"
+          test -s "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json"
+          node -e 'const x=require(process.argv[1]); if(x.entities.length!==1||x.entities[0].name!=="Product"||!x.operations.some(o=>o.behavior.kind==="atomicIncrement")) process.exit(1)' \
+            "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json"
+      - name: Produce Project Passport with traceability from generated contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$INTAKE_OUT/requirements.json" \
+            --out "$RUNNER_TEMP/kiosk-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$INTAKE_OUT/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$INTAKE_OUT/requirements.json" \
+            --out "$RUNNER_TEMP/kiosk-passport"
+          node -e 'const x=require(process.argv[1]); if(x.requirements.some(r=>r.verification!=="NOT_RUN")||x.traceAuthority!=="DECLARED_UNVERIFIED")process.exit(1)' \
+            "$RUNNER_TEMP/kiosk-passport/docs/traceability.json"
+  generated-app-nest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate bounded TypeSpec from actual intake
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d "$PWD/.r2-kiosk.XXXXXXXX")"
+          echo "INTAKE_OUT=$OUT" >> "$GITHUB_ENV"
+          node scripts/research/intake-to-typespec.mjs generate \
+            research/autonomous-engineering/samples/kiosk-profile-draft.json "$OUT"
+      - name: Generate a functioning NestJS/React/PostgreSQL application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$INTAKE_OUT" --target nestjs --out "$RUNNER_TEMP/kiosk-app"
+      - name: Real generated application conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:test -- "$RUNNER_TEMP/kiosk-app"
