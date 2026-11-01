@@ -7,6 +7,8 @@ test("reviewable populated upgrade is deterministic and has no financial DML",()
   assert.equal(sql,providerJournalTruncateUpgradeSql());
   assert.ok(sql.includes("DO $protocolia_provider_upgrade$"));
   assert.match(sql,/pg_advisory_xact_lock/);
+  assert.match(sql,/IN SHARE ROW EXCLUSIVE MODE NOWAIT/);
+  assert.ok(sql.indexOf('IN SHARE ROW EXCLUSIVE MODE NOWAIT')<sql.indexOf('Validate the complete historical guard set'));
   assert.match(sql,/to_regprocedure/);
   assert.match(sql,/pg_get_functiondef/);
   assert.match(sql,/tgtype IS DISTINCT FROM 27/);
