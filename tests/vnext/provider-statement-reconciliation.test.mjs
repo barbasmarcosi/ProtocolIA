@@ -208,3 +208,13 @@ test("explicitly null internal return journal is rejected, never silently treate
   const s=sample();s.internalReturns=null;
   assert.throws(()=>compare(s),/internalReturns: expected bounded array/);
 });
+
+test("empty internal export is an exception, never evidence of successful comparison",()=>{
+  const s=sample();s.internal=[];s.links=[];s.external=[];
+  const r=compare(s);
+  assert.equal(r.result,"comparison_only_not_settlement_verification");
+  assert.equal(r.counts.exceptions,1);
+  assert.deepEqual(r.exceptions,[{code:"empty_internal_snapshot",receiptId:null,
+    providerId:null,transactionId:null}]);
+  assert.equal(r.counts.amountsAgreeUnverified,0);
+});

@@ -83,6 +83,9 @@ export function reconcileProviderStatement(input) {
     internal.set(receiptId, { ...row, minor: cents });
     if (row.status === "posted") postedTotal += cents;
   }
+  // A zero-row export can mean a mistyped order, missing permissions or an
+  // incomplete snapshot. Never report zero exceptions as positive coverage.
+  if(internal.size===0)push("empty_internal_snapshot",null);
   // Internal return journal is a separate operator-supplied source, not proof
   // that a refund or chargeback cleared. Voided local entries contribute zero.
   for (const [i, row] of array(returnsSupplied ? input.internalReturns : [], "internalReturns").entries()) {
