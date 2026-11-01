@@ -173,6 +173,12 @@ export function reconcileProviderStatement(input) {
       if (!["amounts_agree_unverified","returns_agree_unverified"].includes(classification))
         push(classification,receiptId,link.providerId,link.transactionId);
     }
+    // The internal journal must never conceal an over-return merely because
+    // the external transaction or crosswalk is absent or the receipt reversed.
+    if (returnsSupplied && recordedTotal > receipt.minor &&
+        classification !== "internal_returns_exceed_receipt")
+      push("internal_returns_exceed_receipt",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     const agg=link && external.get(key(link.providerId,link.transactionId));
     rows.push({receiptId,orderId:receipt.orderId,status:receipt.status,
       internalAmount:format(receipt.minor,scale),
