@@ -29,11 +29,24 @@ optional internal return journal is **not** silently treated as verified
 coverage. `amounts_agree_unverified` and `returns_agree_unverified` are
 unchanged; neither is evidence of bank-cleared settlement.
 
+## Input identity and encoding boundary
+
+The CLI now delegates to a testable bounded file loader that verifies the
+**device and inode** from the pre-open `lstat` against the actual opened
+descriptor before reading. It still rejects final-component symlinks,
+non-regular files, >4 MiB files and mid-read metadata changes, and now rejects
+invalid UTF-8 bytes rather than silently replacing them before JSON parsing.
+Deterministic injected-I/O tests simulate regular-file swaps and mutation,
+including descriptor closure on rejection. These checks defend a local snapshot
+against common substitution and ambiguity; they **cannot** establish that the
+statement is complete, current or signed by an actual provider.
+
 ## Reproducible acceptance
 
 ```sh
 node --test tests/vnext/provider-statement-reconciliation.test.mjs \
   tests/vnext/provider-statement-multi-anomaly.test.mjs \
+  tests/vnext/provider-statement-input.test.mjs \
   tests/vnext/provider-statement-cli.test.mjs
 ```
 
