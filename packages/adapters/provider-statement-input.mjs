@@ -83,8 +83,13 @@ export function loadStatementArray(file,name,io=realIO) {
     try {
       const text=new TextDecoder("utf-8",{fatal:true}).decode(buffer.subarray(0,used));
       data=parseUnambiguousJson(text);
-    } catch {
-      throw Error(name + ": invalid or ambiguous JSON or UTF-8");
+    } catch(error) {
+      // No parser error may echo a financial field name, value or file bytes.
+      if(error?.message==="ambiguous duplicate JSON member")
+        throw Error(name + ": duplicate JSON object member");
+      if(error?.message==="excessive JSON nesting")
+        throw Error(name + ": excessive JSON nesting");
+      throw Error(name + ": invalid JSON or UTF-8");
     }
   } finally {
     io.closeSync(fd);
