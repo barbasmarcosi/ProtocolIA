@@ -471,6 +471,99 @@ try{
   console.log("PROTOCOLIA_S2C1C4J_PROVIDER_JOURNAL_TRUNCATE_GUARD_PASS "+
     build.target+" direct, cascading and multi-table TRUNCATE rejected");
 
+  // S2c-1c4l: operator-only, opt-in runtime/migration privilege separation.
+  // Exercise actual PostgreSQL role ACLs and SECURITY DEFINER entrypoints.
+  const isolation=readFileSync(join(root,
+    "protocolia-provider-journal-runtime-isolation.sql"),"utf8");
+  assert.ok(isolation.includes("DO $protocolia_provider_runtime_acl$"));
+  const runtimeRole="pia_runtime_"+randomBytes(4).toString("hex");
+  const inheritedRole="pia_group_"+randomBytes(4).toString("hex");
+  sql("CREATE ROLE "+runtimeRole+" LOGIN; CREATE ROLE "+inheritedRole+";");
+  const applyAcl="BEGIN; SET LOCAL protocolia.provider_runtime_role="+
+    literal(runtimeRole)+"; "+isolation+" COMMIT;";
+  const securityDefiner=()=>value("SELECT prosecdef FROM pg_proc WHERE oid="+
+    "'public.protocolia_record_provider_envelope_digest(text,text,text)'::regprocedure;");
+  assert.equal(securityDefiner(),"f");
+  assert.notEqual(sql(isolation,{allowFail:true}).status,0,
+    "An unspecified runtime role must not trigger an ACL change");
+  assert.notEqual(sql("BEGIN; SET LOCAL protocolia.provider_runtime_role='protocolia'; "+
+    isolation,{allowFail:true}).status,0,
+    "An owner/superuser must never be configured as the runtime identity");
+  assert.equal(securityDefiner(),"f","Rejected ACL must not modify functions");
+  // A missing immutable guard must reject the entire privilege transition.
+  const unsafeAcl=sql("BEGIN; ALTER TABLE protocolia_provider_envelope_inbox "+
+    "DISABLE TRIGGER protocolia_provider_envelope_immutable_guard_truncate; "+
+    "SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+"; "+
+    isolation,{allowFail:true});
+  assert.notEqual(unsafeAcl.status,0);
+  assert.match(unsafeAcl.stderr,/TRUNCATE guard drifted/);
+  assert.equal(securityDefiner(),"f");
+  // Explicit rollback of a valid ACL rehearsal must leave all grants unchanged.
+  sql("BEGIN; SET LOCAL protocolia.provider_runtime_role="+literal(runtimeRole)+
+    "; "+isolation+" ROLLBACK;");
+  assert.equal(securityDefiner(),"f");
+  // A group with inherited journal read access is a bypass of direct REVOKE.
+  // The postcondition must abort atomically, including function ALTERs.
+  sql("GRANT SELECT ON protocolia_provider_envelope_inbox TO "+inheritedRole+
+    "; GRANT "+inheritedRole+" TO "+runtimeRole+";");
+  const inheritedAcl=sql(applyAcl,{allowFail:true});
+  assert.notEqual(inheritedAcl.status,0,"Inherited journal privilege must fail closed");
+  assert.match(inheritedAcl.stderr,/inherited direct journal access/);
+  assert.equal(securityDefiner(),"f");
+  sql("REVOKE "+inheritedRole+" FROM "+runtimeRole+
+    "; REVOKE SELECT ON protocolia_provider_envelope_inbox FROM "+inheritedRole+";");
+  // Two operator sessions can race: advisory lock serializes the atomic
+  // changes, and repeating a successful transition must be idempotent.
+  const aclRuns=await concurrent([applyAcl,applyAcl]);
+  assert.equal(aclRuns.length,2);
+  sql(applyAcl);
+  assert.equal(securityDefiner(),"t");
+  for(const table of immutableProviderTables){
+    assert.equal(value("SELECT has_table_privilege("+literal(runtimeRole)+
+      ","+literal("public."+table)+
+      ",'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER');"),"f",
+      "Runtime must have no direct journal access: "+table);
+  }
+  const asRuntime=query=>sql("SET ROLE "+runtimeRole+"; "+query)
+    .stdout.trim().split("\n").at(-1);
+  const deniedAsRuntime=query=>{
+    const attempt=sql("SET ROLE "+runtimeRole+"; "+query,{allowFail:true});
+    assert.notEqual(attempt.status,0,"Runtime unexpectedly allowed: "+query);
+    assert.match(attempt.stderr,/permission denied|must be owner/,
+      "Expected a real PostgreSQL permission failure");
+  };
+  deniedAsRuntime("SELECT * FROM protocolia_provider_envelope_inbox;");
+  deniedAsRuntime("INSERT INTO protocolia_provider_envelope_inbox "+
+    "(provider_id,event_id,payload_sha256) VALUES "+
+    "('sandbox_provider','evt_acl_direct_01',"+literal(digestA)+");");
+  deniedAsRuntime("UPDATE protocolia_provider_envelope_inbox "+
+    "SET payload_sha256="+literal(digestB)+";");
+  deniedAsRuntime("DELETE FROM protocolia_provider_envelope_inbox;");
+  deniedAsRuntime("TRUNCATE protocolia_provider_lifecycle_observation CASCADE;");
+  deniedAsRuntime("ALTER FUNCTION public.protocolia_record_provider_envelope_digest"+
+    "(text,text,text) SECURITY INVOKER;");
+  deniedAsRuntime("CREATE TABLE public.pia_runtime_ddl_attack (id INT);");
+  assert.equal(asRuntime(call("sandbox_provider","evt_acl_valid_1234",digestA)),
+    "stored","Validated SECURITY DEFINER inbox function must remain usable");
+  assert.equal(asRuntime(call("sandbox_provider","evt_acl_valid_1234",digestA)),
+    "duplicate","Runtime signed-event replay must remain idempotent");
+  assert.equal(asRuntime(candidate(candidateEvent,digestA)),"duplicate",
+    "Validated candidate entrypoint must remain callable");
+  assert.equal(asRuntime(observation(sameEvent,4)),"duplicate",
+    "Validated lifecycle entrypoint must remain callable");
+  assert.equal(asRuntime("SELECT internal_integrity FROM "+
+    "protocolia_provider_receipt_integrity_projection('PAY-CAND-ROLL');"),
+    "synthetic_failure","Read-only integrity projection must remain callable");
+  assert.deepEqual(immutableProviderTables.map(table=>
+    value("SELECT COUNT(*) FROM "+table+";")),
+    journalCounts.map((n,i)=>String(Number(n)+(i===0?1:0))),
+    "Only the one authenticated-style synthetic inbox insert may add a row");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  console.log("PROTOCOLIA_S2C1C4L_RUNTIME_ROLE_ISOLATION_PASS "+build.target+
+    " denied direct journal DML/DDL, validated entrypoints, inherited grants, "+
+    "rollback, concurrent operator upgrades and no settlement");
+
   console.log("PROTOCOLIA_S2C1C4I_PHASE_AWARE_SYNTHETIC_INTEGRITY_PASS "+build.target+
     " pending, success, failure, reversal, contradiction, rollback, unverified balances");
   console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
