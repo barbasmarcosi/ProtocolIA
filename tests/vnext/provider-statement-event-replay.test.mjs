@@ -170,3 +170,24 @@ test("event identity is provider-wide across orders within one tenant directory"
     assert.equal(readdirSync(f.guard).length,1);
   });
 });
+
+
+test("validly signed but aggregate-overflowing events never consume replay markers",()=>{
+  withFixture(f=>{
+    const maximum="9".repeat(36)+".99";
+    f.setEvents([
+      {...event,eventId:"OVER-1",amount:maximum},
+      {...event,eventId:"OVER-2",amount:maximum}
+    ]);
+    const rejected=run(f.args);
+    assert.equal(rejected.status,1,rejected.stderr);
+    assert.equal(rejected.stdout,"");
+    assert.match(rejected.stderr,/unsupported aggregate precision/);
+    assert.deepEqual(readdirSync(f.guard),[],
+      "overflowing comparison must not burn a durable event or lock");
+    f.setEvents([event]);
+    const valid=run(f.args);
+    assert.equal(valid.status,0,valid.stderr);
+    assert.equal(readdirSync(f.guard).filter(name=>name.startsWith("event-")).length,1);
+  });
+});
