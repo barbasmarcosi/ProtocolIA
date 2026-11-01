@@ -294,8 +294,6 @@ try{
     "WHERE receipt='PAY-CAND-RACE';"),"unverified");
   assert.equal(value("SELECT charge_total::text||'/'||available::text "+
     "FROM work_order WHERE number='OT-CAND-RACE';"),raceBefore);
-  console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
-    " missing, unbound, gap, coherent synthetic-only, contradiction, reversal, no lifecycle");
   console.log("PROTOCOLIA_S2C1C4D_CAUSAL_PROJECTION_PASS "+build.target+
     " gap recovery, contradiction, rollback, unverified money");
 
@@ -354,6 +352,8 @@ try{
     "event_id='evt_after_reverse_1234';"),"0");
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
     "unverified");
+  console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
+    " missing, unbound, gap, coherent synthetic-only, contradiction, reversal, no lifecycle");
   console.log("PROTOCOLIA_S2C1C3C_REVERSAL_REPLAY_PASS "+build.target);
   console.log("PROTOCOLIA_S2C1C3A_RECEIPT_CANDIDATE_PASS "+build.target+
     " exact linked candidate, 1 stored/9 duplicates, no settlement, rollback and immutable");
