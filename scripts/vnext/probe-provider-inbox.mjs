@@ -271,6 +271,8 @@ try{
     "A rolled-back event must not change the projection");
   assert.equal(value(raceReversal),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"coherent/reported_reversal/4");
+  assert.equal(integrity("PAY-CAND-RACE"),"synthetic_reversal/coherent/reported_reversal/4",
+    "A coherent synthetic reversal is not a successful or externally cleared payment");
   assert.equal(value(raceObservation("evt_proj_race_05",5,"reported_pending")),"stored");
   assert.equal(causal("PAY-CAND-RACE"),"contradictory/none/5",
     "A new pending report after reversal is not a valid causal transition");
@@ -322,6 +324,22 @@ try{
     "WHERE event_id='evt_cand_rollback';").split("\n").at(-1),"0");
   assert.equal(value(rollbackCandidate),"stored");
   assert.equal(integrity("PAY-CAND-ROLL"),"no_lifecycle/unobserved/none/0");
+  const rollObservation=(event,seq,phase)=>observation(event,seq,phase,
+    "evt_cand_rollback","PAY-CAND-ROLL","OT-CAND-ROLL");
+  assert.equal(value(rollObservation("evt_roll_pending_01",1,"reported_pending")),"stored");
+  assert.equal(integrity("PAY-CAND-ROLL"),"synthetic_pending/coherent/reported_pending/1",
+    "A coherent pending report is not a success");
+  assert.equal(value(rollObservation("evt_roll_failure_02",2,"reported_failure")),"stored");
+  assert.equal(integrity("PAY-CAND-ROLL"),"synthetic_failure/coherent/reported_failure/2",
+    "A coherent failure report is not a success");
+  assert.equal(value(rollObservation("evt_roll_failure_03",3,"reported_failure")),"stored");
+  assert.equal(integrity("PAY-CAND-ROLL"),"synthetic_failure/coherent/reported_failure/3",
+    "Repeated terminal failure remains a failure");
+  assert.equal(value("SELECT provider_settlement_state FROM payment "+
+    "WHERE receipt='PAY-CAND-ROLL';"),"unverified");
+  assert.equal(value("SELECT charge_total::text||'/'||available::text FROM work_order "+
+    "WHERE number='OT-CAND-ROLL';"),"1.25/0.00",
+    "Read-only classification cannot alter exact financial balances");
   assert.notEqual(sql("UPDATE protocolia_provider_receipt_candidate SET amount=2.00 "+
     "WHERE event_id="+literal(candidateEvent)+";",{allowFail:true}).status,0);
   assert.notEqual(sql("DELETE FROM protocolia_provider_receipt_candidate "+
@@ -352,6 +370,8 @@ try{
     "event_id='evt_after_reverse_1234';"),"0");
   assert.equal(value("SELECT provider_settlement_state FROM payment WHERE receipt='PAY-CAND';"),
     "unverified");
+  console.log("PROTOCOLIA_S2C1C4I_PHASE_AWARE_SYNTHETIC_INTEGRITY_PASS "+build.target+
+    " pending, success, failure, reversal, contradiction, rollback, unverified balances");
   console.log("PROTOCOLIA_S2C1C4H_RECEIPT_INTEGRITY_PASS "+build.target+
     " missing, unbound, gap, coherent synthetic-only, contradiction, reversal, no lifecycle");
   console.log("PROTOCOLIA_S2C1C3C_REVERSAL_REPLAY_PASS "+build.target);
