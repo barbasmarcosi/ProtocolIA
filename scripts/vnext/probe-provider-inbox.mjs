@@ -275,6 +275,21 @@ try{
   assert.equal(causal("PAY-CAND-RACE"),"contradictory/none/5",
     "A new pending report after reversal is not a valid causal transition");
   assert.equal(integrity("PAY-CAND-RACE"),"causal_contradictory/contradictory/none/5");
+  // A direct database-level mutation is either rejected by DB constraints or
+  // detected by the single-snapshot projection; it must not be trusted as proof.
+  for(const [column,valueToSet,expected] of [
+    ["amount","1.26","claim_mismatch"],
+    ["provider_settlement_state","'invalidxxx'","proof_changed"]
+  ]){
+    const attempt=sql("BEGIN; UPDATE payment SET "+column+"="+valueToSet+
+      " WHERE receipt='PAY-CAND-RACE'; SELECT internal_integrity "+
+      "FROM protocolia_provider_receipt_integrity_projection('PAY-CAND-RACE'); ROLLBACK;",
+      {allowFail:true});
+    if(attempt.status===0)assert.ok(attempt.stdout.includes(expected),
+      "Tampered "+column+" must be detected: "+attempt.stdout);
+    assert.equal(integrity("PAY-CAND-RACE"),"causal_contradictory/contradictory/none/5",
+      "Tamper transaction must not persist");
+  }
   assert.equal(value("SELECT provider_settlement_state FROM payment "+
     "WHERE receipt='PAY-CAND-RACE';"),"unverified");
   assert.equal(value("SELECT charge_total::text||'/'||available::text "+
