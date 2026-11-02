@@ -19,7 +19,7 @@ try {
      (flags.has("--expected-snapshot-sha256") &&
       !/^[0-9a-f]{64}$/.test(flags.get("--expected-snapshot-sha256"))) ||
      (flags.has("--expected-event-markers-sha256") &&
-      !/^[0-9a-f]{64}$/.test(flags.get("--expected-event-markers-sha256")))
+      !/^[0-9a-f]{64}$/.test(flags.get("--expected-event-markers-sha256"))))
     throw Error("invalid replay inspection snapshot pin");
   const result=inspectLocalEventReplay(flags.get("--local-event-replay-dir"));
   if(flags.has("--expected-snapshot-sha256") &&
