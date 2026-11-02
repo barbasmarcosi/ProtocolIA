@@ -148,7 +148,7 @@ test("corrupted historical replay marker cannot be bypassed by a disjoint signed
   withFixture(f=>{
     assert.equal(run(f.args).status,0);
     const existing=readdirSync(f.guard)[0];
-    writeFileSync(join(f.guard,existing),"{}\\n");
+    writeFileSync(join(f.guard,existing),"{}\n");
     f.setEvents([{...event,eventId:"E-2"}]);
     const rejected=run(f.args);
     assert.equal(rejected.status,1,rejected.stderr);
@@ -171,7 +171,7 @@ test("unexpected state files and another provider's crash lock block all new cla
     const lock=".pia-event-lock-"+sha(JSON.stringify([
       "ProtocolIA-S2C-provider-lock-v1",other]));
     writeFileSync(join(f.guard,lock),JSON.stringify({
-      version:1,providerId:other,statementSha256:"a".repeat(64)})+"\\n",
+      version:1,providerId:other,statementSha256:"a".repeat(64)})+"\n",
       {mode:0o600});
     const denied=run(f.args);
     assert.equal(denied.status,1,denied.stderr);
