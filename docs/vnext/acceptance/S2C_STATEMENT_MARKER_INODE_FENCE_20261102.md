@@ -27,9 +27,10 @@ node --test tests/vnext/provider-statement-local-replay-race.test.mjs \
   tests/vnext/provider-statement-local-replay.test.mjs
 ```
 
-Five deterministic tests include post-directory-fsync replacement with
-identical empty contents, deletion, permission tampering, directory pathname
-substitution and a positive one-time claim. The existing signed CLI suite
+Seven deterministic tests include post-directory-fsync replacement with
+identical empty contents, deletion, permission tampering, hardlink creation,
+in-place modification, directory pathname substitution and a positive
+one-time claim. The existing signed CLI suite
 covers 10 concurrent processes, SIGKILL and invalid signatures. S2c CI must
 pass on Node 22/24 and independent generated NestJS/Spring PostgreSQL/HTTP
 acceptance before merge.
