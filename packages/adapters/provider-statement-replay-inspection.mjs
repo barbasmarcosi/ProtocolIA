@@ -58,8 +58,9 @@ function readEntry(anchor,name) {
  * claim may have partially committed and requires independent operator review.
  * A clean scan cannot prove that records were never deleted or modified.
  */
-export function inspectLocalEventReplay(directory,{excludeEventMarkers=[]}={}) {
-  if(typeof directory!=="string" || directory.length===0 ||
+export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],providerId}={}) {
+  if((providerId!==undefined && (typeof providerId!=="string" || !ID.test(providerId))) ||
+     typeof directory!=="string" || directory.length===0 ||
      !Array.isArray(excludeEventMarkers) || excludeEventMarkers.length>512 ||
      new Set(excludeEventMarkers).size!==excludeEventMarkers.length ||
      excludeEventMarkers.some(name=>typeof name!=="string" || !MARKER.test(name)))
@@ -85,7 +86,8 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[]}={}) {
       if(!lock && !marker)throw Error(INVALID);
       const entry=readEntry(anchor,name);
       const record=entry.value;
-      observed.push({name,sha256:entry.sha256,identity:entry.identity});
+      observed.push({name,sha256:entry.sha256,identity:entry.identity,
+        markerProviderId:marker ? record.providerId : null});
       if(lock) {
         if(!exact(record,["version","providerId","statementSha256"]) ||
            record.version!==1 || !ID.test(record.providerId) ||
@@ -134,12 +136,20 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[]}={}) {
     const witness=createHash("sha256");
     const markerWitness=createHash("sha256");
     const historicalWitness=createHash("sha256");
+    // Optional provider-scoped history fence: unrelated providers may append
+    // while our provider lock is held. This is a freshness check, not an
+    // independent completeness or anti-rollback checkpoint.
+    const providerWitness=createHash("sha256");
+    const providerHistoricalWitness=createHash("sha256");
+    let providerMarkers=0,providerExcluded=0;
     let excludedFound=0;
     witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
     // Exclude transient provider locks from the separately pinnable marker
     // checkpoint. This digest is only meaningful if retained independently.
     markerWitness.update("ProtocolIA-S2C-event-marker-checkpoint-v1\n");
     historicalWitness.update("ProtocolIA-S2C-event-marker-checkpoint-v1\n");
+    providerWitness.update("ProtocolIA-S2C-provider-marker-history-v1\n"+providerId+"\n");
+    providerHistoricalWitness.update("ProtocolIA-S2C-provider-marker-history-v1\n"+providerId+"\n");
     for(const entry of observed) {
       const line=JSON.stringify([entry.name,entry.sha256])+"\n";
       witness.update(line);
@@ -147,12 +157,23 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[]}={}) {
         markerWitness.update(line);
         if(excluded.has(entry.name))excludedFound++;
         else historicalWitness.update(line);
+        if(providerId!==undefined && entry.markerProviderId===providerId) {
+          providerMarkers++;
+          providerWitness.update(line);
+          if(excluded.has(entry.name))providerExcluded++;
+          else providerHistoricalWitness.update(line);
+        }
       }
     }
     if(excludedFound!==excluded.size)throw Error(INVALID);
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
       snapshotSha256:witness.digest("hex"),
       eventMarkersSha256:markerWitness.digest("hex"),
+      ...(providerId===undefined ? {} : {
+        providerEventMarkersSha256:providerWitness.digest("hex"),
+        remainingProviderEventMarkersSha256:providerHistoricalWitness.digest("hex"),
+        providerEventMarkerCount:providerMarkers,
+        excludedProviderEventMarkerCount:providerExcluded}),
       ...(excluded.size===0 ? {} : {
         remainingEventMarkersSha256:historicalWitness.digest("hex"),
         excludedEventMarkerCount:excludedFound}),
