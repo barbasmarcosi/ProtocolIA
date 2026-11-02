@@ -152,3 +152,29 @@ test("transition names cannot shadow generated CRUD, health or another operation
   assert.equal(existsSync(x.out),false);
  }
 }));
+
+test("distinct routes cannot converge on one state with different compensation history",()=>fixture(x=>{
+ const baseline=parse(x.source);
+ const parallel=structuredClone(baseline);
+ parallel.operators.push({kind:"transition",name:"skipReleaseEquipmentClaim",
+  suffix:"skip-release",from:"pending",to:"rejected",release:false});
+ const diamond=structuredClone(baseline);
+ diamond.operators=[
+  diamond.operators[0],
+  {kind:"transition",name:"reviewEquipmentClaim",suffix:"review",
+   from:"pending",to:"reviewing",release:false},
+  {kind:"transition",name:"inspectEquipmentClaim",suffix:"inspect",
+   from:"pending",to:"inspecting",release:false},
+  {kind:"transition",name:"rejectReviewedClaim",suffix:"reject-reviewed",
+   from:"reviewing",to:"rejected",release:true},
+  {kind:"transition",name:"rejectInspectedClaim",suffix:"reject-inspected",
+   from:"inspecting",to:"rejected",release:false}
+ ];
+ for(const source of [parallel,diamond]){
+  assert.throws(()=>composeOperatorGraph(source),/ambiguous transition destination/);
+  x.update(source);
+  assert.throws(()=>compileOperators(x.source,x.out),/ambiguous transition destination/);
+  assert.equal(existsSync(x.out),false,
+   "ambiguous compensation must fail before generating a contract");
+ }
+}));
