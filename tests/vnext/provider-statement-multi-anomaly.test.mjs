@@ -227,3 +227,27 @@ test("unmatched external partial refunds expose both orphan and repeated-return 
   ]);
   assert.equal(r.counts.exceptions,4);
 });
+
+test("missing provider transaction does not mask a recorded internal refund",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.25")];
+  s.external=[];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"missing_external_transaction");
+  assert.deepEqual(codes(r),[
+    "internal_return_not_externally_reported","missing_external_transaction"
+  ]);
+  assert.equal(r.totals.internallyRecordedReturns,"0.25");
+});
+
+test("unlinked local refund still requires independent return review",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.25")];
+  s.links=[];
+  s.external=[];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(r),[
+    "internal_return_not_externally_reported","unlinked_internal_receipt"
+  ]);
+});
