@@ -27,12 +27,13 @@ try {
   const bundleFlags=["--operator-bundle-manifest","--operator-public-key",
     "--trusted-operator-key-sha256"];
   const bundleSupplied=bundleFlags.filter(flag=>flags.has(flag)).length;
+  if(bundleSupplied!==0 && bundleSupplied!==3)
+    throw Error("Operator bundle requires all three trust flags");
   if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order") ||
        !flags.has("--expected-provider"))) ||
      (supplied===0 && flags.has("--expected-provider")) ||
      ((flags.has("--local-replay-dir") || flags.has("--local-event-replay-dir")) && supplied!==3) ||
-     (flags.has("--local-replay-dir") && flags.has("--local-event-replay-dir")) ||
-     (bundleSupplied!==0 && bundleSupplied!==3) )
+     (flags.has("--local-replay-dir") && flags.has("--local-event-replay-dir")) )
     throw Error("Detached signature requires all three trust flags, --expected-order and --expected-provider");
   if(flags.size<keys.length || flags.size>keys.length+optional.length ||
      keys.some(key=>!flags.has(key)) ||
