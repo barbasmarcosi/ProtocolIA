@@ -8,10 +8,10 @@ import {resolve,join} from "node:path";
 const INVALID="local replay inspection: unsafe or malformed private state";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^[0-9a-f]{64}$/;
-const MONEY=/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/;
+const MONEY=/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const CURRENCY=/^[A-Z]{3}$/;
 const validAmount=value=>typeof value==="string" && MONEY.test(value) &&
-  value.split(".")[0].length<=38 && !/^0(?:\\.0+)?$/.test(value);
+  value.split(".")[0].length<=38 && !/^0(?:\.0+)?$/.test(value);
 const LOCK=/^\.pia-event-lock-([0-9a-f]{64})$/;
 const MARKER=/^event-([0-9a-f]{64})$/;
 const MAX_FILES=20000;
