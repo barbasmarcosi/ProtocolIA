@@ -24,7 +24,7 @@ framework-neutral research proof, not a production migration.
   numeric storage. No floating-point arithmetic.
 - Immutable row and TRUNCATE guards protect the disposable journals against
   accidental mutation. Ten competing PostgreSQL sessions for one event
-  must yield exactly one commit; ten distinct events must all commit.
+  must yield exactly one commit; ten distinct events must all commit. A\n  terminated PostgreSQL backend after event and audit inserts but before\n  COMMIT must roll back both, permitting a clean subsequent retry.
 - Provider A and provider B may use the same event ID; provider A cannot
   reuse it under a different order or statement.
 
