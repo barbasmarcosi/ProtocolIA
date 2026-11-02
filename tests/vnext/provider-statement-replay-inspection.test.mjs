@@ -74,8 +74,8 @@ test("corrupted, forged, overly permissive or symlinked markers fail closed",()=
   const mutations=[
     (dir,name)=>writeFileSync(join(dir,name),"{\"version\":1,\"version\":1}\n"),
     (dir,name)=>chmodSync(join(dir,name),0o644),
-    (dir,name)=>{renameSync(join(dir,name),join(dir,"saved"));
-      symlinkSync("saved",join(dir,name));},
+    (dir,name)=>{renameSync(join(dir,name),join(dir,"..","saved"));
+      symlinkSync("../saved",join(dir,name));},
     (dir,name)=>writeFileSync(join(dir,name),"x".repeat(1025)),
     (dir,name)=>{const record=JSON.parse(readFileSync(join(dir,name),"utf8"));
       record.eventMarkerSha256="b".repeat(64);
