@@ -13,7 +13,7 @@ const cli=resolve("scripts/vnext/reconcile-provider-statement.mjs");
 const sha=value=>createHash("sha256").update(value).digest("hex");
 const timestamp=ms=>new Date(ms).toISOString().replace(".000Z","Z");
 const run=args=>spawnSync(process.execPath,args,{encoding:"utf8",timeout:15000});
-function fixture(fn,{provider=false,returns=true}={}) {
+function fixture(fn,{provider=false,returns=true,sameKey=false}={}) {
   const dir=mkdtempSync(join(tmpdir(),"pia-operator-bundle-"));
   try {
     const keys=generateKeyPairSync("ed25519");
@@ -57,7 +57,7 @@ function fixture(fn,{provider=false,returns=true}={}) {
     if(returns)args.push("--internal-returns",paths.internalReturns);
     const guard=join(dir,"replay");
     if(provider) {
-      const providerKey=generateKeyPairSync("ed25519");
+      const providerKey=sameKey?keys:generateKeyPairSync("ed25519");
       const providerPem=providerKey.publicKey.export({type:"spki",format:"pem"});
       const providerPin=sha(providerKey.publicKey.export({type:"spki",format:"der"}));
       writeFileSync(join(dir,"provider.pem"),providerPem);
@@ -187,4 +187,15 @@ test("direct verifier rejects impossible key/signature, forged scope and manifes
       {...f.signed,signature:"***"}
     ])assert.throws(()=>verifyOperatorSnapshotBundle({...params,metadata}),/operator bundle/);
   });
+});
+
+test("provider signing authority cannot double as independent operator reviewer",()=>{
+  fixture(f=>{
+    const denied=run(f.args);
+    assert.equal(denied.status,1,denied.stderr);
+    assert.equal(denied.stdout,"");
+    assert.match(denied.stderr,/keys must be independent/);
+    assert.deepEqual(readdirSync(f.guard),[],
+      "same-key forged review must not consume replay markers");
+  },{provider:true,sameKey:true});
 });
