@@ -99,8 +99,10 @@ the receipt; only the new `claim_with_receipt` function can create claims.
 
 The restricted `inspect_committed_batch` returns `committed` only when the
 authenticated database principal's tenant/provider, exact original batch,
-receipt and **every** claim/audit record match. It returns `absent` only
-when none of the supplied event IDs exist. Partial, mismatched, duplicate,
+receipt and **every** claim/audit record match. It returns `not_observed`
+when none of the supplied event IDs are visible in the current PostgreSQL
+snapshot. **This is not proof of non-commit or permission to retry:** an
+in-flight transaction may still commit. Partial, mismatched, duplicate,
 legacy/unreceipted or corrupt evidence is rejected rather than guessed.
 The lookup is read-only and never resubmits a financial event. It is intended
 to disambiguate an interrupted response after PostgreSQL COMMIT, not to
@@ -109,7 +111,10 @@ declare a provider capture or bank settlement successful.
 The workflow tests a populated-schema upgrade, restricted grants, 10-way
 same-event contention, rollback on a later duplicate, tenant isolation,
 a deliberately altered audit row, old unreceipted evidence, and forced
-database-backend termination **after COMMIT but before acknowledgement**.
+database-backend termination **after COMMIT but before acknowledgement**,
+and a separate in-flight/pre-COMMIT termination probe demonstrating the
+snapshot limitation. A retry must still rely on the unique key and explicit
+operator/provider recovery policy, never on `not_observed` alone.
 The CI must finish before these claims are treated as verified.
 
 This is **not** a production-safe migration: no external signed-provider
