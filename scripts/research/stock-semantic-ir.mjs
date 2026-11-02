@@ -1,3 +1,4 @@
+import {renderBoundedCapacityTypeSpec} from "./bounded-capacity-renderer.mjs";
 // R2.6 — bounded semantic IR: structured constraints -> typed entities and operation
 // graph -> TypeSpec. The caller supplies limits via the frozen source brief;
 // no model can synthesize operations, capabilities, references or SQL.
@@ -65,7 +66,6 @@ export function stockSemanticIr(project){
   sourceBounds:{...b}
  };
 }
-const q=JSON.stringify;
 function assertGraph(ir){
  keys(ir,["schemaVersion","namespace","title","entities","operations","profile","sourceBounds"],"typed stock IR");
  requireSafe(ir.schemaVersion==="protocolia-stock-semantic-ir/v0.1"&&
@@ -78,86 +78,8 @@ function assertGraph(ir){
  requireSafe(ir.operations.every(x=>permissions.includes(x.capability)),"unknown capability");
  return ir;
 }
-function propertyLines(f,identity){
- const a=[];
- if(f.name===identity)a.push("@publicIdentity");
- if(f.unique)a.push("@unique");
- if(f.reference)a.push("@reference("+q(f.reference.target)+", "+q(f.reference.onDelete)+")");
- if(f.minLength!==undefined)a.push("@minLength("+f.minLength+")");
- if(f.maxLength!==undefined)a.push("@maxLength("+f.maxLength+")");
- if(f.min!==undefined)a.push("@minValue("+f.min+")");
- if(f.max!==undefined)a.push("@maxValue("+f.max+")");
- if(f.initial!==undefined)a.push("@initial("+q(f.initial)+")");
- return a.map(x=>"    "+x).concat(["    "+f.name+": "+f.type+";"]);
-}
-function emitModel(name,fields,view,identity){
- const lines=["  "+(view===null?"":"@entity"),...(view===null?[]:["  @view("+q(view)+")"]),
-  "  model "+name+" {"];
- for(const f of fields)lines.push(...propertyLines(f,identity));
- lines.push("  }","");
- return lines.filter((x,i)=>!(i===0&&x.trim()==="")).join("\n");
-}
-function emitInput(name,fields){
- const lines=["  model "+name+" {"];
- for(const f of fields)lines.push(...propertyLines({...f,unique:false,reference:undefined,initial:undefined},null));
- return lines.concat(["  }",""]).join("\n");
-}
-function emitPage(entity){
- return ["  model "+entity+"Page {","    items: "+entity+"[];",
-  "    @minValue(1) @maxValue(50) limit: int32;",
-  "    @minValue(0) offset: int32;",
-  "    @minValue(0) total: int32;","  }",""].join("\n");
-}
-function renderOperation(op,entity){
- const pre=["  @route("+q(op.path)+")",
-  "  @"+({create:"post",get:"get",listPage:"get",transition:"post",health:"get"}[op.kind]),
-  "  @behavior("+[q(op.kind),q(op.entity)].concat(op.kind==="transition"?[q(op.stateField)]:[]).join(", ")+")"];
- if(op.reserve)pre.push("  @reserve("+Object.values(op.reserve).map(q).join(", ")+")");
- if(op.kind==="transition"){
-  pre.push("  @transition("+q(op.from)+", "+q(op.to)+")");
-  pre.push("  @release("+Object.values(op.release).map(q).join(", ")+")");
-  pre.push("  @audit("+q(op.audit.join(","))+")");
- }
- pre.push("  @capability("+q(op.capability)+")");
- let signature;
- if(op.kind==="create"){
-  const id=op.entity==="StockItem"?"item":"debit";
-  signature="  op "+op.name+"(@body input: "+op.entity+"Request):\n"+
-   "      { @statusCode _: 201; @body "+id+": "+op.entity+"; }\n"+
-   "    | Conflict | BadRequest | Unauthorized | Forbidden;";
- }else if(op.kind==="get"){
-  signature="  op "+op.name+"(@path "+entity.publicIdentity+": string): "+
-   op.entity+" | NotFound | Unauthorized | Forbidden;";
- }else if(op.kind==="listPage"){
-  signature="  op "+op.name+"(\n"+
-   "    @query @minValue(1) @maxValue(50) limit?: int32 = 25,\n"+
-   "    @query @minValue(0) @maxValue(1000000) offset?: int32 = 0\n"+
-   "  ): "+op.entity+"Page | BadRequest | Unauthorized | Forbidden;";
- }else if(op.kind==="transition"){
-  signature="  op "+op.name+"(@path "+entity.publicIdentity+": string):\n"+
-   "    "+op.entity+" | NotFound | Conflict | BadRequest | Unauthorized | Forbidden;";
- }else if(op.kind==="health")signature="  op health(): Health;";
- else throw Error("unknown bounded operation");
- return pre.concat([signature,""]).join("\n");
-}
 export function emitStockTypeSpec(ir){
  assertGraph(ir);
- const item=ir.entities[0],debit=ir.entities[1];
- const blocks=[
-  'import "@typespec/http";','import "@protocolia/domain";',
-  "using TypeSpec.Http;","using ProtocolIA.Domain;","",
-  "@service(#{ title: "+q(ir.title)+" })",
-  "namespace StockDebitLab {",
-  emitModel(item.name,item.fields,item.view,item.publicIdentity),
-  emitModel(debit.name,debit.fields,debit.view,debit.publicIdentity),
-  emitInput("StockItemRequest",item.fields),
-  emitInput("StockDebitRequest",debit.fields.filter(f=>f.initial===undefined)),
-  emitPage(item.name),emitPage(debit.name),
-  "  model Health { status: string; }","",
-  ...[["NotFound",404],["Conflict",409],["BadRequest",400],["Unauthorized",401],["Forbidden",403]]
-   .map(([name,status])=>"  @error model "+name+" { @statusCode _: "+status+"; message: string; }"),
-  "",...ir.operations.map(op=>renderOperation(op,ir.entities.find(e=>e.name===op.entity))),"}",""
- ];
- return blocks.join("\n");
+ return renderBoundedCapacityTypeSpec(ir,{StockItem:"item",StockDebit:"debit"});
 }
 export function validateStockSemanticIr(ir){return assertGraph(ir);}
