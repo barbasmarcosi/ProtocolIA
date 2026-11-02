@@ -1,0 +1,55 @@
+name: s2c-postgres-atomic-event-replay-proof
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'experiments/s2c-pg-replay/**'
+      - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
+      - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
+      - '.github/workflows/s2c-pg-atomic-replay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/s2c-pg-replay/**'
+      - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
+      - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
+      - '.github/workflows/s2c-pg-atomic-replay.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: s2c-pg-replay-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  disposable-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: protocolia_s2c_replay_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d protocolia_s2c_replay_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: protocolia_s2c_replay_ci
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check shell and PostgreSQL availability
+        run: |
+          bash -n tests/vnext/provider-statement-pg-atomic-replay.sh
+          psql --version
+          pg_isready -h 127.0.0.1 -U postgres -d protocolia_s2c_replay_ci
+      - name: Install isolated proof schema
+        run: psql -X -v ON_ERROR_STOP=1 -f experiments/s2c-pg-replay/atomic-replay.sql
+      - name: Real PostgreSQL batch atomicity, replay, audit and concurrent processes
+        run: bash tests/vnext/provider-statement-pg-atomic-replay.sh

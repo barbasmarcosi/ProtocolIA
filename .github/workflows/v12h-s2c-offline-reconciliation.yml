@@ -14,6 +14,8 @@ on:
       - 'scripts/vnext/inspect-provider-event-replay.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
+      - 'experiments/s2c-pg-replay/**'
+      - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
       - '.github/workflows/v12h-s2c-offline-reconciliation.yml'
   push:
     branches: [main]
@@ -29,6 +31,8 @@ on:
       - 'scripts/vnext/inspect-provider-event-replay.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
+      - 'experiments/s2c-pg-replay/**'
+      - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
   workflow_dispatch:
 permissions:
   contents: read

@@ -8,6 +8,8 @@ on:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
       - 'packages/adapters/provider-statement-input.mjs'
       - 'tests/vnext/provider-statement-*.test.mjs'
+      - 'experiments/s2c-pg-replay/**'
+      - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
       - 'tests/vnext/provider-webhook-envelope.test.mjs'
       - 'tests/vnext/provider-envelope-inbox.test.mjs'
       - 'packages/adapters/provider-envelope-inbox.mjs'
