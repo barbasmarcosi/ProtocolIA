@@ -204,7 +204,11 @@ test("impossible over-return is reported even with missing mapping or missing st
   assert.equal(r.rows[1].classification,"unlinked");
   assert.deepEqual(r.exceptions.map(e=>e.code).filter(x=>x==="internal_returns_exceed_receipt"),
     ["internal_returns_exceed_receipt"]);
-  assert.equal(r.counts.exceptions,2);
+  assert.deepEqual(r.exceptions.map(e=>e.code),[
+    "internal_return_not_externally_reported",
+    "internal_returns_exceed_receipt","unlinked_internal_receipt"
+  ]);
+  assert.equal(r.counts.exceptions,3);
 });
 
 test("explicitly null internal return journal is rejected, never silently treated as empty",()=>{
