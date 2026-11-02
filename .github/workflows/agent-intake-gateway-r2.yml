@@ -1,0 +1,113 @@
+name: R2 source-bound agent gateway
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/agent-intake-gateway.mjs'
+      - 'tests/research/agent-intake-gateway.test.mjs'
+      - 'research/autonomous-engineering/samples/kiosk-owner-brief.json'
+      - 'research/autonomous-engineering/samples/kiosk-agent-proposal-template.json'
+      - 'docs/research/autonomous-engineering/R2_AGENT_GATEWAY.md'
+      - '.github/workflows/agent-intake-gateway-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check scripts/research/agent-intake-gateway.mjs
+      - run: node --test tests/research/agent-intake-gateway.test.mjs
+  canonical-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Freeze agent-facing proposal against source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.r2-gateway.XXXXXXXX")"
+          echo "GATEWAY_TMP=$TMP" >> "$GITHUB_ENV"
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");
+            const [brief,template,dest]=process.argv.slice(1);
+            const x=JSON.parse(fs.readFileSync(template,"utf8"));
+            x.briefSha256=crypto.createHash("sha256").update(fs.readFileSync(brief)).digest("hex");
+            fs.writeFileSync(dest,JSON.stringify(x,null,2)+"\n");' \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            research/autonomous-engineering/samples/kiosk-agent-proposal-template.json "$TMP/proposal.json"
+      - name: Admit only source-anchored candidate into R2 TypeSpec generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRIEF=research/autonomous-engineering/samples/kiosk-owner-brief.json
+          node scripts/research/agent-intake-gateway.mjs admit "$BRIEF" "$GATEWAY_TMP/proposal.json" "$GATEWAY_TMP/admitted"
+          node scripts/research/agent-intake-gateway.mjs verify "$BRIEF" "$GATEWAY_TMP/proposal.json" "$GATEWAY_TMP/admitted"
+          node scripts/research/intake-to-typespec.mjs generate "$GATEWAY_TMP/admitted/intake.json" "$GATEWAY_TMP/contracts"
+          node scripts/research/intake-to-typespec.mjs verify "$GATEWAY_TMP/admitted/intake.json" "$GATEWAY_TMP/contracts"
+          ./node_modules/.bin/tsp compile "$GATEWAY_TMP/contracts"
+          test -s "$GATEWAY_TMP/contracts/tsp-output/@protocolia/compiler/ir.json"
+      - name: Verify Passport retains untouched source facts and unknown decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$GATEWAY_TMP/contracts/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$GATEWAY_TMP/contracts/requirements.json" \
+            --decisions "$GATEWAY_TMP/contracts/decisions.json" \
+            --out "$RUNNER_TEMP/kiosk-agent-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$GATEWAY_TMP/contracts/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$GATEWAY_TMP/contracts/requirements.json" \
+            --decisions "$GATEWAY_TMP/contracts/decisions.json" \
+            --out "$RUNNER_TEMP/kiosk-agent-passport"
+          grep -q "UNKNOWN / unresolved" "$RUNNER_TEMP/kiosk-agent-passport/docs/domain/decisions.md"
+          node -e 'const fs=require("node:fs");
+            const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            if(x.traceAuthority!=="DECLARED_UNVERIFIED"||x.requirements.some(r=>r.verification!=="NOT_RUN"))process.exit(1);' \
+            "$RUNNER_TEMP/kiosk-agent-passport/docs/traceability.json"
+  generated-app-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Compile source-bound draft and generate application
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.r2-app.XXXXXXXX")"
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");
+            const [brief,template,dest]=process.argv.slice(1);
+            const x=JSON.parse(fs.readFileSync(template,"utf8"));
+            x.briefSha256=crypto.createHash("sha256").update(fs.readFileSync(brief)).digest("hex");
+            fs.writeFileSync(dest,JSON.stringify(x,null,2)+"\n");' \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            research/autonomous-engineering/samples/kiosk-agent-proposal-template.json "$TMP/proposal.json"
+          node scripts/research/agent-intake-gateway.mjs admit \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            "$TMP/proposal.json" "$TMP/admitted"
+          node scripts/research/intake-to-typespec.mjs generate "$TMP/admitted/intake.json" "$TMP/contracts"
+          npm run app:build -- "$TMP/contracts" --target nestjs --out "$RUNNER_TEMP/kiosk-agent-app"
+      - name: Independently test real generated application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:test -- "$RUNNER_TEMP/kiosk-agent-app"

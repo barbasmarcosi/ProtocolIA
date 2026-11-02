@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "protocolia-agent-brief/v0.2",
+  "project": {
+    "profile": "stock-debit-lab/v0",
+    "namespace": "StockDebitLab",
+    "title": "Audited stock debit — research pilot"
+  },
+  "facts": [
+    {
+      "id": "SI-01",
+      "text": "For a bounded technical laboratory, register stock items with exact-string unique SKU and read/list operations. SKU normalization is explicitly out of scope.",
+      "scope": "supported",
+      "expectedOperations": [
+        "createStockItem",
+        "getStockItem",
+        "listStockItems"
+      ]
+    },
+    {
+      "id": "SI-02",
+      "text": "Accept bounded positive stock debits only by inserting an immutable, uniquely identified journal entry and decrementing available units atomically without overselling. This is not a sale or payment.",
+      "scope": "supported",
+      "expectedOperations": [
+        "createStockDebit",
+        "getStockDebit",
+        "listStockDebits"
+      ]
+    },
+    {
+      "id": "SI-03",
+      "text": "Reverse a posted debit once, credit its exact units atomically and record an auditable state transition. Repeated reversals must not credit stock twice.",
+      "scope": "supported",
+      "expectedOperations": [
+        "reverseStockDebit"
+      ]
+    },
+    {
+      "id": "SI-04",
+      "text": "Provide an unauthenticated health readiness endpoint; inventory data and mutations require distinct capabilities.",
+      "scope": "supported",
+      "expectedOperations": [
+        "health"
+      ]
+    },
+    {
+      "id": "SI-05",
+      "text": "Customer sales, prices, taxes, payment settlement, physical stocktaking and refund policies are not specified in this prototype.",
+      "scope": "deferred",
+      "expectedOperations": []
+    }
+  ],
+  "knownQuestions": [
+    {
+      "id": "SI-Q01",
+      "question": "What normalization and equivalence policy should apply to SKUs in a future business implementation?",
+      "classification": "material_business",
+      "affectsSupported": false
+    },
+    {
+      "id": "SI-Q02",
+      "question": "Who can exercise real inventory write/read permissions in production, beyond the isolated test identities?",
+      "classification": "security_privilege",
+      "affectsSupported": false
+    },
+    {
+      "id": "SI-Q03",
+      "question": "What sale cancellation, refund and inventory reconciliation policies should the future business application support?",
+      "classification": "material_business",
+      "affectsSupported": false
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "protocolia-research-case/v1",
+  "id": "kiosk-v1",
+  "title": "Kiosco: inventory, sales and cash",
+  "sourceType": "synthetic",
+  "brief": "Generate a small kiosk management system: products, stock, sales, payments and cash closure. Preserve historical prices; do not invent discounts or returns policy.",
+  "requirements": [
+    {
+      "id": "K-01",
+      "text": "Create and maintain products with SKU, price and taxable category.",
+      "critical": true
+    },
+    {
+      "id": "K-02",
+      "text": "Record stock receipts and sales with no silently lost concurrent updates.",
+      "critical": true
+    },
+    {
+      "id": "K-03",
+      "text": "A sale permanently snapshots the actual line price used at checkout.",
+      "critical": true
+    },
+    {
+      "id": "K-04",
+      "text": "A sale cannot exceed available stock unless an explicit backorder rule exists.",
+      "critical": true
+    },
+    {
+      "id": "K-05",
+      "text": "Only authorized cashiers can record sales; other users cannot bypass server permissions.",
+      "critical": true
+    },
+    {
+      "id": "K-06",
+      "text": "Cash closure sums exact sales and adjustments and preserves the audit history.",
+      "critical": true
+    },
+    {
+      "id": "K-07",
+      "text": "Interface provides mobile create/list/search flow for products and sales.",
+      "critical": false
+    }
+  ],
+  "ambiguities": [
+    {
+      "id": "K-A01",
+      "question": "Define whether regular customers receive a discount, amount and stacking rule.",
+      "classification": "material_business"
+    },
+    {
+      "id": "K-A02",
+      "question": "Define whether returns are refundable, in which window and effect on cash/stock.",
+      "classification": "material_business"
+    },
+    {
+      "id": "K-A03",
+      "question": "Choose sidebar navigation and mobile breakpoint defaults.",
+      "classification": "reversible_technical"
+    },
+    {
+      "id": "K-A04",
+      "question": "Are cashiers permitted to export full client and payment records?",
+      "classification": "security_privilege"
+    }
+  ],
+  "handoffTasks": [
+    "Explain stock concurrency and why historical prices are snapshotted",
+    "Add a scoped promotional price rule without retroactive changes",
+    "Show original requirement-to-test provenance and unsupported behavior"
+  ]
+}

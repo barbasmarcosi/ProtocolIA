@@ -1,0 +1,76 @@
+name: R2 live-chat agent pilot — real proposal, no model API
+
+on:
+  pull_request:
+    paths:
+      - 'research/autonomous-engineering/trials/chat-agent-kiosk/**'
+      - 'scripts/research/agent-intake-gateway.mjs'
+      - 'scripts/research/intake-to-typespec.mjs'
+      - 'scripts/research/project-passport.mjs'
+      - 'tests/research/chat-agent-pilot.test.mjs'
+      - 'docs/research/autonomous-engineering/R2_CHAT_AGENT_PILOT.md'
+      - '.github/workflows/chat-agent-pilot-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-execution-of-recorded-agent-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Real agent-authored proposal passes source-binding but rejects unsafe compilation
+        run: node --test tests/research/chat-agent-pilot.test.mjs
+      - name: Regression of existing gateway + TypeSpec + Passport tests
+        run: |
+          node --test tests/research/agent-intake-gateway.test.mjs \
+            tests/research/intake-to-typespec.test.mjs \
+            tests/research/project-passport.test.mjs
+      - name: CLI independently demonstrates material-blocker rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRIEF=research/autonomous-engineering/samples/kiosk-owner-brief.json
+          PROPOSAL=research/autonomous-engineering/trials/chat-agent-kiosk/proposal.json
+          OUT="$RUNNER_TEMP/agent-pilot"
+          node scripts/research/agent-intake-gateway.mjs admit "$BRIEF" "$PROPOSAL" "$OUT"
+          node scripts/research/agent-intake-gateway.mjs verify "$BRIEF" "$PROPOSAL" "$OUT"
+          set +e
+          node scripts/research/intake-to-typespec.mjs generate \
+            "$OUT/intake.json" "$RUNNER_TEMP/agent-unsafe-contract" \
+            > "$RUNNER_TEMP/unsafe.stdout" 2> "$RUNNER_TEMP/unsafe.stderr"
+          code=$?
+          set -e
+          test "$code" -eq 1
+          grep -q 'K-Q03,K-Q04' "$RUNNER_TEMP/unsafe.stderr"
+          test ! -e "$RUNNER_TEMP/agent-unsafe-contract/contracts/main.tsp"
+          echo "SAFE_BLOCK_VALIDATED: source-bound actual agent proposal refused unsafe contract compilation"
+
+  separate-synthetic-supported-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the known frozen positive-only profile (NOT the blocked agent proposal)
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d "$PWD/.r2-controlled.XXXXXXXX")"
+          node scripts/research/intake-to-typespec.mjs generate \
+            research/autonomous-engineering/samples/kiosk-profile-draft.json "$OUT/contracts"
+          npm run app:build -- "$OUT/contracts" --target nestjs --out "$RUNNER_TEMP/positive-control-app"
+          npm run app:test -- "$RUNNER_TEMP/positive-control-app"
+      - name: Never conflate control with real-agent output
+        shell: bash
+        run: |
+          echo "CONTROL_ONLY: generated tested app came from previously scoped synthetic fixture, NOT from the live-chat agent proposal"

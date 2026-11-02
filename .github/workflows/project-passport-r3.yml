@@ -1,0 +1,60 @@
+name: Project Passport R3
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/project-passport.mjs'
+      - 'tests/research/project-passport.test.mjs'
+      - 'docs/research/autonomous-engineering/**'
+      - '.github/workflows/project-passport-r3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check scripts/research/project-passport.mjs
+      - run: node --test tests/research/project-passport.test.mjs
+  real-typespec-ir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Compile existing canonical Taller TypeSpec into IR
+        run: ./node_modules/.bin/tsp compile examples/vnext/taller
+      - name: Generate and verify Passport from real TypeSpec
+        shell: bash
+        run: |
+          set -euo pipefail
+          IR="examples/vnext/taller/tsp-output/@protocolia/compiler/ir.json"
+          test -s "$IR"
+          node scripts/research/project-passport.mjs generate --ir "$IR" --out "$RUNNER_TEMP/taller-passport"
+          node scripts/research/project-passport.mjs verify --ir "$IR" --out "$RUNNER_TEMP/taller-passport"
+          test -s "$RUNNER_TEMP/taller-passport/docs/architecture/data-model.mmd"
+          test -s "$RUNNER_TEMP/taller-passport/docs/traceability.json"
+          grep -q 'Tool' "$RUNNER_TEMP/taller-passport/docs/domain/entities.md"
+          grep -q 'atomicIncrement' "$RUNNER_TEMP/taller-passport/docs/domain/operations.md"
+      - name: Reject manual Passport modification
+        shell: bash
+        run: |
+          set -euo pipefail
+          IR="examples/vnext/taller/tsp-output/@protocolia/compiler/ir.json"
+          printf '\nmanual drift\n' >> "$RUNNER_TEMP/taller-passport/docs/domain/entities.md"
+          if node scripts/research/project-passport.mjs verify --ir "$IR" --out "$RUNNER_TEMP/taller-passport"; then
+            echo 'Expected integrity verification to fail' >&2
+            exit 1
+          fi

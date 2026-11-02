@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "protocolia-agent-proposal/v0.1",
+  "briefSha256": "67be6c8933c58611700cee59bf5941cb5a9fa3b5b81e0fbc5aa89026552719e4",
+  "mappings": [
+    {
+      "sourceId": "K-01",
+      "operations": [
+        "createProduct",
+        "getProduct",
+        "listProducts"
+      ]
+    },
+    {
+      "sourceId": "K-02",
+      "operations": [
+        "increaseProductQuantity"
+      ]
+    },
+    {
+      "sourceId": "K-03",
+      "operations": [
+        "renameProduct"
+      ]
+    },
+    {
+      "sourceId": "K-04",
+      "operations": []
+    }
+  ],
+  "discoveredQuestions": [
+    {
+      "id": "K-Q03",
+      "question": "Does 'change stock atomically' in K-02 include decrements, inventory corrections or sale debits? The frozen supported profile only implements positive increments.",
+      "classification": "material_business",
+      "affectsSupported": true
+    },
+    {
+      "id": "K-Q04",
+      "question": "Should SKUs be normalized for case, whitespace or Unicode before uniqueness is enforced? The current profile only provides exact string uniqueness.",
+      "classification": "material_business",
+      "affectsSupported": true
+    },
+    {
+      "id": "K-Q05",
+      "question": "Which real identities or roles receive inventory.write permission, and how is that scoped across cashiers or stores? This is outside the current generated profile.",
+      "classification": "security_privilege",
+      "affectsSupported": false
+    },
+    {
+      "id": "K-Q06",
+      "question": "What audit, reversal and retention policy applies to stock corrections? The bounded contract has no audit operation.",
+      "classification": "material_business",
+      "affectsSupported": false
+    },
+    {
+      "id": "K-Q07",
+      "question": "Should the mobile inventory screen initially use simple accessible grouped fields while usability is evaluated?",
+      "classification": "reversible_technical",
+      "affectsSupported": false,
+      "provisionalDecision": "Use the existing generated form layout until an independent mobile usability check justifies changes"
+    },
+    {
+      "id": "K-Q08",
+      "question": "For future sales and returns, how should damaged or refunded products affect available and reserved quantities without double counting?",
+      "classification": "material_business",
+      "affectsSupported": false
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "K-05",
+      "text": "A future sale may require guarded atomic stock debit and an immutable price snapshot; not authorized or implemented in this bounded profile."
+    },
+    {
+      "id": "K-06",
+      "text": "A future return ledger may require exact amounts, original-sale linkage and a separately verified payment/refund authority; deferred."
+    },
+    {
+      "id": "K-07",
+      "text": "Physical-count reconciliation and its audit trail may need a dedicated contract operation rather than overloading positive increment; deferred."
+    }
+  ]
+}
