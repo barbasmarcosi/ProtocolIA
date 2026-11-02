@@ -52,7 +52,7 @@ assert_count() {
 # database-level proof, not a signed HTTP/provider identity integration.
 [[ "$(sql "SELECT p.prosecdef AND p.proowner='protocolia_s2c_owner'::regrole FROM pg_proc p WHERE p.oid='protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)'::regprocedure")" == t ]]
 [[ "$(sql "SELECT count(*) FROM pg_roles WHERE rolname IN ('protocolia_s2c_owner','protocolia_s2c_runtime','protocolia_s2c_untrusted') AND NOT rolcanlogin")" == 3 ]]
-[[ "$(sql "SELECT count(*) FROM pg_roles WHERE rolname IN ('protocolia_s2c_a_sandbox_login','protocolia_s2c_a_other_login','protocolia_s2c_b_sandbox_login') AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole")" == 3 ]]
+[[ "$(sql "SELECT count(*) FROM pg_roles WHERE rolname IN ('protocolia_s2c_a_sandbox_login','protocolia_s2c_a_other_login','protocolia_s2c_b_sandbox_login') AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication AND NOT rolbypassrls")" == 3 ]]
 [[ "$(login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET ROLE protocolia_s2c_runtime; SELECT session_user || ':' || current_user")" == 'protocolia_s2c_a_sandbox_login:protocolia_s2c_runtime' ]]
 [[ "$(sql "SELECT has_schema_privilege('protocolia_s2c_runtime','protocolia_s2c_replay','USAGE') AND NOT has_schema_privilege('protocolia_s2c_runtime','protocolia_s2c_replay','CREATE') AND has_function_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)','EXECUTE') AND NOT has_table_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.claim','INSERT') AND NOT has_table_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.audit','INSERT')")" == t ]]
 expect_fail sql "SET ROLE protocolia_s2c_untrusted; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox FORGED TX-F capture 0.01)'::jsonb)"
@@ -66,6 +66,7 @@ expect_fail sql "SET ROLE protocolia_s2c_runtime; ALTER TABLE protocolia_s2c_rep
 expect_fail sql "SET ROLE protocolia_s2c_runtime; CREATE TABLE protocolia_s2c_replay.forged(id integer)"
 # A role cannot invoke without assuming the restricted runtime role, edit
 # its binding, impersonate another session_user, or claim another provider.
+expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_other" "SELECT session_user"
 expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox FORGED-0 TX-F capture 0.01)'::jsonb)"
 expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET ROLE protocolia_s2c_owner"
 expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET SESSION AUTHORIZATION protocolia_s2c_b_sandbox_login"
@@ -73,6 +74,7 @@ expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET ROLE
 expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET ROLE protocolia_s2c_runtime; UPDATE protocolia_s2c_replay.principal_binding SET provider_id='other'"
 expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a_sandbox" "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('other','OT-1','$sha','$(event other FORGED-1 TX-F capture 0.01)'::jsonb)"
 expect_fail login_sql protocolia_s2c_a_other_login "$pass_a_other" "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox FORGED-2 TX-F capture 0.01)'::jsonb)"
+expect_fail login_sql protocolia_s2c_b_sandbox_login "$pass_b_sandbox" "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('other','OT-1','$sha','$(event other FORGED-3 TX-F capture 0.01)'::jsonb)"
 assert_count 0
 [[ "$(claim sandbox OT-1 "$(event sandbox E-1 TX-1 capture 0.10)")" == 1 ]]
 assert_count 1
@@ -97,6 +99,7 @@ assert_count 4
 # The same (provider,event) belongs to a separate tenant's namespace.
 [[ "$(claim sandbox OT-99 "$(event sandbox E-1 TX-99 capture 0.21)" tenant-b)" == 1 ]]
 [[ "$(sql "SELECT count(*) FROM protocolia_s2c_replay.claim WHERE provider_id='sandbox' AND event_id='E-1' AND tenant_id IN ('tenant-a','tenant-b')")" == 2 ]]
+[[ "$(sql "SELECT count(*) FROM protocolia_s2c_replay.claim WHERE tenant_id='tenant-b' AND provider_id='sandbox' AND event_id='E-1' AND amount_text='0.21'")" == 1 ]]
 assert_count 5
 [[ "$(sql "SELECT amount_text FROM protocolia_s2c_replay.claim WHERE tenant_id='tenant-a' AND provider_id='sandbox' AND event_id='E-1'")" == "0.10" ]]
 # An audit failure must roll back the claim atomically, including the event ID.
