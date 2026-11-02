@@ -151,6 +151,13 @@ try {
     }
     result.externalStatementSignature=signature;
   }
+  // A signed replay claim can fsync multiple files after the first freshness
+  // check. Revalidate the exact original input inodes and bytes before
+  // publishing a report: no successful output may describe a snapshot that
+  // was observably replaced while its replay claim was being committed.
+  // This is fail-closed, not rollback: a consumed marker remains consumed
+  // when this late check rejects a mutated source.
+  assertStatementSnapshotsUnchanged(snapshots);
   process.stdout.write(JSON.stringify(result,null,2)+"\n");
   process.exitCode=result.counts.exceptions ? 2 : 0;
 } catch(error) {
