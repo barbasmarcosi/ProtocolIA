@@ -33,6 +33,10 @@ function raceAfterDirectoryFsync(mode) {
             fs.unlinkSync(marker);
           } else if(mode==="permissions") {
             fs.chmodSync(marker,0o644);
+          } else if(mode==="hardlink") {
+            fs.linkSync(marker,join(root,"second-link"));
+          } else if(mode==="write") {
+            fs.writeFileSync(marker,"forged",{mode:0o600});
           } else if(mode==="directory") {
             fs.renameSync(directory,join(root,"displaced-directory"));
             fs.mkdirSync(directory,{mode:0o700});
@@ -48,7 +52,7 @@ function raceAfterDirectoryFsync(mode) {
       syncBuiltinESMExports();
     }
     assert.equal(injected,true,"must inject after durable directory fsync");
-    if(mode==="replace" || mode==="permissions") {
+    if(["replace","permissions","hardlink","write"].includes(mode)) {
       assert.ok(fs.readdirSync(directory).includes(markerName),
         "suspect marker is retained; never silently removed");
       assert.throws(()=>consumeLocalSignedStatement({directory,metadata}),
@@ -71,6 +75,12 @@ test("signed snapshot marker deletion after fsync cannot return success",()=>{
 });
 test("signed snapshot marker permission tampering after fsync fails closed",()=>{
   raceAfterDirectoryFsync("permissions");
+});
+test("signed snapshot marker hardlink creation after fsync fails closed",()=>{
+  raceAfterDirectoryFsync("hardlink");
+});
+test("signed snapshot marker in-place write after fsync fails closed",()=>{
+  raceAfterDirectoryFsync("write");
 });
 test("signed snapshot replay directory substitution after fsync fails closed",()=>{
   raceAfterDirectoryFsync("directory");
