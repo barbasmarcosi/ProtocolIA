@@ -18,7 +18,7 @@ or prevent same-UID filesystem tampering.
   domain-separated filename hash from `providerId + eventId`; mismatches,
   malformed amounts, currencies, IDs and unknown kinds fail closed.
 - The writer rejects malformed or zero amounts, invalid currency codes and
-  overlong whole-number precision before acquiring any lock.
+  total precision above 38 digits or fractional scale above 6 before\n  acquiring any lock (preventing oversized marker records).
 - Historical **v1** records remain readable and replay-blocking. They are
   counted separately as `legacyUnboundEventMarkerCount` because their
   event identity **cannot** be reconstructed. No implicit rewrite, deletion,
