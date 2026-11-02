@@ -6,6 +6,7 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,lstatSync,existsSync} f
 import {join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {validateDraft} from "./intake-to-typespec.mjs";
+import {checkStockBrief,admitStockProposal} from "./stock-debit-intake.mjs";
 
 const hash=b=>createHash("sha256").update(b).digest("hex");
 const schema="protocolia-agent-brief/v0.1";
@@ -31,6 +32,7 @@ function raw(path){
 }
 function stringify(x){return JSON.stringify(x,null,2)+"\n";}
 export function checkBrief(brief){
+ if(brief?.schemaVersion==="protocolia-agent-brief/v0.2")return checkStockBrief(brief);
  shape(brief,["schemaVersion","project","facts","knownQuestions"],["schemaVersion","project","facts","knownQuestions"],"brief");
  enforce(brief.schemaVersion===schema,"unsupported brief schema");
  enforce(Array.isArray(brief.facts)&&brief.facts.length>0&&brief.facts.length<=100,"brief requires 1-100 facts");
@@ -61,6 +63,7 @@ export function checkBrief(brief){
  return brief;
 }
 export function admitProposal(brief,proposal,briefSha,proposalSha){
+ if(brief?.schemaVersion==="protocolia-agent-brief/v0.2")return admitStockProposal(brief,proposal,briefSha,proposalSha);
  checkBrief(brief);
  shape(proposal,["schemaVersion","briefSha256","mappings","discoveredQuestions","hypotheses"],
   ["schemaVersion","briefSha256","mappings","discoveredQuestions","hypotheses"],"agent proposal");
