@@ -88,7 +88,7 @@ test("source-supplied limit values are validated before any files are created",(
   y=>y.project.bounds.skuMaxLength=0,
   y=>y.project.bounds.debitMaxUnits=2.5,
   y=>y.project.bounds.sql="SELECT * FROM users",
-  y=>y.project.title='A"\\n@capability("public")\\nB',
+  y=>y.project.title='A"' + String.fromCharCode(10) + '@capability("public")' + String.fromCharCode(10) + 'B',
   y=>{delete y.project.bounds.debitIdMaxLength;}
  ];
  for(const edit of corrupt){
