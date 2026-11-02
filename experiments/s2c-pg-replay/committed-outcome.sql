@@ -49,7 +49,8 @@ END $fn$;
 
 -- Read-only, principal-scoped acknowledgement recovery. A matching receipt
 -- alone is insufficient: every event AND audit must still match exactly.
--- Returns 'not_observed' when no requested event ID is visible in this\n-- snapshot. This is NOT proof that no in-flight transaction exists. Partial,
+-- Returns 'not_observed' when no requested event ID is visible in this
+-- snapshot. This is NOT proof that no in-flight transaction exists. Partial,
 -- conflicting, legacy/unreceipted, or corrupt evidence fails closed.
 CREATE FUNCTION protocolia_s2c_replay.inspect_committed_batch(
   v_provider text, v_order text, v_statement_sha256 text, v_events jsonb
