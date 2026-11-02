@@ -8,7 +8,7 @@ import {fileURLToPath} from "node:url";
 const VALID_ID=/^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const KINDS=new Set("lookupExactAdjustment adjustExact create get listPage auditPage inboxPage ackNotification queryPage sumRelated sumDetails reconcileExact replaceDetails patchFields patchTogether atomicIncrement transition reassignReference delete health".split(" "));
 const TYPES=new Set(["string","int32","utcDateTime","decimal"]);
-const ORIGINS=new Set(["explicit_owner","approved_policy","trusted_existing_contract","agent_assumption"]);
+const ORIGINS=new Set(["explicit_owner","approved_policy","trusted_existing_contract","source_brief_unverified","agent_assumption"]);
 const sha=v=>createHash("sha256").update(v).digest("hex");
 const obj=v=>v!==null&&typeof v==="object"&&!Array.isArray(v);
 function check(x,message){if(!x)throw Error(message);}
