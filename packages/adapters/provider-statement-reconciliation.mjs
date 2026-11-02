@@ -244,6 +244,12 @@ export function reconcileProviderStatement(input) {
         extra(mismatch);
       }
     }
+    // A missing provider mapping or statement must not mask a separately
+    // recorded local return absent from the external snapshot. Transactions
+    // with an aggregate are already checked by the per-kind comparison above.
+    if (returnsSupplied && recordedTotal > 0n && !agg)
+      push("internal_return_not_externally_reported",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     // A local reversal and a separately recorded return on the same receipt
     // may double-credit funds. Report it even if no provider mapping exists.
     if (returnsSupplied && receipt.status === "reversed" && recordedTotal > 0n)
