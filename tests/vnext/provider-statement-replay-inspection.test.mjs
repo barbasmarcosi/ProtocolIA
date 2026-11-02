@@ -227,6 +227,8 @@ test("v2 replay records bind event identity, transaction and monetary fields",()
       record=>{record.providerId="other-provider";},
       record=>{record.amount="0.00";},
       record=>{record.amount="1e3";},
+      record=>{record.amount="1.0000000";},
+      record=>{record.amount="9".repeat(38)+".1";},
       record=>{record.currency="ars";},
       record=>{record.transactionId="";},
       record=>{record.kind="settled";}
@@ -263,6 +265,9 @@ test("legacy v1 markers remain readable but explicitly unbound; new claims use v
       {...fresh[0],amount:"0.00"},
       {...fresh[0],amount:"-1.00"},
       {...fresh[0],amount:"1e2"},
+      {...fresh[0],amount:"1.0000000"},
+      {...fresh[0],amount:"1."+"0".repeat(2000)},
+      {...fresh[0],amount:"9".repeat(38)+".1"},
       {...fresh[0],amount:"9".repeat(39)},
       {...fresh[0],currency:"ars"}
     ]) {
