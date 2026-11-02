@@ -2,8 +2,8 @@
 -- NOT a production migration or an external provider/bank identity assertion.
 -- Apply only to an isolated disposable PostgreSQL database.
 -- The owner cannot log in; the untrusted/runtime roles own no data objects.
--- An authenticated service role may be granted membership in runtime only
--- after independently establishing the caller's identity (not done here).
+-- Disposable login principals are bound to private tenant/provider records.
+-- HTTP signature verification and production login provisioning remain absent.
 BEGIN;
 CREATE ROLE protocolia_s2c_owner NOLOGIN NOINHERIT;
 CREATE ROLE protocolia_s2c_runtime NOLOGIN NOINHERIT;
@@ -139,7 +139,7 @@ BEGIN
        v_amount::numeric <= 0
     THEN RAISE EXCEPTION 'Invalid signed event identity or exact amount'
       USING ERRCODE='23514'; END IF;
-    -- UNIQUE(provider_id,event_id) is the cross-process linearization point.
+    -- UNIQUE(tenant_id,provider_id,event_id) is the linearization point.
     -- A duplicate anywhere in the batch aborts ALL claims and audit rows.
     INSERT INTO claim(tenant_id,provider_id,event_id,order_id,statement_sha256,
       transaction_id,kind,amount_text,amount,currency)
