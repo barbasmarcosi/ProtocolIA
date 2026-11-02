@@ -201,15 +201,20 @@ test("repeated same-kind returns and amount mismatch are both surfaced",()=>{
   ]);
 });
 
-test("one refund and one chargeback are not incorrectly classified as repeated same-kind returns",()=>{
+test("one refund plus one chargeback is mixed-kind review, not repeated same-kind returns",()=>{
   const s=base();
   s.internalReturns=[recorded("0.40"),{
     ...recorded("0.60","chargeback"),returnId:"R2"
   }];
   s.external.push(returned("EXT-R","0.40"),returned("EXT-C","0.60","chargeback"));
   const r=reconcile(s);
-  assert.equal(r.rows[0].classification,"returns_agree_unverified");
-  assert.deepEqual(codes(r),[]);
+  assert.equal(r.rows[0].classification,"mixed_provider_return_kinds_require_review");
+  assert.deepEqual(codes(r),[
+    "mixed_provider_return_kinds_require_review",
+    "mixed_recorded_return_kinds_require_review"
+  ]);
+  assert.equal(r.counts.returnsAgreeUnverified,0);
+  assert.equal(r.totals.purportedReturned,"1.00");
 });
 
 test("unmatched external partial refunds expose both orphan and repeated-return review",()=>{
@@ -338,7 +343,10 @@ test("voided local return does not create multiplicity; distinct return kinds re
   assert.deepEqual(codes(reconcile(s)),[]);
   s.internalReturns[1]={...recorded("0.70","chargeback"),returnId:"R2"};
   s.external.push(returned("EXT-C","0.70","chargeback"));
-  assert.deepEqual(codes(reconcile(s)),[]);
+  assert.deepEqual(codes(reconcile(s)),[
+    "mixed_provider_return_kinds_require_review",
+    "mixed_recorded_return_kinds_require_review"
+  ]);
 });
 
 test("two local chargebacks require review even if provider reports one matching event",()=>{
@@ -350,4 +358,61 @@ test("two local chargebacks require review even if provider reports one matching
   assert.equal(r.rows[0].classification,"multiple_recorded_return_events_require_review");
   assert.deepEqual(codes(r),["multiple_recorded_return_events_require_review"]);
   assert.equal(r.rows[0].internalRecordedChargeback,"0.30");
+});
+
+test("mixed provider kinds survive capture mismatch and local journal mismatch",()=>{
+  const s=base();
+  s.external[0].amount="9.00";
+  s.internalReturns=[recorded("0.40")];
+  s.external.push(returned("EXT-R","0.40"),returned("EXT-C","0.60","chargeback"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"capture_amount_mismatch");
+  assert.deepEqual(codes(r),[
+    "capture_amount_mismatch",
+    "mixed_provider_return_kinds_require_review",
+    "return_amount_or_kind_mismatch"
+  ]);
+  assert.equal(r.counts.returnsAgreeUnverified,0);
+});
+
+test("mixed recorded kinds stay visible when external statement and crosswalk are absent",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.25"),
+    {...recorded("0.50","chargeback"),returnId:"R2"}];
+  s.links=[];s.external=[];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(r),[
+    "internal_return_not_externally_reported",
+    "mixed_recorded_return_kinds_require_review",
+    "unlinked_internal_receipt"
+  ]);
+  assert.equal(r.counts.returnsAgreeUnverified,0);
+});
+
+test("orphan mixed provider returns are not masked by absent capture or receipt",()=>{
+  const s=base();
+  s.external.push({...returned("ORPH-R","0.25"),transactionId:"OTHER"},
+    {...returned("ORPH-C","0.30","chargeback"),transactionId:"OTHER"});
+  const r=reconcile(s);
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "external_returns_exceed_capture",
+    "mixed_provider_return_kinds_require_review",
+    "unmatched_external_transaction"
+  ]);
+});
+
+test("mixed return kinds do not bleed between independent provider transactions",()=>{
+  const s=base();
+  s.internal.push({...s.internal[0],receiptId:"P2"});
+  s.links.push({...s.links[0],receiptId:"P2",transactionId:"T2"});
+  s.external.push({...s.external[0],eventId:"C2",transactionId:"T2"},
+    returned("EXT-R","0.25"),
+    {...returned("EXT-C","0.30","chargeback"),transactionId:"T2"});
+  s.internalReturns=[recorded("0.25"),
+    {...recorded("0.30","chargeback"),receiptId:"P2",returnId:"R2"}];
+  const r=reconcile(s);
+  assert.deepEqual(codes(r),[]);
+  assert.equal(r.counts.returnsAgreeUnverified,2);
 });
