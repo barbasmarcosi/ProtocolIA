@@ -31,7 +31,9 @@ not an automatic fraud or settlement conclusion.
   the local return journal. One refund plus one chargeback is not a repeated
   same-kind event.
 - For unmapped provider transactions, preserve `unmatched_external_transaction`
-  and separately expose external returns and repeated same-kind events.
+  and separately expose external returns and repeated same-kind events. A
+  crosswalk to a nonexistent receipt is still an orphan mapping, but cannot
+  suppress independent provider return anomalies.
 - Preserve exact BigInt arithmetic, deterministic exception order, no input
   mutation, no false bank-clearing authority and existing signed replay
   consumption. A review exception yields CLI exit 2, not 0.
