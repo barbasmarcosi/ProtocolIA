@@ -191,3 +191,20 @@ test("validly signed but aggregate-overflowing events never consume replay marke
     assert.equal(readdirSync(f.guard).filter(name=>name.startsWith("event-")).length,1);
   });
 });
+
+test("signed split captures remain review exceptions and still consume event IDs",()=>{
+  withFixture(f=>{
+    f.setEvents([{...event,amount:"4.00"},
+      {...event,eventId:"E-2",amount:"6.30"}]);
+    const reviewed=run(f.args);
+    assert.equal(reviewed.status,2,reviewed.stderr);
+    const report=JSON.parse(reviewed.stdout);
+    assert.equal(report.rows[0].classification,"multiple_capture_events_require_review");
+    assert.equal(report.externalStatementSignature.consumedEventCount,2);
+    assert.equal(report.externalStatementSignature.settlementVerified,false);
+    assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,2);
+    const replay=run(f.args);
+    assert.equal(replay.status,1,replay.stderr);
+    assert.equal(replay.stdout,"");
+  });
+});
