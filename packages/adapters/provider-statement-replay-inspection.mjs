@@ -120,8 +120,12 @@ export function inspectLocalEventReplay(directory) {
         throw Error(INVALID);
     }
     const finalPathAfter=lstatSync(path);
+    const namesAfter=readdirSync(anchor);
+    const namesAfterSet=new Set(namesAfter);
     if(!same(finalPathAfter,opened) || !privateDir(finalPathAfter) ||
-       !same(fstatSync(dirFd),opened))throw Error(INVALID);
+       !same(fstatSync(dirFd),opened) ||
+       namesAfter.length!==names.length ||
+       names.some(name=>!namesAfterSet.has(name)))throw Error(INVALID);
     const witness=createHash("sha256");
     witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
     for(const entry of observed)
