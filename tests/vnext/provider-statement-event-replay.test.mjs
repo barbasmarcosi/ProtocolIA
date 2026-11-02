@@ -253,3 +253,24 @@ test("signed matching provider refund cannot hide two local recorded refunds; re
     assert.equal(replay.stdout,"");
   });
 });
+
+test("signed mixed provider refund and chargeback require review yet consume replay IDs",()=>{
+  withFixture(f=>{
+    f.setEvents([event,
+      {...event,eventId:"REF-A",kind:"refund",amount:"0.25"},
+      {...event,eventId:"CB-A",kind:"chargeback",amount:"0.30"}]);
+    const reviewed=run(f.args);
+    assert.equal(reviewed.status,2,reviewed.stderr);
+    const report=JSON.parse(reviewed.stdout);
+    assert.equal(report.rows[0].classification,"mixed_provider_return_kinds_require_review");
+    assert.deepEqual(report.exceptions.map(x=>x.code),[
+      "external_return_requires_review","mixed_provider_return_kinds_require_review"
+    ]);
+    assert.equal(report.externalStatementSignature.consumedEventCount,3);
+    assert.equal(report.externalStatementSignature.settlementVerified,false);
+    assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,3);
+    const replay=run(f.args);
+    assert.equal(replay.status,1,replay.stderr);
+    assert.equal(replay.stdout,"");
+  });
+});
