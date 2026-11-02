@@ -115,9 +115,10 @@ export function reconcileProviderStatement(input) {
       "Unknown internal return status");
     const minor = amount(row.amount, scale, "internalReturns[" + i + "].amount");
     if (!internalReturns.has(receiptId))
-      internalReturns.set(receiptId, {refund:0n,chargeback:0n});
+      internalReturns.set(receiptId, {refund:0n,chargeback:0n,refundEvents:0,chargebackEvents:0});
     if (row.status === "recorded") {
       const recorded = internalReturns.get(receiptId);
+      recorded[row.kind + "Events"]++;
       recorded[row.kind] = addBounded(recorded[row.kind],minor,
         "recorded return total per receipt");
       internalReturnTotal = addBounded(internalReturnTotal,minor,
@@ -169,7 +170,8 @@ export function reconcileProviderStatement(input) {
   const rows = [];
   for (const [receiptId, receipt] of [...internal].sort(([a],[b])=>a.localeCompare(b, "en"))) {
     const link = links.get(receiptId);
-    const recorded = internalReturns.get(receiptId) ?? {refund:0n,chargeback:0n};
+    const recorded = internalReturns.get(receiptId) ??
+      {refund:0n,chargeback:0n,refundEvents:0,chargebackEvents:0};
     const recordedTotal = addBounded(recorded.refund,recorded.chargeback,
       "recorded return total per receipt");
     let classification;
@@ -200,6 +202,12 @@ export function reconcileProviderStatement(input) {
         classification = "multiple_capture_events_require_review";
       else if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
         classification = "multiple_return_events_require_review";
+      // Aggregated local refunds can conceal duplicate or split return records
+      // even if one provider event has exactly the same total. There is no
+      // event-to-event identity crosswalk in this offline contract.
+      else if (returnsSupplied &&
+        (recorded.refundEvents > 1 || recorded.chargebackEvents > 1))
+        classification = "multiple_recorded_return_events_require_review";
       else if (aggregate.returned > 0n)
         classification = returnsSupplied
           ? "returns_agree_unverified" : "external_return_requires_review";
@@ -244,6 +252,13 @@ export function reconcileProviderStatement(input) {
         extra(mismatch);
       }
     }
+    // Local event multiplicity is independent of provider capture, link and
+    // amount discrepancies. Only recorded (not voided) entries count.
+    if (returnsSupplied &&
+        (recorded.refundEvents > 1 || recorded.chargebackEvents > 1) &&
+        classification !== "multiple_recorded_return_events_require_review")
+      push("multiple_recorded_return_events_require_review",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     // A missing provider mapping or statement must not mask a separately
     // recorded local return absent from the external snapshot. Transactions
     // with an aggregate are already checked by the per-kind comparison above.

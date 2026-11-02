@@ -230,3 +230,26 @@ test("signed repeated refunds are review exceptions and all event IDs are consum
     assert.equal(replay.stdout,"");
   });
 });
+
+test("signed matching provider refund cannot hide two local recorded refunds; replay consumed",()=>{
+  withFixture(f=>{
+    const returnsPath=join(f.dir,"returns.json");
+    writeFileSync(returnsPath,JSON.stringify([
+      {receiptId:"PAY-1",returnId:"R-1",kind:"refund",amount:"0.10",currency:"ARS",status:"recorded"},
+      {receiptId:"PAY-1",returnId:"R-2",kind:"refund",amount:"0.20",currency:"ARS",status:"recorded"}
+    ]));
+    f.setEvents([event,{...event,eventId:"EXT-R",kind:"refund",amount:"0.30"}]);
+    const args=[...f.args,"--internal-returns",returnsPath];
+    const reviewed=run(args);
+    assert.equal(reviewed.status,2,reviewed.stderr);
+    const report=JSON.parse(reviewed.stdout);
+    assert.equal(report.rows[0].classification,"multiple_recorded_return_events_require_review");
+    assert.deepEqual(report.exceptions.map(x=>x.code),
+      ["multiple_recorded_return_events_require_review"]);
+    assert.equal(report.externalStatementSignature.consumedEventCount,2);
+    assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,2);
+    const replay=run(args);
+    assert.equal(replay.status,1,replay.stderr);
+    assert.equal(replay.stdout,"");
+  });
+});
