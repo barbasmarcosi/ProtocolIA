@@ -220,3 +220,24 @@ test("CLI exits 2 when two recorded local refunds hide behind one matching exter
   assert.equal(report.totals.internallyRecordedReturns,"0.30");
   assert.equal(report.independentlyAuthenticated,false);
 });
+
+test("CLI exits 2 when refund and chargeback agree by type and amount",()=>{
+  const returns=[
+    {receiptId:"P1",returnId:"RF-1",kind:"refund",amount:"0.25",currency:"ARS",status:"recorded"},
+    {receiptId:"P1",returnId:"CB-1",kind:"chargeback",amount:"0.30",currency:"ARS",status:"recorded"}
+  ];
+  const statement=[capture,
+    {...capture,eventId:"EXT-RF",kind:"refund",amount:"0.25"},
+    {...capture,eventId:"EXT-CB",kind:"chargeback",amount:"0.30"}];
+  const r=run([payment],[link],statement,returns);
+  assert.equal(r.status,2,r.stderr);
+  const report=JSON.parse(r.stdout);
+  assert.equal(report.rows[0].classification,"mixed_provider_return_kinds_require_review");
+  assert.deepEqual(report.exceptions.map(x=>x.code),[
+    "mixed_provider_return_kinds_require_review",
+    "mixed_recorded_return_kinds_require_review"
+  ]);
+  assert.equal(report.counts.returnsAgreeUnverified,0);
+  assert.equal(report.totals.purportedReturned,"0.55");
+  assert.equal(report.independentlyAuthenticated,false);
+});
