@@ -209,3 +209,71 @@ test("inspector rejects malformed or duplicate event marker checkpoint pins",()=
     assert.deepEqual(readdirSync(dir),[]);
   });
 });
+
+test("v2 replay records bind event identity, transaction and monetary fields",()=>{
+  fixture(({dir})=>{
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const name=readdirSync(dir)[0];
+    const file=join(dir,name);
+    const original=JSON.parse(readFileSync(file,"utf8"));
+    assert.equal(original.version,2);
+    assert.equal(original.eventId,"E1");
+    assert.equal(original.transactionId,"T1");
+    assert.equal(original.amount,"1.00");
+    assert.equal(original.currency,"ARS");
+    assert.equal(inspectLocalEventReplay(dir).legacyUnboundEventMarkerCount,0);
+    for(const mutation of [
+      record=>{record.eventId="OTHER-EVENT";},
+      record=>{record.providerId="other-provider";},
+      record=>{record.amount="0.00";},
+      record=>{record.amount="1e3";},
+      record=>{record.amount="1.0000000";},
+      record=>{record.amount="9".repeat(38)+".1";},
+      record=>{record.currency="ars";},
+      record=>{record.transactionId="";},
+      record=>{record.kind="settled";}
+    ]) {
+      const changed=structuredClone(original);
+      mutation(changed);
+      writeFileSync(file,JSON.stringify(changed)+"\n");
+      assert.throws(()=>inspectLocalEventReplay(dir),/local replay inspection/,
+        "a malformed or mismatched v2 marker must fail closed");
+    }
+    writeFileSync(file,JSON.stringify(original)+"\n");
+    assert.equal(inspectLocalEventReplay(dir).eventMarkerCount,1);
+  });
+});
+
+test("legacy v1 markers remain readable but explicitly unbound; new claims use v2",()=>{
+  fixture(({dir})=>{
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const name=readdirSync(dir)[0];
+    const file=join(dir,name);
+    const v2=JSON.parse(readFileSync(file,"utf8"));
+    const v1={version:1,statementSha256:v2.statementSha256,
+      providerId:v2.providerId,orderId:v2.orderId,
+      eventMarkerSha256:v2.eventMarkerSha256};
+    writeFileSync(file,JSON.stringify(v1)+"\n");
+    assert.equal(inspectLocalEventReplay(dir).legacyUnboundEventMarkerCount,1);
+    const fresh=[{...external[0],eventId:"E2",transactionId:"T2"}];
+    assert.equal(consumeLocalSignedEvents({directory:dir,metadata:meta,
+      external:fresh}).consumedEventCount,1);
+    const result=inspectLocalEventReplay(dir);
+    assert.equal(result.eventMarkerCount,2);
+    assert.equal(result.legacyUnboundEventMarkerCount,1);
+    for(const invalid of [
+      {...fresh[0],amount:"0.00"},
+      {...fresh[0],amount:"-1.00"},
+      {...fresh[0],amount:"1e2"},
+      {...fresh[0],amount:"1.0000000"},
+      {...fresh[0],amount:"1."+"0".repeat(2000)},
+      {...fresh[0],amount:"9".repeat(38)+".1"},
+      {...fresh[0],amount:"9".repeat(39)},
+      {...fresh[0],currency:"ars"}
+    ]) {
+      assert.throws(()=>consumeLocalSignedEvents({directory:dir,metadata:meta,
+        external:[{...invalid,eventId:"UNCLAIMED"}]}),/local event replay guard/);
+      assert.equal(inspectLocalEventReplay(dir).eventMarkerCount,2);
+    }
+  });
+});

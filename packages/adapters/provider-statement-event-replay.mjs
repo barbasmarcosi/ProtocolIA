@@ -10,6 +10,14 @@ import {inspectLocalEventReplay} from "./provider-statement-replay-inspection.mj
 const INVALID="local event replay guard: private state, lock or event already consumed";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^[0-9a-f]{64}$/;
+const MONEY=/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
+const CURRENCY=/^[A-Z]{3}$/;
+const validAmount=value=>{
+  if(typeof value!=="string" || !MONEY.test(value) ||
+     /^0(?:\.0+)?$/.test(value))return false;
+  const [whole,fraction=""]=value.split(".");
+  return whole.length+fraction.length<=38 && fraction.length<=6;
+};
 const MAX_EVENTS=512;
 const digest=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const same=(a,b)=>a.dev===b.dev && a.ino===b.ino;
@@ -49,12 +57,18 @@ export function consumeLocalSignedEvents({directory,metadata,external,
        typeof row.eventId!=="string" || !ID.test(row.eventId) ||
        typeof row.transactionId!=="string" || !ID.test(row.transactionId) ||
        !["capture","refund","chargeback"].includes(row.kind) ||
-       typeof row.amount!=="string" || typeof row.currency!=="string" ||
+       !validAmount(row.amount) || typeof row.currency!=="string" ||
+       !CURRENCY.test(row.currency) ||
        ids.has(row.eventId))throw Error(INVALID);
     ids.add(row.eventId);
   }
-  const markers=[...ids].map(id=>"event-"+digest([
-    "ProtocolIA-S2C-event-v1",metadata.providerId,id])).sort();
+  // Persist the exact event identity and financial fields with each new marker.
+  // v1 historical markers remain readable; new v2 records can be checked
+  // against their filename, rather than trusting a self-referential hash.
+  const markerClaims=external.map(row=>({row,name:"event-"+digest([
+    "ProtocolIA-S2C-event-v1",metadata.providerId,row.eventId])})).sort(
+      (a,b)=>a.name.localeCompare(b.name,"en"));
+  const markers=markerClaims.map(claim=>claim.name);
   const lockName=".pia-event-lock-"+digest([
     "ProtocolIA-S2C-provider-lock-v1",metadata.providerId]);
   let dirFd,lockFd;
@@ -158,7 +172,7 @@ export function consumeLocalSignedEvents({directory,metadata,external,
       releaseUnwrittenLock();
       throw Error(INVALID);
     }
-    for(const name of markers) {
+    for(const {name,row} of markerClaims) {
       let fd;
       try {
         fd=openSync(entry(name),
@@ -166,8 +180,10 @@ export function consumeLocalSignedEvents({directory,metadata,external,
         const stat=fstatSync(fd);
         if(!stat.isFile() || stat.nlink!==1 || (stat.mode & 0o077)!==0)
           throw Error(INVALID);
-        writeFileSync(fd,JSON.stringify({version:1,statementSha256:metadata.statementSha256,
+        writeFileSync(fd,JSON.stringify({version:2,statementSha256:metadata.statementSha256,
           providerId:metadata.providerId,orderId:metadata.orderId,
+          eventId:row.eventId,transactionId:row.transactionId,kind:row.kind,
+          amount:row.amount,currency:row.currency,
           eventMarkerSha256:name.slice(6)})+"\n");
         fsyncSync(fd);
         claimed.push({name,fd,identity:fstatSync(fd)});
