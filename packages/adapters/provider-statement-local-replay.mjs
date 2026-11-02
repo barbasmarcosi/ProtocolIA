@@ -46,12 +46,29 @@ export function consumeLocalSignedStatement({directory,metadata}) {
     markerFd=openSync(join(anchor,token),
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,0o600);
     const marker=fstatSync(markerFd);
-    if(!marker.isFile() || marker.nlink!==1 || (marker.mode & 0o077)!==0)
-      throw Error(INVALID);
+    if(!marker.isFile() || marker.nlink!==1 || marker.uid!==process.getuid() ||
+       (marker.mode & 0o077)!==0)throw Error(INVALID);
     fsyncSync(markerFd);
     // Ensure the directory name still resolves to the opened directory.
     if(!same(lstatSync(path),opened))throw Error(INVALID);
     fsyncSync(directoryFd);
+    // O_EXCL only proves that the marker was created at one instant. A
+    // same-host pathname replacement/deletion after fsync must not produce a
+    // false successful claim. Keep our descriptor open and fence its inode,
+    // metadata, ownership and directory identity until the final check.
+    const current=lstatSync(join(anchor,token));
+    const owned=fstatSync(markerFd);
+    const finalPath=lstatSync(path);
+    const finalDirectory=fstatSync(directoryFd);
+    if(!same(current,marker) || !same(owned,marker) ||
+       !current.isFile() || current.nlink!==1 ||
+       current.uid!==process.getuid() || (current.mode & 0o077)!==0 ||
+       current.size!==marker.size || owned.size!==marker.size ||
+       current.mtimeMs!==marker.mtimeMs || owned.mtimeMs!==marker.mtimeMs ||
+       current.ctimeMs!==marker.ctimeMs || owned.ctimeMs!==marker.ctimeMs ||
+       !same(finalPath,opened) || !privateDirectory(finalPath) ||
+       !same(finalDirectory,opened) || !privateDirectory(finalDirectory))
+      throw Error(INVALID);
     return {replayProtection:"single_host_local_marker",markerSha256:token};
   } catch {
     // Never remove a marker on error: the operation might already have
