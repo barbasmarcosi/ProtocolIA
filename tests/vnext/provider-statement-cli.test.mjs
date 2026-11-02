@@ -204,3 +204,19 @@ test("CLI exits 2 for matching partial refunds from distinct provider events",()
   assert.equal(report.totals.purportedReturned,"0.30");
   assert.equal(report.independentlyAuthenticated,false);
 });
+
+test("CLI exits 2 when two recorded local refunds hide behind one matching external return",()=>{
+  const recorded=[
+    {receiptId:"P1",returnId:"RF-1",kind:"refund",amount:"0.10",currency:"ARS",status:"recorded"},
+    {receiptId:"P1",returnId:"RF-2",kind:"refund",amount:"0.20",currency:"ARS",status:"recorded"}
+  ];
+  const statement=[capture,{...capture,eventId:"RF-EXT",kind:"refund",amount:"0.30"}];
+  const r=run([payment],[link],statement,recorded);
+  assert.equal(r.status,2,r.stderr);
+  const report=JSON.parse(r.stdout);
+  assert.equal(report.rows[0].classification,"multiple_recorded_return_events_require_review");
+  assert.deepEqual(report.exceptions.map(x=>x.code),
+    ["multiple_recorded_return_events_require_review"]);
+  assert.equal(report.totals.internallyRecordedReturns,"0.30");
+  assert.equal(report.independentlyAuthenticated,false);
+});
