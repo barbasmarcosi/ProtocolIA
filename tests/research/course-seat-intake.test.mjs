@@ -131,7 +131,7 @@ test("two separate source constraints produce different typed TypeSpec and ident
  assert.equal(second.entities[1].fields[2].max,4);
  assert.notEqual(readFileSync(join(x.out,"contracts/main.tsp"),"utf8"),
   readFileSync(join(alternate,"contracts/main.tsp"),"utf8"));
-});
+}));
 test("source change and post-generation modification both invalidate artifact verification",()=>fixture(x=>{
  compileCourseSource(x.file,x.out);
  const sourceNew=parse(x.file);sourceNew.project.bounds.seatCapacityMax=60;
