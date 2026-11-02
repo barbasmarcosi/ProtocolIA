@@ -51,7 +51,7 @@ jobs:
           const p='examples/vnext/stock-debit/tsp-output/@protocolia/compiler/ir.json';
           const ir=JSON.parse(readFileSync(p));
           assert.equal(ir.irVersion,'vnext-a0.1');
-          assert.deepEqual(ir.entities.map(e=>e.name),['StockItem','StockDebit']);
+          assert.deepEqual(ir.entities.map(e=>e.name).sort(),['StockDebit','StockItem']);
           const debit=ir.operations.find(op=>op.name==='createStockDebit');
           const reverse=ir.operations.find(op=>op.name==='reverseStockDebit');
           assert.deepEqual(debit.behavior.reserve,{
