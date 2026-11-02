@@ -7,6 +7,7 @@ import {verifyDetachedStatement,readPinnedPublicKey} from "../../packages/adapte
 import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
 import {consumeLocalSignedEvents} from "../../packages/adapters/provider-statement-event-replay.mjs";
 import {reconcileProviderStatement} from "../../packages/adapters/provider-statement-reconciliation.mjs";
+import {verifyOperatorSnapshotBundle} from "../../packages/adapters/provider-statement-operator-bundle.mjs";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 try {
   const args=process.argv.slice(2);
@@ -19,9 +20,15 @@ try {
   const keys=["--internal","--links","--external","--currency","--scale","--expected-order"];
   const optional=["--internal-returns","--expected-provider","--external-attestation",
     "--provider-public-key","--trusted-key-sha256","--local-replay-dir",
-    "--local-event-replay-dir"];
+    "--local-event-replay-dir","--operator-bundle-manifest",
+    "--operator-public-key","--trusted-operator-key-sha256"];
   const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
   const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
+  const bundleFlags=["--operator-bundle-manifest","--operator-public-key",
+    "--trusted-operator-key-sha256"];
+  const bundleSupplied=bundleFlags.filter(flag=>flags.has(flag)).length;
+  if(bundleSupplied!==0 && bundleSupplied!==3)
+    throw Error("Operator bundle requires all three trust flags");
   if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order") ||
        !flags.has("--expected-provider"))) ||
      (supplied===0 && flags.has("--expected-provider")) ||
@@ -43,7 +50,8 @@ try {
     snapshots.push({file,name,sha256:snapshot.sha256,identity:snapshot.identity});
     return snapshot;
   };
-  const internal=readSource("--internal","internal").data;
+  const internalSnapshot=readSource("--internal","internal");
+  const internal=internalSnapshot.data;
   const expected=flags.get("--expected-order");
   if(!ID.test(expected) || internal.length===0 ||
      internal.some(row=>row?.orderId!==expected))
@@ -60,17 +68,34 @@ try {
     publicKeyPem:readPinnedPublicKey(flags.get("--provider-public-key")),
     trustedKeySha256:flags.get("--trusted-key-sha256")
   }) : null;
-  const links=readSource("--links","links").data;
-  const internalReturns=flags.has("--internal-returns")
-    ? readSource("--internal-returns","internalReturns").data : undefined;
+  const linksSnapshot=readSource("--links","links");
+  const links=linksSnapshot.data;
+  const returnsSnapshot=flags.has("--internal-returns")
+    ? readSource("--internal-returns","internalReturns") : null;
+  const internalReturns=returnsSnapshot?.data;
   const result=reconcileProviderStatement({
     internal,
     ...(internalReturns!==undefined ? {internalReturns} : {}),
     links,external:external.data,
     currency:flags.get("--currency"),scale:Number(rawScale)
   });
-  // All sources must still be the same files/bytes after every read and
-  // reconciliation step, before writing any replay marker or report.
+  // The operator's independent signature binds ALL four input sources to
+  // one order, currency and scale. It does not authenticate the provider.
+  // Fail closed before consuming a signed provider event's replay marker.
+  if(bundleSupplied===3) {
+    const bundle=readSource("--operator-bundle-manifest","operator bundle attestation",true).data;
+    result.operatorSnapshotAttestation=verifyOperatorSnapshotBundle({
+      metadata:bundle,
+      snapshots:{internal:internalSnapshot.sha256,
+        internalReturns:returnsSnapshot?.sha256??null,
+        links:linksSnapshot.sha256,external:external.sha256},
+      expectedOrder:expected,currency:flags.get("--currency"),scale:Number(rawScale),
+      publicKeyPem:readPinnedPublicKey(flags.get("--operator-public-key")),
+      trustedKeySha256:flags.get("--trusted-operator-key-sha256")
+    });
+  }
+  // All sources, including optional signed operator metadata, must be the
+  // same inode and bytes after validation, before replay state or stdout.
   assertStatementSnapshotsUnchanged(snapshots);
   if(signature) {
     if(flags.has("--local-replay-dir")) {
