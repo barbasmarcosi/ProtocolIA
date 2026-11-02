@@ -10,18 +10,21 @@ const sample=()=>({
     {receiptId:"PAY-1",providerId:"sandbox",transactionId:"tx-1"},
     {receiptId:"PAY-2",providerId:"sandbox",transactionId:"tx-2"}],
   external:[
-    {providerId:"sandbox",transactionId:"tx-1",eventId:"cap-1",kind:"capture",amount:"0.10",currency:"ARS"},
-    {providerId:"sandbox",transactionId:"tx-1",eventId:"cap-2",kind:"capture",amount:"0.20",currency:"ARS"},
+    {providerId:"sandbox",transactionId:"tx-1",eventId:"cap-1",kind:"capture",amount:"0.30",currency:"ARS"},
     {providerId:"sandbox",transactionId:"tx-2",eventId:"cap-3",kind:"capture",amount:"10.00",currency:"ARS"}]
 });
 const clone=x=>structuredClone(x);
-test("exact multi-capture decimal arithmetic; agreement remains explicitly UNVERIFIED",()=>{
-  const result=compare(sample());
+test("exact multi-capture arithmetic is unverified and requires independent review",()=>{
+  const s=sample();
+  s.external[0].amount="0.10";
+  s.external.splice(1,0,{...s.external[0],eventId:"cap-2",amount:"0.20"});
+  const result=compare(s);
   assert.equal(result.result,"comparison_only_not_settlement_verification");
   assert.equal(result.independentlyAuthenticated,false);
   assert.deepEqual(result.totals,{postedInternal:"10.30",internallyRecordedReturns:null,purportedCaptured:"10.30",purportedReturned:"0.00"});
-  assert.equal(result.counts.exceptions,0);
-  assert.equal(result.rows[0].classification,"amounts_agree_unverified");
+  assert.equal(result.counts.exceptions,1);
+  assert.equal(result.rows[0].classification,"multiple_capture_events_require_review");
+  assert.deepEqual(result.exceptions.map(x=>x.code),["multiple_capture_events_require_review"]);
   assert.equal(result.rows[0].externalCapture,"0.30");
   assert.equal(result.rows[1].classification,"amounts_agree_unverified");
   assert.equal(JSON.stringify(result).includes("bank_settled"),false);
@@ -39,7 +42,7 @@ test("missing and unlinked transactions fail visibly, no invented settlement",()
 });
 test("capture discrepancies and partial refund/chargeback remain reviewable",()=>{
   const a=sample();
-  a.external[2].amount="9.99";
+  a.external[1].amount="9.99";
   assert.equal(compare(a).rows[1].classification,"capture_amount_mismatch");
   const b=sample();
   b.external.push({providerId:"sandbox",transactionId:"tx-2",eventId:"refund-1",
@@ -139,7 +142,7 @@ test("internal-only returns and external-only returns both require independent r
     kind:"refund",amount:"1.00",currency:"ARS"});
   assert.equal(compare(t).rows[1].classification,"external_return_requires_review");
   const u=sample();delete u.internalReturns;
-  u.external.push({...t.external[3]});
+  u.external.push({...t.external[2]});
   assert.equal(compare(u).rows[1].classification,"external_return_requires_review");
   assert.equal(compare(u).totals.internallyRecordedReturns,null);
 });
