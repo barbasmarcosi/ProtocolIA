@@ -90,13 +90,12 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     fsyncSync(dirFd);
     // Reinspect after obtaining our exclusive provider lock: the first scan
     // alone has a TOCTOU gap. Require exactly our own canonical lock and
-    // unchanged marker count before creating any event. Concurrent foreign
-    // writes fail closed; a post-lock failure intentionally retains the lock
-    // for manual review instead of risking replay after partial progress.
+    // validate every historical marker. Do NOT require the original marker
+    // count: a prior contender can legitimately finish before this process
+    // acquires the lock; the duplicate-event preflight below must then release
+    // our lock rather than strand a false crash state.
     const lockedState=inspectLocalEventReplay(path);
-    if(lockedState.lockCount!==1 ||
-       lockedState.eventMarkerCount!==beforeClaim.eventMarkerCount)
-      throw Error(INVALID);
+    if(lockedState.lockCount!==1)throw Error(INVALID);
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
     if(markers.some(name=>!absent(entry(name)))) {
