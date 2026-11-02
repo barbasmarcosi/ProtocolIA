@@ -86,3 +86,40 @@ bank settlement.
 Do not run this schema in production, treat a recorded refund or chargeback
 as executed, claim TL-14 complete, create a stable financial tag, or close
 issue #57. This proof does not perform any financial operation.
+
+## Experimental committed-outcome recovery (post-commit acknowledgement loss)
+
+An opt-in disposable upgrade `experiments/s2c-pg-replay/committed-outcome.sql`
+is applied **after** the 19-row legacy PostgreSQL fixture. It creates a
+separately immutable `batch_receipt` written inside the same transaction as
+the existing claim and audit rows, with a SHA-256 fingerprint of a canonical
+JSONB envelope containing provider, order, signed-statement digest and exact
+event array. The old runtime EXECUTE grant is revoked to prevent bypassing
+the receipt; only the new `claim_with_receipt` function can create claims.
+
+The restricted `inspect_committed_batch` returns `committed` only when the
+authenticated database principal's tenant/provider, exact original batch,
+receipt and **every** claim/audit record match. It returns `not_observed`
+when none of the supplied event IDs are visible in the current PostgreSQL
+snapshot. **This is not proof of non-commit or permission to retry:** an
+in-flight transaction may still commit. Partial, mismatched, duplicate,
+legacy/unreceipted or corrupt evidence is rejected rather than guessed.
+The lookup is read-only and never resubmits a financial event. It is intended
+to disambiguate an interrupted response after PostgreSQL COMMIT, not to
+declare a provider capture or bank settlement successful.
+
+The workflow tests a populated-schema upgrade, restricted grants, 10-way
+same-event contention, rollback on a later duplicate, tenant isolation,
+a deliberately altered audit row, old unreceipted evidence, and forced
+database-backend termination **after COMMIT but before acknowledgement**,
+and a separate in-flight/pre-COMMIT termination probe demonstrating the
+snapshot limitation. A retry must still rely on the unique key and explicit
+operator/provider recovery policy, never on `not_observed` alone.
+The CI must finish before these claims are treated as verified.
+
+This is **not** a production-safe migration: no external signed-provider
+verification is bound to the database principal, no IAM onboarding or
+credential rotation, no generated Spring/Nest integration, no disaster
+recovery/backup, and no externally confirmed refunds/chargebacks. A
+privileged database owner remains in the trusted computing base. Issue #57
+must remain open; no production deployment or financial tag.
