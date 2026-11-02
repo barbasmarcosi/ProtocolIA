@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {readFileSync,writeFileSync,readdirSync,mkdirSync,lstatSync,existsSync} from "node:fs";
 import {resolve,join,dirname} from "node:path";
 import {fileURLToPath} from "node:url";
+import {verifyFromFiles} from "./signed-decision-approval.mjs";
 
 const schema="protocolia-intake-project/v0.1";
 const reserved=new Set("alias and array as boolean const dec decorator else enum extends extern false fn for from if import in interface is model namespace never null op scalar service string true type typeof union unknown using value void".split(" "));
@@ -144,15 +145,20 @@ function specFor(p,n){
  ];
  return lines.join("\n");
 }
-function prepare(input,inputBytes){
+function prepare(input,inputBytes,authorization){
  const {draft,operationIds:n}=validateDraft(input);
- const blockers=draft.questions.filter(q=>q.affectsSupported&&
-  (q.state!=="resolved"||q.classification!=="reversible_technical"));
+ const blockers=draft.questions.filter(q=>q.affectsSupported&&(
+  q.state!=="resolved"||
+  ["security_privilege","external_effect","destructive_change"].includes(q.classification)||
+  q.classification==="material_business"&&!authorization?.resolvedIds.includes(q.id)
+ ));
  fail(blockers.length===0,"unresolved or material question affects generated profile: "+blockers.map(q=>q.id).join(","));
  const details=draft.questions.filter(q=>q.state!=="resolved"||q.classification!=="reversible_technical");
  const report={schemaVersion:"protocolia-intake-report/v0.1",status:details.length||draft.requirements.some(r=>r.scope==="deferred")?
   "PARTIAL_DRAFT_UNVERIFIED":"DRAFT_UNVERIFIED",sourceSha256:sha(inputBytes),
   generatedOperations:Object.values(n),deferredRequirements:draft.requirements.filter(r=>r.scope==="deferred").map(r=>r.id),
+  signedScopeApproval:authorization?{status:authorization.status,signerPublicKeySha256:authorization.signerPublicKeySha256,
+   sourceSha256:authorization.sourceSha256,resolvedIds:authorization.resolvedIds}:null,
   questions:details.map(q=>({id:q.id,question:q.question,state:q.state,classification:q.classification,affectsSupported:q.affectsSupported,origin:q.origin,evidenceRefs:q.evidenceRefs,...(q.decision?{decision:q.decision}:{})})),
   limitations:["No AI agent or customer evidence was authenticated","Only one 3-field administrative profile with 5 operations was generated",
    "Unimplemented or unresolved requirements remain visible","No app execution or production authorization is implied"]};
@@ -175,10 +181,13 @@ function prepare(input,inputBytes){
 function filesAt(root){const r=[];function walk(dir){for(const e of readdirSync(dir,{withFileTypes:true})){
  fail(!e.isSymbolicLink(),"symlink in output");const p=join(dir,e.name);if(e.isDirectory())walk(p);
  else{fail(e.isFile(),"unexpected output item");r.push(p.slice(root.length+1).replaceAll("\\","/"));}}}walk(root);return r.sort();}
-export function compileDraft(draftPath,outPath,mode="generate"){
+export function compileDraft(draftPath,outPath,mode="generate",decisionOptions){
  const path=resolve(draftPath),out=resolve(outPath);
  fail(out!==path&&!out.startsWith(path+"/"),"output aliases input");
- const raw=inputFile(path),{files,report}=prepare(JSON.parse(raw.toString("utf8")),raw);
+ const authorization=decisionOptions?verifyFromFiles({sourcePath:decisionOptions.sourcePath,
+  candidatePath:path,approvalPath:decisionOptions.approvalPath,publicKeyPath:decisionOptions.publicKeyPath,
+  pin:decisionOptions.pin}):null;
+ const raw=inputFile(path),{files,report}=prepare(JSON.parse(raw.toString("utf8")),raw,authorization);
  if(mode==="generate"){
   if(existsSync(out))fail(lstatSync(out).isDirectory()&&!lstatSync(out).isSymbolicLink()&&readdirSync(out).length===0,"output must be an empty directory");
   else mkdirSync(out,{recursive:true});
@@ -192,9 +201,21 @@ export function compileDraft(draftPath,outPath,mode="generate"){
  return {status:"CONSISTENT_DRAFT_NOT_ATTESTED",files:files.size,sourceSha256:report.sourceSha256};
 }
 export function main(args){
- fail(["generate","verify"].includes(args[0]),"usage: intake-to-typespec.mjs generate|verify <draft.json> <new-output-dir>");
- fail(args.length===3,"expected draft and output");
- const x=compileDraft(args[1],args[2],args[0]);process.stdout.write(json(x));return 0;
+ fail(["generate","verify"].includes(args[0]),"usage: intake-to-typespec.mjs generate|verify <draft.json> <new-output-dir> [--source ORIGINAL --approval SIGNED --public-key KEY --trusted-key-sha256 HEX]");
+ fail(args.length===3||args.length===11,"expected draft/out and optionally complete signed authorization");
+ let signed;
+ if(args.length===11){
+  const opts={};
+  for(let i=3;i<args.length;i+=2){
+   fail(["--source","--approval","--public-key","--trusted-key-sha256"].includes(args[i])&&
+    args[i+1]&&!opts[args[i]],"invalid signed authorization argument");
+   opts[args[i]]=args[i+1];
+  }
+  fail(Object.keys(opts).length===4,"missing signed authorization inputs");
+  signed={sourcePath:opts["--source"],approvalPath:opts["--approval"],
+   publicKeyPath:opts["--public-key"],pin:opts["--trusted-key-sha256"]};
+ }
+ const x=compileDraft(args[1],args[2],args[0],signed);process.stdout.write(json(x));return 0;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  try{process.exitCode=main(process.argv.slice(2));}
