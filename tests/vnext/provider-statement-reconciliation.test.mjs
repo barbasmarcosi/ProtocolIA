@@ -218,3 +218,85 @@ test("empty internal export is an exception, never evidence of successful compar
     providerId:null,transactionId:null}]);
   assert.equal(r.counts.amountsAgreeUnverified,0);
 });
+
+
+test("NUMERIC(38,scale) exact boundary is accepted, but combined posted receipts cannot overflow",()=>{
+  const maximum="9".repeat(36)+".99";
+  const valid=sample();
+  valid.internal=[{...valid.internal[0],amount:maximum}];
+  valid.links=[valid.links[0]];
+  valid.external=[{...valid.external[0],amount:maximum}];
+  const result=compare(valid);
+  assert.equal(result.counts.exceptions,0);
+  assert.equal(result.totals.postedInternal,maximum);
+  assert.equal(result.totals.purportedCaptured,maximum);
+
+  const overflowing=sample();
+  overflowing.internal=overflowing.internal.map(row=>({...row,amount:maximum}));
+  assert.throws(()=>compare(overflowing),/posted internal total: unsupported aggregate precision/);
+});
+
+test("external per-transaction and cross-transaction captures cannot overflow exact precision",()=>{
+  const maximum="9".repeat(36)+".99";
+  const a=sample();
+  a.internal=[{...a.internal[0],amount:maximum}];
+  a.links=[a.links[0]];
+  a.external=[
+    {...a.external[0],amount:maximum},
+    {...a.external[0],eventId:"cap-overflow",amount:maximum}
+  ];
+  assert.throws(()=>compare(a),/external transaction capture: unsupported aggregate precision/);
+
+  const b=clone(a);
+  b.external[1].transactionId="unlinked-tx";
+  assert.throws(()=>compare(b),/external capture total: unsupported aggregate precision/);
+});
+
+test("recorded refunds and chargebacks cannot overflow per receipt or across receipts",()=>{
+  const maximum="9".repeat(36)+".99";
+  const base={receiptId:"PAY-1",returnId:"RF-1",kind:"refund",
+    amount:maximum,currency:"ARS",status:"recorded"};
+  const a=sample();
+  a.internal=[{...a.internal[0],amount:maximum}];
+  a.links=[a.links[0]];
+  a.external=[];
+  a.internalReturns=[base,{...base,returnId:"RF-2"}];
+  assert.throws(()=>compare(a),/recorded return total per receipt: unsupported aggregate precision/);
+
+  const b=sample();
+  b.internal=b.internal.map(row=>({...row,status:"reversed",amount:maximum}));
+  b.internalReturns=[base,{...base,receiptId:"PAY-2",returnId:"RF-2"}];
+  assert.throws(()=>compare(b),/recorded return total: unsupported aggregate precision/);
+});
+
+test("external returns cannot overflow by kind, combined kind or across transactions",()=>{
+  const maximum="9".repeat(36)+".99";
+  const base={providerId:"sandbox",transactionId:"tx-1",eventId:"RF-1",
+    kind:"refund",amount:maximum,currency:"ARS"};
+  const a=sample();
+  a.external=[base,{...base,eventId:"RF-2"}];
+  assert.throws(()=>compare(a),/external transaction return kind: unsupported aggregate precision/);
+
+  const b=sample();
+  b.external=[base,{...base,eventId:"CB-1",kind:"chargeback"}];
+  assert.throws(()=>compare(b),/external transaction returned total: unsupported aggregate precision/);
+
+  const c=sample();
+  c.external=[base,{...base,eventId:"RF-2",transactionId:"tx-2"}];
+  assert.throws(()=>compare(c),/external returned total: unsupported aggregate precision/);
+});
+
+
+test("composite JSON field names cannot masquerade as adjacent required keys",()=>{
+  const a=sample();
+  a.internal[0]["amount|currency"]="1.00";
+  delete a.internal[0].amount;
+  delete a.internal[0].currency;
+  assert.throws(()=>compare(a),/internal\[0\]: unexpected, missing or malformed fields/);
+
+  const b=sample();
+  b["currency|external"]="ARS";
+  delete b.currency;
+  delete b.external;
+  assert.throws(()=>compare(b),/statement: unexpected, missing or malformed fields/);
+});
