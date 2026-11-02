@@ -48,7 +48,7 @@ assert_count 1
 assert_count 4
 [[ "$(sql "SELECT amount_text FROM protocolia_s2c_replay.claim WHERE provider_id='sandbox' AND event_id='E-1'")" == "0.10" ]]
 # An audit failure must roll back the claim atomically, including the event ID.
-sql "CREATE FUNCTION protocolia_s2c_replay.fail_audit_test() RETURNS trigger LANGUAGE plpgsql AS \\\$\\\$ BEGIN IF NEW.event_id='AUDIT-FAIL' THEN RAISE EXCEPTION 'injected audit failure'; END IF; RETURN NEW; END \\\$\\\$" >/dev/null
+sql "CREATE FUNCTION protocolia_s2c_replay.fail_audit_test() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN IF NEW.event_id='AUDIT-FAIL' THEN RAISE EXCEPTION 'injected audit failure'; END IF; RETURN NEW; END \$\$" >/dev/null
 sql "CREATE TRIGGER injected_audit_failure BEFORE INSERT ON protocolia_s2c_replay.audit FOR EACH ROW EXECUTE FUNCTION protocolia_s2c_replay.fail_audit_test()" >/dev/null
 expect_fail claim sandbox OT-1 "$(event sandbox AUDIT-FAIL TX-A capture 0.30)"
 assert_count 4
