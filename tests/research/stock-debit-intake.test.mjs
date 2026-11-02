@@ -12,14 +12,14 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const original=join(root,"research/autonomous-engineering/samples/stock-debit-lab-brief.json");
 const template=join(root,"research/autonomous-engineering/trials/chat-agent-stock-debit/proposal-template.json");
 const hash=v=>createHash("sha256").update(v).digest("hex");
-function fixture(fn){
+async function fixture(fn){
  const base=mkdtempSync(join(tmpdir(),"stock-agent-intake-")),brief=join(base,"brief.json"),
   proposal=join(base,"proposal.json"),out=join(base,"generated"),admitted=join(base,"admitted");
  writeFileSync(brief,readFileSync(original));
  const p=JSON.parse(readFileSync(template,"utf8"));
  p.briefSha256=hash(readFileSync(brief));
  writeFileSync(proposal,JSON.stringify(p,null,2)+"\n");
- try{return fn({base,brief,proposal,out,admitted,p,write:v=>writeFileSync(proposal,JSON.stringify(v,null,2)+"\n")});}
+ try{return await fn({base,brief,proposal,out,admitted,p,write:v=>writeFileSync(proposal,JSON.stringify(v,null,2)+"\n")});}
  finally{rmSync(base,{recursive:true,force:true});}
 }
 test("multi-entity profile requires eight frozen operations with no custom behaviors",()=>{
