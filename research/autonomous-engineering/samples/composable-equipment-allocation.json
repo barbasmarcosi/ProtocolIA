@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "protocolia-operator-assembly/v0.1",
+  "namespace": "EquipmentLab",
+  "title": "Equipment allocation approval — composable operators",
+  "entities": [
+    {
+      "name": "EquipmentPool",
+      "route": "equipment-pools",
+      "identity": {
+        "name": "poolCode",
+        "maxLength": 48
+      },
+      "label": {
+        "name": "description",
+        "maxLength": 120
+      },
+      "capacity": {
+        "name": "available",
+        "max": 80
+      }
+    },
+    {
+      "name": "EquipmentClaim",
+      "route": "equipment-claims",
+      "identity": {
+        "name": "claimCode",
+        "maxLength": 52
+      },
+      "reference": {
+        "name": "poolCode",
+        "target": "EquipmentPool"
+      },
+      "quantity": {
+        "name": "units",
+        "max": 8
+      },
+      "status": {
+        "name": "state",
+        "initial": "pending"
+      }
+    }
+  ],
+  "operators": [
+    {
+      "kind": "reserve",
+      "journal": "EquipmentClaim",
+      "parent": "EquipmentPool"
+    },
+    {
+      "kind": "transition",
+      "name": "approveEquipmentClaim",
+      "suffix": "approve",
+      "from": "pending",
+      "to": "approved",
+      "release": false
+    },
+    {
+      "kind": "transition",
+      "name": "rejectEquipmentClaim",
+      "suffix": "reject",
+      "from": "pending",
+      "to": "rejected",
+      "release": true
+    }
+  ]
+}
