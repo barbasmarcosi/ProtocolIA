@@ -182,7 +182,10 @@ test("partial multi-return arithmetic, replay-free concurrent comparisons and de
     {providerId:"sandbox",transactionId:"tx-2",eventId:"EXT-RF1",kind:"refund",amount:"0.30",currency:"ARS"},
     {providerId:"sandbox",transactionId:"tx-2",eventId:"EXT-CB1",kind:"chargeback",amount:"1.00",currency:"ARS"});
   const before=clone(s), expected=compare(s);
-  assert.equal(expected.rows[1].classification,"returns_agree_unverified");
+  assert.equal(expected.rows[1].classification,"multiple_recorded_return_events_require_review");
+  assert.deepEqual(expected.exceptions.map(x=>x.code),
+    ["multiple_recorded_return_events_require_review"]);
+  assert.equal(expected.counts.returnsAgreeUnverified,0);
   assert.equal(expected.rows[1].internalRecordedRefund,"0.30");
   assert.equal(expected.rows[1].externalChargeback,"1.00");
   assert.deepEqual(s,before);
