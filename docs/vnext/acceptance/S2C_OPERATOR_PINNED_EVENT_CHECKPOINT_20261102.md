@@ -31,10 +31,12 @@ excluded; the existing full forensic snapshot digest remains unchanged.
    claim never reports a next checkpoint.
 5. Before lock release, checkpoint mode also rescans the entire resulting
    marker set, requires exactly the writer's lock and the expected count
-   increase, and verifies pinned new marker inodes.
+   increase, recomputes the *historical* checkpoint excluding only newly
+   claimed markers, and verifies pinned new marker inodes again. Canonical
+   old-marker rewrites during the claim must not be silently incorporated.
 6. Tests must cover the signed CLI, old-marker rollback, stale/malformed
-   pins, 10 concurrent claims and deterministic deletion between the two
-   baseline checks. Existing Node 22/24 and dual NestJS/Spring workflows
+   pins, 10 concurrent claims, deterministic deletion between the two
+   baseline checks and canonical historical rewrites after marker durability. Existing Node 22/24 and dual NestJS/Spring workflows
    must remain green before merge.
 
 ## Reproduction
