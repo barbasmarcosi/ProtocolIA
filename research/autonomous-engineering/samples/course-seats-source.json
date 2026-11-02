@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "protocolia-course-seat-source/v0.1",
+  "project": {
+    "profile": "course-seat-lab/v0",
+    "namespace": "CourseSeatLab",
+    "title": "Workshop course seat bookings — controlled laboratory",
+    "bounds": {
+      "sessionCodeMaxLength": 48,
+      "topicMaxLength": 150,
+      "seatCapacityMax": 80,
+      "bookingIdMaxLength": 56,
+      "seatsPerBookingMax": 8
+    }
+  },
+  "requirements": [
+    {
+      "id": "CS-01",
+      "text": "Register sessions with a code, topic and number of available seats. Retain direct read and paginated listing.",
+      "operations": [
+        "createCourseSession",
+        "getCourseSession",
+        "listCourseSessions"
+      ],
+      "scope": "supported"
+    },
+    {
+      "id": "CS-02",
+      "text": "Create a unique seat booking and atomically decrement the associated session's available seats only when sufficient seats exist. Read and list bookings.",
+      "operations": [
+        "createSeatBooking",
+        "getSeatBooking",
+        "listSeatBookings"
+      ],
+      "scope": "supported"
+    },
+    {
+      "id": "CS-03",
+      "text": "Cancel a confirmed booking at most once and atomically return exactly its previously booked seats. The cancellation must be audited.",
+      "operations": [
+        "cancelSeatBooking"
+      ],
+      "scope": "supported"
+    },
+    {
+      "id": "CS-04",
+      "text": "Expose a public technical health endpoint for the generated application.",
+      "operations": [
+        "health"
+      ],
+      "scope": "supported"
+    },
+    {
+      "id": "CS-05",
+      "text": "Calendar scheduling, instructor allocation, student identities, waitlists, prices, payments, refunds and cancellation fees are outside this laboratory.",
+      "operations": [],
+      "scope": "deferred"
+    }
+  ],
+  "questions": [
+    {
+      "id": "CS-Q01",
+      "question": "Who may create bookings or cancel somebody else's booking in production?",
+      "classification": "security_privilege",
+      "affectsSupported": false
+    },
+    {
+      "id": "CS-Q02",
+      "question": "What cancellation deadlines, refund rules and penalties should apply if future commerce is added?",
+      "classification": "material_business",
+      "affectsSupported": false
+    },
+    {
+      "id": "CS-Q03",
+      "question": "How should time zones, time slots, overlapping sessions and instructor availability be represented?",
+      "classification": "material_business",
+      "affectsSupported": false
+    }
+  ]
+}
