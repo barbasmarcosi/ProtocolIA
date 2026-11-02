@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import {createHash} from "node:crypto";
 import {syncBuiltinESMExports} from "node:module";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -60,4 +61,92 @@ test("event replay lock and markers stay on opened inode after pathname substitu
       providerId:"sandbox",orderId:"OT-1",statementSha256:"b".repeat(64)
     },external:[{providerId:"sandbox",transactionId:"TX-1",eventId:"E-1",
       kind:"capture",amount:"1.00",currency:"ARS"}]}));
+});
+
+function withEventClaim(fn) {
+  const root=fs.mkdtempSync(join(tmpdir(),"pia-replay-lock-fence-"));
+  const directory=join(root,"private");
+  fs.mkdirSync(directory,{mode:0o700});
+  const metadata={providerId:"sandbox",orderId:"OT-1",
+    statementSha256:"b".repeat(64)};
+  const external=[{providerId:"sandbox",transactionId:"TX-1",
+    eventId:"E-1",kind:"capture",amount:"1.00",currency:"ARS"}];
+  try {fn({root,directory,metadata,external});}
+  finally {fs.rmSync(root,{recursive:true,force:true});}
+}
+
+test("one foreign lock replacing ours during post-lock scan cannot authorize event claims",()=>{
+  withEventClaim(({directory,metadata,external})=>{
+    const originalOpen=fs.openSync,originalReadDir=fs.readdirSync;
+    let armed=false,swapped=false;
+    const foreignProvider="other-provider";
+    const foreignLock=".pia-event-lock-"+createHash("sha256").update(JSON.stringify([
+      "ProtocolIA-S2C-provider-lock-v1",foreignProvider])).digest("hex");
+    try {
+      fs.openSync=(path,flags,...rest)=>{
+        const fd=originalOpen(path,flags,...rest);
+        if((flags & fs.constants.O_EXCL) &&
+           String(path).includes(".pia-event-lock-"))armed=true;
+        return fd;
+      };
+      fs.readdirSync=(path,...rest)=>{
+        if(armed && !swapped) {
+          swapped=true;
+          const own=originalReadDir(directory).find(name=>
+            name.startsWith(".pia-event-lock-"));
+          assert.ok(own);
+          fs.unlinkSync(join(directory,own));
+          fs.writeFileSync(join(directory,foreignLock),JSON.stringify({
+            version:1,providerId:foreignProvider,
+            statementSha256:"c".repeat(64)})+"\n",{mode:0o600});
+        }
+        return originalReadDir(path,...rest);
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({directory,metadata,external}),
+        /local event replay guard/);
+    } finally {
+      fs.openSync=originalOpen;
+      fs.readdirSync=originalReadDir;
+      syncBuiltinESMExports();
+    }
+    assert.equal(swapped,true,"race must occur during the second scan");
+    assert.deepEqual(fs.readdirSync(directory),[foreignLock],
+      "foreign crash lock retained, no event marker claimed");
+  });
+});
+
+test("replacement of our lock after durable markers is never unlinked as success",()=>{
+  withEventClaim(({root,directory,metadata,external})=>{
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,swapped=false,replacement;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          const own=fs.readdirSync(directory).find(name=>
+            name.startsWith(".pia-event-lock-"));
+          assert.ok(own);
+          fs.renameSync(join(directory,own),join(root,"original-lock"));
+          replacement=own;
+          fs.writeFileSync(join(directory,own),JSON.stringify({
+            version:1,providerId:metadata.providerId,
+            statementSha256:metadata.statementSha256})+"\n",{mode:0o600});
+          swapped=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({directory,metadata,external}),
+        /local event replay guard/);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(swapped,true,"race must occur after event marker fsync");
+    assert.ok(fs.readdirSync(directory).includes(replacement),
+      "substituted lock must survive for manual review");
+    assert.equal(fs.readdirSync(directory).filter(n=>n.startsWith("event-")).length,1,
+      "partial durable event marker must not be silently rolled back");
+  });
 });
