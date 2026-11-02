@@ -15,8 +15,12 @@ excluded; the existing full forensic snapshot digest remains unchanged.
 ## Contract and acceptance
 
 1. `inspectLocalEventReplay(directory).eventMarkersSha256` is deterministic,
-   including for an empty private directory. It is **not** an authenticated
-   checkpoint until an operator stores/pins it **outside** that directory.
+   including for an empty private directory. The read-only inspector CLI also
+   accepts `--expected-event-markers-sha256 HEX`; unlike the full forensic
+   snapshot, the marker checkpoint is stable across transient crash locks,
+   which still produce exit 2 and require manual review. It is **not** an
+   authenticated checkpoint until an operator stores/pins it **outside** that
+   directory.
 2. A signed statement can opt into
    `--local-event-replay-dir DIR --expected-event-markers-sha256 HEX`.
    Missing replay mode, malformed hex and duplicate flags fail before mutation.
