@@ -499,10 +499,10 @@ jobs:
           assert.deepEqual(ir.entities.map(e=>e.name),["ReviewCase"]);
           const graph=ir.operations.filter(op=>op.behavior.kind==="transition");
           assert.equal(graph.length,3);
-          assert.deepEqual(graph.map(o=>[o.name,o.behavior.from,o.behavior.to]),[
-            ["submitReviewCase","drafted","in_review"],
+          assert.deepEqual(graph.map(o=>[o.name,o.behavior.from,o.behavior.to]).sort((a,b)=>a[0].localeCompare(b[0])),[
             ["approveReviewCase","in_review","approved"],
-            ["rejectReviewCase","in_review","rejected"]
+            ["rejectReviewCase","in_review","rejected"],
+            ["submitReviewCase","drafted","in_review"]
           ]);
           for(const t of graph){
             assert.equal(t.behavior.field,"state");
