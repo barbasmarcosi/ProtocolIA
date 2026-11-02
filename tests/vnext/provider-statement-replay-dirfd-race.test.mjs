@@ -150,3 +150,48 @@ test("replacement of our lock after durable markers is never unlinked as success
       "partial durable event marker must not be silently rolled back");
   });
 });
+
+function withMarkerMutationAfterDurability(mode) {
+  withEventClaim(({root,directory,metadata,external})=>{
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,mutated=false,markerName;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          markerName=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+          assert.ok(markerName,"an event marker must be durable before injection");
+          const markerPath=join(directory,markerName);
+          if(mode==="replace") {
+            const original=fs.readFileSync(markerPath);
+            fs.renameSync(markerPath,join(root,"original-marker"));
+            fs.writeFileSync(markerPath,original,{mode:0o600});
+          } else {
+            fs.unlinkSync(markerPath);
+          }
+          mutated=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({directory,metadata,external}),
+        /local event replay guard/);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(mutated,true,"injection must run after durable event claims");
+    assert.ok(fs.readdirSync(directory).some(name=>name.startsWith(".pia-event-lock-")),
+      "unverified claim must retain its provider lock for manual review");
+    assert.equal(fs.readdirSync(directory).includes(markerName),mode==="replace",
+      "replacement marker is not silently accepted; deletion is not restored");
+  });
+}
+
+test("replacing a durable event marker with identical canonical bytes fails closed",()=>{
+  withMarkerMutationAfterDurability("replace");
+});
+
+test("deleting a durable event marker before provider lock release fails closed",()=>{
+  withMarkerMutationAfterDurability("delete");
+});
