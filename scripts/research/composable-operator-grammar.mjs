@@ -1,7 +1,8 @@
-// P2 grammar v0.1: compose three reviewed primitives (reserve, transition,
+// P2 grammar v0.1/v0.2: compose three reviewed primitives (reserve, transition,
 // release) over source-defined entity and field names. No executable code,
 // caller-controlled privileges, SQL, conditional expressions or external effects.
 // Source validity and provenance are separate from authenticating its author.
+import {requireOperatorVersions,validateReservePrimitive,validateTerminalTransitionPrimitives} from "./operator-catalog-v1.mjs";
 const bad=(reason)=>{throw Error("OPERATOR_ASSEMBLY_INVALID: "+reason);};
 const need=(ok,reason)=>{if(!ok)bad(reason);};
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
@@ -9,9 +10,7 @@ const exact=(x,keys,label)=>need(plain(x)&&Object.keys(x).length===keys.length&&
  Object.keys(x).every(k=>keys.includes(k)),label+" has unexpected/missing fields");
 const name=x=>typeof x==="string"&&/^[A-Z][A-Za-z0-9]{2,36}$/.test(x);
 const field=x=>typeof x==="string"&&/^[a-z][A-Za-z0-9]{1,32}$/.test(x)&&x!=="id";
-const action=x=>typeof x==="string"&&/^[a-z][A-Za-z0-9]{2,50}$/.test(x);
 
-const state=x=>typeof x==="string"&&/^[a-z][a-z0-9_]{1,32}$/.test(x);
 const suffix=x=>typeof x==="string"&&/^[a-z][a-z0-9-]{1,25}$/.test(x);
 const bounded=(x,min,max,label)=>need(Number.isSafeInteger(x)&&x>=min&&x<=max,label+" out of range");
 const q=JSON.stringify;
@@ -19,8 +18,11 @@ const prop=(name,type,extra={})=>({name,type,required:true,nullable:false,...ext
 const route=x=>"/api/"+x;
 const op=(name,entity,kind,path,capability)=>({name,entity,kind,path,capability});
 export function composeOperatorGraph(source){
- exact(source,["schemaVersion","namespace","title","entities","operators"],"source");
- need(source.schemaVersion==="protocolia-operator-assembly/v0.1","unsupported grammar");
+ const versioned=source?.schemaVersion==="protocolia-operator-assembly/v0.2";
+ exact(source,versioned?["schemaVersion","namespace","title","entities","operators","operatorVersions"]:
+  ["schemaVersion","namespace","title","entities","operators"],"source");
+ need(versioned||source.schemaVersion==="protocolia-operator-assembly/v0.1","unsupported grammar");
+ const verifiedCatalog=versioned?requireOperatorVersions(source.operatorVersions):null;
  need(name(source.namespace)&&source.namespace.endsWith("Lab"),"namespace must be a laboratory");
  need(typeof source.title==="string"&&source.title.trim()===source.title&&
   source.title.length>=3&&source.title.length<=120&&
@@ -74,25 +76,8 @@ export function composeOperatorGraph(source){
  const transitions=source.operators.filter(x=>x.kind==="transition");
  need(reserves.length===1&&transitions.length===source.operators.length-1,
   "only reserve and transition operators permitted");
- exact(reserves[0],["kind","journal","parent"],"reserve operator");
- need(reserves[0].journal===c.name&&reserves[0].parent===p.name,"reserve edge mismatch");
- const suffixes=new Set(),names=new Set(),fromEdges=new Map(),destinations=new Set();
- let releases=0;
- for(const t of transitions){
-  exact(t,["kind","name","suffix","from","to","release"],"transition operator");
-  need(action(t.name)&&suffix(t.suffix)&&state(t.from)&&state(t.to)&&t.from!==t.to&&
-   typeof t.release==="boolean","unsafe transition");
-  need(!suffixes.has(t.suffix)&&!names.has(t.name),"duplicate transition");
-  // A state with two incoming transitions could have two financially distinct
-  // histories (released vs still reserved) yet look identical to downstream
-  // reads. The bounded v0.1 grammar requires a unique predecessor per state.
-  need(!destinations.has(t.to),"ambiguous transition destination");
-  destinations.add(t.to);
-  suffixes.add(t.suffix);names.add(t.name);
-  if(!fromEdges.has(t.from))fromEdges.set(t.from,[]);
-  fromEdges.get(t.from).push(t.to);
-  if(t.release)releases++;
- }
+ validateReservePrimitive(reserves[0],p.name,c.name);
+ validateTerminalTransitionPrimitives(transitions,c.status.initial);
  // CRUD and health operations are generated alongside user-named transitions.
  // A transition named like one of these can otherwise produce duplicate
  // TypeSpec operations or ambiguous adapter routing/capability metadata.
@@ -103,21 +88,6 @@ export function composeOperatorGraph(source){
    "generated TypeSpec operation name collision");
   operationSymbols.add(transition.name.toLowerCase());
  }
- need(releases===1,"exactly one compensating release transition required");
- // Reachability and acyclicity: forbid implicit self-approval, hidden paths or
- // releases whose state could later be changed. A bounded path check exhausts
- // the small operator graph without evaluating input scripts.
- const reachable=new Set([c.status.initial]),remaining=[...transitions];
- while(remaining.length){
-  const executable=remaining.filter(t=>reachable.has(t.from)&&!reachable.has(t.to));
-  need(executable.length>0,"unreachable or cyclic transition graph");
-  for(const t of executable){reachable.add(t.to);remaining.splice(remaining.indexOf(t),1);}
- }
- const released=transitions.find(t=>t.release);
- need(!transitions.some(t=>t.from===released.to),"compensation must be terminal");
- const terminal=transitions.filter(t=>!transitions.some(x=>x.from===t.to));
- need(terminal.length>=2,"need two terminal outcomes");
- need(terminal.some(t=>!t.release),"need a non-compensated outcome");
  const capacityOps={
   stockEntity:p.name,availableField:p.capacity.name,
   referenceField:c.reference.name,quantityField:c.quantity.name
@@ -153,15 +123,18 @@ export function composeOperatorGraph(source){
   ...(t.release?{release:capacityOps}:{})
  }));
  const graph={
-  schemaVersion:"protocolia-composable-operator-ir/v0.1",
+  schemaVersion:versioned?"protocolia-composable-operator-ir/v0.2":"protocolia-composable-operator-ir/v0.1",
   namespace:source.namespace,title:source.title,grammarSource:structuredClone(source),
+  ...(versioned?{operatorCatalog:verifiedCatalog}:{}),
   entities,operations:[...parentOps,...childOps,...transitionOps,
    op("health",p.name,"health","/health","public")]
  };
  return graph;
 }
 export function validateOperatorGraph(graph){
- exact(graph,["schemaVersion","namespace","title","grammarSource","entities","operations"],"operator IR");
+ exact(graph,graph?.schemaVersion==="protocolia-composable-operator-ir/v0.2"?
+  ["schemaVersion","namespace","title","grammarSource","operatorCatalog","entities","operations"]:
+  ["schemaVersion","namespace","title","grammarSource","entities","operations"],"operator IR");
  const rebuilt=composeOperatorGraph(graph.grammarSource);
  need(graph.schemaVersion===rebuilt.schemaVersion&&q(graph)===q(rebuilt),
   "graph differs from validated operator composition");
@@ -181,7 +154,7 @@ function fieldLines(f,identity){
 }
 export function emitOperatorTypeSpec(graph){
  validateOperatorGraph(graph);
- const entities=graph.entities;const initial=graph.grammarSource.entities;
+ const entities=graph.entities;
  const lines=['import "@typespec/http";','import "@protocolia/domain";',
   "using TypeSpec.Http;","using ProtocolIA.Domain;","",
   "@service(#{ title: "+q(graph.title)+" })",
