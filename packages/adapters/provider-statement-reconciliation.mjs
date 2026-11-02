@@ -277,10 +277,14 @@ export function reconcileProviderStatement(input) {
       push("orphan_mapping",receiptId,link.providerId,link.transactionId);
   }
   for (const [k, aggregate] of external) {
-    if (!linkOwners.has(k)) {
+    const mappedReceipt=linkOwners.get(k);
+    if (!mappedReceipt || !internal.has(mappedReceipt)) {
       const [providerId,transactionId] = JSON.parse(k);
-      push("unmatched_external_transaction",null,providerId,transactionId);
-      // Orphan provider rows are still subject to their own arithmetic.
+      // A crosswalk pointing to a nonexistent receipt is already reported as
+      // orphan_mapping. It must not suppress independent provider anomalies.
+      if (!mappedReceipt)
+        push("unmatched_external_transaction",null,providerId,transactionId);
+      // Unmatched or orphan-mapped provider rows still need arithmetic review.
       if (aggregate.returned > aggregate.capture)
         push("external_returns_exceed_capture",null,providerId,transactionId);
       if (aggregate.captureEvents > 1)
