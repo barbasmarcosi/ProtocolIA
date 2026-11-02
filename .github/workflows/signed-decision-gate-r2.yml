@@ -368,6 +368,11 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Verify independent course semantics and stock regression
         shell: bash
         run: |
