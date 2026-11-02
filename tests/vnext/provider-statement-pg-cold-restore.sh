@@ -70,6 +70,11 @@ for i in {1..80}; do
 done
 [[ "$cold_port" =~ ^[0-9]+$ ]] || { echo "Cold PostgreSQL port unavailable" >&2; exit 1; }
 cold_admin "SELECT 1" >/dev/null
+# Prove the target is a different physical PostgreSQL cluster, not merely
+# another database on the source server.
+source_system_id="$(source_sql "SELECT system_identifier FROM pg_control_system()")"
+cold_system_id="$(cold_admin "SELECT system_identifier FROM pg_control_system()")"
+[[ -n "$source_system_id" && -n "$cold_system_id" && "$source_system_id" != "$cold_system_id" ]]
 # Without owner/runtime principals, --single-transaction must roll back.
 expect_fail env PGHOST=127.0.0.1 PGPORT="$cold_port" PGUSER=postgres \
   PGDATABASE="$cold_db" PGPASSWORD="$cold_password" \
