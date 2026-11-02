@@ -384,6 +384,7 @@ jobs:
           set -euo pipefail
           TMP="$(mktemp -d "$PWD/.p2-course-seats.XXXXXXXX")"
           echo "COURSE_TMP=$TMP" >> "$GITHUB_ENV"
+          export COURSE_TMP="$TMP"
           SOURCE=research/autonomous-engineering/samples/course-seats-source.json
           node scripts/research/course-seat-intake.mjs generate "$SOURCE" "$TMP/contract"
           node scripts/research/course-seat-intake.mjs verify "$SOURCE" "$TMP/contract"
