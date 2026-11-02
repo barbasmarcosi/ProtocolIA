@@ -49,7 +49,7 @@ END $fn$;
 
 -- Read-only, principal-scoped acknowledgement recovery. A matching receipt
 -- alone is insufficient: every event AND audit must still match exactly.
--- Returns 'absent' only if no requested event ID exists at all. Partial,
+-- Returns 'not_observed' when no requested event ID is visible in this\n-- snapshot. This is NOT proof that no in-flight transaction exists. Partial,
 -- conflicting, legacy/unreceipted, or corrupt evidence fails closed.
 CREATE FUNCTION protocolia_s2c_replay.inspect_committed_batch(
   v_provider text, v_order text, v_statement_sha256 text, v_events jsonb
@@ -149,7 +149,7 @@ BEGIN
     END IF;
   END LOOP;
   IF found_receipt IS TRUE THEN RETURN 'committed'; END IF;
-  RETURN 'absent';
+  RETURN 'not_observed';
 END $fn$;
 
 -- Old direct writer cannot bypass the atomic receipt after upgrade.
