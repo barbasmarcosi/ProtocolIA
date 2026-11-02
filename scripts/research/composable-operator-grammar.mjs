@@ -76,13 +76,18 @@ export function composeOperatorGraph(source){
   "only reserve and transition operators permitted");
  exact(reserves[0],["kind","journal","parent"],"reserve operator");
  need(reserves[0].journal===c.name&&reserves[0].parent===p.name,"reserve edge mismatch");
- const suffixes=new Set(),names=new Set(),fromEdges=new Map();
+ const suffixes=new Set(),names=new Set(),fromEdges=new Map(),destinations=new Set();
  let releases=0;
  for(const t of transitions){
   exact(t,["kind","name","suffix","from","to","release"],"transition operator");
   need(action(t.name)&&suffix(t.suffix)&&state(t.from)&&state(t.to)&&t.from!==t.to&&
    typeof t.release==="boolean","unsafe transition");
   need(!suffixes.has(t.suffix)&&!names.has(t.name),"duplicate transition");
+  // A state with two incoming transitions could have two financially distinct
+  // histories (released vs still reserved) yet look identical to downstream
+  // reads. The bounded v0.1 grammar requires a unique predecessor per state.
+  need(!destinations.has(t.to),"ambiguous transition destination");
+  destinations.add(t.to);
   suffixes.add(t.suffix);names.add(t.name);
   if(!fromEdges.has(t.from))fromEdges.set(t.from,[]);
   fromEdges.get(t.from).push(t.to);
