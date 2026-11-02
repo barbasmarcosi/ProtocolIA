@@ -21,7 +21,7 @@ function planned(bytes){
  const evidence=["source-sha256:"+digest];
  const req=[
   {id:"OP-01",text:"Register capacity entities with nonnegative remaining units, typed identity and read/list access.",
-   scope:"supported",operations:ir.operations.filter(x=>x.entity===ir.entities[0].name).map(x=>x.name)},
+   scope:"supported",operations:ir.operations.filter(x=>x.entity===ir.entities[0].name&&x.kind!=="health").map(x=>x.name)},
   {id:"OP-02",text:"Atomically reserve units and create a unique journal record, rejecting oversubscription.",
    scope:"supported",operations:ir.operations.filter(x=>x.entity===ir.entities[1].name&&x.kind!=="transition").map(x=>x.name)},
   {id:"OP-03",text:"Make one terminal state decision, returning the reserved units exactly once on the designated rejecting branch.",
