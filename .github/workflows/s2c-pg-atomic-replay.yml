@@ -7,6 +7,7 @@ on:
       - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
       - 'tests/vnext/provider-statement-pg-committed-outcome.sh'
       - 'tests/vnext/provider-statement-pg-backup-restore.sh'
+      - 'tests/vnext/provider-statement-pg-cold-restore.sh'
       - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
       - '.github/workflows/s2c-pg-atomic-replay.yml'
   push:
@@ -16,6 +17,7 @@ on:
       - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
       - 'tests/vnext/provider-statement-pg-committed-outcome.sh'
       - 'tests/vnext/provider-statement-pg-backup-restore.sh'
+      - 'tests/vnext/provider-statement-pg-cold-restore.sh'
       - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
       - '.github/workflows/s2c-pg-atomic-replay.yml'
   workflow_dispatch:
@@ -27,7 +29,7 @@ concurrency:
 jobs:
   disposable-postgres:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -53,6 +55,8 @@ jobs:
           bash -n tests/vnext/provider-statement-pg-atomic-replay.sh
           bash -n tests/vnext/provider-statement-pg-committed-outcome.sh
           bash -n tests/vnext/provider-statement-pg-backup-restore.sh
+          bash -n tests/vnext/provider-statement-pg-cold-restore.sh
+          docker version
           pg_dump --version
           pg_restore --version
           psql --version
@@ -67,3 +71,5 @@ jobs:
         run: bash tests/vnext/provider-statement-pg-committed-outcome.sh
       - name: Restore populated evidence into clean database and reverify tenant/privilege invariants
         run: bash tests/vnext/provider-statement-pg-backup-restore.sh
+      - name: Recover populated replay into a separate PostgreSQL cluster with freshly provisioned principals
+        run: bash tests/vnext/provider-statement-pg-cold-restore.sh
