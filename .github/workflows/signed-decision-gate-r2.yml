@@ -7,6 +7,12 @@ on:
       - 'scripts/research/stock-debit-intake.mjs'
       - 'scripts/research/stock-semantic-ir.mjs'
       - 'scripts/research/typed-review-workflow.mjs'
+      - 'scripts/research/composable-operator-grammar.mjs'
+      - 'scripts/research/composable-operator-intake.mjs'
+      - 'tests/research/composable-operator-grammar.test.mjs'
+      - 'research/autonomous-engineering/samples/composable-equipment-allocation.json'
+      - 'examples/vnext/composable-operators/**'
+      - 'docs/research/autonomous-engineering/P2_COMPOSABLE_OPERATORS.md'
       - 'scripts/research/review-workflow-intake.mjs'
       - 'tests/research/typed-review-workflow.test.mjs'
       - 'examples/vnext/review-workflow/**'
@@ -539,3 +545,91 @@ jobs:
           grep -q 'PROTOCOLIA_STATEFUL_CONFORMANCE_PASS' \
             "$RUNNER_TEMP/review-case-${{ matrix.target }}.log"
           echo "P2_REVIEW_STATE_E2E_PASS ${{ matrix.target }}"
+
+
+  composable-operator-assembly-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Adversarial tests of the new independent operator grammar
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/composable-operator-grammar.mjs
+          node --check scripts/research/composable-operator-intake.mjs
+          node --check packages/cli/conformance.mjs
+          node --test tests/research/composable-operator-grammar.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Validate source and compile real TypeSpec from composed operators
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(mktemp -d "$PWD/.p2-operator-assembly.XXXXXXXX")"
+          echo "COMPOSABLE_TMP=$ROOT" >> "$GITHUB_ENV"
+          node scripts/research/composable-operator-intake.mjs generate \
+            research/autonomous-engineering/samples/composable-equipment-allocation.json "$ROOT/contract"
+          node scripts/research/composable-operator-intake.mjs verify \
+            research/autonomous-engineering/samples/composable-equipment-allocation.json "$ROOT/contract"
+          ./node_modules/.bin/tsp compile "$ROOT/contract"
+          export COMPOSABLE_TMP="$ROOT"
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const dir=process.env.COMPOSABLE_TMP;
+          const ir=JSON.parse(readFileSync(dir+"/contract/tsp-output/@protocolia/compiler/ir.json"));
+          assert.deepEqual(ir.entities.map(e=>e.name).sort(),["EquipmentClaim","EquipmentPool"]);
+          const create=ir.operations.find(op=>op.name==="createEquipmentClaim");
+          const yes=ir.operations.find(op=>op.name==="approveEquipmentClaim");
+          const no=ir.operations.find(op=>op.name==="rejectEquipmentClaim");
+          assert.deepEqual(create.behavior.reserve,
+            {stockEntity:"EquipmentPool",availableField:"available",referenceField:"poolCode",quantityField:"units"});
+          assert.equal(yes.behavior.from,"pending");
+          assert.equal(yes.behavior.to,"approved");
+          assert.equal(yes.behavior.release,undefined);
+          assert.equal(no.behavior.from,"pending");
+          assert.equal(no.behavior.to,"rejected");
+          assert.deepEqual(no.behavior.release,create.behavior.reserve);
+          assert.deepEqual(no.behavior.audit,["state"]);
+          JS
+      - name: Verify Project Passport with explicit unauthenticated policy questions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$COMPOSABLE_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$COMPOSABLE_TMP/contract/requirements.json" \
+            --decisions "$COMPOSABLE_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/composed-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$COMPOSABLE_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$COMPOSABLE_TMP/contract/requirements.json" \
+            --decisions "$COMPOSABLE_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/composed-passport"
+          grep -q "OP-Q01" "$RUNNER_TEMP/composed-passport/docs/domain/decisions.md"
+      - name: Live PostgreSQL verifies approve/return composition and oversell protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$COMPOSABLE_TMP/contract" --target "${{ matrix.target }}" \
+            --out "$RUNNER_TEMP/composed-${{ matrix.target }}"
+          npm run app:test -- "$RUNNER_TEMP/composed-${{ matrix.target }}" \
+            | tee "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_COMPOSED_OPERATOR_CONFORMANCE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
+          echo "P2_COMPOSABLE_OPERATORS_E2E_PASS ${{ matrix.target }}"
