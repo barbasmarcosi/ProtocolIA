@@ -8,6 +8,10 @@ import {resolve,join} from "node:path";
 const INVALID="local replay inspection: unsafe or malformed private state";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^[0-9a-f]{64}$/;
+const MONEY=/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/;
+const CURRENCY=/^[A-Z]{3}$/;
+const validAmount=value=>typeof value==="string" && MONEY.test(value) &&
+  value.split(".")[0].length<=38 && !/^0(?:\\.0+)?$/.test(value);
 const LOCK=/^\.pia-event-lock-([0-9a-f]{64})$/;
 const MARKER=/^event-([0-9a-f]{64})$/;
 const MAX_FILES=20000;
@@ -79,7 +83,7 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],provid
       throw Error(INVALID);
     const names=readdirSync(anchor);
     if(names.length>MAX_FILES)throw Error(INVALID);
-    let markers=0,locks=0;
+    let markers=0,locks=0,legacyUnboundMarkers=0;
     const observed=[];
     for(const name of names.sort()) {
       const lock=LOCK.exec(name),marker=MARKER.exec(name);
@@ -96,12 +100,22 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],provid
           throw Error(INVALID);
         locks++;
       } else {
-        if(!exact(record,["version","statementSha256","providerId",
-          "orderId","eventMarkerSha256"]) ||
-           record.version!==1 || !SHA.test(record.statementSha256) ||
+        const legacy=record.version===1;
+        const v2=record.version===2;
+        if(!(legacy || v2) ||
+           !exact(record,legacy ? ["version","statementSha256","providerId",
+             "orderId","eventMarkerSha256"] :
+             ["version","statementSha256","providerId","orderId","eventId",
+              "transactionId","kind","amount","currency","eventMarkerSha256"]) ||
+           !SHA.test(record.statementSha256) ||
            !ID.test(record.providerId) || !ID.test(record.orderId) ||
-           record.eventMarkerSha256!==marker[1])
-          throw Error(INVALID);
+           record.eventMarkerSha256!==marker[1])throw Error(INVALID);
+        if(v2 && (!ID.test(record.eventId) || !ID.test(record.transactionId) ||
+           !["capture","refund","chargeback"].includes(record.kind) ||
+           !validAmount(record.amount) || !CURRENCY.test(record.currency) ||
+           marker[1]!==digest(["ProtocolIA-S2C-event-v1",
+             record.providerId,record.eventId])))throw Error(INVALID);
+        if(legacy)legacyUnboundMarkers++;
         markers++;
       }
     }
@@ -178,6 +192,7 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],provid
         remainingEventMarkersSha256:historicalWitness.digest("hex"),
         excludedEventMarkerCount:excludedFound}),
       lockCount:locks,eventMarkerCount:markers,
+      legacyUnboundEventMarkerCount:legacyUnboundMarkers,
       scope:"single_host_format_inspection_only",
       providerIdentityVerified:false,settlementVerified:false,
       replayCompletenessVerified:false};
