@@ -75,9 +75,10 @@ The schema deliberately provisions test-only role names with no password;
 the test assigns random credentials in the disposable database. Real account
 provisioning, credential rotation, connection pooling semantics, tenant
 onboarding and trust-root binding are not implemented. None of this is wired
-into the signed-statement CLI or either generated application. This disposable proof also does not
-cover migrations on populated databases, post-commit acknowledgement loss,
-provider-to-tenant isolation, durable backups, or recovery after data loss.
+into the signed-statement CLI or either generated application. This proof
+also does not cover migrations on populated databases, post-commit
+acknowledgement loss, production tenant onboarding, durable backups, or
+recovery after data loss.
 A privileged owner/superuser can still alter triggers or tables; the
 runtime role cannot. Neither the database nor an external signature proves
 bank settlement.
