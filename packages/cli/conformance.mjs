@@ -522,6 +522,74 @@ async function runMulti(){
     if((resource.transitions??[]).some(op=>!versionedTransition(resource,op)))
       assert.ok(executed>0,"No declared transition was executable");
 
+    // P2 operator composition: a journal reservation has two terminal choices,
+    // one committing the reserved units and the other returning them. This tests
+    // actual HTTP/Postgres behavior for BOTH choices, not only the first branch
+    // encountered in the generated operation manifest.
+    if(reserve){
+      const branch=(resource.transitions??[]).filter(t=>t.behavior.kind==="transition"&&
+        t.behavior.from===e.fields.find(f=>f.name===t.behavior.field)?.initial);
+      const approved=branch.find(t=>!t.behavior.release);
+      const rejected=branch.find(t=>!!t.behavior.release);
+      const parentBody=createBodies.get(reserve.stockEntity);
+      const parentId=parent?.entity.fields.find(f=>f.name===parent.entity.publicIdentity);
+      const childId=e.fields.find(f=>f.name===identity);
+      const qty=e.fields.find(f=>f.name===reserve.quantityField);
+      const capacity=parent?.entity.fields.find(f=>f.name===reserve.availableField);
+      if(branch.length===2&&approved&&rejected&&
+         approved.behavior.field===rejected.behavior.field&&
+         approved.behavior.to!==rejected.behavior.to&&
+         parentBody&&parentId&&childId&&capacity&&qty&&
+         (capacity.min??0)<=7&&(capacity.max??2147483647)>=7&&
+         (qty.min??1)<=2&&(qty.max??2147483647)>=2){
+        const suffix=(base,ending,max)=>String(base).slice(0,max-ending.length)+ending;
+        const parentKey=suffix(parentBody[parent.entity.publicIdentity],"ForkPool",parentId.maxLength??255);
+        assert.ok(parentKey.length<=parentId.maxLength&&parentKey!==body[reserve.referenceField]);
+        const pool={...parentBody,[parent.entity.publicIdentity]:parentKey,[reserve.availableField]:7};
+        assert.equal((await run(parent,"create",writer,{body:pool})).status,201);
+        const mkClaim=ending=>({...body,
+          [identity]:suffix(key,ending,childId.maxLength??255),
+          [reserve.referenceField]:parentKey,
+          [reserve.quantityField]:2});
+        const yes=mkClaim("ApproveFork");
+        const no=mkClaim("RejectFork");
+        assert.notEqual(yes[identity],no[identity]);
+        assert.equal((await run(resource,"create",writer,{body:yes})).status,201);
+        assert.equal((await run(resource,"create",writer,{body:no})).status,201);
+        const afterReservations=await run(parent,"get",reader,{key:parentKey});
+        assert.equal(afterReservations.data[reserve.availableField],3,
+          "Two pending journal entries must reserve four of seven units");
+        const runRace=async (operation,claimId)=>{
+          const results=await Promise.all(Array.from({length:10},()=>
+            run(resource,operation,writer,{key:claimId})));
+          assert.equal(results.filter(v=>v.status===200).length,1,
+            "Only one of ten concurrent decisions may succeed");
+          assert.equal(results.filter(v=>v.status===409).length,9,
+            "Repeated decisions must all conflict");
+        };
+        await runRace(approved,yes[identity]);
+        assert.equal((await run(parent,"get",reader,{key:parentKey})).data[reserve.availableField],3,
+          "Approving a request must retain already reserved capacity");
+        await runRace(rejected,no[identity]);
+        assert.equal((await run(parent,"get",reader,{key:parentKey})).data[reserve.availableField],5,
+          "Rejecting a request must return exactly its two reserved units");
+        assert.equal((await run(resource,"get",reader,{key:yes[identity]})).data[approved.behavior.field],
+          approved.behavior.to);
+        assert.equal((await run(resource,"get",reader,{key:no[identity]})).data[rejected.behavior.field],
+          rejected.behavior.to);
+        assert.equal((await run(resource,rejected,writer,{key:yes[identity]})).status,409,
+          "Cannot reject a committed approval");
+        assert.equal((await run(resource,approved,writer,{key:no[identity]})).status,409,
+          "Cannot approve a terminal rejection");
+        assert.equal((await run(parent,"get",reader,{key:parentKey})).data[reserve.availableField],5,
+          "Conflicting terminal decisions must not mutate the balance");
+        console.log("PROTOCOLIA_COMPOSED_OPERATOR_CONFORMANCE_PASS "+JSON.stringify({
+          entity:e.name,initial:7,reserved:4,afterApproval:3,afterRejection:5,
+          concurrentAccepted:1,concurrentRejected:9
+        }));
+      }
+    }
+
     // Source-bounded reviewer state machine: test BOTH mutually exclusive
     // terminal branches, not merely the first path traversed by the generic
     // single-record state conformance. No external financial side effects.
