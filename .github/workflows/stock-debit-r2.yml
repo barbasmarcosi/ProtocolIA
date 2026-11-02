@@ -2,11 +2,27 @@ name: R2 bounded stock debit, compensation and PostgreSQL race
 
 on:
   pull_request:
+    branches: [main]
     paths:
       - 'examples/vnext/stock-debit/**'
-      - 'packages/cli/conformance.mjs'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/stock-debit-r2.yml'
-      - 'docs/research/autonomous-engineering/R2_STOCK_DEBIT.md'
+  push:
+    branches: [main]
+    paths:
+      - 'examples/vnext/stock-debit/**'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/stock-debit-r2.yml'
   workflow_dispatch:
 
 permissions:
