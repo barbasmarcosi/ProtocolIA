@@ -5,10 +5,23 @@
 import {inspectLocalEventReplay} from "../../packages/adapters/provider-statement-replay-inspection.mjs";
 try {
   const args=process.argv.slice(2);
-  if(args.length!==2 || args[0]!=="--local-event-replay-dir" ||
-     !args[1] || args[1].startsWith("--"))
-    throw Error("expected --local-event-replay-dir");
-  const result=inspectLocalEventReplay(args[1]);
+  if(args.length!==2 && args.length!==4)
+    throw Error("expected --local-event-replay-dir and optional snapshot pin");
+  const flags=new Map();
+  for(let i=0;i<args.length;i+=2) {
+    if(!["--local-event-replay-dir","--expected-snapshot-sha256"].includes(args[i]) ||
+       flags.has(args[i]) || !args[i+1] || args[i+1].startsWith("--"))
+      throw Error("invalid replay inspection flags");
+    flags.set(args[i],args[i+1]);
+  }
+  if(!flags.has("--local-event-replay-dir") ||
+     (flags.has("--expected-snapshot-sha256") &&
+      !/^[0-9a-f]{64}$/.test(flags.get("--expected-snapshot-sha256"))))
+    throw Error("invalid replay inspection snapshot pin");
+  const result=inspectLocalEventReplay(flags.get("--local-event-replay-dir"));
+  if(flags.has("--expected-snapshot-sha256") &&
+     result.snapshotSha256!==flags.get("--expected-snapshot-sha256"))
+    throw Error("replay inspection snapshot differs from independent baseline");
   process.stdout.write(JSON.stringify(result,null,2)+"\n");
   process.exitCode=result.lockCount>0?2:0;
 } catch {
