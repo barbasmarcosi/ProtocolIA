@@ -382,6 +382,52 @@ async function runMulti(){
         beforeStock.data[reserve.availableField]-body[reserve.quantityField],
         "Duplicate reservation must not retain a stock debit");
     }
+
+    if(reserve){
+      // Live DB race: independent keys compete for the SAME seven units.
+      // This is checked via actual generated HTTP endpoints and PostgreSQL,
+      // not a mock or a repeated idempotent request.
+      const stockField=parent.entity.fields.find(f=>f.name===reserve.availableField);
+      const debitField=e.fields.find(f=>f.name===reserve.quantityField);
+      const parentKeyField=parent.entity.fields.find(f=>f.name===parent.entity.publicIdentity);
+      const debitKeyField=e.fields.find(f=>f.name===identity);
+      const stockFixture=createBodies.get(reserve.stockEntity);
+      const canRace=stockFixture&&stockField&&(stockField.min??0)<=7&&(stockField.max??2147483647)>=7&&
+        debitField&&(debitField.min??1)<=2&&(debitField.max??2147483647)>=2&&
+        parentKeyField&&(parentKeyField.maxLength??255)>=8&&
+        debitKeyField&&(debitKeyField.maxLength??255)>=8;
+      if(canRace){
+        const mkId=(base,suffix,max)=>String(base).slice(0,max-suffix.length)+suffix;
+        const stockId=mkId(stockFixture[parent.entity.publicIdentity],"Race",parentKeyField.maxLength??255);
+        const stockBody={...stockFixture,[parent.entity.publicIdentity]:stockId,[reserve.availableField]:7};
+        const opening=await run(parent,"create",writer,{body:stockBody});
+        assert.equal(opening.status,201,"Concurrent stock fixture must be created");
+        const attempts=Array.from({length:12},(_,i)=>{
+          const debitId=mkId(key,"Race"+i,debitKeyField.maxLength??255);
+          return {...body,[identity]:debitId,[reserve.referenceField]:stockId,[reserve.quantityField]:2};
+        });
+        const settled=await Promise.all(attempts.map(payload=>run(resource,"create",writer,{body:payload})));
+        const accepted=settled.filter(x=>x.status===201);
+        const rejected=settled.filter(x=>x.status===409);
+        assert.equal(accepted.length,3,
+          "Atomic stock debit: seven available, twelve simultaneous requests of two must admit exactly three");
+        assert.equal(rejected.length,9,
+          "Atomic stock debit: exhausted concurrent requests must reject without an extra debit");
+        const afterRace=await run(parent,"get",reader,{key:stockId});
+        assert.equal(afterRace.status,200);
+        assert.equal(afterRace.data[reserve.availableField],1,
+          "PostgreSQL must never permit overselling or lost-update races");
+        for(let i=0;i<attempts.length;i++){
+          const found=await run(resource,"get",reader,{key:attempts[i][identity]});
+          assert.equal(found.status,settled[i].status===201?200:404,
+            "The persisted debit journal must match exactly the committed debit outcomes");
+        }
+        console.log("PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS "+JSON.stringify({
+          entity:e.name,parallel:12,approved:accepted.length,rejected:rejected.length,
+          finalAvailable:afterRace.data[reserve.availableField]
+        }));
+      }
+    }
     assert.equal((await run(resource,"get",reader,{key})).status,owned?404:200);
     const page=await run(resource,"listPage",reader,{query:{limit:1,offset:0}});
     assert.equal(page.status,200);
