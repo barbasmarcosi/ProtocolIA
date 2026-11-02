@@ -208,3 +208,25 @@ test("signed split captures remain review exceptions and still consume event IDs
     assert.equal(replay.stdout,"");
   });
 });
+
+
+test("signed repeated refunds are review exceptions and all event IDs are consumed",()=>{
+  withFixture(f=>{
+    f.setEvents([event,
+      {...event,eventId:"REF-1",kind:"refund",amount:"0.10"},
+      {...event,eventId:"REF-2",kind:"refund",amount:"0.20"}]);
+    const reviewed=run(f.args);
+    assert.equal(reviewed.status,2,reviewed.stderr);
+    const report=JSON.parse(reviewed.stdout);
+    assert.equal(report.rows[0].classification,"external_return_requires_review");
+    assert.deepEqual(report.exceptions.map(x=>x.code),[
+      "external_return_requires_review","multiple_return_events_require_review"
+    ]);
+    assert.equal(report.externalStatementSignature.consumedEventCount,3);
+    assert.equal(report.externalStatementSignature.settlementVerified,false);
+    assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,3);
+    const replay=run(f.args);
+    assert.equal(replay.status,1,replay.stderr);
+    assert.equal(replay.stdout,"");
+  });
+});
