@@ -7,6 +7,7 @@ on:
       - 'packages/adapters/provider-statement-input.mjs'
       - 'packages/adapters/provider-statement-signature.mjs'
       - 'packages/adapters/provider-statement-operator-bundle.mjs'
+      - 'packages/adapters/provider-statement-trust-registry.mjs'
       - 'packages/adapters/provider-statement-local-replay.mjs'
       - 'packages/adapters/provider-statement-event-replay.mjs'
       - 'packages/adapters/provider-statement-replay-inspection.mjs'
@@ -21,6 +22,7 @@ on:
       - 'packages/adapters/provider-statement-input.mjs'
       - 'packages/adapters/provider-statement-signature.mjs'
       - 'packages/adapters/provider-statement-operator-bundle.mjs'
+      - 'packages/adapters/provider-statement-trust-registry.mjs'
       - 'packages/adapters/provider-statement-local-replay.mjs'
       - 'packages/adapters/provider-statement-event-replay.mjs'
       - 'packages/adapters/provider-statement-replay-inspection.mjs'
@@ -54,6 +56,7 @@ jobs:
           node --check packages/adapters/provider-statement-input.mjs
           node --check packages/adapters/provider-statement-signature.mjs
           node --check packages/adapters/provider-statement-operator-bundle.mjs
+          node --check packages/adapters/provider-statement-trust-registry.mjs
           node --check packages/adapters/provider-statement-local-replay.mjs
           node --check packages/adapters/provider-statement-event-replay.mjs
           node --check packages/adapters/provider-statement-replay-inspection.mjs
