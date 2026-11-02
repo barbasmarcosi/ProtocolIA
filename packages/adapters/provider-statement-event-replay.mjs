@@ -146,7 +146,8 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
   } catch {
     // A crash or I/O failure after lock creation may leave partial markers.
     // Keeping the provider lock blocks later acceptance until manual review.
-    // Only the known no-write duplicate path releases the lock.
+    // Only inspected no-write duplicates and cross-provider contention release
+    // their own descriptor-verified lock before throwing.
     throw Error(INVALID);
   } finally {
     if(lockFd!==undefined)closeSync(lockFd);
