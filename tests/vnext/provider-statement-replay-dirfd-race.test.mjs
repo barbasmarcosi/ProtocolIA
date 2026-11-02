@@ -314,7 +314,7 @@ test("unpinned replay rejects a historical same-provider rewrite after new claim
           const path=join(directory,oldMarker);
           const record=JSON.parse(fs.readFileSync(path,"utf8"));
           record.statementSha256="c".repeat(64);
-          fs.writeFileSync(path,JSON.stringify(record)+"\\n");
+          fs.writeFileSync(path,JSON.stringify(record)+"\n");
           mutated=true;
         }
         return result;
@@ -350,7 +350,7 @@ test("provider-scoped final history permits unrelated well-formed provider marke
           fs.writeFileSync(join(directory,"event-"+eventDigest),JSON.stringify({
             version:1,statementSha256:"d".repeat(64),
             providerId:otherProvider,orderId:"OT-OTHER",eventMarkerSha256:eventDigest
-          })+"\\n",{mode:0o600});
+          })+"\n",{mode:0o600});
           added=true;
         }
         return result;
