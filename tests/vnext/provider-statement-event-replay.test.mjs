@@ -144,6 +144,51 @@ test("invalid signed data and private-directory violations cannot consume events
     assert.equal(dual.stdout,"");
   });
 });
+test("corrupted historical replay marker cannot be bypassed by a disjoint signed event",()=>{
+  withFixture(f=>{
+    assert.equal(run(f.args).status,0);
+    const existing=readdirSync(f.guard)[0];
+    writeFileSync(join(f.guard,existing),"{}\\n");
+    f.setEvents([{...event,eventId:"E-2"}]);
+    const rejected=run(f.args);
+    assert.equal(rejected.status,1,rejected.stderr);
+    assert.equal(rejected.stdout,"");
+    assert.match(rejected.stderr,/local event replay guard/);
+    assert.deepEqual(readdirSync(f.guard),[existing],
+      "no new event or provider lock should be created on corrupt state");
+  });
+});
+test("unexpected state files and another provider's crash lock block all new claims",()=>{
+  withFixture(f=>{
+    writeFileSync(join(f.guard,"unreviewed"),"not a replay marker");
+    const denied=run(f.args);
+    assert.equal(denied.status,1,denied.stderr);
+    assert.equal(denied.stdout,"");
+    assert.deepEqual(readdirSync(f.guard),["unreviewed"]);
+  });
+  withFixture(f=>{
+    const other="another-provider";
+    const lock=".pia-event-lock-"+sha(JSON.stringify([
+      "ProtocolIA-S2C-provider-lock-v1",other]));
+    writeFileSync(join(f.guard,lock),JSON.stringify({
+      version:1,providerId:other,statementSha256:"a".repeat(64)})+"\\n",
+      {mode:0o600});
+    const denied=run(f.args);
+    assert.equal(denied.status,1,denied.stderr);
+    assert.equal(denied.stdout,"");
+    assert.deepEqual(readdirSync(f.guard),[lock]);
+  });
+});
+test("intact historical state still accepts a new disjoint signed event",()=>{
+  withFixture(f=>{
+    assert.equal(run(f.args).status,0);
+    f.setEvents([{...event,eventId:"E-2"}]);
+    const accepted=run(f.args);
+    assert.equal(accepted.status,0,accepted.stderr);
+    assert.equal(JSON.parse(accepted.stdout).externalStatementSignature.consumedEventCount,1);
+    assert.equal(readdirSync(f.guard).filter(n=>n.startsWith("event-")).length,2);
+  });
+});
 test("direct guard rejects duplicate IDs, provider mismatches, empty or oversized sets",()=>{
   withFixture(f=>{
     for(const external of [
