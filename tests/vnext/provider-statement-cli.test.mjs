@@ -175,3 +175,15 @@ test("CLI rejects duplicate financial keys in each independent source, with no d
     }
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test("CLI exits 2 for split capture events even when exact totals match",()=>{
+  const split=[{...capture,amount:"0.40"},
+    {...capture,eventId:"E2",amount:"0.60"}];
+  const result=run([payment],[link],split);
+  assert.equal(result.status,2,result.stderr);
+  const report=JSON.parse(result.stdout);
+  assert.equal(report.rows[0].classification,"multiple_capture_events_require_review");
+  assert.deepEqual(report.exceptions.map(x=>x.code),["multiple_capture_events_require_review"]);
+  assert.equal(report.totals.purportedCaptured,"1.00");
+  assert.equal(report.independentlyAuthenticated,false);
+});

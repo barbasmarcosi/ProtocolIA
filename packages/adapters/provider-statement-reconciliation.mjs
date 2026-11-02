@@ -148,10 +148,11 @@ export function reconcileProviderStatement(input) {
     eventIds.add(eventKey);
     const minor = amount(row.amount, scale, "external[" + i + "].amount");
     const k = key(providerId,transactionId);
-    if (!external.has(k)) external.set(k, {capture:0n,refund:0n,chargeback:0n,returned:0n,count:0});
+    if (!external.has(k)) external.set(k, {capture:0n,refund:0n,chargeback:0n,returned:0n,count:0,captureEvents:0});
     const aggregate = external.get(k);
     aggregate.count++;
     if (row.kind === "capture") {
+      aggregate.captureEvents++;
       aggregate.capture = addBounded(aggregate.capture,minor,"external transaction capture");
       captureTotal = addBounded(captureTotal,minor,"external capture total");
     } else {
@@ -193,7 +194,9 @@ export function reconcileProviderStatement(input) {
         else if (recordedTotal > 0n && aggregate.returned === 0n)
           classification = "internal_return_not_externally_reported";
         else classification = "return_amount_or_kind_mismatch";
-      } else if (aggregate.returned > 0n)
+      } else if (aggregate.captureEvents > 1)
+        classification = "multiple_capture_events_require_review";
+      else if (aggregate.returned > 0n)
         classification = returnsSupplied
           ? "returns_agree_unverified" : "external_return_requires_review";
       else classification = "amounts_agree_unverified";
@@ -211,6 +214,10 @@ export function reconcileProviderStatement(input) {
       };
       if (agg.capture > 0n && agg.capture !== receipt.minor)
         extra("capture_amount_mismatch");
+      // Multiple distinct capture event IDs may be valid partial captures,
+      // but their summed amount alone cannot prove a single settlement.
+      if (agg.captureEvents > 1)
+        extra("multiple_capture_events_require_review");
       if (agg.returned > agg.capture)
         extra("external_returns_exceed_capture");
       if (receipt.status === "reversed" && agg.capture > 0n)
@@ -258,6 +265,8 @@ export function reconcileProviderStatement(input) {
       // Orphan provider rows are still subject to their own arithmetic.
       if (aggregate.returned > aggregate.capture)
         push("external_returns_exceed_capture",null,providerId,transactionId);
+      if (aggregate.captureEvents > 1)
+        push("multiple_capture_events_require_review",null,providerId,transactionId);
     }
   }
   issues.sort((a,b) =>
