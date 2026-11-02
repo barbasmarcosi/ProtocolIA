@@ -121,7 +121,7 @@ export function consumeLocalSignedEvents({directory,metadata,external,
     // count: a prior contender can legitimately finish before this process
     // acquires the lock; the duplicate-event preflight below must then release
     // our lock rather than strand a false crash state.
-    const lockedState=inspectLocalEventReplay(path);
+    const lockedState=inspectLocalEventReplay(path,{providerId:metadata.providerId});
     // Our O_EXCL lock is still open and no event markers have been written.
     // A different provider can legitimately acquire its own lock between
     // the clean preflight and this second scan. Never strand OUR lock just
@@ -197,6 +197,20 @@ export function consumeLocalSignedEvents({directory,metadata,external,
         throw Error(INVALID);
       }
     };
+    assertClaims();
+    // In ALL modes, verify that the provider's pre-existing marker history
+    // remains byte-identical after durable writes. A separate provider may
+    // append its own markers without invalidating this scoped history fence.
+    // This does not detect rollback before the initial locked scan; that
+    // requires the independent operator checkpoint below.
+    const finalHistory=inspectLocalEventReplay(path,{
+      providerId:metadata.providerId,excludeEventMarkers:markers});
+    if(finalHistory.providerEventMarkerCount!==
+         lockedState.providerEventMarkerCount+markers.length ||
+       finalHistory.excludedProviderEventMarkerCount!==markers.length ||
+       finalHistory.remainingProviderEventMarkersSha256!==
+         lockedState.providerEventMarkersSha256)
+      throw Error(INVALID);
     assertClaims();
     // In checkpoint mode, verify the entire new set before releasing the
     // lock, then return a next checkpoint for independent operator storage.
