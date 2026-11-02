@@ -123,3 +123,32 @@ credential rotation, no generated Spring/Nest integration, no disaster
 recovery/backup, and no externally confirmed refunds/chargebacks. A
 privileged database owner remains in the trusted computing base. Issue #57
 must remain open; no production deployment or financial tag.
+
+## Disposable populated logical-backup recovery gate (S2c follow-up)
+
+The same isolated PostgreSQL 16 workflow now runs
+`tests/vnext/provider-statement-pg-backup-restore.sh` **after** the legacy
+fixture, receipt upgrade, and acknowledgement-loss tests. The test takes a
+consistent `pg_dump -Fc --schema=protocolia_s2c_replay` snapshot with 25
+claims, 25 audits and five immutable receipts; restores it into a new
+`template0` database using `pg_restore --single-transaction --exit-on-error`;
+and verifies all evidence counts and claim/audit correspondence.
+
+The restored database must preserve the dedicated NOLOGIN function owner,
+restricted runtime EXECUTE grants, denial of the legacy writer and direct
+table reads, tenant-scoped recovery of a committed receipt, and append-only
+guards. It must reject a replay and an altered amount, then accept one new
+synthetic receipt with exactly one audit and leave the original source at
+25/25/5. The new restored state must be 26/26/6. The test database is dropped
+afterwards. The CI marker is `PROTOCOLIA_S2C_PG_RESTORE_PASS` **only if**
+the PostgreSQL workflow reaches it; documentation alone is not evidence.
+
+**Recovery boundary:** this is a *logical schema/data restore drill in the
+same disposable PostgreSQL cluster*. Global roles, their memberships, server
+configuration, cluster-level trust roots and login provisioning are NOT
+backed up by schema-scoped `pg_dump`; the fixture's existing cluster roles
+are a deliberate prerequisite, and test login passwords are rotated.
+There is no production PITR, encrypted off-site backup, WAL continuity,
+independent-cluster restoration, IAM onboarding, RPO/RTO guarantee, or
+generated NestJS/Spring/CLI integration. It cannot establish external
+settlement, refund execution or financial acceptance. Keep TL-14 #57 open.
