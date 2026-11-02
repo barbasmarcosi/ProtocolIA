@@ -6,6 +6,7 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,existsSync,lstatSync} f
 import {resolve,dirname,join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {composeOperatorGraph,emitOperatorTypeSpec} from "./composable-operator-grammar.mjs";
+import {operatorCatalogSnapshot,operatorCatalogDigest} from "./operator-catalog-v1.mjs";
 const root=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const configPath=join(root,"examples/vnext/composable-operators/tspconfig.yaml");
 const hash=x=>createHash("sha256").update(x).digest("hex");
@@ -18,6 +19,7 @@ function safeFile(p){
 function planned(bytes){
  const source=JSON.parse(bytes);
  const ir=composeOperatorGraph(source),digest=hash(bytes);
+ const versioned=ir.schemaVersion==="protocolia-composable-operator-ir/v0.2";
  const evidence=["source-sha256:"+digest];
  const req=[
   {id:"OP-01",text:"Register capacity entities with nonnegative remaining units, typed identity and read/list access.",
@@ -47,7 +49,9 @@ function planned(bytes){
   ["decisions.json",pretty({schemaVersion:"protocolia-decision-ledger/v0.1",
    authority:"SELF_DECLARED_UNVERIFIED",sourceSha256:digest,decisions:questions})],
   ["protocolia-intake-report.json",pretty({schemaVersion:"protocolia-intake-report/v0.1",
-   status:"PARTIAL_DRAFT_UNVERIFIED",generatorProfile:"composable-operator-grammar/v0.1",
+   status:"PARTIAL_DRAFT_UNVERIFIED",generatorProfile:versioned?"composable-operator-grammar/v0.2":"composable-operator-grammar/v0.1",
+   ...(versioned?{operatorCatalogSha256:operatorCatalogDigest(),
+    operatorPins:ir.operatorCatalog.pins}:{}),
    sourceSha256:digest,semanticIrSha256:hash(pretty(ir)),
    operatorKinds:["reserve","transition","release"],
    generatedOperations:ir.operations.map(x=>x.name),
@@ -58,8 +62,14 @@ function planned(bytes){
     "Transitions share entity-level write permission; separation of duties is not implemented"
    ]})]
  ]);
- files.set("protocolia-intake.lock.json",pretty({schemaVersion:"protocolia-operator-lock/v0.1",
+ if(versioned)files.set("operator-catalog.json",pretty({
+  schemaVersion:"protocolia-operator-catalog-binding/v1",
+  sourceSha256:digest,pins:ir.operatorCatalog.pins,catalogSha256:operatorCatalogDigest(),
+  catalog:operatorCatalogSnapshot()
+ }));
+ files.set("protocolia-intake.lock.json",pretty({schemaVersion:versioned?"protocolia-operator-lock/v0.2":"protocolia-operator-lock/v0.1",
   sourceSha256:digest,semanticIrSha256:hash(files.get("semantic-ir.json")),
+  ...(versioned?{operatorCatalogSha256:operatorCatalogDigest()}:{}),
   files:Object.fromEntries([...files].map(([name,body])=>[name,hash(body)]).sort((a,b)=>a[0].localeCompare(b[0])))}));
  return files;
 }
