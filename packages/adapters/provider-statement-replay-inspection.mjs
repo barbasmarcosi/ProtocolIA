@@ -123,9 +123,9 @@ export function inspectLocalEventReplay(directory) {
     if(!same(finalPathAfter,opened) || !privateDir(finalPathAfter) ||
        !same(fstatSync(dirFd),opened))throw Error(INVALID);
     const witness=createHash("sha256");
-    witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\\n");
+    witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
     for(const entry of observed)
-      witness.update(JSON.stringify([entry.name,entry.sha256])+"\\n");
+      witness.update(JSON.stringify([entry.name,entry.sha256])+"\n");
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
       snapshotSha256:witness.digest("hex"),
       lockCount:locks,eventMarkerCount:markers,
