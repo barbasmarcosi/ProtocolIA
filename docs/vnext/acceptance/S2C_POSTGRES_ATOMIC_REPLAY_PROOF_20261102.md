@@ -152,3 +152,32 @@ There is no production PITR, encrypted off-site backup, WAL continuity,
 independent-cluster restoration, IAM onboarding, RPO/RTO guarantee, or
 generated NestJS/Spring/CLI integration. It cannot establish external
 settlement, refund execution or financial acceptance. Keep TL-14 #57 open.
+
+
+## Independent-cluster cold recovery (experimental)
+
+The existing logical backup/restore test restores into a new **database in the
+same PostgreSQL cluster**; it cannot establish recovery from complete cluster
+loss. The additional `provider-statement-pg-cold-restore.sh` acceptance starts
+an entirely separate disposable PostgreSQL 16 container with a newly generated
+admin credential and an empty database. It exports the populated 25-event,
+25-audit, 5-receipt schema from the source, then:
+
+1. Requires an owner/role-less `pg_restore --single-transaction` to fail and
+   leave no partially restored schema.
+2. Recreates minimum NOLOGIN owner/runtime identities and LOGIN memberships
+   from `cold-restore-roles.sql`, without importing credentials.
+3. Restores the custom archive **with ownership and ACLs** into the new cluster,
+   checks exact evidence fingerprints and principal privilege boundaries.
+4. Assigns new disposable login credentials, verifies authenticated tenant
+   isolation, receipt lookup, duplicate rejection, old-writer bypass rejection,
+   and acceptance of one new receipt-backed event.
+5. Verifies the original source is still 25/25/5 and unchanged.
+
+This is a reproducible **cold-cluster recovery test**, not a production backup
+policy or an automated disaster recovery procedure. It assumes the independent
+archive was captured and preserved, that the operator can provision trusted
+role identities, and that PostgreSQL 16 and Docker are available. It does not
+prove offsite retention, encryption at rest, restore-point objectives,
+provider key recovery, signed HTTP identity, settlement, or production IAM.
+The fixture uses only synthetic events and disposable credentials.
