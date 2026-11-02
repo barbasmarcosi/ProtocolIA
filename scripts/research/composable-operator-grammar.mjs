@@ -30,6 +30,19 @@ export function composeOperatorGraph(source){
  exact(p,["name","route","identity","label","capacity"],"parent entity");
  exact(c,["name","route","identity","reference","quantity","status"],"journal entity");
  need(name(p.name)&&name(c.name)&&p.name!==c.name,"entity naming conflict");
+ // Generated TypeSpec shares one namespace for entity models, request/page
+ // DTOs, health and HTTP errors. Reject collisions *before* emission, not
+ // after writing a misleading "validated" IR. Case folding also protects
+ // derived capability scopes in both generated backends.
+ need(p.name.toLowerCase()!==c.name.toLowerCase(),"entity capability namespace collision");
+ const modelSymbols=new Set(["Health","NotFound","Conflict","BadRequest",
+  "Unauthorized","Forbidden"].map(x=>x.toLowerCase()));
+ for(const entity of [p,c]){
+  for(const symbol of [entity.name,entity.name+"Request",entity.name+"Page"]){
+   need(!modelSymbols.has(symbol.toLowerCase()),"generated TypeSpec model name collision");
+   modelSymbols.add(symbol.toLowerCase());
+  }
+ }
  need(suffix(p.route)&&suffix(c.route)&&p.route!==c.route,"invalid routes");
  for(const e of [p,c]){
   exact(e.identity,["name","maxLength"],"identity");
@@ -74,6 +87,16 @@ export function composeOperatorGraph(source){
   if(!fromEdges.has(t.from))fromEdges.set(t.from,[]);
   fromEdges.get(t.from).push(t.to);
   if(t.release)releases++;
+ }
+ // CRUD and health operations are generated alongside user-named transitions.
+ // A transition named like one of these can otherwise produce duplicate
+ // TypeSpec operations or ambiguous adapter routing/capability metadata.
+ const operationSymbols=new Set(["health",...[p,c].flatMap(e=>
+  ["create"+e.name,"get"+e.name,"list"+e.name+"s"])].map(x=>x.toLowerCase()));
+ for(const transition of transitions){
+  need(!operationSymbols.has(transition.name.toLowerCase()),
+   "generated TypeSpec operation name collision");
+  operationSymbols.add(transition.name.toLowerCase());
  }
  need(releases===1,"exactly one compensating release transition required");
  // Reachability and acyclicity: forbid implicit self-approval, hidden paths or
