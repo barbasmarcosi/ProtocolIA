@@ -200,6 +200,12 @@ export function reconcileProviderStatement(input) {
         else classification = "return_amount_or_kind_mismatch";
       } else if (aggregate.captureEvents > 1)
         classification = "multiple_capture_events_require_review";
+      // A refund and a chargeback may double-compensate the same purchase
+      // even if their separate totals match the local journal exactly.
+      else if (aggregate.refundEvents > 0 && aggregate.chargebackEvents > 0)
+        classification = "mixed_provider_return_kinds_require_review";
+      else if (returnsSupplied && recorded.refundEvents > 0 && recorded.chargebackEvents > 0)
+        classification = "mixed_recorded_return_kinds_require_review";
       else if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
         classification = "multiple_return_events_require_review";
       // Aggregated local refunds can conceal duplicate or split return records
@@ -234,6 +240,8 @@ export function reconcileProviderStatement(input) {
       // matching their sum does not prove the provider's event lifecycle.
       if (agg.refundEvents > 1 || agg.chargebackEvents > 1)
         extra("multiple_return_events_require_review");
+      if (agg.refundEvents > 0 && agg.chargebackEvents > 0)
+        extra("mixed_provider_return_kinds_require_review");
       // Without an internal return journal, an external return must remain
       // independently visible even if capture mismatch or reversal wins.
       if (!returnsSupplied && agg.returned > 0n)
@@ -252,6 +260,13 @@ export function reconcileProviderStatement(input) {
         extra(mismatch);
       }
     }
+    // Mixed local refund/chargeback lifecycles remain reviewable even if
+    // provider amounts agree or another discrepancy has higher precedence.
+    if (returnsSupplied && recorded.refundEvents > 0 &&
+        recorded.chargebackEvents > 0 &&
+        classification !== "mixed_recorded_return_kinds_require_review")
+      push("mixed_recorded_return_kinds_require_review",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     // Local event multiplicity is independent of provider capture, link and
     // amount discrepancies. Only recorded (not voided) entries count.
     if (returnsSupplied &&
@@ -306,6 +321,8 @@ export function reconcileProviderStatement(input) {
         push("multiple_capture_events_require_review",null,providerId,transactionId);
       if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
         push("multiple_return_events_require_review",null,providerId,transactionId);
+      if (aggregate.refundEvents > 0 && aggregate.chargebackEvents > 0)
+        push("mixed_provider_return_kinds_require_review",null,providerId,transactionId);
       // Orphan returns cannot be reconciled to an internal return journal,
       // regardless of whether one was supplied for other receipts.
       if (aggregate.returned > 0n)
