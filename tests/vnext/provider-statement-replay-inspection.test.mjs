@@ -172,3 +172,40 @@ test("invalid or duplicate forensic baseline flags are rejected without state wr
     assert.deepEqual(readdirSync(dir),[]);
   });
 });
+
+test("read-only marker checkpoint excludes locks and rejects historical rollback",()=>{
+  fixture(({dir})=>{
+    const empty=inspectLocalEventReplay(dir);
+    const pinned=hash=>spawnSync(process.execPath,[cli,
+      "--local-event-replay-dir",dir,"--expected-event-markers-sha256",hash],
+      {encoding:"utf8",timeout:10000});
+    assert.equal(pinned(empty.eventMarkersSha256).status,0);
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const populated=inspectLocalEventReplay(dir);
+    assert.notEqual(populated.eventMarkersSha256,empty.eventMarkersSha256);
+    assert.equal(pinned(empty.eventMarkersSha256).status,1);
+    assert.equal(pinned(populated.eventMarkersSha256).status,0);
+    crashLock(dir);
+    const blocked=inspectLocalEventReplay(dir);
+    assert.equal(blocked.eventMarkersSha256,populated.eventMarkersSha256,
+      "transient crash locks must not change the durable marker checkpoint");
+    assert.notEqual(blocked.snapshotSha256,populated.snapshotSha256);
+    assert.equal(pinned(populated.eventMarkersSha256).status,2,
+      "a matching pin must not bypass a crash lock");
+  });
+});
+test("inspector rejects malformed or duplicate event marker checkpoint pins",()=>{
+  fixture(({dir})=>{
+    for(const args of [
+      ["--local-event-replay-dir",dir,"--expected-event-markers-sha256","X".repeat(64)],
+      ["--local-event-replay-dir",dir,"--expected-event-markers-sha256","a"],
+      ["--local-event-replay-dir",dir,"--expected-event-markers-sha256","a".repeat(64),
+        "--expected-event-markers-sha256","a".repeat(64)]
+    ]) {
+      const result=spawnSync(process.execPath,[cli,...args],{encoding:"utf8"});
+      assert.equal(result.status,1,result.stderr);
+      assert.equal(result.stdout,"");
+    }
+    assert.deepEqual(readdirSync(dir),[]);
+  });
+});
