@@ -7,7 +7,7 @@ El PR agrega un tercer ejemplo de dominio semántico, **distinto de reservas/cup
 - Entidad ReviewCase: caseId único, summary y estado inicial.
 - Fuente JSON con límites y nombres de cuatro estados distintos. Grafo **cerrado** de operaciones: crear, consultar, listar, enviar a revisión, aprobar, rechazar y health.
 - Máquina de estados fuente: drafted → in_review → (approved | rejected). Solo una salida terminal debe poder ser elegida; no puede saltarse la etapa de revisión.
-- Capabilities selladas: cases.write, cases.read, cases.review, cases.decide y public solo para health. Sin identidad de operador o separación de deberes reales aún.
+- Capacidades selladas: cases.write para crear y modificar estados, cases.read para consultar y public solo para health. La separación real de permisos entre revisión y aprobación sigue PENDIENTE. Sin identidad de operador o separación de deberes reales aún.
 - @transition y @audit("state") de TypeSpec con control de carrera en PostgreSQL, sin @reserve ni @release.
 - Contrato/IR y Project Passport reproducibles con SHA de fuente, decisiones comerciales/privilegios no resueltos y prueba de deriva.
 
