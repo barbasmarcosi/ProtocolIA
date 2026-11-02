@@ -34,12 +34,21 @@ assert_counts() {
   [[ "$(admin_sql "$db" "SELECT count(*) FROM protocolia_s2c_replay.batch_receipt")" == "$receipts" ]]
   [[ "$(admin_sql "$db" "SELECT count(*) FROM protocolia_s2c_replay.claim c FULL JOIN protocolia_s2c_replay.audit a USING (tenant_id,provider_id,event_id) WHERE c.event_id IS NULL OR a.event_id IS NULL OR c.amount_text IS DISTINCT FROM a.amount_text OR c.statement_sha256 IS DISTINCT FROM a.statement_sha256")" == 0 ]]
 }
+fingerprint() {
+  admin_sql "$1" "SELECT
+    (SELECT md5(string_agg(to_jsonb(c)::text, ',' ORDER BY tenant_id,provider_id,event_id)) FROM protocolia_s2c_replay.claim c)
+    || ':' ||
+    (SELECT md5(string_agg(to_jsonb(a)::text, ',' ORDER BY audit_id)) FROM protocolia_s2c_replay.audit a)
+    || ':' ||
+    (SELECT md5(string_agg(to_jsonb(r)::text, ',' ORDER BY tenant_id,provider_id,batch_sha256)) FROM protocolia_s2c_replay.batch_receipt r)"
+}
 sha="$(printf 'a%.0s' {1..64})"
 event() {
   printf '[{"providerId":"sandbox","eventId":"%s","transactionId":"%s","kind":"capture","amount":"%s","currency":"ARS"}]' "$1" "$2" "$3"
 }
 # Verify a populated source before taking a consistent logical snapshot.
 assert_counts "$PGDATABASE" 25 5
+source_fingerprint="$(fingerprint "$PGDATABASE")"
 pg_dump -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" \
   --schema=protocolia_s2c_replay --format=custom --file="$tmp/replay.dump"
 [[ -s "$tmp/replay.dump" ]]
@@ -50,6 +59,7 @@ createdb -h "$PGHOST" -U "$PGUSER" -T template0 "$restore_db"
 pg_restore -h "$PGHOST" -U "$PGUSER" -d "$restore_db" \
   --exit-on-error --single-transaction "$tmp/replay.dump"
 assert_counts "$restore_db" 25 5
+[[ "$(fingerprint "$restore_db")" == "$source_fingerprint" ]]
 [[ "$(admin_sql "$restore_db" "SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid='protocolia_s2c_replay.claim_with_receipt(text,text,text,jsonb)'::regprocedure")" == protocolia_s2c_owner ]]
 [[ "$(admin_sql "$restore_db" "SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid='protocolia_s2c_replay.inspect_committed_batch(text,text,text,jsonb)'::regprocedure")" == protocolia_s2c_owner ]]
 [[ "$(admin_sql "$restore_db" "SELECT NOT rolcanlogin FROM pg_roles WHERE rolname='protocolia_s2c_owner'")" == t ]]
@@ -85,7 +95,10 @@ expect_fail login_sql protocolia_s2c_a_sandbox_login "$pass_a" "$restore_db" \
   "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','BYPASS','$sha','$(event BYPASS TX-B 0.01)'::jsonb)"
 expect_fail admin_sql "$restore_db" \
   "UPDATE protocolia_s2c_replay.audit SET amount_text='9.99' WHERE event_id='ACK-LOST'"
+expect_fail admin_sql "$restore_db" \
+  "UPDATE protocolia_s2c_replay.batch_receipt SET order_id='FORGED' WHERE order_id='OT-ACK'"
 assert_counts "$restore_db" 25 5
+[[ "$(fingerprint "$restore_db")" == "$source_fingerprint" ]]
 # A restored database must accept a NEW atomic receipt without touching the
 # original source, then deny duplicate replay and preserve the audit pair.
 [[ "$(claim_a OT-RESTORE "$(event RESTORE-1 TX-RESTORE 0.01)")" == 1 ]]
@@ -93,4 +106,6 @@ assert_counts "$restore_db" 25 5
 expect_fail claim_a OT-RESTORE "$(event RESTORE-1 TX-RESTORE 0.01)"
 assert_counts "$restore_db" 26 6
 assert_counts "$PGDATABASE" 25 5
+[[ "$(fingerprint "$PGDATABASE")" == "$source_fingerprint" ]]
+[[ "$(fingerprint "$restore_db")" != "$source_fingerprint" ]]
 echo "PROTOCOLIA_S2C_PG_RESTORE_PASS source=25/25/5 restored=26/26/6 owner=NOLOGIN grants=restricted tenant_scope=pass immutable=pass replay=blocked"
