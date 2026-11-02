@@ -95,13 +95,32 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // acquires the lock; the duplicate-event preflight below must then release
     // our lock rather than strand a false crash state.
     const lockedState=inspectLocalEventReplay(path);
-    if(lockedState.lockCount!==1)throw Error(INVALID);
+    // Our O_EXCL lock is still open and no event markers have been written.
+    // A different provider can legitimately acquire its own lock between
+    // the clean preflight and this second scan. Never strand OUR lock just
+    // because two well-formed provider locks overlapped: that would turn
+    // ordinary concurrency into a durable crash state for later requests.
+    // This release is ONLY safe before our first marker write and after a
+    // successful whole-directory inspection. Corrupt/unsafe scans still
+    // retain the lock for manual investigation.
+    const releaseUnwrittenLock=()=>{
+      checkDirectory(opened);
+      const current=lstatSync(entry(lockName));
+      const owned=fstatSync(lockFd);
+      if(!same(current,owned) || !current.isFile() || current.nlink!==1 ||
+         (current.mode & 0o077)!==0 || current.uid!==process.getuid())
+        throw Error(INVALID);
+      unlinkSync(entry(lockName));
+      fsyncSync(dirFd);
+    };
+    if(lockedState.lockCount!==1) {
+      releaseUnwrittenLock();
+      throw Error(INVALID);
+    }
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
     if(markers.some(name=>!absent(entry(name)))) {
-      checkDirectory(opened);
-      unlinkSync(entry(lockName));
-      fsyncSync(dirFd);
+      releaseUnwrittenLock();
       throw Error(INVALID);
     }
     for(const name of markers) {
@@ -127,7 +146,8 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
   } catch {
     // A crash or I/O failure after lock creation may leave partial markers.
     // Keeping the provider lock blocks later acceptance until manual review.
-    // Only the known no-write duplicate path releases the lock.
+    // Only inspected no-write duplicates and cross-provider contention release
+    // their own descriptor-verified lock before throwing.
     throw Error(INVALID);
   } finally {
     if(lockFd!==undefined)closeSync(lockFd);

@@ -406,3 +406,60 @@ test("partial registry trust flags are rejected before event replay",()=>{
     }
   });
 });
+
+test("overlapping valid locks from different providers never strand our unwritten lock",()=>{
+  withFixture(f=>{
+    // Deterministically introduce a second provider's canonical lock exactly
+    // after this writer's O_EXCL create and before its post-lock inspection.
+    // This exercises the real filesystem path, without timing-dependent sleeps.
+    const script=`
+      import fs from "node:fs";
+      import {syncBuiltinESMExports} from "node:module";
+      import {createHash} from "node:crypto";
+      import {join} from "node:path";
+      const dir=process.argv[1];
+      const other="independent-provider";
+      const sha="b".repeat(64);
+      const lock=".pia-event-lock-"+createHash("sha256").update(JSON.stringify([
+        "ProtocolIA-S2C-provider-lock-v1",other])).digest("hex");
+      const original=fs.openSync;
+      let injected=false;
+      fs.openSync=function(path,flags,...rest) {
+        const fd=original.call(this,path,flags,...rest);
+        if(!injected && String(path).includes(".pia-event-lock-") &&
+           (flags & fs.constants.O_EXCL)) {
+          injected=true;
+          fs.writeFileSync(join(dir,lock),JSON.stringify({
+            version:1,providerId:other,statementSha256:sha})+"\\n",{mode:0o600});
+        }
+        return fd;
+      };
+      syncBuiltinESMExports();
+      const {consumeLocalSignedEvents}=await import(
+        "./packages/adapters/provider-statement-event-replay.mjs");
+      try {
+        consumeLocalSignedEvents({
+          directory:dir,
+          metadata:{providerId:"sandbox",orderId:"OT-1",
+            statementSha256:"a".repeat(64)},
+          external:[{providerId:"sandbox",transactionId:"TX-1",eventId:"E-1",
+            kind:"capture",amount:"10.30",currency:"ARS"}]});
+        process.exitCode=3;
+      } catch(error) {
+        if(!String(error).includes("local event replay guard"))process.exitCode=4;
+      }
+    `;
+    const result=spawnSync(process.execPath,
+      ["--input-type=module","-e",script,f.guard],{encoding:"utf8",timeout:10000});
+    assert.equal(result.status,0,result.stderr);
+    const otherLock=".pia-event-lock-"+sha(JSON.stringify([
+      "ProtocolIA-S2C-provider-lock-v1","independent-provider"]));
+    assert.deepEqual(readdirSync(f.guard),[otherLock],
+      "only the foreign provider's lock may remain; ours wrote no markers");
+    rmSync(join(f.guard,otherLock));
+    const recovered=consumeLocalSignedEvents({
+      directory:f.guard,metadata:f.metadata,external:[event]});
+    assert.equal(recovered.consumedEventCount,1);
+    assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,1);
+  });
+});
