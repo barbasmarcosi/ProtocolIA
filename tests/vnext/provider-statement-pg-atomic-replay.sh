@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable PostgreSQL 16+ integration proof. No external provider calls.
 set -euo pipefail
-PSQL=(psql -X -h "${PGHOST:-127.0.0.1}" -U "${PGUSER:-postgres}" -d "${PGDATABASE:-postgres}" -v ON_ERROR_STOP=1 -At)
+PSQL=(psql -X -h "${PGHOST:-127.0.0.1}" -U "${PGUSER:-postgres}" -d "${PGDATABASE:-postgres}" -v ON_ERROR_STOP=1 -qAt)
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 sql() { "${PSQL[@]}" -c "$1"; }
