@@ -86,6 +86,24 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     writeFileSync(lockFd,JSON.stringify({version:1,providerId:metadata.providerId,
       statementSha256:metadata.statementSha256})+"\n");
     fsyncSync(lockFd);
+    // Retain the exact lock inode and metadata written by this process.
+    // O_EXCL alone is insufficient if another actor replaces the pathname
+    // between the forensic scan and the final unlink.
+    const writtenLock=fstatSync(lockFd);
+    const assertOwnLock=()=>{
+      checkDirectory(opened);
+      const current=lstatSync(entry(lockName));
+      const owned=fstatSync(lockFd);
+      if(!same(current,owned) || !same(owned,writtenLock) ||
+         !current.isFile() || current.nlink!==1 ||
+         current.uid!==process.getuid() || (current.mode & 0o077)!==0 ||
+         current.size!==writtenLock.size || owned.size!==writtenLock.size ||
+         current.mtimeMs!==writtenLock.mtimeMs ||
+         owned.mtimeMs!==writtenLock.mtimeMs ||
+         current.ctimeMs!==writtenLock.ctimeMs ||
+         owned.ctimeMs!==writtenLock.ctimeMs)
+        throw Error(INVALID);
+    };
     checkDirectory(opened);
     fsyncSync(dirFd);
     // Reinspect after obtaining our exclusive provider lock: the first scan
@@ -104,19 +122,18 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // successful whole-directory inspection. Corrupt/unsafe scans still
     // retain the lock for manual investigation.
     const releaseUnwrittenLock=()=>{
-      checkDirectory(opened);
-      const current=lstatSync(entry(lockName));
-      const owned=fstatSync(lockFd);
-      if(!same(current,owned) || !current.isFile() || current.nlink!==1 ||
-         (current.mode & 0o077)!==0 || current.uid!==process.getuid())
-        throw Error(INVALID);
+      assertOwnLock();
       unlinkSync(entry(lockName));
       fsyncSync(dirFd);
     };
+    // A count of one does not prove it is OUR lock. An attacker can remove
+    // our pathname and substitute a different valid provider lock during the
+    // post-acquisition scan. Never claim events without our original lock.
     if(lockedState.lockCount!==1) {
       releaseUnwrittenLock();
       throw Error(INVALID);
     }
+    assertOwnLock();
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
     if(markers.some(name=>!absent(entry(name)))) {
@@ -139,6 +156,9 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     }
     checkDirectory(opened);
     fsyncSync(dirFd); // Event claims durable before lock removal.
+    // Never delete a substituted lock: preserve partial markers and require
+    // manual recovery instead of reporting a successful replay claim.
+    assertOwnLock();
     unlinkSync(entry(lockName));
     fsyncSync(dirFd);
     return {replayProtection:"single_host_local_event_markers",
