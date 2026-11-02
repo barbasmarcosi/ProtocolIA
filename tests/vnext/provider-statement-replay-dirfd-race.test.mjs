@@ -299,3 +299,73 @@ test("historical canonical-byte rewrite after new marker fsync fails checkpoint"
       "partially committed batch must retain its provider lock for forensic review");
   });
 });
+
+
+test("unpinned replay rejects a historical same-provider rewrite after new claims are durable",()=>{
+  withEventClaim(({directory,metadata,external})=>{
+    consumeLocalSignedEvents({directory,metadata,external});
+    const oldMarker=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,mutated=false;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          const path=join(directory,oldMarker);
+          const record=JSON.parse(fs.readFileSync(path,"utf8"));
+          record.statementSha256="c".repeat(64);
+          fs.writeFileSync(path,JSON.stringify(record)+"\n");
+          mutated=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({
+        directory,metadata,external:[{...external[0],eventId:"E-2"}]
+      }),/local event replay guard/);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(mutated,true);
+    assert.equal(fs.readdirSync(directory).filter(name=>name.startsWith("event-")).length,2);
+    assert.equal(fs.readdirSync(directory).filter(name=>name.startsWith(".pia-event-lock-")).length,1,
+      "historical tampering must preserve the crash lock for review");
+  });
+});
+
+test("provider-scoped final history permits unrelated well-formed provider marker additions",()=>{
+  withEventClaim(({directory,metadata,external})=>{
+    consumeLocalSignedEvents({directory,metadata,external});
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,added=false;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          const otherProvider="unrelated";
+          const eventDigest=createHash("sha256").update(JSON.stringify([
+            "ProtocolIA-S2C-event-v1",otherProvider,"OTHER-1"
+          ])).digest("hex");
+          fs.writeFileSync(join(directory,"event-"+eventDigest),JSON.stringify({
+            version:1,statementSha256:"d".repeat(64),
+            providerId:otherProvider,orderId:"OT-OTHER",eventMarkerSha256:eventDigest
+          })+"\n",{mode:0o600});
+          added=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      const result=consumeLocalSignedEvents({
+        directory,metadata,external:[{...external[0],eventId:"E-2"}]
+      });
+      assert.equal(result.consumedEventCount,1);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(added,true);
+    assert.equal(inspectLocalEventReplay(directory).eventMarkerCount,3);
+    assert.equal(inspectLocalEventReplay(directory).lockCount,0);
+  });
+});
