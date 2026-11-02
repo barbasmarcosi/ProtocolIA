@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run app:build -- examples/vnext/stock-debit --target nestjs --out "$RUNNER_TEMP/stock-debit-nest"
-      - name: Exercise real PostgreSQL: debit, duplicate, oversell race, compensation and audit state
+      - name: "Exercise real PostgreSQL: debit, duplicate, oversell race, compensation and audit state"
         shell: bash
         run: |
           set -euo pipefail
