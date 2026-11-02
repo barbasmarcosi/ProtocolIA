@@ -120,3 +120,55 @@ test("CLI rejects extra or missing arguments without touching state",()=>{
     assert.deepEqual(readdirSync(dir),[]);
   });
 });
+
+test("stable forensic fingerprint can be pinned across independent read-only inspections",()=>{
+  fixture(({dir})=>{
+    const empty=inspectLocalEventReplay(dir);
+    assert.match(empty.snapshotSha256,/^[0-9a-f]{64}$/);
+    assert.deepEqual(inspectLocalEventReplay(dir),empty);
+    const pinned=hash=>spawnSync(process.execPath,[cli,
+      "--local-event-replay-dir",dir,"--expected-snapshot-sha256",hash],
+      {encoding:"utf8",timeout:10000});
+    const first=pinned(empty.snapshotSha256);
+    assert.equal(first.status,0,first.stderr);
+    assert.equal(JSON.parse(first.stdout).snapshotSha256,empty.snapshotSha256);
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const populated=inspectLocalEventReplay(dir);
+    assert.notEqual(populated.snapshotSha256,empty.snapshotSha256);
+    assert.equal(pinned(empty.snapshotSha256).status,1,
+      "a previous clean scan must not silently accept new replay state");
+    assert.equal(pinned(empty.snapshotSha256).stdout,"");
+    assert.equal(pinned(populated.snapshotSha256).status,0);
+    // A valid canonical marker may be modified without changing its name.
+    // The independent baseline detects this even if format validation passes.
+    const marker=readdirSync(dir)[0];
+    const edited=JSON.parse(readFileSync(join(dir,marker),"utf8"));
+    edited.orderId="O2";
+    writeFileSync(join(dir,marker),JSON.stringify(edited)+"\\n");
+    const altered=inspectLocalEventReplay(dir);
+    assert.equal(altered.eventMarkerCount,1);
+    assert.notEqual(altered.snapshotSha256,populated.snapshotSha256);
+    assert.equal(pinned(populated.snapshotSha256).status,1);
+    assert.equal(pinned(altered.snapshotSha256).status,0);
+    rmSync(join(dir,marker));
+    assert.equal(inspectLocalEventReplay(dir).snapshotSha256,empty.snapshotSha256);
+    assert.equal(pinned(altered.snapshotSha256).status,1);
+    assert.deepEqual(readdirSync(dir),[]);
+  });
+});
+test("invalid or duplicate forensic baseline flags are rejected without state writes",()=>{
+  fixture(({dir})=>{
+    for(const args of [
+      ["--local-event-replay-dir",dir,"--expected-snapshot-sha256","a"],
+      ["--expected-snapshot-sha256","A".repeat(64),"--local-event-replay-dir",dir],
+      ["--local-event-replay-dir",dir,"--local-event-replay-dir",dir],
+      ["--local-event-replay-dir",dir,"--unexpected","x"],
+      ["--local-event-replay-dir",dir,"--expected-snapshot-sha256"]
+    ]) {
+      const response=spawnSync(process.execPath,[cli,...args],{encoding:"utf8"});
+      assert.equal(response.status,1,response.stderr);
+      assert.equal(response.stdout,"");
+    }
+    assert.deepEqual(readdirSync(dir),[]);
+  });
+});
