@@ -118,3 +118,37 @@ test("output lock catches source changes, unknown files and changed generated Ty
  writeFileSync(join(x.out,"unapproved.js"),"process.exit(1)");
  assert.throws(()=>compileOperators(x.source,x.out,"verify"),/inventory drift/);
 }));
+
+test("generated model and capability symbols cannot collide with built-ins or DTOs",()=>fixture(x=>{
+ const baseline=parse(x.source);
+ const scenarios=[
+  ["reserved Health model",q=>{q.entities[0].name="Health";q.entities[1].reference.target="Health";q.operators[0].parent="Health";},/generated TypeSpec model name collision/],
+  ["reserved Conflict error",q=>{q.entities[0].name="Conflict";q.entities[1].reference.target="Conflict";q.operators[0].parent="Conflict";},/generated TypeSpec model name collision/],
+  ["generated Request DTO",q=>{q.entities[1].name="EquipmentPoolRequest";q.operators[0].journal="EquipmentPoolRequest";},/generated TypeSpec model name collision/],
+  ["generated Page DTO",q=>{q.entities[1].name="EquipmentPoolPage";q.operators[0].journal="EquipmentPoolPage";},/generated TypeSpec model name collision/],
+  ["case-folded capability namespace",q=>{q.entities[1].name="EQUIPMENTPOOL";q.operators[0].journal="EQUIPMENTPOOL";},/entity capability namespace collision/]
+ ];
+ for(const [label,change,reason] of scenarios){
+  const source=structuredClone(baseline);change(source);
+  assert.throws(()=>composeOperatorGraph(source),reason,label);
+  x.update(source);
+  assert.throws(()=>compileOperators(x.source,x.out),reason,label);
+  assert.equal(existsSync(x.out),false,"invalid symbols must never create artifacts");
+ }
+}));
+
+test("transition names cannot shadow generated CRUD, health or another operation",()=>fixture(x=>{
+ const baseline=parse(x.source);
+ for(const collision of ["health","createEquipmentClaim","getEquipmentClaim",
+   "listEquipmentClaims","createEquipmentPool","getEquipmentPool",
+   "listEquipmentPools"]){
+  const source=structuredClone(baseline);
+  source.operators[1].name=collision;
+  assert.throws(()=>composeOperatorGraph(source),/generated TypeSpec operation name collision/,
+    collision);
+  x.update(source);
+  assert.throws(()=>compileOperators(x.source,x.out),
+    /generated TypeSpec operation name collision/,collision);
+  assert.equal(existsSync(x.out),false);
+ }
+}));
