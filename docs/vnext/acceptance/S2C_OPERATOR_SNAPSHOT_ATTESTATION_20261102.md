@@ -17,7 +17,9 @@ An independently pinned **operator** Ed25519 signature now binds the exact
 SHA-256 bytes of all four financial inputs (or an explicit null sentinel when
 `internalReturns` was NOT supplied) with the expected order, currency, scale,
 and a bounded validity window. The operator signature and provider signature,
-if supplied, are verified separately. Neither may establish bank clearing.
+if supplied, are verified separately. When both are supplied, their SPKI
+fingerprints MUST differ so one signing key cannot impersonate an independent
+operator review. Neither signature establishes bank clearing.
 
 The operator signs a JSON manifest with exactly these fields:
 
@@ -73,8 +75,8 @@ manifest as well as the other input sources.
 - Changing each of the four inputs after signing causes exit 1 with no
   report; the valid original data can be retried.
 - Missing local returns journal is distinct from an empty supplied journal.
-- Wrong public-key pin, expired/tampered signature, wrong order and partial
-  CLI trust flags fail closed.
+- Wrong public-key pin, expired/tampered signature, wrong order, dual signer
+  identity (same key as provider) and partial CLI trust flags fail closed.
 - Synthetic provider-signed event replay: stale operator crosswalk causes
   exit 1 **before** event markers; valid retry consumes exactly two events;
   subsequent identical replay is rejected.
