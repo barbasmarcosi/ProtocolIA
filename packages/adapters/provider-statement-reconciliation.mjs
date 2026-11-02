@@ -200,12 +200,8 @@ export function reconcileProviderStatement(input) {
         else classification = "return_amount_or_kind_mismatch";
       } else if (aggregate.captureEvents > 1)
         classification = "multiple_capture_events_require_review";
-      // A refund and a chargeback may double-compensate the same purchase
-      // even if their separate totals match the local journal exactly.
-      else if (aggregate.refundEvents > 0 && aggregate.chargebackEvents > 0)
-        classification = "mixed_provider_return_kinds_require_review";
-      else if (returnsSupplied && recorded.refundEvents > 0 && recorded.chargebackEvents > 0)
-        classification = "mixed_recorded_return_kinds_require_review";
+      // Preserve existing same-kind multiplicity precedence: operators
+      // still see the historical primary label when several risks coexist.
       else if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
         classification = "multiple_return_events_require_review";
       // Aggregated local refunds can conceal duplicate or split return records
@@ -214,6 +210,12 @@ export function reconcileProviderStatement(input) {
       else if (returnsSupplied &&
         (recorded.refundEvents > 1 || recorded.chargebackEvents > 1))
         classification = "multiple_recorded_return_events_require_review";
+      // A refund and a chargeback may double-compensate the same purchase
+      // even if their separate totals match the local journal exactly.
+      else if (aggregate.refundEvents > 0 && aggregate.chargebackEvents > 0)
+        classification = "mixed_provider_return_kinds_require_review";
+      else if (returnsSupplied && recorded.refundEvents > 0 && recorded.chargebackEvents > 0)
+        classification = "mixed_recorded_return_kinds_require_review";
       else if (aggregate.returned > 0n)
         classification = returnsSupplied
           ? "returns_agree_unverified" : "external_return_requires_review";
