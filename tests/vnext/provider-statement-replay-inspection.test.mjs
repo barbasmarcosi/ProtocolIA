@@ -144,7 +144,7 @@ test("stable forensic fingerprint can be pinned across independent read-only ins
     const marker=readdirSync(dir)[0];
     const edited=JSON.parse(readFileSync(join(dir,marker),"utf8"));
     edited.orderId="O2";
-    writeFileSync(join(dir,marker),JSON.stringify(edited)+"\\n");
+    writeFileSync(join(dir,marker),JSON.stringify(edited)+"\n");
     const altered=inspectLocalEventReplay(dir);
     assert.equal(altered.eventMarkerCount,1);
     assert.notEqual(altered.snapshotSha256,populated.snapshotSha256);
