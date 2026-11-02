@@ -6,6 +6,13 @@ on:
       - 'scripts/research/signed-decision-approval.mjs'
       - 'scripts/research/stock-debit-intake.mjs'
       - 'scripts/research/stock-semantic-ir.mjs'
+      - 'scripts/research/bounded-capacity-renderer.mjs'
+      - 'scripts/research/course-seat-semantic-ir.mjs'
+      - 'scripts/research/course-seat-intake.mjs'
+      - 'tests/research/course-seat-intake.test.mjs'
+      - 'examples/vnext/course-seats/**'
+      - 'research/autonomous-engineering/samples/course-seats-source.json'
+      - 'docs/research/autonomous-engineering/P2_COURSE_SEATS.md'
       - 'tests/research/stock-semantic-ir.test.mjs'
       - 'research/autonomous-engineering/samples/stock-debit-typed-ir-brief.json'
       - 'docs/research/autonomous-engineering/R2_TYPED_SEMANTIC_IR.md'
@@ -346,3 +353,86 @@ jobs:
           grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/typed-stock-conformance.log"
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/typed-stock-conformance.log"
           echo "STOCK_TYPED_IR_E2E_PASS: source limits -> typed IR -> TypeSpec -> actual PostgreSQL no oversell"
+
+
+  course-seat-independent-domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify independent course semantics and stock regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/bounded-capacity-renderer.mjs
+          node --check scripts/research/course-seat-semantic-ir.mjs
+          node --check scripts/research/course-seat-intake.mjs
+          node --test tests/research/course-seat-intake.test.mjs tests/research/stock-semantic-ir.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Compile CourseSession and SeatBooking from frozen constraints
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.p2-course-seats.XXXXXXXX")"
+          echo "COURSE_TMP=$TMP" >> "$GITHUB_ENV"
+          SOURCE=research/autonomous-engineering/samples/course-seats-source.json
+          node scripts/research/course-seat-intake.mjs generate "$SOURCE" "$TMP/contract"
+          node scripts/research/course-seat-intake.mjs verify "$SOURCE" "$TMP/contract"
+          ./node_modules/.bin/tsp compile "$TMP/contract"
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import assert from "node:assert/strict";
+          const input=JSON.parse(readFileSync("research/autonomous-engineering/samples/course-seats-source.json"));
+          const ir=JSON.parse(readFileSync(process.env.COURSE_TMP+
+            "/contract/tsp-output/@protocolia/compiler/ir.json"));
+          assert.deepEqual(ir.entities.map(e=>e.name).sort(),["CourseSession","SeatBooking"]);
+          const parent=ir.entities.find(e=>e.name==="CourseSession");
+          const child=ir.entities.find(e=>e.name==="SeatBooking");
+          assert.equal(parent.fields.find(f=>f.name==="seatsAvailable").max,input.project.bounds.seatCapacityMax);
+          assert.equal(child.fields.find(f=>f.name==="seats").max,input.project.bounds.seatsPerBookingMax);
+          const claim=ir.operations.find(op=>op.name==="createSeatBooking");
+          const cancel=ir.operations.find(op=>op.name==="cancelSeatBooking");
+          assert.deepEqual(claim.behavior.reserve,
+            {stockEntity:"CourseSession",availableField:"seatsAvailable",
+             referenceField:"sessionCode",quantityField:"seats"});
+          assert.deepEqual(cancel.behavior.release,claim.behavior.reserve);
+          assert.equal(cancel.behavior.from,"confirmed");
+          assert.equal(cancel.behavior.to,"cancelled");
+          JS
+      - name: Passport keeps deferred policies and unauthenticated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$COURSE_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$COURSE_TMP/contract/requirements.json" \
+            --decisions "$COURSE_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/course-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$COURSE_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$COURSE_TMP/contract/requirements.json" \
+            --decisions "$COURSE_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/course-passport"
+          grep -q "CS-Q01" "$RUNNER_TEMP/course-passport/docs/domain/decisions.md"
+      - name: Generate backend and exercise real PostgreSQL contention and cancel-once
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$COURSE_TMP/contract" --target "${{ matrix.target }}" \
+            --out "$RUNNER_TEMP/course-seat-${{ matrix.target }}"
+          npm run app:test -- "$RUNNER_TEMP/course-seat-${{ matrix.target }}" \
+            | tee "$RUNNER_TEMP/course-seats-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS.*"entity":"SeatBooking"' \
+            "$RUNNER_TEMP/course-seats-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' \
+            "$RUNNER_TEMP/course-seats-${{ matrix.target }}.log"
+          echo "COURSE_SEATS_REAL_DB_PASS ${{ matrix.target }}: atomic seat booking and cancel-once"
