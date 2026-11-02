@@ -127,11 +127,19 @@ export function inspectLocalEventReplay(directory) {
        namesAfter.length!==names.length ||
        names.some(name=>!namesAfterSet.has(name)))throw Error(INVALID);
     const witness=createHash("sha256");
+    const markerWitness=createHash("sha256");
     witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
-    for(const entry of observed)
-      witness.update(JSON.stringify([entry.name,entry.sha256])+"\n");
+    // Exclude transient provider locks from the separately pinnable marker
+    // checkpoint. This digest is only meaningful if retained independently.
+    markerWitness.update("ProtocolIA-S2C-event-marker-checkpoint-v1\n");
+    for(const entry of observed) {
+      const line=JSON.stringify([entry.name,entry.sha256])+"\n";
+      witness.update(line);
+      if(MARKER.test(entry.name))markerWitness.update(line);
+    }
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
       snapshotSha256:witness.digest("hex"),
+      eventMarkersSha256:markerWitness.digest("hex"),
       lockCount:locks,eventMarkerCount:markers,
       scope:"single_host_format_inspection_only",
       providerIdentityVerified:false,settlementVerified:false,
