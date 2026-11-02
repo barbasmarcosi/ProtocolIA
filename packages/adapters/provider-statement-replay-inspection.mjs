@@ -10,7 +10,7 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const LOCK=/^\.pia-event-lock-([0-9a-f]{64})$/;
 const MARKER=/^event-([0-9a-f]{64})$/;
-const MAX_FILES=1024;
+const MAX_FILES=20000;
 const MAX_BYTES=1024;
 const digest=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const same=(a,b)=>a.dev===b.dev && a.ino===b.ino;
@@ -94,10 +94,13 @@ export function inspectLocalEventReplay(directory) {
       }
     }
     // Reject observable directory swaps or mutations during the scan.
-    if(!same(lstatSync(path),opened) || !privateDir(lstatSync(path)) ||
+    const finalPath=lstatSync(path);
+    const finalNames=readdirSync(anchor);
+    const finalSet=new Set(finalNames);
+    if(!same(finalPath,opened) || !privateDir(finalPath) ||
        !same(fstatSync(dirFd),opened) ||
-       names.length!==readdirSync(anchor).length ||
-       names.some(name=>!readdirSync(anchor).includes(name)))
+       names.length!==finalNames.length ||
+       names.some(name=>!finalSet.has(name)))
       throw Error(INVALID);
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
       lockCount:locks,eventMarkerCount:markers,
