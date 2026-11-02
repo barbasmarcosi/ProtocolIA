@@ -58,8 +58,13 @@ function readEntry(anchor,name) {
  * claim may have partially committed and requires independent operator review.
  * A clean scan cannot prove that records were never deleted or modified.
  */
-export function inspectLocalEventReplay(directory) {
-  if(typeof directory!=="string" || directory.length===0)throw Error(INVALID);
+export function inspectLocalEventReplay(directory,{excludeEventMarkers=[]}={}) {
+  if(typeof directory!=="string" || directory.length===0 ||
+     !Array.isArray(excludeEventMarkers) || excludeEventMarkers.length>512 ||
+     new Set(excludeEventMarkers).size!==excludeEventMarkers.length ||
+     excludeEventMarkers.some(name=>typeof name!=="string" || !MARKER.test(name)))
+    throw Error(INVALID);
+  const excluded=new Set(excludeEventMarkers);
   let dirFd;
   try {
     const path=resolve(directory);
@@ -127,11 +132,30 @@ export function inspectLocalEventReplay(directory) {
        namesAfter.length!==names.length ||
        names.some(name=>!namesAfterSet.has(name)))throw Error(INVALID);
     const witness=createHash("sha256");
+    const markerWitness=createHash("sha256");
+    const historicalWitness=createHash("sha256");
+    let excludedFound=0;
     witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
-    for(const entry of observed)
-      witness.update(JSON.stringify([entry.name,entry.sha256])+"\n");
+    // Exclude transient provider locks from the separately pinnable marker
+    // checkpoint. This digest is only meaningful if retained independently.
+    markerWitness.update("ProtocolIA-S2C-event-marker-checkpoint-v1\n");
+    historicalWitness.update("ProtocolIA-S2C-event-marker-checkpoint-v1\n");
+    for(const entry of observed) {
+      const line=JSON.stringify([entry.name,entry.sha256])+"\n";
+      witness.update(line);
+      if(MARKER.test(entry.name)) {
+        markerWitness.update(line);
+        if(excluded.has(entry.name))excludedFound++;
+        else historicalWitness.update(line);
+      }
+    }
+    if(excludedFound!==excluded.size)throw Error(INVALID);
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
       snapshotSha256:witness.digest("hex"),
+      eventMarkersSha256:markerWitness.digest("hex"),
+      ...(excluded.size===0 ? {} : {
+        remainingEventMarkersSha256:historicalWitness.digest("hex"),
+        excludedEventMarkerCount:excludedFound}),
       lockCount:locks,eventMarkerCount:markers,
       scope:"single_host_format_inspection_only",
       providerIdentityVerified:false,settlementVerified:false,

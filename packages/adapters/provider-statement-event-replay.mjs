@@ -30,12 +30,16 @@ function absent(path) {
  * Call only after descriptor-bound signature verification and successful
  * financial comparison. Reissued statements containing any old eventId fail.
  */
-export function consumeLocalSignedEvents({directory,metadata,external}) {
+export function consumeLocalSignedEvents({directory,metadata,external,
+  expectedEventMarkersSha256}) {
   if(typeof directory!=="string" || directory.length===0 ||
      !metadata || typeof metadata!=="object" ||
      typeof metadata.providerId!=="string" || !ID.test(metadata.providerId) ||
      typeof metadata.orderId!=="string" || !ID.test(metadata.orderId) ||
      typeof metadata.statementSha256!=="string" || !SHA.test(metadata.statementSha256) ||
+     (expectedEventMarkersSha256!==undefined &&
+       (typeof expectedEventMarkersSha256!=="string" ||
+        !SHA.test(expectedEventMarkersSha256))) ||
      !Array.isArray(external) || external.length<1 ||
      external.length>MAX_EVENTS)throw Error(INVALID);
   const ids=new Set();
@@ -80,7 +84,9 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // verifies every existing marker (not just requested event IDs).
     // This is format integrity, NOT proof that markers were never deleted.
     const beforeClaim=inspectLocalEventReplay(path);
-    if(beforeClaim.state!=="no_lock_observed" || beforeClaim.lockCount!==0)
+    if(beforeClaim.state!=="no_lock_observed" || beforeClaim.lockCount!==0 ||
+       (expectedEventMarkersSha256!==undefined &&
+        beforeClaim.eventMarkersSha256!==expectedEventMarkersSha256))
       throw Error(INVALID);
     // Lock is per provider, NOT per order, so two different orders cannot
     // claim the same provider event ID concurrently.
@@ -137,6 +143,15 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
       throw Error(INVALID);
     }
     assertOwnLock();
+    // A separately retained checkpoint detects a whole-directory rollback or
+    // marker deletion that is otherwise well-formed. Repeat under our lock:
+    // an initial clean scan cannot prevent deletion before O_EXCL acquisition.
+    // The checkpoint excludes our transient lock and is not itself trusted.
+    if(expectedEventMarkersSha256!==undefined &&
+       lockedState.eventMarkersSha256!==expectedEventMarkersSha256) {
+      releaseUnwrittenLock();
+      throw Error(INVALID);
+    }
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
     if(markers.some(name=>!absent(entry(name)))) {
@@ -166,7 +181,8 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // not silently certify a claim whose original inode is no longer linked.
     // Same-UID hostile filesystem mutation after this check is outside the
     // single-host guarantee; distributed/durable identity remains unproved.
-    for(const claim of claimed) {
+    const assertClaims=()=>{
+      for(const claim of claimed) {
       const current=lstatSync(entry(claim.name));
       const owned=fstatSync(claim.fd);
       const initial=claim.identity;
@@ -179,6 +195,23 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
          current.ctimeMs!==initial.ctimeMs ||
          owned.ctimeMs!==initial.ctimeMs)
         throw Error(INVALID);
+      }
+    };
+    assertClaims();
+    // In checkpoint mode, verify the entire new set before releasing the
+    // lock, then return a next checkpoint for independent operator storage.
+    // The caller must persist it outside this mutable directory; publication
+    // and event claims are NOT one distributed/atomic transaction.
+    let nextEventMarkersSha256;
+    if(expectedEventMarkersSha256!==undefined) {
+      const next=inspectLocalEventReplay(path,{excludeEventMarkers:markers});
+      if(next.lockCount!==1 ||
+         next.eventMarkerCount!==lockedState.eventMarkerCount+markers.length ||
+         next.excludedEventMarkerCount!==markers.length ||
+         next.remainingEventMarkersSha256!==expectedEventMarkersSha256)
+        throw Error(INVALID);
+      nextEventMarkersSha256=next.eventMarkersSha256;
+      assertClaims(); // Catch observable replacement during the final scan.
     }
     // Never delete a substituted lock or a lock guarding altered markers:
     // preserve crash evidence for independent operator review.
@@ -186,7 +219,9 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     unlinkSync(entry(lockName));
     fsyncSync(dirFd);
     return {replayProtection:"single_host_local_event_markers",
-      consumedEventCount:markers.length};
+      consumedEventCount:markers.length,
+      ...(nextEventMarkersSha256===undefined ? {} :
+        {nextEventMarkersSha256})};
   } catch {
     // A crash or I/O failure after lock creation may leave partial markers.
     // Keeping the provider lock blocks later acceptance until manual review.

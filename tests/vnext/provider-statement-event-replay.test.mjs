@@ -8,6 +8,7 @@ import {join,resolve} from "node:path";
 import {spawn,spawnSync} from "node:child_process";
 import {signedStatementMessage} from "../../packages/adapters/provider-statement-signature.mjs";
 import {consumeLocalSignedEvents} from "../../packages/adapters/provider-statement-event-replay.mjs";
+import {inspectLocalEventReplay} from "../../packages/adapters/provider-statement-replay-inspection.mjs";
 
 const cli=resolve("scripts/vnext/reconcile-provider-statement.mjs");
 const sha=value=>createHash("sha256").update(value).digest("hex");
@@ -461,5 +462,76 @@ test("overlapping valid locks from different providers never strand our unwritte
       directory:f.guard,metadata:f.metadata,external:[event]});
     assert.equal(recovered.consumedEventCount,1);
     assert.equal(readdirSync(f.guard).filter(x=>x.startsWith("event-")).length,1);
+  });
+});
+
+test("operator-pinned event checkpoint advances only on a valid new signed claim",()=>{
+  withFixture(f=>{
+    const initial=inspectLocalEventReplay(f.guard).eventMarkersSha256;
+    assert.match(initial,/^[0-9a-f]{64}$/);
+    const flags=pin=>[...f.args,"--expected-event-markers-sha256",pin];
+    const first=run(flags(initial));
+    assert.equal(first.status,0,first.stderr);
+    const proof=JSON.parse(first.stdout).externalStatementSignature;
+    assert.equal(proof.eventMarkerCheckpointScope,
+      "operator_pinned_local_markers_only");
+    assert.equal(proof.nextEventMarkersSha256,
+      inspectLocalEventReplay(f.guard).eventMarkersSha256);
+    assert.notEqual(proof.nextEventMarkersSha256,initial);
+    const marker=readdirSync(f.guard).find(name=>name.startsWith("event-"));
+    f.setEvents([{...event,eventId:"E-2"}]);
+    const stale=run(flags(initial));
+    assert.equal(stale.status,1,stale.stderr);
+    assert.equal(stale.stdout,"");
+    assert.deepEqual(readdirSync(f.guard),[marker],
+      "a stale independent pin must not create a lock or consume an event");
+    const second=run(flags(proof.nextEventMarkersSha256));
+    assert.equal(second.status,0,second.stderr);
+    const next=JSON.parse(second.stdout).externalStatementSignature.nextEventMarkersSha256;
+    assert.equal(next,inspectLocalEventReplay(f.guard).eventMarkersSha256);
+    assert.notEqual(next,proof.nextEventMarkersSha256);
+    rmSync(join(f.guard,marker));
+    f.setEvents([{...event,eventId:"E-3"}]);
+    const rollback=run(flags(next));
+    assert.equal(rollback.status,1,rollback.stderr);
+    assert.equal(rollback.stdout,"");
+    assert.equal(readdirSync(f.guard).length,1,
+      "deleting an old valid marker must not allow new claims under the pin");
+  });
+});
+
+test("checkpoint mode rejects malformed or incomplete trust flags without writes",()=>{
+  withFixture(f=>{
+    const pin=inspectLocalEventReplay(f.guard).eventMarkersSha256;
+    for(const args of [
+      [...f.args,"--expected-event-markers-sha256","f".repeat(63)],
+      [...f.args,"--expected-event-markers-sha256","Z".repeat(64)],
+      [...f.args,"--expected-event-markers-sha256",pin,
+        "--expected-event-markers-sha256",pin],
+      [...f.args.slice(0,-2),"--expected-event-markers-sha256",pin]
+    ]) {
+      const result=run(args);
+      assert.equal(result.status,1,result.stderr);
+      assert.equal(result.stdout,"");
+      assert.deepEqual(readdirSync(f.guard),[]);
+    }
+    assert.throws(()=>consumeLocalSignedEvents({
+      directory:f.guard,metadata:f.metadata,external:[event],
+      expectedEventMarkersSha256:"invalid"}),/local event replay guard/);
+  });
+});
+
+test("ten concurrent signed claims with one external pin have one winner",async()=>{
+  await withFixture(async f=>{
+    const initial=inspectLocalEventReplay(f.guard).eventMarkersSha256;
+    const args=[...f.args,"--expected-event-markers-sha256",initial];
+    const results=await Promise.all(Array.from({length:10},()=>parallel(args)));
+    assert.equal(results.filter(r=>r.status===0).length,1,JSON.stringify(results));
+    assert.equal(results.filter(r=>r.status===1).length,9);
+    assert.equal(readdirSync(f.guard).filter(n=>n.startsWith("event-")).length,1);
+    assert.equal(readdirSync(f.guard).filter(n=>n.startsWith(".pia-event-lock-")).length,0);
+    const success=JSON.parse(results.find(r=>r.status===0).stdout);
+    assert.equal(success.externalStatementSignature.nextEventMarkersSha256,
+      inspectLocalEventReplay(f.guard).eventMarkersSha256);
   });
 });

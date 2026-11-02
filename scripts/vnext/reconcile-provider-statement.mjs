@@ -23,7 +23,8 @@ try {
     "--provider-public-key","--trusted-key-sha256","--local-replay-dir",
     "--local-event-replay-dir","--operator-bundle-manifest",
     "--operator-public-key","--trusted-operator-key-sha256",
-    "--provider-trust-registry","--trusted-registry-sha256"];
+    "--provider-trust-registry","--trusted-registry-sha256",
+    "--expected-event-markers-sha256"];
   const signatureFlags=["--external-attestation","--provider-public-key","--trusted-key-sha256"];
   const supplied=signatureFlags.filter(flag=>flags.has(flag)).length;
   const bundleFlags=["--operator-bundle-manifest","--operator-public-key",
@@ -40,6 +41,10 @@ try {
   if(supplied===3 && bundleSupplied===3 &&
      flags.get("--trusted-key-sha256")===flags.get("--trusted-operator-key-sha256"))
     throw Error("Operator and provider trust keys must be independent");
+  if(flags.has("--expected-event-markers-sha256") &&
+     (!flags.has("--local-event-replay-dir") ||
+      !/^[0-9a-f]{64}$/.test(flags.get("--expected-event-markers-sha256"))))
+    throw Error("Pinned event marker checkpoint requires local event replay and a SHA-256 digest");
   if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order") ||
        !flags.has("--expected-provider"))) ||
      (supplied===0 && flags.has("--expected-provider")) ||
@@ -133,10 +138,16 @@ try {
     if(flags.has("--local-event-replay-dir")) {
       const claim=consumeLocalSignedEvents({
         directory:flags.get("--local-event-replay-dir"),
-        metadata:attestation,external:external.data
+        metadata:attestation,external:external.data,
+        ...(flags.has("--expected-event-markers-sha256") ?
+          {expectedEventMarkersSha256:flags.get("--expected-event-markers-sha256")} : {})
       });
       signature.replayProtection=claim.replayProtection;
       signature.consumedEventCount=claim.consumedEventCount;
+      if(claim.nextEventMarkersSha256!==undefined) {
+        signature.nextEventMarkersSha256=claim.nextEventMarkersSha256;
+        signature.eventMarkerCheckpointScope="operator_pinned_local_markers_only";
+      }
     }
     result.externalStatementSignature=signature;
   }
