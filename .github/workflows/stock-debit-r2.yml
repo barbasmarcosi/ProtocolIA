@@ -2,11 +2,27 @@ name: R2 bounded stock debit, compensation and PostgreSQL race
 
 on:
   pull_request:
+    branches: [main]
     paths:
       - 'examples/vnext/stock-debit/**'
-      - 'packages/cli/conformance.mjs'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/stock-debit-r2.yml'
-      - 'docs/research/autonomous-engineering/R2_STOCK_DEBIT.md'
+  push:
+    branches: [main]
+    paths:
+      - 'examples/vnext/stock-debit/**'
+      - 'packages/cli/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/stock-debit-r2.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +51,7 @@ jobs:
           const p='examples/vnext/stock-debit/tsp-output/@protocolia/compiler/ir.json';
           const ir=JSON.parse(readFileSync(p));
           assert.equal(ir.irVersion,'vnext-a0.1');
-          assert.deepEqual(ir.entities.map(e=>e.name),['StockItem','StockDebit']);
+          assert.deepEqual(ir.entities.map(e=>e.name).sort(),['StockDebit','StockItem']);
           const debit=ir.operations.find(op=>op.name==='createStockDebit');
           const reverse=ir.operations.find(op=>op.name==='reverseStockDebit');
           assert.deepEqual(debit.behavior.reserve,{
@@ -50,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run app:build -- examples/vnext/stock-debit --target nestjs --out "$RUNNER_TEMP/stock-debit-nest"
-      - name: Exercise real PostgreSQL: debit, duplicate, oversell race, compensation and audit state
+      - name: "Exercise real PostgreSQL: debit, duplicate, oversell race, compensation and audit state"
         shell: bash
         run: |
           set -euo pipefail
