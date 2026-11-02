@@ -77,7 +77,12 @@ export function consumeLocalSignedEvents({directory,metadata,external,
   const claimed=[];
   const path=resolve(directory);
   const checkDirectory=opened=>{
-    if(!same(lstatSync(path),opened) || !privateDir(opened))throw Error(INVALID);
+    // A stable directory inode is not enough: chmod can expose private
+    // financial replay state without renaming the directory. Revalidate both
+    // the live pathname and opened descriptor on every claim fence.
+    const current=lstatSync(path),live=fstatSync(dirFd);
+    if(!same(current,opened) || !same(live,opened) ||
+       !privateDir(current) || !privateDir(live))throw Error(INVALID);
   };
   try {
     const before=lstatSync(path);
@@ -248,6 +253,11 @@ export function consumeLocalSignedEvents({directory,metadata,external,
     assertOwnLock();
     unlinkSync(entry(lockName));
     fsyncSync(dirFd);
+    // A directory-mode change during the final durability sync must never
+    // produce a successful financial claim. The marker stays consumed even
+    // when this late check fails; never roll it back after O_EXCL.
+    checkDirectory(opened);
+    assertClaims();
     return {replayProtection:"single_host_local_event_markers",
       consumedEventCount:markers.length,
       ...(nextEventMarkersSha256===undefined ? {} :
