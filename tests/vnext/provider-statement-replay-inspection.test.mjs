@@ -233,11 +233,11 @@ test("v2 replay records bind event identity, transaction and monetary fields",()
     ]) {
       const changed=structuredClone(original);
       mutation(changed);
-      writeFileSync(file,JSON.stringify(changed)+"\\n");
+      writeFileSync(file,JSON.stringify(changed)+"\n");
       assert.throws(()=>inspectLocalEventReplay(dir),/local replay inspection/,
         "a malformed or mismatched v2 marker must fail closed");
     }
-    writeFileSync(file,JSON.stringify(original)+"\\n");
+    writeFileSync(file,JSON.stringify(original)+"\n");
     assert.equal(inspectLocalEventReplay(dir).eventMarkerCount,1);
   });
 });
@@ -251,7 +251,7 @@ test("legacy v1 markers remain readable but explicitly unbound; new claims use v
     const v1={version:1,statementSha256:v2.statementSha256,
       providerId:v2.providerId,orderId:v2.orderId,
       eventMarkerSha256:v2.eventMarkerSha256};
-    writeFileSync(file,JSON.stringify(v1)+"\\n");
+    writeFileSync(file,JSON.stringify(v1)+"\n");
     assert.equal(inspectLocalEventReplay(dir).legacyUnboundEventMarkerCount,1);
     const fresh=[{...external[0],eventId:"E2",transactionId:"T2"}];
     assert.equal(consumeLocalSignedEvents({directory:dir,metadata:meta,
