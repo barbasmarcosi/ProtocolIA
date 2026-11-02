@@ -251,3 +251,46 @@ test("unlinked local refund still requires independent return review",()=>{
     "internal_return_not_externally_reported","unlinked_internal_receipt"
   ]);
 });
+
+test("repeated chargebacks receive same-kind review, independently of refunds",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.30","chargeback")];
+  s.external.push(
+    returned("CB-1","0.10","chargeback"),
+    returned("CB-2","0.20","chargeback")
+  );
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_return_events_require_review");
+  assert.deepEqual(codes(r),["multiple_return_events_require_review"]);
+  assert.equal(r.rows[0].externalChargeback,"0.30");
+});
+
+test("external refund with no capture and no local journal exposes all independent risks",()=>{
+  const s=base();
+  delete s.internalReturns;
+  s.external=[returned("EXT-R","0.25")];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"no_capture_reported");
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "external_returns_exceed_capture",
+    "no_capture_reported"
+  ]);
+});
+
+test("orphan crosswalk cannot hide external refund or repeated chargebacks",()=>{
+  const s=base();
+  s.links=[{receiptId:"MISSING",providerId:"sandbox",transactionId:"T1"}];
+  s.external.push(
+    returned("CB-1","0.10","chargeback"),
+    returned("CB-2","0.20","chargeback")
+  );
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "multiple_return_events_require_review",
+    "orphan_mapping",
+    "unlinked_internal_receipt"
+  ]);
+});
