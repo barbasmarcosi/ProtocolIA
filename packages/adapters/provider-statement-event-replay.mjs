@@ -181,7 +181,8 @@ export function consumeLocalSignedEvents({directory,metadata,external,
     // not silently certify a claim whose original inode is no longer linked.
     // Same-UID hostile filesystem mutation after this check is outside the
     // single-host guarantee; distributed/durable identity remains unproved.
-    for(const claim of claimed) {
+    const assertClaims=()=>{
+      for(const claim of claimed) {
       const current=lstatSync(entry(claim.name));
       const owned=fstatSync(claim.fd);
       const initial=claim.identity;
@@ -194,18 +195,23 @@ export function consumeLocalSignedEvents({directory,metadata,external,
          current.ctimeMs!==initial.ctimeMs ||
          owned.ctimeMs!==initial.ctimeMs)
         throw Error(INVALID);
-    }
+      }
+    };
+    assertClaims();
     // In checkpoint mode, verify the entire new set before releasing the
     // lock, then return a next checkpoint for independent operator storage.
     // The caller must persist it outside this mutable directory; publication
     // and event claims are NOT one distributed/atomic transaction.
     let nextEventMarkersSha256;
     if(expectedEventMarkersSha256!==undefined) {
-      const next=inspectLocalEventReplay(path);
+      const next=inspectLocalEventReplay(path,{excludeEventMarkers:markers});
       if(next.lockCount!==1 ||
-         next.eventMarkerCount!==lockedState.eventMarkerCount+markers.length)
+         next.eventMarkerCount!==lockedState.eventMarkerCount+markers.length ||
+         next.excludedEventMarkerCount!==markers.length ||
+         next.remainingEventMarkersSha256!==expectedEventMarkersSha256)
         throw Error(INVALID);
       nextEventMarkersSha256=next.eventMarkersSha256;
+      assertClaims(); // Catch observable replacement during the final scan.
     }
     // Never delete a substituted lock or a lock guarding altered markers:
     // preserve crash evidence for independent operator review.
