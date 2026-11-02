@@ -1,8 +1,16 @@
 -- S2c research proof: transactional, provider-scoped event replay and audit.
 -- NOT a production migration or an external provider/bank identity assertion.
 -- Apply only to an isolated disposable PostgreSQL database.
+-- The owner cannot log in; the untrusted/runtime roles own no data objects.
+-- An authenticated service role may be granted membership in runtime only
+-- after independently establishing the caller's identity (not done here).
 BEGIN;
-CREATE SCHEMA protocolia_s2c_replay;
+CREATE ROLE protocolia_s2c_owner NOLOGIN NOINHERIT;
+CREATE ROLE protocolia_s2c_runtime NOLOGIN NOINHERIT;
+CREATE ROLE protocolia_s2c_untrusted NOLOGIN NOINHERIT;
+CREATE SCHEMA protocolia_s2c_replay AUTHORIZATION protocolia_s2c_owner;
+REVOKE ALL ON SCHEMA protocolia_s2c_replay FROM PUBLIC;
+SET ROLE protocolia_s2c_owner;
 CREATE TABLE protocolia_s2c_replay.claim (
   provider_id text COLLATE "C" NOT NULL,
   event_id text COLLATE "C" NOT NULL,
@@ -50,11 +58,13 @@ CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE
   EXECUTE FUNCTION protocolia_s2c_replay.reject_mutation();
 
 -- Caller must authenticate and verify the signed statement BEFORE invoking.
--- SECURITY INVOKER deliberately grants no privilege escalation. This is an
--- isolated SQL contract proof, not a wired application entrypoint.
+-- SECURITY DEFINER executes as the dedicated NOLOGIN owner. Runtime gets
+-- EXECUTE only; no table, sequence, DDL or trigger privileges. A fixed
+-- search_path (pg_temp last) prevents caller-controlled name shadowing.
+-- This is an isolated SQL contract proof, not a wired application entrypoint.
 CREATE FUNCTION protocolia_s2c_replay.claim_verified_batch(
   v_provider text,v_order text,v_statement_sha256 text,v_events jsonb
-) RETURNS integer LANGUAGE plpgsql SECURITY INVOKER
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, protocolia_s2c_replay, pg_temp AS $claim$
 DECLARE
   item jsonb;
@@ -114,4 +124,11 @@ BEGIN
 END $claim$;
 REVOKE ALL ON FUNCTION protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)
   FROM PUBLIC;
+REVOKE ALL ON FUNCTION protocolia_s2c_replay.reject_mutation() FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA protocolia_s2c_replay FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA protocolia_s2c_replay FROM PUBLIC;
+GRANT USAGE ON SCHEMA protocolia_s2c_replay TO protocolia_s2c_runtime;
+GRANT EXECUTE ON FUNCTION protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)
+  TO protocolia_s2c_runtime;
+RESET ROLE;
 COMMIT;
