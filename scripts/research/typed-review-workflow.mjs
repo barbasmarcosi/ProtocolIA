@@ -21,9 +21,9 @@ export function reviewSemanticIr(source){
  const labels=Object.values(w);
  check(labels.every(validState)&&new Set(labels).size===4,"state labels distinct and valid");
  const edges=[
-  ["submitReviewCase","submit",w.initial,w.review,"cases.review"],
-  ["approveReviewCase","approve",w.review,w.accepted,"cases.decide"],
-  ["rejectReviewCase","reject",w.review,w.rejected,"cases.decide"]
+  ["submitReviewCase","submit",w.initial,w.review,"cases.write"],
+  ["approveReviewCase","approve",w.review,w.accepted,"cases.write"],
+  ["rejectReviewCase","reject",w.review,w.rejected,"cases.write"]
  ];
  const op=(name,kind,path,capability)=>({name,kind,entity:"ReviewCase",path,capability});
  const operations=[
