@@ -475,7 +475,15 @@ async function runMulti(){
       assert.equal(after.data[op.behavior.field],initial+10);
     }
     let executed=0;
-    for(const op of resource.transitions??[]){
+    // The compiler is allowed to sort operations alphabetically; do not
+    // interpret the emitted order as business-state ordering. Resolve the
+    // dependent transitions of the reviewed case from its source graph.
+    const transitionPlan=e.name==="ReviewCase"?
+      [...(resource.transitions??[])].sort((a,b)=>{
+        const stage={submitReviewCase:0,approveReviewCase:1,rejectReviewCase:2};
+        return (stage[a.name]??99)-(stage[b.name]??99);
+      }):resource.transitions??[];
+    for(const op of transitionPlan){
       // Terminal closure must execute after all dependent resource fixtures have
       // been created and edited. Closing midway would correctly forbid later
       // child creation and produce a false-negative generic conformance result.
@@ -513,6 +521,50 @@ async function runMulti(){
     }
     if((resource.transitions??[]).some(op=>!versionedTransition(resource,op)))
       assert.ok(executed>0,"No declared transition was executable");
+
+    // Source-bounded reviewer state machine: test BOTH mutually exclusive
+    // terminal branches, not merely the first path traversed by the generic
+    // single-record state conformance. No external financial side effects.
+    if(e.name==="ReviewCase"){
+      const transitions=resource.transitions??[];
+      const submit=transitions.find(t=>t.name==="submitReviewCase");
+      const approve=transitions.find(t=>t.name==="approveReviewCase");
+      const reject=transitions.find(t=>t.name==="rejectReviewCase");
+      assert.ok(submit&&approve&&reject,"ReviewCase requires three source-typed transitions");
+      assert.equal(approve.behavior.from,reject.behavior.from);
+      assert.equal(submit.behavior.to,approve.behavior.from);
+      const afterApproved=await run(resource,"get",reader,{key});
+      assert.equal(afterApproved.status,200);
+      assert.equal(afterApproved.data.state,approve.behavior.to);
+      assert.equal((await run(resource,reject,writer,{key})).status,409,
+        "An approved case cannot also become rejected");
+      const identityField=e.fields.find(f=>f.name===identity);
+      const max=identityField?.maxLength??64;
+      const suffix="Alt"+uuid.slice(0,5);
+      assert.ok(max>suffix.length+2,"Review identity too short for branch fixture");
+      const alternateKey=String(key).slice(0,max-suffix.length)+suffix;
+      const alternateBody={...body,[identity]:alternateKey};
+      assert.equal((await run(resource,"create",writer,{body:alternateBody})).status,201,
+        "Fork test must create an independent persisted review case");
+      assert.equal((await run(resource,approve,writer,{key:alternateKey})).status,409,
+        "Cannot approve a draft without entering review");
+      assert.equal((await run(resource,submit,writer,{key:alternateKey})).status,200,
+        "Alternate branch must enter review");
+      const race=await Promise.all(Array.from({length:10},()=>
+        run(resource,reject,writer,{key:alternateKey})));
+      assert.equal(race.filter(v=>v.status===200).length,1,
+        "Concurrent rejections must have one state change");
+      assert.equal(race.filter(v=>v.status===409).length,9,
+        "Remaining rejections must conflict");
+      assert.equal((await run(resource,"get",reader,{key:alternateKey})).data.state,
+        reject.behavior.to,"The alternative decision must persist independently");
+      assert.equal((await run(resource,approve,writer,{key:alternateKey})).status,409,
+        "A rejected case cannot later become approved");
+      console.log("PROTOCOLIA_REVIEW_FORK_CONFORMANCE_PASS "+JSON.stringify({
+        entity:e.name,first:approve.behavior.to,second:reject.behavior.to,
+        concurrentRejected:9
+      }));
+    }
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
         [f.name]:"UNMATCHED-"+uuid};

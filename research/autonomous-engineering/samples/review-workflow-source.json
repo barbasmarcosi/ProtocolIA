@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "protocolia-review-workflow-source/v0.1",
+  "profile": "review-case-workflow/v0",
+  "namespace": "ReviewWorkflowLab",
+  "title": "Reviewed maintenance decisions — bounded state machine",
+  "bounds": {
+    "caseIdMaxLength": 52,
+    "summaryMaxLength": 180
+  },
+  "workflow": {
+    "initial": "drafted",
+    "review": "in_review",
+    "accepted": "approved",
+    "rejected": "rejected"
+  }
+}
