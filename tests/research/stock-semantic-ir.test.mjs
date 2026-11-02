@@ -93,6 +93,9 @@ test("source-supplied limit values are validated before any files are created",(
  ];
  for(const edit of corrupt){
   const b=structuredClone(from);edit(b);x.update(b);
+  const proposal=JSON.parse(readFileSync(x.proposal));
+  proposal.briefSha256=h(readFileSync(x.brief));
+  writeFileSync(x.proposal,JSON.stringify(proposal,null,2)+"\n");
   assert.throws(()=>compileStockBrief(x.brief,x.proposal,x.out),/STOCK_IR_INVALID/);
   assert.equal(existsSync(x.out),false);
  }
