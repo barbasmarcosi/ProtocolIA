@@ -71,10 +71,11 @@ test("unmapped external refund still reports snapshot-level return excess",()=>{
     kind:"refund",amount:"0.50",currency:"ARS"});
   const r=reconcile(s);
   assert.deepEqual(codes(r),[
+    "external_return_requires_review",
     "external_returns_exceed_capture",
     "unmatched_external_transaction"
   ]);
-  assert.equal(r.counts.exceptions,2);
+  assert.equal(r.counts.exceptions,3);
 });
 
 test("normal partial return remains unverified with zero anomalies; deterministic and immutable",()=>{
@@ -141,4 +142,155 @@ test("one capture per independently linked transaction remains non-authoritative
   assert.equal(r.counts.exceptions,0);
   assert.equal(r.counts.amountsAgreeUnverified,2);
   assert.equal(r.independentlyAuthenticated,false);
+});
+
+test("external return remains independently visible without journal despite wrong capture",()=>{
+  const s=base();
+  delete s.internalReturns;
+  s.external[0].amount="9.00";
+  s.external.push(returned("R-EXT","0.50"));
+  const before=structuredClone(s);
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"capture_amount_mismatch");
+  assert.deepEqual(codes(r),[
+    "capture_amount_mismatch","external_return_requires_review"
+  ]);
+  assert.equal(r.totals.purportedReturned,"0.50");
+  assert.equal(r.totals.internallyRecordedReturns,null);
+  assert.deepEqual(s,before);
+  s.external.reverse();
+  assert.deepEqual(reconcile(s),r);
+});
+
+test("external return without journal is not masked by an internal reversal",()=>{
+  const s=base();
+  delete s.internalReturns;
+  s.internal[0].status="reversed";
+  s.external.push(returned("R-EXT","0.25"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"internal_reversal_requires_review");
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review","internal_reversal_requires_review"
+  ]);
+  assert.equal(r.totals.postedInternal,"0.00");
+});
+
+test("two same-kind partial provider returns matching internal total require review",()=>{
+  const s=base();
+  s.internalReturns=[recorded("1.00")];
+  s.external.push(returned("R-EXT-1","0.40"),returned("R-EXT-2","0.60"));
+  const before=structuredClone(s);
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_return_events_require_review");
+  assert.deepEqual(codes(r),["multiple_return_events_require_review"]);
+  assert.equal(r.counts.returnsAgreeUnverified,0);
+  assert.equal(r.totals.purportedReturned,"1.00");
+  assert.deepEqual(s,before);
+  s.external.reverse();
+  assert.deepEqual(reconcile(s),r);
+});
+
+test("repeated same-kind returns and amount mismatch are both surfaced",()=>{
+  const s=base();
+  s.internalReturns=[recorded("1.00")];
+  s.external.push(returned("R-EXT-1","0.40"),returned("R-EXT-2","0.70"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"return_amount_or_kind_mismatch");
+  assert.deepEqual(codes(r),[
+    "multiple_return_events_require_review","return_amount_or_kind_mismatch"
+  ]);
+});
+
+test("one refund and one chargeback are not incorrectly classified as repeated same-kind returns",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.40"),{
+    ...recorded("0.60","chargeback"),returnId:"R2"
+  }];
+  s.external.push(returned("EXT-R","0.40"),returned("EXT-C","0.60","chargeback"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"returns_agree_unverified");
+  assert.deepEqual(codes(r),[]);
+});
+
+test("unmatched external partial refunds expose both orphan and repeated-return review",()=>{
+  const s=base();
+  s.external.push(
+    {...returned("ORPHAN-R1","0.25"),transactionId:"ORPHAN"},
+    {...returned("ORPHAN-R2","0.25"),transactionId:"ORPHAN"}
+  );
+  const r=reconcile(s);
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "external_returns_exceed_capture",
+    "multiple_return_events_require_review",
+    "unmatched_external_transaction"
+  ]);
+  assert.equal(r.counts.exceptions,4);
+});
+
+test("missing provider transaction does not mask a recorded internal refund",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.25")];
+  s.external=[];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"missing_external_transaction");
+  assert.deepEqual(codes(r),[
+    "internal_return_not_externally_reported","missing_external_transaction"
+  ]);
+  assert.equal(r.totals.internallyRecordedReturns,"0.25");
+});
+
+test("unlinked local refund still requires independent return review",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.25")];
+  s.links=[];
+  s.external=[];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(r),[
+    "internal_return_not_externally_reported","unlinked_internal_receipt"
+  ]);
+});
+
+test("repeated chargebacks receive same-kind review, independently of refunds",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.30","chargeback")];
+  s.external.push(
+    returned("CB-1","0.10","chargeback"),
+    returned("CB-2","0.20","chargeback")
+  );
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_return_events_require_review");
+  assert.deepEqual(codes(r),["multiple_return_events_require_review"]);
+  assert.equal(r.rows[0].externalChargeback,"0.30");
+});
+
+test("external refund with no capture and no local journal exposes all independent risks",()=>{
+  const s=base();
+  delete s.internalReturns;
+  s.external=[returned("EXT-R","0.25")];
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"no_capture_reported");
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "external_returns_exceed_capture",
+    "no_capture_reported"
+  ]);
+});
+
+test("orphan crosswalk cannot hide external refund or repeated chargebacks",()=>{
+  const s=base();
+  s.links=[{receiptId:"MISSING",providerId:"sandbox",transactionId:"T1"}];
+  s.external.push(
+    returned("CB-1","0.10","chargeback"),
+    returned("CB-2","0.20","chargeback")
+  );
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(r),[
+    "external_return_requires_review",
+    "multiple_return_events_require_review",
+    "orphan_mapping",
+    "unlinked_internal_receipt"
+  ]);
 });

@@ -187,3 +187,20 @@ test("CLI exits 2 for split capture events even when exact totals match",()=>{
   assert.equal(report.totals.purportedCaptured,"1.00");
   assert.equal(report.independentlyAuthenticated,false);
 });
+
+
+test("CLI exits 2 for matching partial refunds from distinct provider events",()=>{
+  const internalReturns=[{receiptId:"P1",returnId:"RF-1",kind:"refund",
+    amount:"0.30",currency:"ARS",status:"recorded"}];
+  const statement=[capture,
+    {...capture,eventId:"RF-E1",kind:"refund",amount:"0.10"},
+    {...capture,eventId:"RF-E2",kind:"refund",amount:"0.20"}];
+  const r=run([payment],[link],statement,internalReturns);
+  assert.equal(r.status,2,r.stderr);
+  const report=JSON.parse(r.stdout);
+  assert.equal(report.rows[0].classification,"multiple_return_events_require_review");
+  assert.deepEqual(report.exceptions.map(x=>x.code),
+    ["multiple_return_events_require_review"]);
+  assert.equal(report.totals.purportedReturned,"0.30");
+  assert.equal(report.independentlyAuthenticated,false);
+});

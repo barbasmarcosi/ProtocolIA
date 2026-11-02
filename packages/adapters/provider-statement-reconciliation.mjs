@@ -148,7 +148,8 @@ export function reconcileProviderStatement(input) {
     eventIds.add(eventKey);
     const minor = amount(row.amount, scale, "external[" + i + "].amount");
     const k = key(providerId,transactionId);
-    if (!external.has(k)) external.set(k, {capture:0n,refund:0n,chargeback:0n,returned:0n,count:0,captureEvents:0});
+    if (!external.has(k)) external.set(k, {capture:0n,refund:0n,chargeback:0n,returned:0n,count:0,
+      captureEvents:0,refundEvents:0,chargebackEvents:0});
     const aggregate = external.get(k);
     aggregate.count++;
     if (row.kind === "capture") {
@@ -156,6 +157,7 @@ export function reconcileProviderStatement(input) {
       aggregate.capture = addBounded(aggregate.capture,minor,"external transaction capture");
       captureTotal = addBounded(captureTotal,minor,"external capture total");
     } else {
+      aggregate[row.kind + "Events"]++;
       aggregate[row.kind] = addBounded(aggregate[row.kind],minor,
         "external transaction return kind");
       aggregate.returned = addBounded(aggregate.returned,minor,
@@ -196,6 +198,8 @@ export function reconcileProviderStatement(input) {
         else classification = "return_amount_or_kind_mismatch";
       } else if (aggregate.captureEvents > 1)
         classification = "multiple_capture_events_require_review";
+      else if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
+        classification = "multiple_return_events_require_review";
       else if (aggregate.returned > 0n)
         classification = returnsSupplied
           ? "returns_agree_unverified" : "external_return_requires_review";
@@ -218,6 +222,14 @@ export function reconcileProviderStatement(input) {
       // but their summed amount alone cannot prove a single settlement.
       if (agg.captureEvents > 1)
         extra("multiple_capture_events_require_review");
+      // Multiple same-kind returns may be legitimate partial refunds, but
+      // matching their sum does not prove the provider's event lifecycle.
+      if (agg.refundEvents > 1 || agg.chargebackEvents > 1)
+        extra("multiple_return_events_require_review");
+      // Without an internal return journal, an external return must remain
+      // independently visible even if capture mismatch or reversal wins.
+      if (!returnsSupplied && agg.returned > 0n)
+        extra("external_return_requires_review");
       if (agg.returned > agg.capture)
         extra("external_returns_exceed_capture");
       if (receipt.status === "reversed" && agg.capture > 0n)
@@ -232,6 +244,12 @@ export function reconcileProviderStatement(input) {
         extra(mismatch);
       }
     }
+    // A missing provider mapping or statement must not mask a separately
+    // recorded local return absent from the external snapshot. Transactions
+    // with an aggregate are already checked by the per-kind comparison above.
+    if (returnsSupplied && recordedTotal > 0n && !agg)
+      push("internal_return_not_externally_reported",receiptId,
+        link?.providerId ?? null,link?.transactionId ?? null);
     // A local reversal and a separately recorded return on the same receipt
     // may double-credit funds. Report it even if no provider mapping exists.
     if (returnsSupplied && receipt.status === "reversed" && recordedTotal > 0n)
@@ -259,14 +277,24 @@ export function reconcileProviderStatement(input) {
       push("orphan_mapping",receiptId,link.providerId,link.transactionId);
   }
   for (const [k, aggregate] of external) {
-    if (!linkOwners.has(k)) {
+    const mappedReceipt=linkOwners.get(k);
+    if (!mappedReceipt || !internal.has(mappedReceipt)) {
       const [providerId,transactionId] = JSON.parse(k);
-      push("unmatched_external_transaction",null,providerId,transactionId);
-      // Orphan provider rows are still subject to their own arithmetic.
+      // A crosswalk pointing to a nonexistent receipt is already reported as
+      // orphan_mapping. It must not suppress independent provider anomalies.
+      if (!mappedReceipt)
+        push("unmatched_external_transaction",null,providerId,transactionId);
+      // Unmatched or orphan-mapped provider rows still need arithmetic review.
       if (aggregate.returned > aggregate.capture)
         push("external_returns_exceed_capture",null,providerId,transactionId);
       if (aggregate.captureEvents > 1)
         push("multiple_capture_events_require_review",null,providerId,transactionId);
+      if (aggregate.refundEvents > 1 || aggregate.chargebackEvents > 1)
+        push("multiple_return_events_require_review",null,providerId,transactionId);
+      // Orphan returns cannot be reconciled to an internal return journal,
+      // regardless of whether one was supplied for other receipts.
+      if (aggregate.returned > 0n)
+        push("external_return_requires_review",null,providerId,transactionId);
     }
   }
   issues.sort((a,b) =>
