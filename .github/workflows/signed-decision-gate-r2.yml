@@ -1,0 +1,123 @@
+name: R2 signed domain decision gate
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/signed-decision-approval.mjs'
+      - 'scripts/research/intake-to-typespec.mjs'
+      - 'tests/research/signed-decision-approval.test.mjs'
+      - 'docs/research/autonomous-engineering/R2_SIGNED_DECISIONS.md'
+      - '.github/workflows/signed-decision-gate-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signature-and-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check scripts/research/signed-decision-approval.mjs
+      - run: node --test tests/research/signed-decision-approval.test.mjs
+      - run: node --test tests/research/chat-agent-pilot.test.mjs tests/research/intake-to-typespec.test.mjs
+
+  signed-profile-end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Derive a reviewed candidate from the real agent pilot; sign ONLY with an ephemeral CI key
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d "$PWD/.r2-signed.XXXXXXXX")"
+          echo "SIGNED_TMP=$OUT" >> "$GITHUB_ENV"
+          node scripts/research/agent-intake-gateway.mjs admit \
+            research/autonomous-engineering/samples/kiosk-owner-brief.json \
+            research/autonomous-engineering/trials/chat-agent-kiosk/proposal.json \
+            "$OUT/admitted"
+          node --input-type=module - "$OUT" <<'JS'
+          import {createHash,generateKeyPairSync,sign} from 'node:crypto';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {createDecisionPayload} from './scripts/research/signed-decision-approval.mjs';
+          const dir=process.argv[2];
+          const original=readFileSync(join(dir,'admitted/intake.json'));
+          const candidate=JSON.parse(original);
+          for(const q of candidate.questions.filter(q=>['K-Q03','K-Q04'].includes(q.id))){
+            q.state='resolved';q.origin='approved_policy';q.evidenceRefs=['signed-domain-scope-approval'];
+            q.decision=q.id==='K-Q03'?
+              'TEST ONLY: accept positive stock increments; debits and sales remain deferred.':
+              'TEST ONLY: exact string SKU uniqueness; normalization remains deferred.';
+          }
+          const candidateBytes=Buffer.from(JSON.stringify(candidate,null,2)+'\n');
+          writeFileSync(join(dir,'candidate.json'),candidateBytes);
+          const payload=createDecisionPayload(original,candidateBytes);
+          const {privateKey,publicKey}=generateKeyPairSync('ed25519');
+          const pub=publicKey.export({type:'spki',format:'pem'});
+          const fp=createHash('sha256').update(publicKey.export({type:'spki',format:'der'})).digest('hex');
+          const sig=sign(null,Buffer.from('PROTOCOLIA_DECISION_APPROVAL_V1\n'+JSON.stringify(payload)),privateKey).toString('base64');
+          writeFileSync(join(dir,'approval.json'),JSON.stringify({payload,signatureBase64:sig},null,2)+'\n');
+          writeFileSync(join(dir,'pub.pem'),pub);
+          writeFileSync(join(dir,'pin'),fp+'\n');
+          JS
+      - name: Reject unauthorized material decision, then verify signed scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node scripts/research/intake-to-typespec.mjs generate \
+              "$SIGNED_TMP/candidate.json" "$SIGNED_TMP/no-proof"; then
+            echo 'Unsafe unsigned approval unexpectedly compiled' >&2
+            exit 1
+          fi
+          test ! -e "$SIGNED_TMP/no-proof/contracts/main.tsp"
+          PIN="$(cat "$SIGNED_TMP/pin")"
+          node scripts/research/signed-decision-approval.mjs verify \
+            "$SIGNED_TMP/admitted/intake.json" "$SIGNED_TMP/candidate.json" \
+            --approval "$SIGNED_TMP/approval.json" --public-key "$SIGNED_TMP/pub.pem" "sha256:$PIN"
+          node scripts/research/intake-to-typespec.mjs generate \
+            "$SIGNED_TMP/candidate.json" "$SIGNED_TMP/contracts" \
+            --source "$SIGNED_TMP/admitted/intake.json" \
+            --approval "$SIGNED_TMP/approval.json" \
+            --public-key "$SIGNED_TMP/pub.pem" --trusted-key-sha256 "$PIN"
+          node scripts/research/intake-to-typespec.mjs verify \
+            "$SIGNED_TMP/candidate.json" "$SIGNED_TMP/contracts" \
+            --source "$SIGNED_TMP/admitted/intake.json" \
+            --approval "$SIGNED_TMP/approval.json" \
+            --public-key "$SIGNED_TMP/pub.pem" --trusted-key-sha256 "$PIN"
+      - name: Compile real TypeSpec and produce portable decision-aware Passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build:vnext
+          ./node_modules/.bin/tsp compile "$SIGNED_TMP/contracts"
+          node scripts/research/project-passport.mjs generate \
+            --ir "$SIGNED_TMP/contracts/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$SIGNED_TMP/contracts/requirements.json" \
+            --decisions "$SIGNED_TMP/contracts/decisions.json" \
+            --out "$RUNNER_TEMP/signed-kiosk-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$SIGNED_TMP/contracts/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$SIGNED_TMP/contracts/requirements.json" \
+            --decisions "$SIGNED_TMP/contracts/decisions.json" \
+            --out "$RUNNER_TEMP/signed-kiosk-passport"
+          grep -q "signed-domain-scope-approval" "$RUNNER_TEMP/signed-kiosk-passport/docs/domain/decisions.md"
+      - name: Build and test generated NestJS application using the EXISTING bounded profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$SIGNED_TMP/contracts" --target nestjs --out "$RUNNER_TEMP/signed-kiosk-app"
+          npm run app:test -- "$RUNNER_TEMP/signed-kiosk-app"
+          node -e 'const r=require(process.argv[1]); if(r.signedScopeApproval?.status!=="CRYPTOGRAPHICALLY_VERIFIED_SCOPE_DECISION_ONLY")process.exit(1);' \
+            "$SIGNED_TMP/contracts/protocolia-intake-report.json"
+          echo "CI_SCOPED_DECISION_SUCCESS: ephemeral test key verified; no production identity or authorizations"
