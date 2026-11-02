@@ -5,6 +5,11 @@ on:
     paths:
       - 'scripts/research/signed-decision-approval.mjs'
       - 'scripts/research/stock-debit-intake.mjs'
+      - 'scripts/research/stock-semantic-ir.mjs'
+      - 'tests/research/stock-semantic-ir.test.mjs'
+      - 'research/autonomous-engineering/samples/stock-debit-typed-ir-brief.json'
+      - 'docs/research/autonomous-engineering/R2_TYPED_SEMANTIC_IR.md'
+      - 'docs/research/autonomous-engineering/DELIVERY_ROADMAP.md'
       - 'scripts/research/agent-intake-gateway.mjs'
       - 'tests/research/stock-debit-intake.test.mjs'
       - 'research/autonomous-engineering/samples/stock-debit-lab-brief.json'
@@ -255,3 +260,89 @@ jobs:
           grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/stock-agent-race.log"
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/stock-agent-race.log"
           echo "STOCK_AGENT_PROFILE_E2E_PASS: autonomous candidate selected a fixed audited profile, not arbitrary contract synthesis"
+
+
+  stock-typed-semantic-ir-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Typed stock semantic IR and adversarial verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/stock-semantic-ir.mjs
+          node --test tests/research/stock-semantic-ir.test.mjs
+          node --test tests/research/stock-debit-intake.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Freeze source, generate proposal hash and render TypeSpec from typed semantic IR
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$(mktemp -d "$PWD/.r26-typed-ir.XXXXXXXX")"
+          echo "STOCK_IR_TMP=$DIR" >> "$GITHUB_ENV"
+          BRIEF=research/autonomous-engineering/samples/stock-debit-typed-ir-brief.json
+          TEMPLATE=research/autonomous-engineering/trials/chat-agent-stock-debit/proposal-template.json
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");
+            const [brief,template,out]=process.argv.slice(1);
+            const p=JSON.parse(fs.readFileSync(template,"utf8"));
+            p.briefSha256=crypto.createHash("sha256").update(fs.readFileSync(brief)).digest("hex");
+            fs.writeFileSync(out,JSON.stringify(p,null,2)+"\n");' \
+            "$BRIEF" "$TEMPLATE" "$DIR/proposal.json"
+          node scripts/research/agent-intake-gateway.mjs admit "$BRIEF" "$DIR/proposal.json" "$DIR/admitted"
+          node scripts/research/stock-debit-intake.mjs generate "$BRIEF" "$DIR/proposal.json" "$DIR/contract"
+          node scripts/research/stock-debit-intake.mjs verify "$BRIEF" "$DIR/proposal.json" "$DIR/contract"
+          ./node_modules/.bin/tsp compile "$DIR/contract"
+      - name: Compare source-bound constraints against emitted compiler IR
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import assert from "node:assert/strict";
+          const base=process.env.STOCK_IR_TMP;
+          const input=JSON.parse(readFileSync("research/autonomous-engineering/samples/stock-debit-typed-ir-brief.json"));
+          const ir=JSON.parse(readFileSync(base+"/contract/tsp-output/@protocolia/compiler/ir.json"));
+          const entities=new Map(ir.entities.map(e=>[e.name,e]));
+          assert.deepEqual([...entities.keys()].sort(),["StockDebit","StockItem"]);
+          const stock=entities.get("StockItem"),debit=entities.get("StockDebit");
+          assert.equal(stock.fields.find(f=>f.name==="sku").maxLength,input.project.bounds.skuMaxLength);
+          assert.equal(stock.fields.find(f=>f.name==="name").maxLength,input.project.bounds.nameMaxLength);
+          assert.equal(stock.fields.find(f=>f.name==="available").max,input.project.bounds.stockMaxUnits);
+          assert.equal(debit.fields.find(f=>f.name==="debitId").maxLength,input.project.bounds.debitIdMaxLength);
+          assert.equal(debit.fields.find(f=>f.name==="units").max,input.project.bounds.debitMaxUnits);
+          const post=ir.operations.find(o=>o.name==="createStockDebit");
+          const undo=ir.operations.find(o=>o.name==="reverseStockDebit");
+          assert.deepEqual(post.behavior.reserve,{stockEntity:"StockItem",availableField:"available",
+            referenceField:"stockSku",quantityField:"units"});
+          assert.deepEqual(undo.behavior.release,post.behavior.reserve);
+          assert.equal(undo.behavior.to,"reversed");
+          JS
+      - name: Passport replays the bound requirements and unsigned outstanding policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$STOCK_IR_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STOCK_IR_TMP/contract/requirements.json" \
+            --decisions "$STOCK_IR_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/typed-stock-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$STOCK_IR_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STOCK_IR_TMP/contract/requirements.json" \
+            --decisions "$STOCK_IR_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/typed-stock-passport"
+      - name: Build and independently exercise generated NestJS PostgreSQL concurrency
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$STOCK_IR_TMP/contract" --target nestjs --out "$RUNNER_TEMP/typed-stock-app"
+          npm run app:test -- "$RUNNER_TEMP/typed-stock-app" | tee "$RUNNER_TEMP/typed-stock-conformance.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/typed-stock-conformance.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/typed-stock-conformance.log"
+          echo "STOCK_TYPED_IR_E2E_PASS: source limits -> typed IR -> TypeSpec -> actual PostgreSQL no oversell"
