@@ -8,6 +8,14 @@ on:
       - 'tests/research/composable-operator-*.test.mjs'
       - 'research/autonomous-engineering/samples/composable-*.json'
       - 'examples/vnext/composable-operators/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/cli/**'
+      - 'packages/adapters/nest/**'
+      - 'packages/adapters/modular/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/p2-composable-operators.yml'
   push:
     branches: [main]
@@ -16,6 +24,14 @@ on:
       - 'tests/research/composable-operator-*.test.mjs'
       - 'research/autonomous-engineering/samples/composable-*.json'
       - 'examples/vnext/composable-operators/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/cli/**'
+      - 'packages/adapters/nest/**'
+      - 'packages/adapters/modular/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/p2-composable-operators.yml'
   workflow_dispatch:
 
