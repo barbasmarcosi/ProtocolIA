@@ -4,12 +4,12 @@
 
 The read-only local signed-event replay inspector now returns a deterministic `snapshotSha256` over sorted file names and SHA-256 hashes of their exact canonical bytes, domain separated by `ProtocolIA-S2C-local-replay-snapshot-v1`. A second descriptor-bound pass checks that every inspected file retains the same inode, size, timestamps and bytes before returning. The CLI accepts an independently retained `--expected-snapshot-sha256` (64 lowercase hex) and fails closed (exit 1, no report) on a changed, malformed or missing baseline. Without that flag, it still reports current state; exit 2 still means a durable lock requiring manual review.
 
-Reproducible on Linux with Node 22/24:
+Reproducible on Linux with Node 22/24 (set `EXPECTED_SNAPSHOT_SHA256` to the digest independently retained from a prior inspection):
 
 ```bash
 node --test tests/vnext/provider-statement-replay-inspection.test.mjs
 node scripts/vnext/inspect-provider-event-replay.mjs --local-event-replay-dir /path/to/private-state
-node scripts/vnext/inspect-provider-event-replay.mjs --local-event-replay-dir /path/to/private-state --expected-snapshot-sha256 <64-lowercase-hex-from-independent-prior-scan>
+node scripts/vnext/inspect-provider-event-replay.mjs --local-event-replay-dir /path/to/private-state --expected-snapshot-sha256 "$EXPECTED_SNAPSHOT_SHA256"
 ```
 
 The test uses disposable local directories, signed synthetic event markers, and proves stable fingerprints, additions, in-place valid canonical edits, deletions, mismatched pins, malformed flags, and no writes by the inspector.
