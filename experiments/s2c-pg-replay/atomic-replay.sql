@@ -92,7 +92,7 @@ BEGIN
        v_transaction !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' OR
        v_kind NOT IN ('capture','refund','chargeback') OR
        v_currency !~ '^[A-Z]{3}$' OR
-       v_amount !~ '^(0|[1-9][0-9]*)([.][0-9]+)?
+       v_amount !~ '^(0|[1-9][0-9]*)([.][0-9]+)?$' OR
        length(split_part(v_amount,'.',1)) > 32 OR
        length(split_part(v_amount,'.',2)) > 6 OR
        v_amount::numeric <= 0
