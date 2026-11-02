@@ -1,0 +1,70 @@
+name: R2 bounded stock debit, compensation and PostgreSQL race
+
+on:
+  pull_request:
+    paths:
+      - 'examples/vnext/stock-debit/**'
+      - 'packages/cli/conformance.mjs'
+      - '.github/workflows/stock-debit-r2.yml'
+      - 'docs/research/autonomous-engineering/R2_STOCK_DEBIT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-and-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Compile real canonical TypeSpec and check bounded transactional metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsp compile examples/vnext/stock-debit
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const p='examples/vnext/stock-debit/tsp-output/@protocolia/compiler/ir.json';
+          const ir=JSON.parse(readFileSync(p));
+          assert.equal(ir.irVersion,'vnext-a0.1');
+          assert.deepEqual(ir.entities.map(e=>e.name),['StockItem','StockDebit']);
+          const debit=ir.operations.find(op=>op.name==='createStockDebit');
+          const reverse=ir.operations.find(op=>op.name==='reverseStockDebit');
+          assert.deepEqual(debit.behavior.reserve,{
+            stockEntity:'StockItem',availableField:'available',referenceField:'stockSku',quantityField:'units'});
+          assert.deepEqual(reverse.behavior.release,debit.behavior.reserve);
+          assert.equal(reverse.behavior.kind,'transition');
+          assert.equal(reverse.behavior.from,'posted');
+          assert.equal(reverse.behavior.to,'reversed');
+          JS
+      - name: Build generated Nest app with compiled TypeSpec
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- examples/vnext/stock-debit --target nestjs --out "$RUNNER_TEMP/stock-debit-nest"
+      - name: Exercise real PostgreSQL: debit, duplicate, oversell race, compensation and audit state
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:test -- "$RUNNER_TEMP/stock-debit-nest" | tee "$RUNNER_TEMP/stock-race.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/stock-race.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/stock-race.log"
+
+  existing-adapter-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check packages/cli/conformance.mjs
+      - run: node --test tests/vnext/reservation.test.mjs
