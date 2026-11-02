@@ -218,7 +218,7 @@ test("signed repeated refunds are review exceptions and all event IDs are consum
     const reviewed=run(f.args);
     assert.equal(reviewed.status,2,reviewed.stderr);
     const report=JSON.parse(reviewed.stdout);
-    assert.equal(report.rows[0].classification,"external_return_requires_review");
+    assert.equal(report.rows[0].classification,"multiple_return_events_require_review");
     assert.deepEqual(report.exceptions.map(x=>x.code),[
       "external_return_requires_review","multiple_return_events_require_review"
     ]);
