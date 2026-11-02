@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {readFileSync,writeFileSync,lstatSync,readdirSync,mkdirSync,existsSync} from "node:fs";
 import {join,dirname,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
+import {stockSemanticIr,emitStockTypeSpec} from "./stock-semantic-ir.mjs";
 const repoRoot=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const template=join(repoRoot,"examples/vnext/stock-debit/contracts/main.tsp");
 const configFile=join(repoRoot,"examples/vnext/stock-debit/tspconfig.yaml");
@@ -23,8 +24,11 @@ const classes=new Set(["reversible_technical","material_business","security_priv
 const eq=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
 export function checkStockBrief(brief){
  exact(brief,["schemaVersion","project","facts","knownQuestions"],"stock brief");
- check(brief.schemaVersion==="protocolia-agent-brief/v0.2","unsupported stock brief");
- exact(brief.project,["profile","namespace","title"],"stock project");
+ check(["protocolia-agent-brief/v0.2","protocolia-agent-brief/v0.3"].includes(brief.schemaVersion),"unsupported stock brief");
+ if(brief.schemaVersion==="protocolia-agent-brief/v0.3"){
+  exact(brief.project,["profile","namespace","title","bounds"],"stock project");
+  stockSemanticIr(brief.project); // validate independently frozen bounds
+ }else exact(brief.project,["profile","namespace","title"],"stock project");
  check(brief.project.profile===profile&&brief.project.namespace==="StockDebitLab","unknown stock profile");
  phrase(brief.project.title,"project title");check(brief.project.title.length<=120,"project title too long");
  check(Array.isArray(brief.facts)&&brief.facts.length>0&&brief.facts.length<=30,"invalid stock facts");
@@ -112,6 +116,7 @@ function planned(briefPath,proposalPath){
  const blockers=intake.questions.filter(q=>q.affectsSupported&&
   (q.state!=="resolved"||q.classification!=="reversible_technical"));
  check(blockers.length===0,"stock intake material question blocks TypeSpec: "+blockers.map(q=>q.id).join(","));
+ const typed=intake.project.bounds?stockSemanticIr(intake.project):null;
  const tpl=raw(template).toString("utf8"),config=raw(configFile).toString("utf8");
  for(const required of ["namespace StockDebitLab",
   '@reserve("StockItem", "available", "stockSku", "units")',
@@ -120,14 +125,15 @@ function planned(briefPath,proposalPath){
   check(tpl.includes(required),"audited stock TypeSpec template drift: "+required);
  const label=JSON.stringify(intake.project.title);
  check(tpl.includes('title: "Stock Debit Laboratory"'),"unexpected audited template service title");
- const tsp=tpl.replace('title: "Stock Debit Laboratory"','title: '+label);
+ const tsp=typed?emitStockTypeSpec(typed):tpl.replace('title: "Stock Debit Laboratory"','title: '+label);
  const sourceSha256=sha(bb),agentProposalSha256=sha(pb);
  const report={schemaVersion:"protocolia-intake-report/v0.1",status:"PARTIAL_DRAFT_UNVERIFIED",
-  sourceSha256,agentProposalSha256,generatorProfile:profile,templateSha256:sha(tpl),
+  sourceSha256,agentProposalSha256,generatorProfile:profile,templateSha256:typed?null:sha(tpl),
+  semanticIrSha256:typed?sha(json(typed)):null,
   generatedOperations:operations,
   deferredRequirements:intake.requirements.filter(x=>x.scope==="deferred").map(x=>x.id),
   questions:intake.questions,
-  limitations:["The generator selects a frozen, previously verified two-entity TypeSpec",
+  limitations:[typed?"Typed semantic IR parameterizes source-frozen numeric bounds; operation graph is sealed":"The generator selects a frozen, previously verified two-entity TypeSpec",
    "Not a sales/payment system, not SKU normalization or authenticated business approval",
    "Agent text cannot alter SQL, FKs, roles, mutation or reversal policies"]};
  const files=new Map([
@@ -138,8 +144,10 @@ function planned(briefPath,proposalPath){
   ["protocolia-intake-report.json",json(report)],
   ["source-provenance.json",json(provenance)]
  ]);
+ if(typed)files.set("semantic-ir.json",json(typed));
  const lock={schemaVersion:"protocolia-stock-intake-lock/v0.1",sourceSha256,
-  agentProposalSha256,templateSha256:sha(tpl),generator:"protocolia-stock-agent-intake@0.1.0",
+  agentProposalSha256,templateSha256:typed?null:sha(tpl),semanticIrSha256:typed?sha(json(typed)):null,
+  generator:typed?"protocolia-stock-typed-ir@0.1.0":"protocolia-stock-agent-intake@0.1.0",
   files:Object.fromEntries([...files].map(([path,body])=>[path,sha(body)]).sort((a,b)=>a[0].localeCompare(b[0])))};
  files.set("protocolia-intake.lock.json",json(lock));
  return files;
