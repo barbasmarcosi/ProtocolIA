@@ -12,8 +12,12 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const MONEY=/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const CURRENCY=/^[A-Z]{3}$/;
-const validAmount=value=>typeof value==="string" && MONEY.test(value) &&
-  value.split(".")[0].length<=38 && !/^0(?:\.0+)?$/.test(value);
+const validAmount=value=>{
+  if(typeof value!=="string" || !MONEY.test(value) ||
+     /^0(?:\.0+)?$/.test(value))return false;
+  const [whole,fraction=""]=value.split(".");
+  return whole.length+fraction.length<=38 && fraction.length<=6;
+};
 const MAX_EVENTS=512;
 const digest=value=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const same=(a,b)=>a.dev===b.dev && a.ino===b.ino;
