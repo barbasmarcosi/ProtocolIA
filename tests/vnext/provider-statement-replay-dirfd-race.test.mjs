@@ -150,3 +150,82 @@ test("replacement of our lock after durable markers is never unlinked as success
       "partial durable event marker must not be silently rolled back");
   });
 });
+
+function withMarkerMutationAfterDurability(mode) {
+  withEventClaim(({root,directory,metadata,external})=>{
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,mutated=false,markerName;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          markerName=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+          assert.ok(markerName,"an event marker must be durable before injection");
+          const markerPath=join(directory,markerName);
+          if(mode==="replace") {
+            const original=fs.readFileSync(markerPath);
+            fs.renameSync(markerPath,join(root,"original-marker"));
+            fs.writeFileSync(markerPath,original,{mode:0o600});
+          } else {
+            fs.unlinkSync(markerPath);
+          }
+          mutated=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({directory,metadata,external}),
+        /local event replay guard/);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(mutated,true,"injection must run after durable event claims");
+    assert.ok(fs.readdirSync(directory).some(name=>name.startsWith(".pia-event-lock-")),
+      "unverified claim must retain its provider lock for manual review");
+    assert.equal(fs.readdirSync(directory).includes(markerName),mode==="replace",
+      "replacement marker is not silently accepted; deletion is not restored");
+  });
+}
+
+test("replacing a durable event marker with identical canonical bytes fails closed",()=>{
+  withMarkerMutationAfterDurability("replace");
+});
+
+test("deleting a durable event marker before provider lock release fails closed",()=>{
+  withMarkerMutationAfterDurability("delete");
+});
+
+test("replacing an earlier event while a later event is written fails the batch",()=>{
+  withEventClaim(({root,directory,metadata,external})=>{
+    const originalWrite=fs.writeFileSync;
+    let markerWrites=0,mutated=false;
+    try {
+      fs.writeFileSync=(target,...rest)=>{
+        if(typeof target==="number" &&
+           String(rest[0]).includes("eventMarkerSha256") &&
+           ++markerWrites===2) {
+          const first=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+          assert.ok(first);
+          const path=join(directory,first);
+          const bytes=fs.readFileSync(path);
+          fs.renameSync(path,join(root,"original-first-marker"));
+          originalWrite(path,bytes,{mode:0o600});
+          mutated=true;
+        }
+        return originalWrite(target,...rest);
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({directory,metadata,
+        external:[external[0],{...external[0],eventId:"E-2"}]}),
+      /local event replay guard/);
+    } finally {
+      fs.writeFileSync=originalWrite;
+      syncBuiltinESMExports();
+    }
+    assert.equal(mutated,true,"second marker write must trigger replacement");
+    assert.equal(fs.readdirSync(directory).filter(x=>x.startsWith("event-")).length,2);
+    assert.ok(fs.readdirSync(directory).some(x=>x.startsWith(".pia-event-lock-")),
+      "batch with an altered earlier marker must preserve crash lock");
+  });
+});

@@ -54,6 +54,9 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
   const lockName=".pia-event-lock-"+digest([
     "ProtocolIA-S2C-provider-lock-v1",metadata.providerId]);
   let dirFd,lockFd;
+  // Keep each newly claimed marker descriptor until the provider lock is
+  // released. A pathname-only scan cannot detect an inode substitution.
+  const claimed=[];
   const path=resolve(directory);
   const checkDirectory=opened=>{
     if(!same(lstatSync(path),opened) || !privateDir(opened))throw Error(INVALID);
@@ -152,12 +155,33 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
           providerId:metadata.providerId,orderId:metadata.orderId,
           eventMarkerSha256:name.slice(6)})+"\n");
         fsyncSync(fd);
+        claimed.push({name,fd,identity:fstatSync(fd)});
+        fd=undefined; // Held open until final claim fencing and lock release.
       } finally {if(fd!==undefined)closeSync(fd);}
     }
     checkDirectory(opened);
     fsyncSync(dirFd); // Event claims durable before lock removal.
-    // Never delete a substituted lock: preserve partial markers and require
-    // manual recovery instead of reporting a successful replay claim.
+    // A marker may be removed or replaced while a later event is written,
+    // or between its fsync and the directory fsync. A successful return must
+    // not silently certify a claim whose original inode is no longer linked.
+    // Same-UID hostile filesystem mutation after this check is outside the
+    // single-host guarantee; distributed/durable identity remains unproved.
+    for(const claim of claimed) {
+      const current=lstatSync(entry(claim.name));
+      const owned=fstatSync(claim.fd);
+      const initial=claim.identity;
+      if(!same(current,owned) || !same(owned,initial) ||
+         !current.isFile() || current.nlink!==1 ||
+         current.uid!==process.getuid() || (current.mode & 0o077)!==0 ||
+         current.size!==initial.size || owned.size!==initial.size ||
+         current.mtimeMs!==initial.mtimeMs ||
+         owned.mtimeMs!==initial.mtimeMs ||
+         current.ctimeMs!==initial.ctimeMs ||
+         owned.ctimeMs!==initial.ctimeMs)
+        throw Error(INVALID);
+    }
+    // Never delete a substituted lock or a lock guarding altered markers:
+    // preserve crash evidence for independent operator review.
     assertOwnLock();
     unlinkSync(entry(lockName));
     fsyncSync(dirFd);
@@ -170,6 +194,7 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     // their own descriptor-verified lock before throwing.
     throw Error(INVALID);
   } finally {
+    for(const claim of claimed)closeSync(claim.fd);
     if(lockFd!==undefined)closeSync(lockFd);
     if(dirFd!==undefined)closeSync(dirFd);
   }
