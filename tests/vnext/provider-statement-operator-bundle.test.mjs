@@ -136,7 +136,8 @@ test("operator key mismatch, expired envelope, wrong order, altered signature an
     const expired=run(f.args);
     assert.equal(expired.status,1);assert.equal(expired.stdout,"");
     f.signBundle(f.base);
-    const changedSignature={...f.signed,signature:"A"+f.signed.signature.slice(1)};
+    const flippedFirstChar=f.signed.signature[0]==="A"?"B":"A";
+    const changedSignature={...f.signed,signature:flippedFirstChar+f.signed.signature.slice(1)};
     writeFileSync(join(f.dir,"bundle.json"),JSON.stringify(changedSignature));
     const tampered=run(f.args);
     assert.equal(tampered.status,1);assert.equal(tampered.stdout,"");

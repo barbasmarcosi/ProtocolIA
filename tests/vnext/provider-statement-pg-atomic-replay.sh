@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable PostgreSQL 16+ integration proof. No external provider calls.
 set -euo pipefail
-PSQL=(psql -X -h "${PGHOST:-127.0.0.1}" -U "${PGUSER:-postgres}" -d "${PGDATABASE:-postgres}" -v ON_ERROR_STOP=1 -At)
+PSQL=(psql -X -h "${PGHOST:-127.0.0.1}" -U "${PGUSER:-postgres}" -d "${PGDATABASE:-postgres}" -v ON_ERROR_STOP=1 -qAt)
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 sql() { "${PSQL[@]}" -c "$1"; }
@@ -11,7 +11,7 @@ event() {
 }
 claim() {
   local provider="$1" order="$2" payload="$3"
-  sql "SELECT protocolia_s2c_replay.claim_verified_batch('$provider','$order','$sha','$payload'::jsonb)"
+  sql "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('$provider','$order','$sha','$payload'::jsonb)"
 }
 count_claims() { sql "SELECT count(*) FROM protocolia_s2c_replay.claim"; }
 count_audit() { sql "SELECT count(*) FROM protocolia_s2c_replay.audit"; }
@@ -26,6 +26,22 @@ assert_count() {
     echo "Claim/audit counts diverged from $expected" >&2; exit 1;
   }
 }
+# Privilege boundary: the only callable write path is the validated function.
+# SET ROLE models a least-privilege application connection; it does NOT
+# authenticate a real provider or bind providerId to a DB principal.
+[[ "$(sql "SELECT p.prosecdef AND p.proowner='protocolia_s2c_owner'::regrole FROM pg_proc p WHERE p.oid='protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)'::regprocedure")" == t ]]
+[[ "$(sql "SELECT count(*) FROM pg_roles WHERE rolname IN ('protocolia_s2c_owner','protocolia_s2c_runtime','protocolia_s2c_untrusted') AND NOT rolcanlogin")" == 3 ]]
+[[ "$(sql "SELECT has_schema_privilege('protocolia_s2c_runtime','protocolia_s2c_replay','USAGE') AND NOT has_schema_privilege('protocolia_s2c_runtime','protocolia_s2c_replay','CREATE') AND has_function_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)','EXECUTE') AND NOT has_table_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.claim','INSERT') AND NOT has_table_privilege('protocolia_s2c_runtime','protocolia_s2c_replay.audit','INSERT')")" == t ]]
+expect_fail sql "SET ROLE protocolia_s2c_untrusted; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox FORGED TX-F capture 0.01)'::jsonb)"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; SELECT * FROM protocolia_s2c_replay.claim"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; INSERT INTO protocolia_s2c_replay.claim DEFAULT VALUES"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; INSERT INTO protocolia_s2c_replay.audit DEFAULT VALUES"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; UPDATE protocolia_s2c_replay.claim SET amount_text='9.00'"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; DELETE FROM protocolia_s2c_replay.audit"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; TRUNCATE protocolia_s2c_replay.claim"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; ALTER TABLE protocolia_s2c_replay.claim ADD COLUMN forged boolean"
+expect_fail sql "SET ROLE protocolia_s2c_runtime; CREATE TABLE protocolia_s2c_replay.forged(id integer)"
+assert_count 0
 [[ "$(claim sandbox OT-1 "$(event sandbox E-1 TX-1 capture 0.10)")" == 1 ]]
 assert_count 1
 expect_fail claim sandbox OT-2 "$(event sandbox E-1 TX-2 capture 0.10)"
@@ -85,7 +101,7 @@ assert_count 16
 # Crash a database session AFTER its claim and audit writes, BEFORE COMMIT.
 # PostgreSQL must roll both back; the same event must be recoverable afterward.
 (
-  sql "BEGIN; SET LOCAL application_name='pia_s2c_crash_probe'; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox CRASH-1 TX-C capture 0.02)'::jsonb); SELECT pg_sleep(30); COMMIT;" >"$tmp/crash.out" 2>"$tmp/crash.err"
+  sql "SET ROLE protocolia_s2c_runtime; BEGIN; SET LOCAL application_name='pia_s2c_crash_probe'; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox CRASH-1 TX-C capture 0.02)'::jsonb); SELECT pg_sleep(30); COMMIT;" >"$tmp/crash.out" 2>"$tmp/crash.err"
 ) &
 crash_pid=$!
 backend=""
@@ -100,4 +116,8 @@ if wait "$crash_pid"; then echo "Terminated transaction unexpectedly committed" 
 assert_count 16
 [[ "$(claim sandbox OT-1 "$(event sandbox CRASH-1 TX-C capture 0.02)")" == 1 ]]
 assert_count 17
-echo "PROTOCOLIA_S2C_PG_ATOMIC_REPLAY_PASS claims=17 audit=17 concurrent_same=1/10 concurrent_distinct=10/10 crash_rollback=pass"
+# A runtime-created temporary table must not shadow the trusted schema's
+# claim/audit tables inside the SECURITY DEFINER function.
+[[ "$(sql "SET ROLE protocolia_s2c_runtime; CREATE TEMP TABLE claim(bogus integer); CREATE TEMP TABLE audit(bogus integer); SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox SHADOW-1 TX-S capture 0.03)'::jsonb)")" == 1 ]]
+assert_count 18
+echo "PROTOCOLIA_S2C_PG_ATOMIC_REPLAY_PASS claims=18 audit=18 least_privilege=pass temp_shadow=pass concurrent_same=1/10 concurrent_distinct=10/10 crash_rollback=pass"
