@@ -475,7 +475,15 @@ async function runMulti(){
       assert.equal(after.data[op.behavior.field],initial+10);
     }
     let executed=0;
-    for(const op of resource.transitions??[]){
+    // The compiler is allowed to sort operations alphabetically; do not
+    // interpret the emitted order as business-state ordering. Resolve the
+    // dependent transitions of the reviewed case from its source graph.
+    const transitionPlan=e.name==="ReviewCase"?
+      [...(resource.transitions??[])].sort((a,b)=>{
+        const stage={submitReviewCase:0,approveReviewCase:1,rejectReviewCase:2};
+        return (stage[a.name]??99)-(stage[b.name]??99);
+      }):resource.transitions??[];
+    for(const op of transitionPlan){
       // Terminal closure must execute after all dependent resource fixtures have
       // been created and edited. Closing midway would correctly forbid later
       // child creation and produce a false-negative generic conformance result.
