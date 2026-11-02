@@ -22,6 +22,9 @@ not an automatic fraud or settlement conclusion.
 - Add independent `external_return_requires_review` whenever provider returns
   exist and no internal return journal was supplied, including when another
   classification wins. Do not emit a duplicate of the primary classification.
+- Add independent `internal_return_not_externally_reported` for a recorded
+  local return when the crosswalk or provider transaction is entirely missing.
+  Do not mistake the missing statement for a zero-valued verified refund.
 - Count external refund events and chargeback events **separately** per provider
   transaction. More than one event of either same kind emits
   `multiple_return_events_require_review`, even if the exact sum agrees with
