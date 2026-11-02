@@ -109,7 +109,7 @@ test("signed material approval cannot authorize security, external or destructiv
 test("missing one signed material resolution cannot approve partial contract",()=>fixture(x=>{
  const edited=JSON.parse(readFileSync(x.candidate,"utf8"));
  const source=JSON.parse(readFileSync(x.original,"utf8"));
- Object.assign(edited.questions.find(q=>q.id==="K-Q04"),source.questions.find(q=>q.id==="K-Q04"));
+ edited.questions[edited.questions.findIndex(q=>q.id==="K-Q04")]=structuredClone(source.questions.find(q=>q.id==="K-Q04"));
  writeFileSync(x.candidate,JSON.stringify(edited));
  assert.throws(()=>createDecisionPayload(readFileSync(x.original),readFileSync(x.candidate)),/scope remains unresolved/);
 }));
