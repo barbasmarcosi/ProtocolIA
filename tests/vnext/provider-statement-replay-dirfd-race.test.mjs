@@ -98,7 +98,7 @@ test("one foreign lock replacing ours during post-lock scan cannot authorize eve
           fs.unlinkSync(join(directory,own));
           fs.writeFileSync(join(directory,foreignLock),JSON.stringify({
             version:1,providerId:foreignProvider,
-            statementSha256:"c".repeat(64)})+"\\n",{mode:0o600});
+            statementSha256:"c".repeat(64)})+"\n",{mode:0o600});
         }
         return originalReadDir(path,...rest);
       };
@@ -131,7 +131,7 @@ test("replacement of our lock after durable markers is never unlinked as success
           replacement=own;
           fs.writeFileSync(join(directory,own),JSON.stringify({
             version:1,providerId:metadata.providerId,
-            statementSha256:metadata.statementSha256})+"\\n",{mode:0o600});
+            statementSha256:metadata.statementSha256})+"\n",{mode:0o600});
           swapped=true;
         }
         return result;
