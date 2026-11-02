@@ -45,7 +45,9 @@ function readEntry(anchor,name) {
     // All replay records are generated as one canonical JSON line. This
     // rejects duplicate JSON keys and alternate parsing interpretations.
     if(JSON.stringify(value)+"\n"!==raw)throw Error(INVALID);
-    return value;
+    return {value,sha256:createHash("sha256").update(bytes.subarray(0,used)).digest("hex"),
+      identity:{dev:after.dev,ino:after.ino,size:after.size,
+        mtimeMs:after.mtimeMs,ctimeMs:after.ctimeMs}};
   } catch {throw Error(INVALID);}
   finally {if(fd!==undefined)closeSync(fd);}
 }
@@ -72,10 +74,13 @@ export function inspectLocalEventReplay(directory) {
     const names=readdirSync(anchor);
     if(names.length>MAX_FILES)throw Error(INVALID);
     let markers=0,locks=0;
+    const observed=[];
     for(const name of names.sort()) {
       const lock=LOCK.exec(name),marker=MARKER.exec(name);
       if(!lock && !marker)throw Error(INVALID);
-      const record=readEntry(anchor,name);
+      const entry=readEntry(anchor,name);
+      const record=entry.value;
+      observed.push({name,sha256:entry.sha256,identity:entry.identity});
       if(lock) {
         if(!exact(record,["version","providerId","statementSha256"]) ||
            record.version!==1 || !ID.test(record.providerId) ||
@@ -102,7 +107,31 @@ export function inspectLocalEventReplay(directory) {
        names.length!==finalNames.length ||
        names.some(name=>!finalSet.has(name)))
       throw Error(INVALID);
+    // A second descriptor-bound pass detects observable in-place edits and
+    // same-name inode substitutions during the first pass. It is not an
+    // atomic filesystem snapshot and cannot prevent later tampering.
+    for(const entry of observed) {
+      const fresh=readEntry(anchor,entry.name);
+      if(fresh.sha256!==entry.sha256 ||
+         !same(fresh.identity,entry.identity) ||
+         fresh.identity.size!==entry.identity.size ||
+         fresh.identity.mtimeMs!==entry.identity.mtimeMs ||
+         fresh.identity.ctimeMs!==entry.identity.ctimeMs)
+        throw Error(INVALID);
+    }
+    const finalPathAfter=lstatSync(path);
+    const namesAfter=readdirSync(anchor);
+    const namesAfterSet=new Set(namesAfter);
+    if(!same(finalPathAfter,opened) || !privateDir(finalPathAfter) ||
+       !same(fstatSync(dirFd),opened) ||
+       namesAfter.length!==names.length ||
+       names.some(name=>!namesAfterSet.has(name)))throw Error(INVALID);
+    const witness=createHash("sha256");
+    witness.update("ProtocolIA-S2C-local-replay-snapshot-v1\n");
+    for(const entry of observed)
+      witness.update(JSON.stringify([entry.name,entry.sha256])+"\n");
     return {state:locks>0?"blocked_manual_review":"no_lock_observed",
+      snapshotSha256:witness.digest("hex"),
       lockCount:locks,eventMarkerCount:markers,
       scope:"single_host_format_inspection_only",
       providerIdentityVerified:false,settlementVerified:false,
