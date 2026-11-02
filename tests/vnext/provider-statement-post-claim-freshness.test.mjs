@@ -20,7 +20,7 @@ const event={providerId:"sandbox",transactionId:"TX-1",eventId:"E-1",
 // has written its event or statement marker and fsynced its directory.
 // This exercises the production CLI boundary without test-only production
 // hooks, sleeps, timing assumptions, or external payment operations.
-const preload=String.raw\`import fs from "node:fs";
+const preload=String.raw`import fs from "node:fs";
 import {syncBuiltinESMExports} from "node:module";
 const original=fs.fsyncSync;
 let injected=false;
@@ -35,7 +35,7 @@ fs.fsyncSync=fd=>{
   }
   return result;
 };
-syncBuiltinESMExports();\`;
+syncBuiltinESMExports();`;
 
 function withFixture(fn) {
   const dir=mkdtempSync(join(tmpdir(),"pia-postclaim-freshness-"));
