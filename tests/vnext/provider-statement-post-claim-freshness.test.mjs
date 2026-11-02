@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash,generateKeyPairSync,sign} from "node:crypto";
-import {mkdtempSync,mkdirSync,writeFileSync,readdirSync,rmSync} from "node:fs";
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
@@ -101,18 +101,24 @@ const mutations=[
 for(const {mode,name,replacement} of mutations) {
   test(mode+" refuses stale "+name+" input mutated after durable claim",()=>{
     withFixture(f=>{
+      const source=join(f.dir,name+".json");
+      const original=readFileSync(source);
       const args=["--import",f.preloadPath,...f.base,mode,f.guard];
       const rejected=run(args,{PIA_GUARD:f.guard,
-        PIA_SOURCE:join(f.dir,name+".json"),PIA_REPLACEMENT:replacement});
+        PIA_SOURCE:source,PIA_REPLACEMENT:replacement});
       assert.equal(rejected.status,1,rejected.stderr);
       assert.equal(rejected.stdout,"","no stale comparison may be published");
       assert.match(rejected.stderr,/input changed after snapshot read/,
         "post-claim snapshot fence must detect the mutation");
       assert.equal(readdirSync(f.guard).length,1,
         "durable replay evidence must not be rolled back after late failure");
+      // Restore the exact valid signed inputs: a retry must now fail because
+      // the replay marker survived, not merely because the input is invalid.
+      writeFileSync(source,original);
       const replay=run([...f.base,mode,f.guard]);
       assert.equal(replay.status,1,replay.stderr);
       assert.equal(replay.stdout,"");
+      assert.match(replay.stderr,/local (event )?replay guard/);
     });
   });
 }
