@@ -340,3 +340,14 @@ test("voided local return does not create multiplicity; distinct return kinds re
   s.external.push(returned("EXT-C","0.70","chargeback"));
   assert.deepEqual(codes(reconcile(s)),[]);
 });
+
+test("two local chargebacks require review even if provider reports one matching event",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.10","chargeback"),
+    {...recorded("0.20","chargeback"),returnId:"R2"}];
+  s.external.push(returned("EXT-C","0.30","chargeback"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_recorded_return_events_require_review");
+  assert.deepEqual(codes(r),["multiple_recorded_return_events_require_review"]);
+  assert.equal(r.rows[0].internalRecordedChargeback,"0.30");
+});
