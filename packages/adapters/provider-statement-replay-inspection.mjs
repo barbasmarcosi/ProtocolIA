@@ -127,8 +127,9 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],provid
     const finalPath=lstatSync(path);
     const finalNames=readdirSync(anchor);
     const finalSet=new Set(finalNames);
+    const finalOpened=fstatSync(dirFd);
     if(!same(finalPath,opened) || !privateDir(finalPath) ||
-       !same(fstatSync(dirFd),opened) ||
+       !same(finalOpened,opened) || !privateDir(finalOpened) ||
        names.length!==finalNames.length ||
        names.some(name=>!finalSet.has(name)))
       throw Error(INVALID);
@@ -147,10 +148,17 @@ export function inspectLocalEventReplay(directory,{excludeEventMarkers=[],provid
     const finalPathAfter=lstatSync(path);
     const namesAfter=readdirSync(anchor);
     const namesAfterSet=new Set(namesAfter);
+    const finalOpenedAfter=fstatSync(dirFd);
     if(!same(finalPathAfter,opened) || !privateDir(finalPathAfter) ||
-       !same(fstatSync(dirFd),opened) ||
+       !same(finalOpenedAfter,opened) || !privateDir(finalOpenedAfter) ||
        namesAfter.length!==names.length ||
        names.some(name=>!namesAfterSet.has(name)))throw Error(INVALID);
+    // The last readdir itself is a race boundary. An attacker can chmod the
+    // same inode during that call; a prior lstat is not a privacy guarantee.
+    const terminalPath=lstatSync(path),terminalOpened=fstatSync(dirFd);
+    if(!same(terminalPath,opened) || !same(terminalOpened,opened) ||
+       !privateDir(terminalPath) || !privateDir(terminalOpened))
+      throw Error(INVALID);
     const witness=createHash("sha256");
     const markerWitness=createHash("sha256");
     const historicalWitness=createHash("sha256");
