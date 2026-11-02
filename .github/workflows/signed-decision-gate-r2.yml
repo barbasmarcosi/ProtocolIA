@@ -6,6 +6,13 @@ on:
       - 'scripts/research/signed-decision-approval.mjs'
       - 'scripts/research/stock-debit-intake.mjs'
       - 'scripts/research/stock-semantic-ir.mjs'
+      - 'scripts/research/typed-review-workflow.mjs'
+      - 'scripts/research/review-workflow-intake.mjs'
+      - 'tests/research/typed-review-workflow.test.mjs'
+      - 'examples/vnext/review-workflow/**'
+      - 'research/autonomous-engineering/samples/review-workflow-source.json'
+      - 'packages/cli/conformance.mjs'
+      - 'docs/research/autonomous-engineering/P2_STATE_WORKFLOW.md'
       - 'scripts/research/bounded-capacity-renderer.mjs'
       - 'scripts/research/course-seat-semantic-ir.mjs'
       - 'scripts/research/course-seat-intake.mjs'
@@ -442,3 +449,93 @@ jobs:
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' \
             "$RUNNER_TEMP/course-seats-${{ matrix.target }}.log"
           echo "COURSE_SEATS_REAL_DB_PASS ${{ matrix.target }}: atomic seat booking and cancel-once"
+
+
+  typed-state-review-independent-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Source-bounded review IR and adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/typed-review-workflow.mjs
+          node --check scripts/research/review-workflow-intake.mjs
+          node --check packages/cli/conformance.mjs
+          node --test tests/research/typed-review-workflow.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Compile typed workflow and check transitions in canonical IR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(mktemp -d "$PWD/.p2-review.XXXXXXXX")"
+          echo "REVIEW_TMP=$ROOT" >> "$GITHUB_ENV"
+          node scripts/research/review-workflow-intake.mjs generate \
+            research/autonomous-engineering/samples/review-workflow-source.json "$ROOT/contract"
+          node scripts/research/review-workflow-intake.mjs verify \
+            research/autonomous-engineering/samples/review-workflow-source.json "$ROOT/contract"
+          ./node_modules/.bin/tsp compile "$ROOT/contract"
+          export REVIEW_TMP="$ROOT"
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const ir=JSON.parse(readFileSync(process.env.REVIEW_TMP+
+            "/contract/tsp-output/@protocolia/compiler/ir.json"));
+          assert.deepEqual(ir.entities.map(e=>e.name),["ReviewCase"]);
+          const graph=ir.operations.filter(op=>op.behavior.kind==="transition");
+          assert.equal(graph.length,3);
+          assert.deepEqual(graph.map(o=>[o.name,o.behavior.from,o.behavior.to]),[
+            ["submitReviewCase","drafted","in_review"],
+            ["approveReviewCase","in_review","approved"],
+            ["rejectReviewCase","in_review","rejected"]
+          ]);
+          for(const t of graph){
+            assert.equal(t.behavior.field,"state");
+            assert.deepEqual(t.behavior.audit,["state"]);
+            assert.equal(t.behavior.reserve,undefined);
+            assert.equal(t.behavior.release,undefined);
+          }
+          JS
+      - name: Passport preserves source and unanswered human decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$REVIEW_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$REVIEW_TMP/contract/requirements.json" \
+            --decisions "$REVIEW_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/review-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$REVIEW_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$REVIEW_TMP/contract/requirements.json" \
+            --decisions "$REVIEW_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/review-passport"
+          grep -q "WF-Q01" "$RUNNER_TEMP/review-passport/docs/domain/decisions.md"
+      - name: Real HTTP and PostgreSQL CAS contention for both decision branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$REVIEW_TMP/contract" --target "${{ matrix.target }}" \
+            --out "$RUNNER_TEMP/review-case-${{ matrix.target }}"
+          npm run app:test -- "$RUNNER_TEMP/review-case-${{ matrix.target }}" \
+            | tee "$RUNNER_TEMP/review-case-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_REVIEW_FORK_CONFORMANCE_PASS' \
+            "$RUNNER_TEMP/review-case-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_STATEFUL_CONFORMANCE_PASS' \
+            "$RUNNER_TEMP/review-case-${{ matrix.target }}.log"
+          echo "P2_REVIEW_STATE_E2E_PASS ${{ matrix.target }}"
