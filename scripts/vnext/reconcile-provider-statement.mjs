@@ -29,6 +29,11 @@ try {
   const bundleSupplied=bundleFlags.filter(flag=>flags.has(flag)).length;
   if(bundleSupplied!==0 && bundleSupplied!==3)
     throw Error("Operator bundle requires all three trust flags");
+  // Provider and reviewer attestation must never share signing authority.
+  // Domain separation alone cannot establish an independent review.
+  if(supplied===3 && bundleSupplied===3 &&
+     flags.get("--trusted-key-sha256")===flags.get("--trusted-operator-key-sha256"))
+    throw Error("Operator and provider trust keys must be independent");
   if((supplied!==0 && (supplied!==3 || !flags.has("--expected-order") ||
        !flags.has("--expected-provider"))) ||
      (supplied===0 && flags.has("--expected-provider")) ||
