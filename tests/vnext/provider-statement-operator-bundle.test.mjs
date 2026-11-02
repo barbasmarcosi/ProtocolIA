@@ -143,7 +143,8 @@ test("operator key mismatch, expired envelope, wrong order, altered signature an
     f.signBundle(f.base);
     const badOrder=run(f.args.map(x=>x==="O1"?"O2":x));
     assert.equal(badOrder.status,1);assert.equal(badOrder.stdout,"");
-    const missing=run(f.args.slice(0,-2));
+    const keyIndex=f.args.indexOf("--trusted-operator-key-sha256");
+    const missing=run(f.args.filter((_,index)=>index!==keyIndex && index!==keyIndex+1));
     assert.equal(missing.status,1);assert.equal(missing.stdout,"");
     assert.match(missing.stderr,/trust flags/);
   });
