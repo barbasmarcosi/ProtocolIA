@@ -2,7 +2,7 @@
 // detached statement. Not a distributed database, provider identity check,
 // or proof of settlement. A crash after O_EXCL may consume the snapshot.
 import {createHash} from "node:crypto";
-import {openSync,closeSync,fsyncSync,fstatSync,lstatSync,constants} from "node:fs";
+import {openSync,closeSync,fsyncSync,fstatSync,lstatSync,statSync,constants} from "node:fs";
 import {resolve,join} from "node:path";
 
 const INVALID="local replay guard: private directory required or statement already consumed";
@@ -38,7 +38,12 @@ export function consumeLocalSignedStatement({directory,metadata}) {
     directoryFd=openSync(path,constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     const opened=fstatSync(directoryFd);
     if(!same(before,opened) || !privateDirectory(opened))throw Error(INVALID);
-    markerFd=openSync(join(path,token),
+    // Never create a replay marker via the mutable directory pathname.
+    // Pin writes to the already verified directory inode even if its parent
+    // is concurrently renamed. Unsupported hosts fail closed.
+    const anchor=`/proc/self/fd/${directoryFd}`;
+    if(process.platform!=="linux" || !same(statSync(anchor),opened))throw Error(INVALID);
+    markerFd=openSync(join(anchor,token),
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,0o600);
     const marker=fstatSync(markerFd);
     if(!marker.isFile() || marker.nlink!==1 || (marker.mode & 0o077)!==0)

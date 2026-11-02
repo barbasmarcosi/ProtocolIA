@@ -3,7 +3,7 @@
 // A crash can leave a persistent provider lock requiring manual recovery.
 import {createHash} from "node:crypto";
 import {openSync,closeSync,fsyncSync,fstatSync,lstatSync,writeFileSync,
-  unlinkSync,constants} from "node:fs";
+  unlinkSync,statSync,constants} from "node:fs";
 import {resolve,join} from "node:path";
 
 const INVALID="local event replay guard: private state, lock or event already consumed";
@@ -63,9 +63,17 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     dirFd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
     const opened=fstatSync(dirFd);
     if(!same(before,opened) || !privateDir(opened))throw Error(INVALID);
+    // The replay directory must be pinned by its opened descriptor. Pathname
+    // checks alone cannot prevent a concurrent parent-directory rename from
+    // redirecting O_EXCL marker writes into an attacker-substituted directory.
+    // Linux /proc/self/fd is the openat-like anchor available to Node fs.
+    // Fail closed on hosts without it rather than claim replay protection.
+    const anchor=`/proc/self/fd/${dirFd}`;
+    if(process.platform!=="linux" || !same(statSync(anchor),opened))throw Error(INVALID);
+    const entry=name=>join(anchor,name);
     // Lock is per provider, NOT per order, so two different orders cannot
     // claim the same provider event ID concurrently.
-    lockFd=openSync(join(path,lockName),
+    lockFd=openSync(entry(lockName),
       constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
     writeFileSync(lockFd,JSON.stringify({version:1,providerId:metadata.providerId,
       statementSha256:metadata.statementSha256})+"\n");
@@ -74,16 +82,16 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     fsyncSync(dirFd);
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
-    if(markers.some(name=>!absent(join(path,name)))) {
+    if(markers.some(name=>!absent(entry(name)))) {
       checkDirectory(opened);
-      unlinkSync(join(path,lockName));
+      unlinkSync(entry(lockName));
       fsyncSync(dirFd);
       throw Error(INVALID);
     }
     for(const name of markers) {
       let fd;
       try {
-        fd=openSync(join(path,name),
+        fd=openSync(entry(name),
           constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
         const stat=fstatSync(fd);
         if(!stat.isFile() || stat.nlink!==1 || (stat.mode & 0o077)!==0)
@@ -96,7 +104,7 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     }
     checkDirectory(opened);
     fsyncSync(dirFd); // Event claims durable before lock removal.
-    unlinkSync(join(path,lockName));
+    unlinkSync(entry(lockName));
     fsyncSync(dirFd);
     return {replayProtection:"single_host_local_event_markers",
       consumedEventCount:markers.length};
