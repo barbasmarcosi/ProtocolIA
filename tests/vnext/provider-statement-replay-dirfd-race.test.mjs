@@ -7,6 +7,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {consumeLocalSignedStatement} from "../../packages/adapters/provider-statement-local-replay.mjs";
 import {consumeLocalSignedEvents} from "../../packages/adapters/provider-statement-event-replay.mjs";
+import {inspectLocalEventReplay} from "../../packages/adapters/provider-statement-replay-inspection.mjs";
 
 // A deterministic filesystem race: substitute the original private pathname
 // immediately before O_EXCL creates a financial replay marker. The replacement
@@ -227,5 +228,38 @@ test("replacing an earlier event while a later event is written fails the batch"
     assert.equal(fs.readdirSync(directory).filter(x=>x.startsWith("event-")).length,2);
     assert.ok(fs.readdirSync(directory).some(x=>x.startsWith(".pia-event-lock-")),
       "batch with an altered earlier marker must preserve crash lock");
+  });
+});
+
+test("checkpoint is rechecked after O_EXCL: historical marker deletion cannot pass",()=>{
+  withEventClaim(({directory,metadata,external})=>{
+    consumeLocalSignedEvents({directory,metadata,external});
+    const checkpoint=inspectLocalEventReplay(directory).eventMarkersSha256;
+    const oldMarker=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+    const originalOpen=fs.openSync;
+    let deleted=false;
+    try {
+      fs.openSync=(path,flags,...rest)=>{
+        const fd=originalOpen(path,flags,...rest);
+        if(!deleted && (flags & fs.constants.O_EXCL) &&
+           String(path).includes(".pia-event-lock-")) {
+          fs.unlinkSync(join(directory,oldMarker));
+          deleted=true;
+        }
+        return fd;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({
+        directory,metadata,
+        external:[{...external[0],eventId:"E-2"}],
+        expectedEventMarkersSha256:checkpoint
+      }),/local event replay guard/);
+    } finally {
+      fs.openSync=originalOpen;
+      syncBuiltinESMExports();
+    }
+    assert.equal(deleted,true,"historical deletion must occur after first scan");
+    assert.deepEqual(fs.readdirSync(directory),[],
+      "the writer must release only its own unwritten lock and claim no event");
   });
 });
