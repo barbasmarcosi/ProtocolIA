@@ -32,7 +32,7 @@ function raw(path){
 }
 function stringify(x){return JSON.stringify(x,null,2)+"\n";}
 export function checkBrief(brief){
- if(brief?.schemaVersion==="protocolia-agent-brief/v0.2")return checkStockBrief(brief);
+ if(["protocolia-agent-brief/v0.2","protocolia-agent-brief/v0.3"].includes(brief?.schemaVersion))return checkStockBrief(brief);
  shape(brief,["schemaVersion","project","facts","knownQuestions"],["schemaVersion","project","facts","knownQuestions"],"brief");
  enforce(brief.schemaVersion===schema,"unsupported brief schema");
  enforce(Array.isArray(brief.facts)&&brief.facts.length>0&&brief.facts.length<=100,"brief requires 1-100 facts");
@@ -63,7 +63,7 @@ export function checkBrief(brief){
  return brief;
 }
 export function admitProposal(brief,proposal,briefSha,proposalSha){
- if(brief?.schemaVersion==="protocolia-agent-brief/v0.2")return admitStockProposal(brief,proposal,briefSha,proposalSha);
+ if(["protocolia-agent-brief/v0.2","protocolia-agent-brief/v0.3"].includes(brief?.schemaVersion))return admitStockProposal(brief,proposal,briefSha,proposalSha);
  checkBrief(brief);
  shape(proposal,["schemaVersion","briefSha256","mappings","discoveredQuestions","hypotheses"],
   ["schemaVersion","briefSha256","mappings","discoveredQuestions","hypotheses"],"agent proposal");
