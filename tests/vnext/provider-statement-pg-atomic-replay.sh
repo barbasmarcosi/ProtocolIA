@@ -82,4 +82,22 @@ expect_fail sql "TRUNCATE protocolia_s2c_replay.audit"
 assert_count 16
 # No orphaned audit rows, no missing audit, all exact strings preserved.
 [[ "$(sql "SELECT count(*) FROM protocolia_s2c_replay.claim c FULL JOIN protocolia_s2c_replay.audit a USING(provider_id,event_id) WHERE c.event_id IS NULL OR a.event_id IS NULL OR c.amount_text IS DISTINCT FROM a.amount_text OR c.statement_sha256 IS DISTINCT FROM a.statement_sha256")" == 0 ]]
-echo "PROTOCOLIA_S2C_PG_ATOMIC_REPLAY_PASS claims=16 audit=16 concurrent_same=1/10 concurrent_distinct=10/10"
+# Crash a database session AFTER its claim and audit writes, BEFORE COMMIT.
+# PostgreSQL must roll both back; the same event must be recoverable afterward.
+(
+  sql "BEGIN; SET LOCAL application_name='pia_s2c_crash_probe'; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','OT-1','$sha','$(event sandbox CRASH-1 TX-C capture 0.02)'::jsonb); SELECT pg_sleep(30); COMMIT;" >"$tmp/crash.out" 2>"$tmp/crash.err"
+) &
+crash_pid=$!
+backend=""
+for i in {1..60}; do
+  backend="$(sql "SELECT pid FROM pg_stat_activity WHERE application_name='pia_s2c_crash_probe' AND wait_event='PgSleep' LIMIT 1")"
+  [[ -n "$backend" ]] && break
+  sleep 0.2
+done
+[[ "$backend" =~ ^[0-9]+$ ]] || { echo "Crash probe never reached post-write sleep" >&2; kill "$crash_pid" || true; exit 1; }
+[[ "$(sql "SELECT pg_terminate_backend($backend)")" == t ]]
+if wait "$crash_pid"; then echo "Terminated transaction unexpectedly committed" >&2; exit 1; fi
+assert_count 16
+[[ "$(claim sandbox OT-1 "$(event sandbox CRASH-1 TX-C capture 0.02)")" == 1 ]]
+assert_count 17
+echo "PROTOCOLIA_S2C_PG_ATOMIC_REPLAY_PASS claims=17 audit=17 concurrent_same=1/10 concurrent_distinct=10/10 crash_rollback=pass"
