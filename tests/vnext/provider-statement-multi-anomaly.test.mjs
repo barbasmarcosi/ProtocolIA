@@ -92,3 +92,53 @@ test("normal partial return remains unverified with zero anomalies; deterministi
   delete withoutJournal.internalReturns;
   assert.deepEqual(codes(reconcile(withoutJournal)),["external_return_requires_review"]);
 });
+
+test("two partial captures summing to the receipt require review, never clean agreement",()=>{
+  const s=base();
+  s.external[0].amount="4.00";
+  s.external.push({...s.external[0],eventId:"C2",amount:"6.00"});
+  const before=structuredClone(s);
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_capture_events_require_review");
+  assert.deepEqual(codes(r),["multiple_capture_events_require_review"]);
+  assert.equal(r.counts.amountsAgreeUnverified,0);
+  assert.equal(r.counts.exceptions,1);
+  assert.equal(r.totals.purportedCaptured,"10.00");
+  assert.deepEqual(s,before);
+  s.external.reverse();
+  assert.deepEqual(reconcile(s),r);
+});
+
+test("two captures with wrong sum expose both independent discrepancies",()=>{
+  const s=base();
+  s.external.push({...s.external[0],eventId:"C2"});
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"capture_amount_mismatch");
+  assert.deepEqual(codes(r),[
+    "capture_amount_mismatch","multiple_capture_events_require_review"
+  ]);
+  assert.equal(r.totals.purportedCaptured,"20.00");
+});
+
+test("multiple captures for unmatched external transaction are not hidden by orphan label",()=>{
+  const s=base();
+  s.external.push(
+    {...s.external[0],transactionId:"UNLINKED",eventId:"O1",amount:"1.00"},
+    {...s.external[0],transactionId:"UNLINKED",eventId:"O2",amount:"1.00"}
+  );
+  const r=reconcile(s);
+  assert.deepEqual(codes(r),[
+    "multiple_capture_events_require_review","unmatched_external_transaction"
+  ]);
+});
+
+test("one capture per independently linked transaction remains non-authoritative but clean",()=>{
+  const s=base();
+  s.internal.push({...s.internal[0],receiptId:"P2"});
+  s.links.push({...s.links[0],receiptId:"P2",transactionId:"T2"});
+  s.external.push({...s.external[0],transactionId:"T2",eventId:"C2"});
+  const r=reconcile(s);
+  assert.equal(r.counts.exceptions,0);
+  assert.equal(r.counts.amountsAgreeUnverified,2);
+  assert.equal(r.independentlyAuthenticated,false);
+});
