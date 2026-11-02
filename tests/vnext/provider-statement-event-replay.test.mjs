@@ -274,3 +274,90 @@ test("signed mixed provider refund and chargeback require review yet consume rep
     assert.equal(replay.stdout,"");
   });
 });
+
+
+test("operator-pinned provider registry binds signed key before any event replay write",()=>{
+  withFixture(f=>{
+    const fingerprint=f.args[f.args.indexOf("--trusted-key-sha256")+1];
+    const registry={version:1,providers:[{providerId:"sandbox",keys:[{
+      keyId:"key-1",spkiSha256:fingerprint,status:"active",
+      validFrom:"2025-01-01T00:00:00Z",validUntil:"2028-01-01T00:00:00Z"
+    }]}]};
+    const file=join(f.dir,"registry.json");
+    const save=value=>{
+      const bytes=JSON.stringify(value);
+      writeFileSync(file,bytes);
+      return sha(bytes);
+    };
+    const flags=pin=>["--provider-trust-registry",file,"--trusted-registry-sha256",pin];
+    const pin=save(registry);
+    const first=run([...f.args,...flags(pin)]);
+    assert.equal(first.status,0,first.stderr);
+    const report=JSON.parse(first.stdout);
+    assert.equal(report.externalStatementSignature.providerRegistryBinding.trustScope,
+      "operator_pinned_registry_only");
+    assert.equal(report.externalStatementSignature.providerRegistryBinding.registrySha256,pin);
+    assert.equal(report.externalStatementSignature.providerRegistryBinding.providerIdentityVerified,false);
+    assert.equal(report.externalStatementSignature.consumedEventCount,1);
+    assert.equal(readdirSync(f.guard).length,1);
+    const replay=run([...f.args,...flags(pin)]);
+    assert.equal(replay.status,1,replay.stderr);
+    assert.equal(replay.stdout,"");
+  });
+});
+
+test("revoked, misbound, stale and ambiguous registries reject before replay claims",()=>{
+  withFixture(f=>{
+    const fingerprint=f.args[f.args.indexOf("--trusted-key-sha256")+1];
+    const registry={version:1,providers:[{providerId:"sandbox",keys:[{
+      keyId:"key-1",spkiSha256:fingerprint,status:"active",
+      validFrom:"2025-01-01T00:00:00Z",validUntil:"2028-01-01T00:00:00Z"
+    }]}]};
+    const file=join(f.dir,"registry.json");
+    const save=value=>{
+      const bytes=JSON.stringify(value);
+      writeFileSync(file,bytes);
+      return sha(bytes);
+    };
+    const flags=pin=>["--provider-trust-registry",file,"--trusted-registry-sha256",pin];
+    const originalPin=save(registry);
+    const badPin=run([...f.args,...flags("f".repeat(64))]);
+    assert.equal(badPin.status,1,badPin.stderr);
+    assert.equal(badPin.stdout,"");
+    const variants=[
+      v=>{v.providers[0].keys[0].status="revoked";},
+      v=>{v.providers[0].keys[0].spkiSha256="f".repeat(64);},
+      v=>{v.providers[0].keys[0].keyId="other";},
+      v=>{v.providers[0].keys[0].validUntil="2020-01-01T00:00:00Z";},
+      v=>{v.providers.push(structuredClone(v.providers[0]));},
+      v=>{v.providers[0].keys[0].extra="unsafe";}
+    ];
+    for(const mutate of variants) {
+      const value=structuredClone(registry);mutate(value);
+      const rejected=run([...f.args,...flags(save(value))]);
+      assert.equal(rejected.status,1,rejected.stderr);
+      assert.equal(rejected.stdout,"");
+      assert.deepEqual(readdirSync(f.guard),[]);
+    }
+    save(registry);
+    assert.equal(run([...f.args,...flags(originalPin)]).status,0);
+    assert.equal(readdirSync(f.guard).length,1);
+  });
+});
+
+test("partial registry trust flags are rejected before event replay",()=>{
+  withFixture(f=>{
+    const registry=join(f.dir,"registry.json");
+    writeFileSync(registry,"{}");
+    for(const extra of [
+      ["--provider-trust-registry",registry],
+      ["--trusted-registry-sha256","a".repeat(64)],
+      ["--provider-trust-registry",registry,"--provider-trust-registry",registry]
+    ]) {
+      const rejected=run([...f.args,...extra]);
+      assert.equal(rejected.status,1,rejected.stderr);
+      assert.equal(rejected.stdout,"");
+      assert.deepEqual(readdirSync(f.guard),[]);
+    }
+  });
+});
