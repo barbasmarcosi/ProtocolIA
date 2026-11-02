@@ -21,9 +21,9 @@ test("source names four distinct states, two exclusive terminal edges and no sto
  assert.equal(ir.entities.length,1);
  assert.equal(ir.operations.length,7);
  assert.deepEqual(ir.operations.filter(op=>op.kind==="transition").map(op=>[op.name,op.from,op.to,op.capability]),[
-  ["submitReviewCase","drafted","in_review","cases.review"],
-  ["approveReviewCase","in_review","approved","cases.decide"],
-  ["rejectReviewCase","in_review","rejected","cases.decide"]]);
+  ["submitReviewCase","drafted","in_review","cases.write"],
+  ["approveReviewCase","in_review","approved","cases.write"],
+  ["rejectReviewCase","in_review","rejected","cases.write"]]);
  assert.ok(ir.operations.every(op=>!op.reserve&&!op.release&&!op.moveUnits&&!op.moveBatch));
  const tsp=emitReviewTypeSpec(ir);
  assert.equal((tsp.match(/@transition\(/g)||[]).length,3);
