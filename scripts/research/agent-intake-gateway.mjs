@@ -54,7 +54,7 @@ export function checkBrief(brief){
  unique(ids,"source IDs");
  // Reuse R2's exact project schema and TypeSpec naming constraints without accepting agent claims.
  const probe={schemaVersion:"protocolia-intake-project/v0.1",project:deep(brief.project),
-  requirements:brief.facts.map(f=>({id:f.id,text:f.text,origin:"explicit_owner",evidenceRefs:["source:brief:"+f.id],
+  requirements:brief.facts.map(f=>({id:f.id,text:f.text,origin:"source_brief_unverified",evidenceRefs:["source:brief:"+f.id],
     scope:f.scope,operations:[...f.expectedOperations]})),
   questions:brief.knownQuestions.map(q=>({...q,state:"unresolved",origin:"agent_assumption",evidenceRefs:[]}))};
  validateDraft(probe);
@@ -102,7 +102,7 @@ export function admitProposal(brief,proposal,briefSha,proposalSha){
    state:q.provisionalDecision?"provisional":"unresolved",
    ...(q.provisionalDecision?{decision:q.provisionalDecision}:{})});
  }
- const requirements=brief.facts.map(f=>({id:f.id,text:f.text,origin:"explicit_owner",
+ const requirements=brief.facts.map(f=>({id:f.id,text:f.text,origin:"source_brief_unverified",
    evidenceRefs:["brief-sha256:"+briefSha+"#"+f.id],scope:f.scope,operations:mapping.get(f.id)}));
  for(const h of proposal.hypotheses){
   shape(h,["id","text"],["id","text"],"hypothesis");
