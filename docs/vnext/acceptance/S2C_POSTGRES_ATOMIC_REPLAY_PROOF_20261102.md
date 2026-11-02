@@ -149,7 +149,7 @@ configuration, cluster-level trust roots and login provisioning are NOT
 backed up by schema-scoped `pg_dump`; the fixture's existing cluster roles
 are a deliberate prerequisite, and test login passwords are rotated.
 There is no production PITR, encrypted off-site backup, WAL continuity,
-independent-cluster restoration, IAM onboarding, RPO/RTO guarantee, or
+independent-cluster recovery automation, IAM onboarding, RPO/RTO guarantee, or
 generated NestJS/Spring/CLI integration. It cannot establish external
 settlement, refund execution or financial acceptance. Keep TL-14 #57 open.
 
