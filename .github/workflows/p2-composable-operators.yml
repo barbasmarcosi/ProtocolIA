@@ -1,0 +1,101 @@
+name: P2 composable operator symbol safety and generated conformance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/research/composable-operator-*.mjs'
+      - 'tests/research/composable-operator-*.test.mjs'
+      - 'research/autonomous-engineering/samples/composable-*.json'
+      - 'examples/vnext/composable-operators/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/cli/**'
+      - 'packages/adapters/nest/**'
+      - 'packages/adapters/modular/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/p2-composable-operators.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/research/composable-operator-*.mjs'
+      - 'tests/research/composable-operator-*.test.mjs'
+      - 'research/autonomous-engineering/samples/composable-*.json'
+      - 'examples/vnext/composable-operators/**'
+      - 'packages/compiler/**'
+      - 'packages/contracts/**'
+      - 'packages/cli/**'
+      - 'packages/adapters/nest/**'
+      - 'packages/adapters/modular/**'
+      - 'packages/adapters/jhipster/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/p2-composable-operators.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p2-composable-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-grammar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax and adversarial source/IR validation
+        run: |
+          node --check scripts/research/composable-operator-grammar.mjs
+          node --check scripts/research/composable-operator-intake.mjs
+          node --test tests/research/composable-operator-grammar.test.mjs
+
+  generated-runtime:
+    needs: strict-grammar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Generate and verify source-bounded contract without source edits
+        run: |
+          node scripts/research/composable-operator-intake.mjs generate research/autonomous-engineering/samples/composable-equipment-allocation.json .p2-ci-generated
+          node scripts/research/composable-operator-intake.mjs verify research/autonomous-engineering/samples/composable-equipment-allocation.json .p2-ci-generated
+      - name: Generate independent ${{ matrix.target }} application
+        run: npm run app:build -- .p2-ci-generated --target ${{ matrix.target }} --out "${{ runner.temp }}/p2-app"
+      - name: Verify real PostgreSQL race, unique terminal decision and compensation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:test -- "${{ runner.temp }}/p2-app" | tee "${{ runner.temp }}/p2-conformance.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "${{ runner.temp }}/p2-conformance.log"
