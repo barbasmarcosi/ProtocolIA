@@ -9,6 +9,8 @@ const exact=(x,keys,label)=>need(plain(x)&&Object.keys(x).length===keys.length&&
  Object.keys(x).every(k=>keys.includes(k)),label+" has unexpected/missing fields");
 const name=x=>typeof x==="string"&&/^[A-Z][A-Za-z0-9]{2,36}$/.test(x);
 const field=x=>typeof x==="string"&&/^[a-z][A-Za-z0-9]{1,32}$/.test(x)&&x!=="id";
+const action=x=>typeof x==="string"&&/^[a-z][A-Za-z0-9]{2,50}$/.test(x);
+
 const state=x=>typeof x==="string"&&/^[a-z][a-z0-9_]{1,32}$/.test(x);
 const suffix=x=>typeof x==="string"&&/^[a-z][a-z0-9-]{1,25}$/.test(x);
 const bounded=(x,min,max,label)=>need(Number.isSafeInteger(x)&&x>=min&&x<=max,label+" out of range");
@@ -65,7 +67,7 @@ export function composeOperatorGraph(source){
  let releases=0;
  for(const t of transitions){
   exact(t,["kind","name","suffix","from","to","release"],"transition operator");
-  need(name(t.name)&&suffix(t.suffix)&&state(t.from)&&state(t.to)&&t.from!==t.to&&
+  need(action(t.name)&&suffix(t.suffix)&&state(t.from)&&state(t.to)&&t.from!==t.to&&
    typeof t.release==="boolean","unsafe transition");
   need(!suffixes.has(t.suffix)&&!names.has(t.name),"duplicate transition");
   suffixes.add(t.suffix);names.add(t.name);
