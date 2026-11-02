@@ -5,12 +5,14 @@ on:
     paths:
       - 'experiments/s2c-pg-replay/**'
       - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
+      - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
       - '.github/workflows/s2c-pg-atomic-replay.yml'
   push:
     branches: [main]
     paths:
       - 'experiments/s2c-pg-replay/**'
       - 'tests/vnext/provider-statement-pg-atomic-replay.sh'
+      - 'docs/vnext/acceptance/S2C_POSTGRES_ATOMIC_REPLAY_PROOF_20261102.md'
       - '.github/workflows/s2c-pg-atomic-replay.yml'
   workflow_dispatch:
 permissions:
