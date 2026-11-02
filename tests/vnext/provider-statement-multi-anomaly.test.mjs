@@ -294,3 +294,49 @@ test("orphan crosswalk cannot hide external refund or repeated chargebacks",()=>
     "unlinked_internal_receipt"
   ]);
 });
+
+test("split local refunds matching one external event cannot be a clean agreement",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.40"),{...recorded("0.60"),returnId:"R2"}];
+  s.external.push(returned("EXT-R","1.00"));
+  const before=structuredClone(s);
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"multiple_recorded_return_events_require_review");
+  assert.deepEqual(codes(r),["multiple_recorded_return_events_require_review"]);
+  assert.equal(r.counts.returnsAgreeUnverified,0);
+  assert.equal(r.totals.internallyRecordedReturns,"1.00");
+  assert.deepEqual(s,before);
+  s.internalReturns.reverse();s.external.reverse();
+  assert.deepEqual(reconcile(s),r);
+});
+
+test("split local refunds remain visible with capture mismatch and missing crosswalk",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.40"),{...recorded("0.60"),returnId:"R2"}];
+  s.external[0].amount="9.00";
+  s.external.push(returned("EXT-R","1.00"));
+  const r=reconcile(s);
+  assert.equal(r.rows[0].classification,"capture_amount_mismatch");
+  assert.deepEqual(codes(r),[
+    "capture_amount_mismatch","multiple_recorded_return_events_require_review"
+  ]);
+  const missing=structuredClone(s);
+  missing.links=[];
+  missing.external=[];
+  const m=reconcile(missing);
+  assert.equal(m.rows[0].classification,"unlinked");
+  assert.deepEqual(codes(m),[
+    "internal_return_not_externally_reported",
+    "multiple_recorded_return_events_require_review","unlinked_internal_receipt"
+  ]);
+});
+
+test("voided local return does not create multiplicity; distinct return kinds remain independent",()=>{
+  const s=base();
+  s.internalReturns=[recorded("0.30"),{...recorded("0.70"),returnId:"R2",status:"voided"}];
+  s.external.push(returned("EXT-R","0.30"));
+  assert.deepEqual(codes(reconcile(s)),[]);
+  s.internalReturns[1]={...recorded("0.70","chargeback"),returnId:"R2"};
+  s.external.push(returned("EXT-C","0.70","chargeback"));
+  assert.deepEqual(codes(reconcile(s)),[]);
+});
