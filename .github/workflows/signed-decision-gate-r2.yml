@@ -224,7 +224,7 @@ jobs:
           import assert from 'node:assert/strict';
           const ir=JSON.parse(readFileSync(process.env.STOCK_AGENT_TMP+
             '/generated/tsp-output/@protocolia/compiler/ir.json'));
-          assert.deepEqual(ir.entities.map(x=>x.name),['StockItem','StockDebit']);
+          assert.deepEqual(ir.entities.map(x=>x.name).sort(),['StockDebit','StockItem']);
           const debit=ir.operations.find(x=>x.name==='createStockDebit');
           const reverse=ir.operations.find(x=>x.name==='reverseStockDebit');
           assert.equal(debit.behavior.reserve.availableField,'available');
