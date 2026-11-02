@@ -6,6 +6,7 @@ on:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
       - 'packages/adapters/provider-statement-input.mjs'
       - 'packages/adapters/provider-statement-signature.mjs'
+      - 'packages/adapters/provider-statement-operator-bundle.mjs'
       - 'packages/adapters/provider-statement-local-replay.mjs'
       - 'packages/adapters/provider-statement-event-replay.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
@@ -17,6 +18,7 @@ on:
       - 'packages/adapters/provider-statement-reconciliation.mjs'
       - 'packages/adapters/provider-statement-input.mjs'
       - 'packages/adapters/provider-statement-signature.mjs'
+      - 'packages/adapters/provider-statement-operator-bundle.mjs'
       - 'packages/adapters/provider-statement-local-replay.mjs'
       - 'packages/adapters/provider-statement-event-replay.mjs'
       - 'scripts/vnext/reconcile-provider-statement.mjs'
@@ -47,8 +49,9 @@ jobs:
           node --check packages/adapters/provider-statement-reconciliation.mjs
           node --check packages/adapters/provider-statement-input.mjs
           node --check packages/adapters/provider-statement-signature.mjs
+          node --check packages/adapters/provider-statement-operator-bundle.mjs
           node --check packages/adapters/provider-statement-local-replay.mjs
           node --check packages/adapters/provider-statement-event-replay.mjs
           node --check scripts/vnext/reconcile-provider-statement.mjs
       - name: Exact statement comparison, exceptions, and actual CLI exit codes
-        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-input.test.mjs tests/vnext/provider-statement-cli.test.mjs tests/vnext/provider-statement-signature.test.mjs tests/vnext/provider-statement-local-replay.test.mjs tests/vnext/provider-statement-event-replay.test.mjs tests/vnext/provider-statement-replay-dirfd-race.test.mjs
+        run: node --test tests/vnext/provider-statement-reconciliation.test.mjs tests/vnext/provider-statement-multi-anomaly.test.mjs tests/vnext/provider-statement-input.test.mjs tests/vnext/provider-statement-cli.test.mjs tests/vnext/provider-statement-signature.test.mjs tests/vnext/provider-statement-local-replay.test.mjs tests/vnext/provider-statement-event-replay.test.mjs tests/vnext/provider-statement-operator-bundle.test.mjs tests/vnext/provider-statement-replay-dirfd-race.test.mjs
