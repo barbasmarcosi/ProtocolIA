@@ -1,0 +1,122 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,
+  chmodSync,symlinkSync,renameSync,rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join,resolve} from "node:path";
+import {spawnSync} from "node:child_process";
+import {inspectLocalEventReplay} from
+  "../../packages/adapters/provider-statement-replay-inspection.mjs";
+import {consumeLocalSignedEvents} from
+  "../../packages/adapters/provider-statement-event-replay.mjs";
+
+const cli=resolve("scripts/vnext/inspect-provider-event-replay.mjs");
+const digest=v=>createHash("sha256").update(JSON.stringify(v)).digest("hex");
+const sha="a".repeat(64);
+const meta={providerId:"demo",orderId:"O1",statementSha256:sha};
+const external=[{providerId:"demo",transactionId:"T1",eventId:"E1",
+  kind:"capture",amount:"1.00",currency:"ARS"}];
+const run=dir=>spawnSync(process.execPath,
+  [cli,"--local-event-replay-dir",dir],{encoding:"utf8",timeout:10000});
+function fixture(fn) {
+  const root=mkdtempSync(join(tmpdir(),"pia-replay-inspection-"));
+  const dir=join(root,"private");
+  mkdirSync(dir,{mode:0o700});
+  try {return fn({root,dir});}
+  finally {rmSync(root,{recursive:true,force:true});}
+}
+function crashLock(dir) {
+  const name=".pia-event-lock-"+digest(["ProtocolIA-S2C-provider-lock-v1","demo"]);
+  writeFileSync(join(dir,name),JSON.stringify({version:1,
+    providerId:"demo",statementSha256:sha})+"\n",{mode:0o600});
+  return name;
+}
+test("read-only empty and claimed-event inspection; never treats local state as settlement",()=>{
+  fixture(({dir})=>{
+    const empty=inspectLocalEventReplay(dir);
+    assert.equal(empty.state,"no_lock_observed");
+    assert.equal(empty.eventMarkerCount,0);
+    assert.equal(empty.replayCompletenessVerified,false);
+    assert.equal(run(dir).status,0);
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const names=readdirSync(dir);
+    const contents=names.map(n=>readFileSync(join(dir,n),"utf8"));
+    const result=inspectLocalEventReplay(dir);
+    assert.equal(result.eventMarkerCount,1);
+    assert.equal(result.lockCount,0);
+    assert.equal(result.providerIdentityVerified,false);
+    assert.equal(result.settlementVerified,false);
+    assert.equal(run(dir).status,0);
+    assert.deepEqual(readdirSync(dir),names);
+    assert.deepEqual(names.map(n=>readFileSync(join(dir,n),"utf8")),contents);
+  });
+});
+test("durable crash lock yields manual-review exit 2 and is never auto-released",()=>{
+  fixture(({dir})=>{
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const lock=crashLock(dir);
+    const result=inspectLocalEventReplay(dir);
+    assert.equal(result.state,"blocked_manual_review");
+    assert.equal(result.lockCount,1);
+    assert.equal(result.eventMarkerCount,1);
+    const response=run(dir);
+    assert.equal(response.status,2,response.stderr);
+    assert.equal(JSON.parse(response.stdout).lockCount,1);
+    assert.ok(readdirSync(dir).includes(lock));
+    assert.throws(()=>consumeLocalSignedEvents({directory:dir,metadata:{
+      ...meta,statementSha256:"b".repeat(64)},external:[
+        {...external[0],eventId:"E2"}]}),/local event replay guard/);
+    assert.ok(readdirSync(dir).includes(lock));
+  });
+});
+test("corrupted, forged, overly permissive or symlinked markers fail closed",()=>{
+  const mutations=[
+    (dir,name)=>writeFileSync(join(dir,name),"{\"version\":1,\"version\":1}\n"),
+    (dir,name)=>chmodSync(join(dir,name),0o644),
+    (dir,name)=>{renameSync(join(dir,name),join(dir,"saved"));
+      symlinkSync("saved",join(dir,name));},
+    (dir,name)=>writeFileSync(join(dir,name),"x".repeat(1025)),
+    (dir,name)=>{const record=JSON.parse(readFileSync(join(dir,name),"utf8"));
+      record.eventMarkerSha256="b".repeat(64);
+      writeFileSync(join(dir,name),JSON.stringify(record)+"\n");}
+  ];
+  for(const mutate of mutations)fixture(({dir})=>{
+    consumeLocalSignedEvents({directory:dir,metadata:meta,external});
+    const name=readdirSync(dir)[0];
+    mutate(dir,name);
+    assert.throws(()=>inspectLocalEventReplay(dir),/local replay inspection/);
+    const response=run(dir);
+    assert.equal(response.status,1,response.stderr);
+    assert.equal(response.stdout,"");
+  });
+});
+test("forged crash locks, unexpected files and public or symlinked directories fail closed",()=>{
+  fixture(({root,dir})=>{
+    const lock=crashLock(dir);
+    writeFileSync(join(dir,lock),"{}\n");
+    assert.throws(()=>inspectLocalEventReplay(dir),/local replay inspection/);
+  });
+  fixture(({dir})=>{
+    writeFileSync(join(dir,"unexpected"),"x");
+    assert.equal(run(dir).status,1);
+  });
+  fixture(({root,dir})=>{
+    chmodSync(dir,0o755);
+    assert.equal(run(dir).status,1);
+    chmodSync(dir,0o700);
+    symlinkSync(dir,join(root,"alias"));
+    assert.equal(run(join(root,"alias")).status,1);
+  });
+});
+test("CLI rejects extra or missing arguments without touching state",()=>{
+  fixture(({dir})=>{
+    for(const args of [[],["--local-event-replay-dir"],[
+      "--local-event-replay-dir",dir,"--unexpected","x"]]) {
+      const r=spawnSync(process.execPath,[cli,...args],{encoding:"utf8"});
+      assert.equal(r.status,1);
+      assert.equal(r.stdout,"");
+    }
+    assert.deepEqual(readdirSync(dir),[]);
+  });
+});
