@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {openSync,closeSync,fsyncSync,fstatSync,lstatSync,writeFileSync,
   unlinkSync,statSync,constants} from "node:fs";
 import {resolve,join} from "node:path";
+import {inspectLocalEventReplay} from "./provider-statement-replay-inspection.mjs";
 
 const INVALID="local event replay guard: private state, lock or event already consumed";
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -71,6 +72,13 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     const anchor=`/proc/self/fd/${dirFd}`;
     if(process.platform!=="linux" || !same(statSync(anchor),opened))throw Error(INVALID);
     const entry=name=>join(anchor,name);
+    // A private directory with corrupted, foreign or unreviewed crash state
+    // must never be used to claim additional financial events. The scanner
+    // verifies every existing marker (not just requested event IDs).
+    // This is format integrity, NOT proof that markers were never deleted.
+    const beforeClaim=inspectLocalEventReplay(path);
+    if(beforeClaim.state!=="no_lock_observed" || beforeClaim.lockCount!==0)
+      throw Error(INVALID);
     // Lock is per provider, NOT per order, so two different orders cannot
     // claim the same provider event ID concurrently.
     lockFd=openSync(entry(lockName),
@@ -80,6 +88,14 @@ export function consumeLocalSignedEvents({directory,metadata,external}) {
     fsyncSync(lockFd);
     checkDirectory(opened);
     fsyncSync(dirFd);
+    // Reinspect after obtaining our exclusive provider lock: the first scan
+    // alone has a TOCTOU gap. Require exactly our own canonical lock and
+    // validate every historical marker. Do NOT require the original marker
+    // count: a prior contender can legitimately finish before this process
+    // acquires the lock; the duplicate-event preflight below must then release
+    // our lock rather than strand a false crash state.
+    const lockedState=inspectLocalEventReplay(path);
+    if(lockedState.lockCount!==1)throw Error(INVALID);
     // No mutation of event markers if a previous statement already owns ANY
     // event. A duplicate must not poison unrelated future statements.
     if(markers.some(name=>!absent(entry(name)))) {
