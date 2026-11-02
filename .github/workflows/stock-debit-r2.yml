@@ -68,3 +68,5 @@ jobs:
           node-version: '24'
       - run: node --check packages/cli/conformance.mjs
       - run: node --test tests/vnext/reservation.test.mjs
+
+# Pull-request acceptance requires the real TypeSpec and PostgreSQL race jobs above.
