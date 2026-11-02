@@ -263,3 +263,39 @@ test("checkpoint is rechecked after O_EXCL: historical marker deletion cannot pa
       "the writer must release only its own unwritten lock and claim no event");
   });
 });
+
+test("historical canonical-byte rewrite after new marker fsync fails checkpoint",()=>{
+  withEventClaim(({directory,metadata,external})=>{
+    consumeLocalSignedEvents({directory,metadata,external});
+    const checkpoint=inspectLocalEventReplay(directory).eventMarkersSha256;
+    const oldMarker=fs.readdirSync(directory).find(name=>name.startsWith("event-"));
+    const originalFsync=fs.fsyncSync;
+    let directorySyncs=0,mutated=false;
+    try {
+      fs.fsyncSync=fd=>{
+        const result=originalFsync(fd);
+        if(fs.fstatSync(fd).isDirectory() && ++directorySyncs===2) {
+          const path=join(directory,oldMarker);
+          const record=JSON.parse(fs.readFileSync(path,"utf8"));
+          record.statementSha256="c".repeat(64);
+          fs.writeFileSync(path,JSON.stringify(record)+"\n");
+          mutated=true;
+        }
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.throws(()=>consumeLocalSignedEvents({
+        directory,metadata,
+        external:[{...external[0],eventId:"E-2"}],
+        expectedEventMarkersSha256:checkpoint
+      }),/local event replay guard/);
+    } finally {
+      fs.fsyncSync=originalFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(mutated,true,"historical mutation must occur after new durability");
+    assert.equal(fs.readdirSync(directory).filter(name=>name.startsWith("event-")).length,2);
+    assert.equal(fs.readdirSync(directory).filter(name=>name.startsWith(".pia-event-lock-")).length,1,
+      "partially committed batch must retain its provider lock for forensic review");
+  });
+});
