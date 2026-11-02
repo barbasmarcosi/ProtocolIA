@@ -8,6 +8,10 @@ on:
       - 'scripts/research/stock-semantic-ir.mjs'
       - 'scripts/research/typed-review-workflow.mjs'
       - 'scripts/research/composable-operator-grammar.mjs'
+      - 'scripts/research/operator-catalog-v1.mjs'
+      - 'tests/research/operator-catalog-v1.test.mjs'
+      - 'research/autonomous-engineering/samples/composable-equipment-operators-v02.json'
+      - 'docs/research/autonomous-engineering/P2_OPERATOR_CATALOG.md'
       - 'scripts/research/composable-operator-intake.mjs'
       - 'tests/research/composable-operator-grammar.test.mjs'
       - 'research/autonomous-engineering/samples/composable-equipment-allocation.json'
@@ -570,9 +574,10 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/research/composable-operator-grammar.mjs
+          node --check scripts/research/operator-catalog-v1.mjs
           node --check scripts/research/composable-operator-intake.mjs
           node --check packages/cli/conformance.mjs
-          node --test tests/research/composable-operator-grammar.test.mjs
+          node --test tests/research/composable-operator-grammar.test.mjs tests/research/operator-catalog-v1.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Validate source and compile real TypeSpec from composed operators
@@ -582,9 +587,9 @@ jobs:
           ROOT="$(mktemp -d "$PWD/.p2-operator-assembly.XXXXXXXX")"
           echo "COMPOSABLE_TMP=$ROOT" >> "$GITHUB_ENV"
           node scripts/research/composable-operator-intake.mjs generate \
-            research/autonomous-engineering/samples/composable-equipment-allocation.json "$ROOT/contract"
+            research/autonomous-engineering/samples/composable-equipment-operators-v02.json "$ROOT/contract"
           node scripts/research/composable-operator-intake.mjs verify \
-            research/autonomous-engineering/samples/composable-equipment-allocation.json "$ROOT/contract"
+            research/autonomous-engineering/samples/composable-equipment-operators-v02.json "$ROOT/contract"
           ./node_modules/.bin/tsp compile "$ROOT/contract"
           export COMPOSABLE_TMP="$ROOT"
           node --input-type=module <<'JS'
@@ -593,6 +598,12 @@ jobs:
           const dir=process.env.COMPOSABLE_TMP;
           const ir=JSON.parse(readFileSync(dir+"/contract/tsp-output/@protocolia/compiler/ir.json"));
           assert.deepEqual(ir.entities.map(e=>e.name).sort(),["EquipmentClaim","EquipmentPool"]);
+          const catalog=JSON.parse(readFileSync(dir+"/contract/operator-catalog.json"));
+          const operatorIr=JSON.parse(readFileSync(dir+"/contract/semantic-ir.json"));
+          assert.equal(operatorIr.schemaVersion,"protocolia-composable-operator-ir/v0.2");
+          assert.deepEqual(operatorIr.operatorCatalog.pins,catalog.pins);
+          assert.equal(operatorIr.operatorCatalog.catalogSha256,catalog.catalogSha256);
+          assert.equal(catalog.catalog.operators.length,3);
           const create=ir.operations.find(op=>op.name==="createEquipmentClaim");
           const yes=ir.operations.find(op=>op.name==="approveEquipmentClaim");
           const no=ir.operations.find(op=>op.name==="rejectEquipmentClaim");
@@ -632,4 +643,4 @@ jobs:
           grep -q 'PROTOCOLIA_COMPOSED_OPERATOR_CONFORMANCE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
           grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
-          echo "P2_COMPOSABLE_OPERATORS_E2E_PASS ${{ matrix.target }}"
+          echo "P2_COMPOSABLE_OPERATORS_E2E_PASS ${{ matrix.target }} — pinned v0.2 catalog"
