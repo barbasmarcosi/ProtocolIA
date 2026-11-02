@@ -92,7 +92,30 @@ BEGIN
        v_transaction !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' OR
        v_kind NOT IN ('capture','refund','chargeback') OR
        v_currency !~ '^[A-Z]{3}$' OR
-       v_amount !~ '^(0|[1-9][0-9]*)(\\.[0-9]+)?$' OR
+       v_amount !~ '^(0|[1-9][0-9]*)([.][0-9]+)? OR
+       length(split_part(v_amount,'.',1)) > 32 OR
+       length(split_part(v_amount,'.',2)) > 6 OR
+       v_amount::numeric <= 0
+    THEN RAISE EXCEPTION 'Invalid signed event identity or exact amount'
+      USING ERRCODE='23514'; END IF;
+    -- UNIQUE(provider_id,event_id) is the cross-process linearization point.
+    -- A duplicate anywhere in the batch aborts ALL claims and audit rows.
+    INSERT INTO claim(provider_id,event_id,order_id,statement_sha256,
+      transaction_id,kind,amount_text,amount,currency)
+    VALUES(v_provider,v_event,v_order,v_statement_sha256,
+      v_transaction,v_kind,v_amount,v_amount::numeric,v_currency);
+    INSERT INTO audit(provider_id,event_id,statement_sha256,order_id,
+      transaction_id,kind,amount_text,currency)
+    VALUES(v_provider,v_event,v_statement_sha256,v_order,
+      v_transaction,v_kind,v_amount,v_currency);
+    inserted := inserted+1;
+  END LOOP;
+  RETURN inserted;
+END $claim$;
+REVOKE ALL ON FUNCTION protocolia_s2c_replay.claim_verified_batch(text,text,text,jsonb)
+  FROM PUBLIC;
+COMMIT;
+ OR
        length(split_part(v_amount,'.',1)) > 32 OR
        length(split_part(v_amount,'.',2)) > 6 OR
        v_amount::numeric <= 0
