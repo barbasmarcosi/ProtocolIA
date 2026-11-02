@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "protocolia-chat-agent-trial/v0.1",
+  "caseId": "kiosk-source-bound-20261101",
+  "source": "research/autonomous-engineering/samples/kiosk-owner-brief.json",
+  "proposal": "research/autonomous-engineering/trials/chat-agent-kiosk/proposal.json",
+  "agentOrigin": "assistant-authored-in-live-chat",
+  "authorModelReported": "GPT-6",
+  "sessionType": "interactive-first-party-chat",
+  "sourceProvider": "existing-synthetic-git-fixture",
+  "agentDidNotControlBrief": true,
+  "agentCouldSeePreviousFixtureAndGateway": true,
+  "notBlinded": true,
+  "independentGradingPerformed": false,
+  "modelApiCallPerformed": false,
+  "promptAndCompletionTokensMeasured": false,
+  "providerBilledCostMeasured": false,
+  "score": null,
+  "expectedDisposition": "BLOCKED_BY_UNRESOLVED_SUPPORTED_DOMAIN_QUESTIONS",
+  "expectedBlockingQuestionIds": [
+    "K-Q03",
+    "K-Q04"
+  ],
+  "discoveredQuestionCount": 6,
+  "deferredHypothesisCount": 3,
+  "notes": [
+    "Real model-authored proposal in the current chat; not a fabricated mock HTTP completion.",
+    "Existing source is a synthetic test fixture, not authenticated business-owner requirements.",
+    "Frozen expectedOperations already fix the supported code profile; this tests critique and provenance, not true free-text operation inference.",
+    "No independent evaluator, comparison arm, cost inference or production acceptance.",
+    "Known owner questions K-Q01/K-Q02 must remain in the admitted proposal.",
+    "Blocked result is intentional evidence that an agent cannot approve missing business behavior by assertion."
+  ]
+}
