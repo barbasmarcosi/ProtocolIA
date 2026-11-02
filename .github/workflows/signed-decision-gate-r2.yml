@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'scripts/research/signed-decision-approval.mjs'
+      - 'scripts/research/stock-debit-intake.mjs'
+      - 'scripts/research/agent-intake-gateway.mjs'
+      - 'tests/research/stock-debit-intake.test.mjs'
+      - 'research/autonomous-engineering/samples/stock-debit-lab-brief.json'
+      - 'research/autonomous-engineering/trials/chat-agent-stock-debit/**'
+      - 'docs/research/autonomous-engineering/R2_STOCK_AGENT_BRIDGE.md'
       - 'examples/vnext/stock-debit/**'
       - 'packages/cli/conformance.mjs'
       - '.github/workflows/stock-debit-r2.yml'
@@ -164,3 +170,88 @@ jobs:
           npm run app:test -- "$RUNNER_TEMP/stock-debit-nest" | tee "$RUNNER_TEMP/stock-debit.log"
           grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/stock-debit.log"
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/stock-debit.log"
+
+
+  stock-agent-source-bound-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Adversarial tests of the v0.2 agent brief and existing gateway
+        run: |
+          node --check scripts/research/stock-debit-intake.mjs
+          node --test tests/research/stock-debit-intake.test.mjs
+          node --test tests/research/agent-intake-gateway.test.mjs tests/research/model-proposal-runner.test.mjs
+      - name: Set up TypeSpec toolchain
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build:vnext
+      - name: Convert recorded chat-agent proposal into source-bound accepted JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.r2-stock-agent.XXXXXXXX")"
+          echo "STOCK_AGENT_TMP=$TMP" >> "$GITHUB_ENV"
+          BRIEF=research/autonomous-engineering/samples/stock-debit-lab-brief.json
+          node -e 'const fs=require("node:fs"),crypto=require("node:crypto");
+            const [brief,template,out]=process.argv.slice(1);
+            const p=JSON.parse(fs.readFileSync(template,"utf8"));
+            p.briefSha256=crypto.createHash("sha256").update(fs.readFileSync(brief)).digest("hex");
+            fs.writeFileSync(out,JSON.stringify(p,null,2)+"\n");' \
+            "$BRIEF" research/autonomous-engineering/trials/chat-agent-stock-debit/proposal-template.json \
+            "$TMP/proposal.json"
+          node scripts/research/agent-intake-gateway.mjs admit "$BRIEF" "$TMP/proposal.json" "$TMP/admitted"
+          node scripts/research/agent-intake-gateway.mjs verify "$BRIEF" "$TMP/proposal.json" "$TMP/admitted"
+          node scripts/research/stock-debit-intake.mjs generate "$BRIEF" "$TMP/proposal.json" "$TMP/generated"
+          node scripts/research/stock-debit-intake.mjs verify "$BRIEF" "$TMP/proposal.json" "$TMP/generated"
+          node -e 'const fs=require("node:fs"),assert=require("node:assert/strict");
+            const [admitted,generated]=process.argv.slice(1);
+            const a=JSON.parse(fs.readFileSync(admitted)),r=JSON.parse(fs.readFileSync(generated));
+            assert.deepEqual(r.requirements,a.requirements);
+            assert.equal(r.requirements.filter(x=>x.origin==="explicit_owner").length,0);' \
+            "$TMP/admitted/intake.json" "$TMP/generated/requirements.json"
+      - name: TypeSpec compilation from agent-anchored structured profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsp compile "$STOCK_AGENT_TMP/generated"
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const ir=JSON.parse(readFileSync(process.env.STOCK_AGENT_TMP+
+            '/generated/tsp-output/@protocolia/compiler/ir.json'));
+          assert.deepEqual(ir.entities.map(x=>x.name),['StockItem','StockDebit']);
+          const debit=ir.operations.find(x=>x.name==='createStockDebit');
+          const reverse=ir.operations.find(x=>x.name==='reverseStockDebit');
+          assert.equal(debit.behavior.reserve.availableField,'available');
+          assert.equal(reverse.behavior.release.quantityField,'units');
+          assert.equal(reverse.behavior.from,'posted');
+          JS
+      - name: Project Passport preserves source, decisions and unverified authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$STOCK_AGENT_TMP/generated/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STOCK_AGENT_TMP/generated/requirements.json" \
+            --decisions "$STOCK_AGENT_TMP/generated/decisions.json" \
+            --out "$RUNNER_TEMP/stock-agent-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$STOCK_AGENT_TMP/generated/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STOCK_AGENT_TMP/generated/requirements.json" \
+            --decisions "$STOCK_AGENT_TMP/generated/decisions.json" \
+            --out "$RUNNER_TEMP/stock-agent-passport"
+          grep -q "unresolved" "$RUNNER_TEMP/stock-agent-passport/docs/domain/decisions.md"
+      - name: Real generated NestJS/PostgreSQL conformance and atomic debit race
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$STOCK_AGENT_TMP/generated" --target nestjs --out "$RUNNER_TEMP/stock-agent-app"
+          npm run app:test -- "$RUNNER_TEMP/stock-agent-app" | tee "$RUNNER_TEMP/stock-agent-race.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/stock-agent-race.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/stock-agent-race.log"
+          echo "STOCK_AGENT_PROFILE_E2E_PASS: autonomous candidate selected a fixed audited profile, not arbitrary contract synthesis"
