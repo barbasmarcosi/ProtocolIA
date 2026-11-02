@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'scripts/research/signed-decision-approval.mjs'
+      - 'examples/vnext/stock-debit/**'
+      - 'packages/cli/conformance.mjs'
+      - '.github/workflows/stock-debit-r2.yml'
       - 'scripts/research/intake-to-typespec.mjs'
       - 'tests/research/signed-decision-approval.test.mjs'
       - 'docs/research/autonomous-engineering/R2_SIGNED_DECISIONS.md'
@@ -121,3 +124,43 @@ jobs:
           node -e 'const r=require(process.argv[1]); if(r.signedScopeApproval?.status!=="CRYPTOGRAPHICALLY_VERIFIED_SCOPE_DECISION_ONLY")process.exit(1);' \
             "$SIGNED_TMP/contracts/protocolia-intake-report.json"
           echo "CI_SCOPED_DECISION_SUCCESS: ephemeral test key verified; no production identity or authorizations"
+
+
+  stock-debit-live-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: TypeSpec compilation and source-bound debit/reversal declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsp compile examples/vnext/stock-debit
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const p='examples/vnext/stock-debit/tsp-output/@protocolia/compiler/ir.json';
+          const ir=JSON.parse(readFileSync(p));
+          assert.equal(ir.irVersion,'vnext-a0.1');
+          const debit=ir.operations.find(op=>op.name==='createStockDebit');
+          const reverse=ir.operations.find(op=>op.name==='reverseStockDebit');
+          assert.deepEqual(debit.behavior.reserve,{
+            stockEntity:'StockItem',availableField:'available',referenceField:'stockSku',quantityField:'units'});
+          assert.deepEqual(reverse.behavior.release,debit.behavior.reserve);
+          assert.equal(reverse.behavior.from,'posted');
+          assert.equal(reverse.behavior.to,'reversed');
+          JS
+      - name: Generate and independently test PostgreSQL debit race with no overselling
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- examples/vnext/stock-debit --target nestjs --out "$RUNNER_TEMP/stock-debit-nest"
+          npm run app:test -- "$RUNNER_TEMP/stock-debit-nest" | tee "$RUNNER_TEMP/stock-debit.log"
+          grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/stock-debit.log"
+          grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/stock-debit.log"
