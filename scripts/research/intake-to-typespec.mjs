@@ -8,7 +8,7 @@ import {fileURLToPath} from "node:url";
 
 const schema="protocolia-intake-project/v0.1";
 const reserved=new Set("alias and array as boolean const dec decorator else enum extends extern false fn for from if import in interface is model namespace never null op scalar service string true type typeof union unknown using value void".split(" "));
-const originSet=new Set(["explicit_owner","trusted_existing_contract","approved_policy","agent_assumption"]);
+const originSet=new Set(["explicit_owner","trusted_existing_contract","approved_policy","source_brief_unverified","agent_assumption"]);
 const classes=new Set(["reversible_technical","material_business","security_privilege","external_effect","destructive_change"]);
 const kinds=["create","get","list","increment","rename"];
 const sha=x=>createHash("sha256").update(x).digest("hex");
