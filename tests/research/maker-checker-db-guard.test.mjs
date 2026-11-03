@@ -40,12 +40,16 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   assert.match(sql[1],/NEW.protocolia_submitted_by IS DISTINCT FROM OLD.protocolia_submitted_by/);
   assert.match(sql[1],/NEW.(?:state|phase) IS DISTINCT FROM OLD.(?:state|phase)/);
   assert.match(sql[1],/NEW.(?:state|phase) IN \('(completed|approved)','(dismissed|rejected)'\)/);
-  assert.match(sql[2],/BEFORE INSERT OR UPDATE/);
+  assert.match(sql[2],/BEFORE INSERT OR UPDATE OR DELETE/);
+  assert.match(sql[1],/TG_OP=\x27DELETE\x27/);
+  assert.match(sql[1],/Maker-checker record deletion forbidden/);
   assert.ok(sql.every(x=>!x.includes("DROP TABLE")&&!x.includes("EXECUTE FORMAT")));
   const proof=checkedMakerGuardProof(ir);
   assert.match(proof,/EXCEPTION WHEN check_violation THEN NULL/);
-  assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,4);
+  assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,5);
   assert.match(proof,/protocolia_submitted_by='forged'/);
+  assert.match(proof,/DELETE FROM [a-z_]+ WHERE/);
+  assert.match(proof,/Direct maker-checker deletion accepted/);
   assert.match(proof,/No pending maker-checker row for DB proof/);
  }
 });
