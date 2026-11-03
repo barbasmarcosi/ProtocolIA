@@ -100,6 +100,25 @@ export async function composeAction(action,path){
     data.PROTOCOLIA_SCOPED_CAPABILITIES=
       getter.capability+","+submits[0].capability;
   }
+  const tenantPrefix=creator?.entity?.toLowerCase();
+  const tenantProfile=compiled.entities.length===1&&
+    compiled.operations.length===7&&stateOps.length===3&&
+    creator?.capability===tenantPrefix+".write.tenant"&&
+    getter?.capability===tenantPrefix+".read.tenant"&&
+    compiled.operations.every(op=>op.capability===(["get","listPage"].includes(op.behavior.kind)?
+      tenantPrefix+".read.tenant":op.behavior.kind==="health"?"public":
+      tenantPrefix+".write.tenant"));
+  if(tenantProfile){
+    // Equal business privileges, but verified demo identities bound to
+    // different organizations. Never inferred from user-controlled headers.
+    data.PROTOCOLIA_TEST_TENANT_MANAGER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_READER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_SCOPED="org_beta";
+    data.PROTOCOLIA_SCOPED_USERNAME="test_tenant_peer";
+    data.PROTOCOLIA_SCOPED_PASSWORD=randomBytes(24).toString("hex");
+    data.PROTOCOLIA_SCOPED_CAPABILITIES=
+      tenantPrefix+".read.tenant,"+tenantPrefix+".write.tenant";
+  }
   writeFileSync(envFile,Object.entries(data).map(([k,v])=>k+"="+v).join("\n")+"\n",{mode:0o600});
   const compose=["compose","--project-name",project,"--env-file",envFile];
   const env={...process.env,...data};
