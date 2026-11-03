@@ -38,13 +38,17 @@ export function auditedTransitionAuthority(ir,entity,read,write){
  insist(!transitions.some(op=>forks.some(t=>t.behavior.to===op.behavior.from)),
   "terminal transitions must have no outgoing path");
  const prefix=entity.name.toLowerCase();
- const submit=prefix+".submit",decide=prefix+".decide";
+ const submit=prefix+".submit";
+ // The checked grant is a distinct, opt-in authorization profile. The older
+ // .decide capability remains unchanged for all existing v0.4 applications.
+ const checked=forks.every(op=>op.capability===prefix+".decide.checked");
+ const decide=prefix+(checked?".decide.checked":".decide");
  insist([read,write,submit,decide].every(x=>typeof x==="string"&&
     /^[a-z][a-z0-9.]{2,70}$/.test(x)&&x!=="public")&&
    new Set([read,write,submit,decide]).size===4,
    "invalid or overlapping read/write/submit/decide capabilities");
  insist(start[0].capability===submit&&forks.every(t=>t.capability===decide),
   "unreviewed or escalated per-transition capability");
- return {submit,decide,allowed:new Map([[start[0].name,submit],
+ return {submit,decide,makerChecker:checked,allowed:new Map([[start[0].name,submit],
    ...forks.map(x=>[x.name,decide])])};
 }
