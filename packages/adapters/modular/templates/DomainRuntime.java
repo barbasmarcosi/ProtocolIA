@@ -283,6 +283,40 @@ public class DomainRuntime {
       .body(Map.of("outcome",outcome));
   }
 
+  // Only a signed resource-server JWT or isolated demo principal grants
+  // a tenant identity. A request header/body/path cannot nominate a tenant.
+  private boolean tenantEntity(Manifest.Entity e){
+    return Manifest.OPS.stream().anyMatch(op->op.entity().equals(e.name())&&
+      op.kind().equals("create")&&
+      op.capability().equals(e.name().toLowerCase(java.util.Locale.ROOT)+".write.tenant"));
+  }
+  private String verifiedTenant(Authentication user){
+    String raw=null;
+    if(user instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)
+      raw=jwt.getToken().getClaimAsString("protocolia_tenant");
+    else if("true".equals(System.getenv("PROTOCOLIA_ALLOW_DEMO_AUTH"))&&user!=null){
+      String name=user.getName();
+      if(name.equals(System.getenv("PROTOCOLIA_MANAGER_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_MANAGER");
+      else if(name.equals(System.getenv("PROTOCOLIA_READER_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_READER");
+      else if(name.equals(System.getenv("PROTOCOLIA_SCOPED_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_SCOPED");
+    }
+    if(raw==null||!raw.matches("[a-z][a-z0-9_-]{1,63}"))
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Verified organization identity required");
+    return raw;
+  }
+  private String currentTenant(Manifest.Entity e){
+    if(!tenantEntity(e))return null;
+    var attrs=org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+    Object tenant=attrs instanceof org.springframework.web.context.request.ServletRequestAttributes data?
+      data.getRequest().getAttribute("protocolia.verifiedTenant"):null;
+    if(!(tenant instanceof String id)||!id.matches("[a-z][a-z0-9_-]{1,63}"))
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Missing verified organization context");
+    return id;
+  }
+
   // Platform-authenticated capability discovery; only server authorities are trusted.
   @GetMapping("/api/_protocolia/me")
   public Map<String, Object> session(Authentication user,HttpServletRequest request) {
@@ -373,6 +407,7 @@ public class DomainRuntime {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(authorized.entity())).findFirst()
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
+    if(tenantEntity(entity))request.setAttribute("protocolia.verifiedTenant",verifiedTenant(user));
     Object result;
     switch (matched.kind()) {
       case "create" -> result = create(entity, matched, body, user,request.getHeader("If-Match"),false);
