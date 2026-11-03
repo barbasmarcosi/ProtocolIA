@@ -27,7 +27,7 @@ function description(ir,e){
  const prefix="protocolia_mc_"+table;
  ensure(prefix.length<=58,"unsafe generated SQL function identifier");
  return {table,key,column,initial:state(field.initial),review:state(submit.behavior.to),
-  terminals:decisions.map(x=>state(x.behavior.to)),
+  terminals:decisions.map(x=>state(x.behavior.to)).sort(),
   functionName:prefix+"_guard",triggerName:prefix+"_trigger"};
 }
 export function checkedMakerGuardDdl(ir,e){
