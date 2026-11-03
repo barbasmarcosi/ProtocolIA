@@ -1565,8 +1565,11 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    String prefix=e.name().toLowerCase(java.util.Locale.ROOT);
+    boolean checked=Manifest.OPS.stream().anyMatch(x->x.entity().equals(e.name())&&
+      x.kind().equals("transition")&&x.capability().equals(prefix+".decide.checked"));
     String tenant=currentTenant(e);
-    if(tenant!=null){
+    if(tenant!=null&&!checked){
       var params=new MapSqlParameterSource().addValue("key",id)
         .addValue("from",op.fromState()).addValue("to",op.toState())
         .addValue("tenant",tenant);
@@ -1581,9 +1584,6 @@ public class DomainRuntime {
     // Checked decisions only: the submitter is persisted server-side as part
     // of the guarded transition. A different authenticated subject is required
     // by the same PostgreSQL CAS before any terminal state change is possible.
-    String prefix=e.name().toLowerCase(java.util.Locale.ROOT);
-    boolean checked=Manifest.OPS.stream().anyMatch(x->x.entity().equals(e.name())&&
-      x.kind().equals("transition")&&x.capability().equals(prefix+".decide.checked"));
     boolean maker=checked&&op.capability().equals(prefix+".submit");
     boolean checker=checked&&op.capability().equals(prefix+".decide.checked");
     if(maker||checker){
@@ -1591,20 +1591,24 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Unverified maker-checker identity");
       var p=new MapSqlParameterSource().addValue("id",id).addValue("from",op.fromState())
         .addValue("to",op.toState()).addValue("actor",actor);
+      if(tenant!=null)p.addValue("tenant",tenant);
       // The enclosing @Transactional dispatch binds this to the same JDBC
       // transaction as the guarded UPDATE and audit. Not a user-supplied GUC.
       jdbc.queryForObject("SELECT set_config('protocolia.subject', :actor, true)",
         Map.of("actor",actor),String.class);
       int changed=maker?
         jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to, protocolia_submitted_by=:actor WHERE "+
-          e.identityColumn()+"=:id AND "+col+"=:from AND protocolia_submitted_by IS NULL",p):
+          e.identityColumn()+"=:id AND "+col+"=:from AND protocolia_submitted_by IS NULL"+
+          (tenant==null?"":" AND protocolia_tenant_id=:tenant"),p):
         jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+e.identityColumn()+
           "=:id AND "+col+"=:from AND protocolia_submitted_by IS NOT NULL AND "+
-          "protocolia_submitted_by<>:actor",p);
+          "protocolia_submitted_by<>:actor"+
+          (tenant==null?"":" AND protocolia_tenant_id=:tenant"),p);
       if(changed!=1){
         var existing=jdbc.queryForList("SELECT "+col+
           " AS state, protocolia_submitted_by AS maker FROM "+e.table()+
-          " WHERE "+e.identityColumn()+"=:id",Map.of("id",id));
+          " WHERE "+e.identityColumn()+"=:id"+
+          (tenant==null?"":" AND protocolia_tenant_id=:tenant"),p);
         if(existing.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         if(checker&&op.fromState().equals(existing.get(0).get("state"))&&
           actor.equals(existing.get(0).get("maker")))

@@ -258,9 +258,20 @@ public class SecurityConfig {
     if(required("PROTOCOLIA_READER_USERNAME").equalsIgnoreCase(required("PROTOCOLIA_MANAGER_USERNAME")))
       throw new IllegalStateException("Demo subjects must be distinct");
     var encoder = new BCryptPasswordEncoder();
+    // Isolated v0.7 test-only actor: the reader is the same-tenant presenter.
+    // Never widen production JWT grants or legacy v0.3-v0.6 demo roles.
+    boolean combinedTenantMaker=Manifest.OPS.stream().anyMatch(o->
+        o.kind().equals("create")&&o.capability().equals(o.entity().toLowerCase(java.util.Locale.ROOT)+".write.tenant"))&&
+      Manifest.OPS.stream().anyMatch(o->o.kind().equals("transition")&&
+        o.capability().equals(o.entity().toLowerCase(java.util.Locale.ROOT)+".decide.checked"));
+    var readerGrants=combinedTenantMaker?
+        java.util.stream.Stream.concat(Manifest.READ_CAPABILITIES.stream(),
+          Manifest.WRITE_CAPABILITIES.stream().filter(c->c.endsWith(".submit")))
+            .distinct().toArray(String[]::new):
+        Manifest.READ_CAPABILITIES.toArray(String[]::new);
     var reader = User.withUsername(required("PROTOCOLIA_READER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_READER_PASSWORD")))
-        .authorities(Manifest.READ_CAPABILITIES.toArray(String[]::new)).build();
+        .authorities(readerGrants).build();
     var manager = User.withUsername(required("PROTOCOLIA_MANAGER_USERNAME"))
         .password("{bcrypt}" + encoder.encode(required("PROTOCOLIA_MANAGER_PASSWORD")))
         .authorities(java.util.stream.Stream.concat(
