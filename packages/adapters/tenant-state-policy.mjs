@@ -17,7 +17,7 @@ export function auditedTenantStatePolicy(ir,e){
  const read=e.name.toLowerCase()+".read.tenant",write=e.name.toLowerCase()+".write.tenant";
  const submit=e.name.toLowerCase()+".submit",decide=e.name.toLowerCase()+".decide.checked";
  const composite=ops.some(op=>op.capability===decide);
- if(!ops.some(op=>op.capability===write||op.capability===read||op.capability===decide))return null;
+ if(!ops.some(op=>op.capability===write||op.capability===read))return null;
  requireValid(ir.entities.length===1&&ops.length===7&&e.fields.length===3,
   "only one seven-operation state-only tenant graph");
  const counts=Object.fromEntries(["create","get","listPage","transition","health"].map(k=>
