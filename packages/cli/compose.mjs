@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {checkedMakerGuardProof} from "../adapters/maker-checker-db-guard.mjs";
+import {tenantStateDbProof} from "../adapters/tenant-state-policy.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
@@ -148,7 +149,8 @@ export async function composeAction(action,path){
     // Direct SQL adversarial proof against the isolated Docker/PostgreSQL DB,
     // run only after a v0.5 HTTP conformance test has created a pending case.
     // The app and this psql process do NOT share session GUCs.
-    const dbProof=checkedMakerGuardProof(compiled);
+    const makerProof=checkedMakerGuardProof(compiled);
+    const dbProof=makerProof??tenantStateDbProof(compiled);
     if(dbProof){
       const proof=spawnSync("docker",[
         ...compose,"exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
@@ -157,9 +159,11 @@ export async function composeAction(action,path){
       if(proof.error)throw proof.error;
       if(proof.status!==0)throw Error("Maker guard DB bypass proof FAILED: "+
         String(proof.stderr??"").slice(-1000));
-      console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
+      if(makerProof)console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
         JSON.stringify({table:compiled.entities[0].name,
           verified:["direct-finalization","maker-reassignment","state-rewind","maker-erasure"]}));
+      else console.log("PROTOCOLIA_TENANT_DB_KEY_IMMUTABLE_PASS "+
+        JSON.stringify({table:compiled.entities[0].name,verified:["tenant-reassignment"]}));
     }
 
   }finally{
