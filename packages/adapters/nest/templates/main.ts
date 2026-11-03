@@ -1308,10 +1308,31 @@ class RuntimeService{
     return this.row(e,key);
   }
   private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string,
-    ifMatch?:unknown):Promise<Record<string,unknown>>{
+    ifMatch?:unknown,tenant?:string):Promise<Record<string,unknown>>{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(this.tenantEntity(e)){
+      tenant=this.trustedTenant(tenant);
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+
+          "=$3 AND protocolia_tenant_id=$4 RETURNING "+e.identityColumn,
+          [op.to,key,op.from,tenant]);
+        if(changed.rowCount!==1){
+          const seen=await client.query("SELECT 1 FROM "+e.table+
+            " WHERE "+e.identityColumn+"=$1 AND protocolia_tenant_id=$2",[key,tenant]);
+          throw new Problem(seen.rowCount?409:404,"Tenant-scoped transition unavailable");
+        }
+        await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key,actor,tenant);
+    }
     // Opt-in maker-checker profile, gated by a checked decision capability.
     // Persist the authenticated submitter in the SAME guarded state update.
     // The checker predicate is a single atomic SQL CAS, not a UI-only check.
@@ -1819,7 +1840,7 @@ class RuntimeService{
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username,
-          req.headers["if-match"]);break;
+          req.headers["if-match"],session.tenant);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
         case "delete":await this.remove(entity,op,identity,session.username,session.capabilities,
           req.headers["if-match"],req.body);res.status(204).send();return;
