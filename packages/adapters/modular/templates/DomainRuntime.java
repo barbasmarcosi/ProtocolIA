@@ -1169,7 +1169,7 @@ public class DomainRuntime {
     }
     String tenant=currentTenant(e);
     if(tenant!=null)args.addValue("tenant",tenant);
-    String predicate=(e.ownerField()==null?" WHERE "+e.ownerColumn()+"=:owner":"")+
+    String predicate=(e.ownerField()==null?"":" WHERE "+e.ownerColumn()+"=:owner")+
       (tenant==null?"":(e.ownerField()==null?" WHERE ":" AND ")+"protocolia_tenant_id=:tenant");
     var result=jdbc.queryForList(selectSql(e)+predicate+" ORDER BY "+e.identityColumn()+
       " LIMIT :limit OFFSET :offset",args);
