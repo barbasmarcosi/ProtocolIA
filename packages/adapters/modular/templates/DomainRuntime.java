@@ -1565,6 +1565,19 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    String tenant=currentTenant(e);
+    if(tenant!=null){
+      var params=new MapSqlParameterSource().addValue("key",id)
+        .addValue("from",op.fromState()).addValue("to",op.toState())
+        .addValue("tenant",tenant);
+      int updated=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+        e.identityColumn()+"=:key AND "+col+"=:from AND protocolia_tenant_id=:tenant",params);
+      if(updated!=1){
+        row(e,id); // NotFound when row is not visible to this verified tenant.
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Tenant-scoped state conflict");
+      }
+      return row(e,id);
+    }
     // Checked decisions only: the submitter is persisted server-side as part
     // of the guarded transition. A different authenticated subject is required
     // by the same PostgreSQL CAS before any terminal state change is possible.
