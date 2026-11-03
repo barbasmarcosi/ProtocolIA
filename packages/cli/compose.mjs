@@ -120,6 +120,22 @@ export async function composeAction(action,path){
     data.PROTOCOLIA_SCOPED_CAPABILITIES=
       tenantPrefix+".read.tenant,"+tenantPrefix+".write.tenant";
   }
+  const combined=compiled.entities.length===1&&creator?.capability===tenantPrefix+".write.tenant"&&
+    getter?.capability===tenantPrefix+".read.tenant"&&
+    submits.length===1&&decides.length===2&&
+    decides.every(op=>op.capability===tenantPrefix+".decide.checked");
+  if(combined){
+    // Three isolated test-only subjects: manager/checker Alpha, read+submit
+    // presenter Alpha, and fully granted Beta peer. Beta cannot approve itself.
+    data.PROTOCOLIA_TEST_TENANT_MANAGER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_READER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_SCOPED="org_beta";
+    data.PROTOCOLIA_SCOPED_USERNAME="test_tenant_peer";
+    data.PROTOCOLIA_SCOPED_PASSWORD=randomBytes(24).toString("hex");
+    data.PROTOCOLIA_SCOPED_CAPABILITIES=[
+      getter.capability,creator.capability,submits[0].capability,decides[0].capability
+    ].join(",");
+  }
   writeFileSync(envFile,Object.entries(data).map(([k,v])=>k+"="+v).join("\n")+"\n",{mode:0o600});
   const compose=["compose","--project-name",project,"--env-file",envFile];
   const env={...process.env,...data};
@@ -150,21 +166,29 @@ export async function composeAction(action,path){
     // run only after a v0.5 HTTP conformance test has created a pending case.
     // The app and this psql process do NOT share session GUCs.
     const makerProof=checkedMakerGuardProof(compiled);
-    const dbProof=makerProof??tenantStateDbProof(compiled);
-    if(dbProof){
+    const tenantProof=tenantStateDbProof(compiled);
+    // Combined profile must pass BOTH independent-session SQL probes;
+    // a passing maker-only proof cannot mask tenant guard regressions.
+    for(const [kind,dbProof] of [["maker",makerProof],["tenant",tenantProof]]){
+      if(!dbProof)continue;
       const proof=spawnSync("docker",[
         ...compose,"exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
         "-U","protocolia","-d","protocolia"
       ],{cwd:out,env,encoding:"utf8",input:dbProof,timeout:60000});
       if(proof.error)throw proof.error;
-      if(proof.status!==0)throw Error("Maker guard DB bypass proof FAILED: "+
+      if(proof.status!==0)throw Error(kind+" DB bypass proof FAILED: "+
         String(proof.stderr??"").slice(-1000));
-      if(makerProof)console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
+      if(kind==="maker")console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
         JSON.stringify({table:compiled.entities[0].name,
-          verified:["direct-finalization","maker-reassignment","state-rewind","maker-erasure"]}));
+          verified:["direct-finalization","maker-reassignment","state-rewind","maker-erasure",
+            "direct-delete","direct-truncate"]}));
       else console.log("PROTOCOLIA_TENANT_DB_KEY_IMMUTABLE_PASS "+
-        JSON.stringify({table:compiled.entities[0].name,verified:["tenant-reassignment","direct-delete","direct-truncate"]}));
+        JSON.stringify({table:compiled.entities[0].name,
+          verified:["tenant-reassignment","direct-delete","direct-truncate"]}));
     }
+    if(makerProof&&tenantProof)console.log("PROTOCOLIA_TENANT_MAKER_DB_GUARDS_PASS "+
+      JSON.stringify({table:compiled.entities[0].name,
+        checks:["maker-separation","tenant-key-immutability","sql-erasure-denied"]}));
 
   }finally{
     if(started){
