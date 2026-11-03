@@ -163,7 +163,7 @@ export async function composeAction(action,path){
         JSON.stringify({table:compiled.entities[0].name,
           verified:["direct-finalization","maker-reassignment","state-rewind","maker-erasure"]}));
       else console.log("PROTOCOLIA_TENANT_DB_KEY_IMMUTABLE_PASS "+
-        JSON.stringify({table:compiled.entities[0].name,verified:["tenant-reassignment"]}));
+        JSON.stringify({table:compiled.entities[0].name,verified:["tenant-reassignment","direct-delete","direct-truncate"]}));
     }
 
   }finally{

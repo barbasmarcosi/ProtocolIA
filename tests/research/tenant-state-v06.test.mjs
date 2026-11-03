@@ -6,7 +6,7 @@ import {tmpdir} from "node:os";
 import {fileURLToPath} from "node:url";
 import {composeStateOnlyGraph,emitStateOnlyTypeSpec} from "../../scripts/research/state-only-operator-grammar.mjs";
 import {compileStateOnlyOperators} from "../../scripts/research/state-only-operator-intake.mjs";
-import {auditedTenantStatePolicy,tenantStateSchemaDdl,verifiedTenantId}
+import {auditedTenantStatePolicy,tenantStateSchemaDdl,tenantStateDbProof,verifiedTenantId}
  from "../../packages/adapters/tenant-state-policy.mjs";
 const root=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const file=(domain,version)=>join(root,"research/autonomous-engineering/samples",
@@ -40,12 +40,21 @@ test("v0.6 source adds only reviewed read/write tenant grants without exposing t
   const ir=compiled(tenant);
   const p=auditedTenantStatePolicy(ir,ir.entities[0]);
   assert.equal(p.entity,tenant.entities[0].name);
-  assert.equal(tenantStateSchemaDdl(ir,ir.entities[0]).length,4);
+  assert.equal(tenantStateSchemaDdl(ir,ir.entities[0]).length,5);
   const sql=tenantStateSchemaDdl(ir,ir.entities[0]).join("\n");
   assert.match(sql,/protocolia_tenant_id VARCHAR\(64\) NOT NULL/);
   assert.match(sql,/Tenant reassignment forbidden/);
-  assert.match(sql,/BEFORE UPDATE/);
+  assert.match(sql,/BEFORE UPDATE OR DELETE/);
+  assert.match(sql,/BEFORE TRUNCATE/);
+  assert.match(sql,/Tenant record erasure forbidden/);
   assert.match(sql,/CREATE INDEX/);
+  const proof=tenantStateDbProof(ir);
+  assert.match(proof,/DELETE FROM [a-z_]+ WHERE/);
+  assert.match(proof,/TRUNCATE TABLE [a-z_]+/);
+  assert.match(proof,/Tenant row deletion was accepted/);
+  assert.match(proof,/Tenant table truncation was accepted/);
+  assert.match(proof,/Tenant row count drifted after denied erasure/);
+  assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,3);
  }
 });
 test("strict tenant lexical policy rejects missing, path, SQL, header and spoofed claims",()=>{
@@ -62,6 +71,7 @@ test("old v0.3, v0.4 and v0.5 contracts do not get new columns or scopes",()=>{
    const ir=compiled(composeStateOnlyGraph(read(domain,version)));
    assert.equal(auditedTenantStatePolicy(ir,ir.entities[0]),null);
    assert.deepEqual(tenantStateSchemaDdl(ir,ir.entities[0]),[]);
+   assert.equal(tenantStateDbProof(ir),null);
   }
  }
 });
