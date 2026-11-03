@@ -41,7 +41,7 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   assert.match(sql[1],/NEW.(?:state|phase) IS DISTINCT FROM OLD.(?:state|phase)/);
   assert.match(sql[1],/NEW.(?:state|phase) IN \('(completed|approved)','(dismissed|rejected)'\)/);
   assert.match(sql[2],/BEFORE INSERT OR UPDATE OR DELETE/);
-  assert.match(sql[1],/TG_OP=\x27DELETE\x27/);
+  assert.match(sql[1],/TG_OP IN \(\x27DELETE\x27,\x27TRUNCATE\x27\)/);
   assert.match(sql[1],/Maker-checker record erasure forbidden/);
   assert.ok(sql.every(x=>!x.includes("DROP TABLE")&&!x.includes("EXECUTE FORMAT")));
   const proof=checkedMakerGuardProof(ir);
