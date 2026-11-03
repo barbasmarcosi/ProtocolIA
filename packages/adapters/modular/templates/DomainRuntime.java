@@ -693,9 +693,12 @@ public class DomainRuntime {
     if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     if(e.ownerField()!=null && subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     try {
-      String condition=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+      String tenant=currentTenant(e);
+      String condition=(e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner")+
+        (tenant==null?"":" AND protocolia_tenant_id=:tenant");
       var args=new MapSqlParameterSource().addValue("key",id);
       if(e.ownerField()!=null)args.addValue("owner",subject);
+      if(tenant!=null)args.addValue("tenant",tenant);
       return serialized(jdbc.queryForMap(
           selectSql(e) + " WHERE " + e.identityColumn() + " = :key"+condition,
           args), e);
@@ -1114,6 +1117,13 @@ public class DomainRuntime {
     for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
     String values = e.fields().stream().filter(f -> !f.computed()).map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
+    String tenant=currentTenant(e);
+    if(tenant!=null){
+      // The tenant key is not in TypeSpec, body or API DTO.
+      params.addValue("verifiedTenant",tenant);
+      names+=",protocolia_tenant_id";
+      values+=",:verifiedTenant";
+    }
     var relation=e.ownerRelation();
     if(relation!=null){
       if(user.getAuthorities().stream().noneMatch(a->a.getAuthority().equals(relation.parentReadCapability())))
@@ -1157,7 +1167,10 @@ public class DomainRuntime {
       if(subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
       args.addValue("owner",subject);
     }
-    String predicate=e.ownerField()==null?"":" WHERE "+e.ownerColumn()+"=:owner";
+    String tenant=currentTenant(e);
+    if(tenant!=null)args.addValue("tenant",tenant);
+    String predicate=(e.ownerField()==null?" WHERE "+e.ownerColumn()+"=:owner":"")+
+      (tenant==null?"":(e.ownerField()==null?" WHERE ":" AND ")+"protocolia_tenant_id=:tenant");
     var result=jdbc.queryForList(selectSql(e)+predicate+" ORDER BY "+e.identityColumn()+
       " LIMIT :limit OFFSET :offset",args);
     List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
