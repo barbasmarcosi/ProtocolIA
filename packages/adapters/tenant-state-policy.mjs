@@ -15,6 +15,8 @@ export function verifiedTenantId(tenant){
 export function auditedTenantStatePolicy(ir,e){
  const ops=ir.operations.filter(op=>op.entity===e.name);
  const read=e.name.toLowerCase()+".read.tenant",write=e.name.toLowerCase()+".write.tenant";
+ const submit=e.name.toLowerCase()+".submit",decide=e.name.toLowerCase()+".decide.checked";
+ const composite=ops.some(op=>op.capability===decide);
  if(!ops.some(op=>op.capability===write||op.capability===read))return null;
  requireValid(ir.entities.length===1&&ops.length===7&&e.fields.length===3,
   "only one seven-operation state-only tenant graph");
@@ -23,7 +25,10 @@ export function auditedTenantStatePolicy(ir,e){
  requireValid(counts.create===1&&counts.get===1&&counts.listPage===1&&
   counts.transition===3&&counts.health===1,"unreviewed tenant operations");
  requireValid(ops.every(op=>op.capability===(op.behavior?.kind==="get"||
-   op.behavior?.kind==="listPage"?read:op.behavior?.kind==="health"?"public":write)),
+   op.behavior?.kind==="listPage"?read:op.behavior?.kind==="health"?"public":
+   op.behavior?.kind==="transition"&&composite?
+     op.behavior.from===e.fields.find(f=>typeof f.initial==="string")?.initial?submit:decide:
+   write)),
    "mixed or unreviewed tenant privileges");
  const status=e.fields.find(x=>typeof x.initial==="string");
  const transitions=ops.filter(x=>x.behavior?.kind==="transition");
@@ -42,7 +47,9 @@ export function auditedTenantStatePolicy(ir,e){
  requireValid(e.publicIdentity===e.fields[0].name&&
   e.fields[0].unique&&e.fields[0].required&&e.fields[0].type==="string",
   "unsafe tenant identity");
- return {entity:e.name,read,write,table:sqlName(e.name),
+ if(composite)requireValid(ops.filter(op=>op.capability===submit).length===1&&
+  ops.filter(op=>op.capability===decide).length===2, "invalid tenant-maker capability composition");
+ return {entity:e.name,read,write,composite,table:sqlName(e.name),
   identityColumn:sqlName(e.publicIdentity),stateColumn:sqlName(status.name),
   initial:status.initial};
 }
