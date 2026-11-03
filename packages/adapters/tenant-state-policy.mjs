@@ -55,11 +55,15 @@ export function tenantStateSchemaDdl(ir,e){
   // Database-level immutable tenant; full DB owner could still drop the trigger.
   "CREATE FUNCTION "+name+"_guard() RETURNS trigger LANGUAGE plpgsql AS "+
   "$protocolia_tenant$ BEGIN "+
+  "IF TG_OP IN ('DELETE','TRUNCATE') THEN "+
+  "RAISE EXCEPTION 'Tenant record erasure forbidden' USING ERRCODE='23514'; END IF; "+
   "IF NEW.protocolia_tenant_id IS DISTINCT FROM OLD.protocolia_tenant_id THEN "+
   "RAISE EXCEPTION 'Tenant reassignment forbidden' USING ERRCODE='23514'; END IF; "+
   "RETURN NEW; END; $protocolia_tenant$;",
-  "CREATE TRIGGER "+name+"_immutable BEFORE UPDATE ON "+p.table+
+  "CREATE TRIGGER "+name+"_immutable BEFORE UPDATE OR DELETE ON "+p.table+
     " FOR EACH ROW EXECUTE FUNCTION "+name+"_guard();",
+  "CREATE TRIGGER "+name+"_truncate BEFORE TRUNCATE ON "+p.table+
+    " FOR EACH STATEMENT EXECUTE FUNCTION "+name+"_guard();",
   "CREATE INDEX idx_"+p.table+"_tenant ON "+p.table+
     "(protocolia_tenant_id,"+p.identityColumn+");"
  ];
@@ -73,20 +77,34 @@ export function tenantStateDbProof(ir){
  const p=auditedTenantStatePolicy(ir,ir.entities[0]);if(!p)return null;
  return [
   "DO $protocolia_tenant_proof$",
-  "DECLARE id_value TEXT; org_value TEXT;",
+  "DECLARE id_value TEXT; org_value TEXT; original_count BIGINT;",
   "BEGIN",
   "  SELECT "+p.identityColumn+",protocolia_tenant_id INTO id_value,org_value",
   "    FROM "+p.table+" LIMIT 1;",
   "  IF id_value IS NULL THEN RAISE EXCEPTION 'Missing tenant row for proof'; END IF;",
+  "  SELECT COUNT(*) INTO original_count FROM "+p.table+";",
   "  BEGIN",
   "    UPDATE "+p.table+" SET protocolia_tenant_id='org_attack'",
   "      WHERE "+p.identityColumn+"=id_value;",
   "    RAISE EXCEPTION 'Tenant reassignment was accepted';",
   "  EXCEPTION WHEN check_violation THEN NULL;",
   "  END;",
+  "  BEGIN",
+  "    DELETE FROM "+p.table+" WHERE "+p.identityColumn+"=id_value;",
+  "    RAISE EXCEPTION 'Tenant row deletion was accepted';",
+  "  EXCEPTION WHEN check_violation THEN NULL;",
+  "  END;",
+  "  BEGIN",
+  "    TRUNCATE TABLE "+p.table+";",
+  "    RAISE EXCEPTION 'Tenant table truncation was accepted';",
+  "  EXCEPTION WHEN check_violation THEN NULL;",
+  "  END;",
   "  IF (SELECT protocolia_tenant_id FROM "+p.table+
     " WHERE "+p.identityColumn+"=id_value) IS DISTINCT FROM org_value THEN",
   "    RAISE EXCEPTION 'Tenant key drifted after denied mutation';",
+  "  END IF;",
+  "  IF (SELECT COUNT(*) FROM "+p.table+")<>original_count THEN",
+  "    RAISE EXCEPTION 'Tenant row count drifted after denied erasure';",
   "  END IF;",
   "END;",
   "$protocolia_tenant_proof$;"
