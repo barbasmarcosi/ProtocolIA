@@ -700,11 +700,16 @@ class RuntimeService{
       "=$1 AND document_version<2147483647",[id]);
     if(changed.rowCount!==1)throw new Problem(409,"Document version exhausted");
   }
-  private async row(e:Entity,id:string,subject?:string):Promise<Record<string,unknown>>{
+  private async row(e:Entity,id:string,subject?:string,tenant?:string):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&!subject)throw new Problem(403,"Owner identity is required");
-    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+
-      (owner?" AND "+owner.column+"=$2":""),owner?[id,subject]:[id]);
+    const scoped=this.tenantEntity(e);
+    if(scoped)tenant=this.trustedTenant(tenant);
+    const args:unknown[]=owner?[id,subject]:[id];
+    const clause=(owner?" AND "+owner.column+"=$2":"")+
+      (scoped?" AND protocolia_tenant_id=$"+(args.length+1):"");
+    if(scoped)args.push(tenant);
+    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+clause,args);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
   }
@@ -724,7 +729,7 @@ class RuntimeService{
     if(!result.rows.length)throw new Problem(404,"Parent not found");
     return {totalUnits:String(result.rows[0].totalUnits)};
   }
-  private async page(e:Entity,op:Operation,query:Record<string,unknown>,subject?:string):Promise<unknown>{
+  private async page(e:Entity,op:Operation,query:Record<string,unknown>,subject?:string,tenant?:string):Promise<unknown>{
     if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
     function integer(value:unknown,def:number):number{
       if(value===undefined)return def;
@@ -738,11 +743,17 @@ class RuntimeService{
       throw new Problem(400,"Invalid page bounds");
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&!subject)throw new Problem(403,"Owner identity is required");
-    const clause=owner?" WHERE "+owner.column+"=$1":"";
+    const scoped=this.tenantEntity(e);
+    if(scoped)tenant=this.trustedTenant(tenant);
+    const predicates:string[]=[];
+    const args:unknown[]=[];
+    if(owner){args.push(subject);predicates.push(owner.column+"=$"+args.length);}
+    if(scoped){args.push(tenant);predicates.push("protocolia_tenant_id=$"+args.length);}
+    const clause=predicates.length?" WHERE "+predicates.join(" AND "):"";
     const [items,count]=await Promise.all([
       this.pool.query(this.select(e)+clause+" ORDER BY "+e.identityColumn+
-        (owner?" LIMIT $2 OFFSET $3":" LIMIT $1 OFFSET $2"),owner?[subject,limit,offset]:[limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,owner?[subject]:[])
+        " LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,args)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
