@@ -1,3 +1,4 @@
+import {auditedTransitionAuthority} from "../transition-authority.mjs";
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
 import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
@@ -289,6 +290,11 @@ export function generate(ir, openapi, outDir) {
       throw Error("Invalid capabilities on "+e.name);
     if(!readCaps.includes(read))readCaps.push(read);
     if(!writeCaps.includes(write))writeCaps.push(write);
+    const transitionAuthority=auditedTransitionAuthority(ir,e,read,write);
+    if(transitionAuthority){
+      for(const cap of [transitionAuthority.submit,transitionAuthority.decide])
+        if(!writeCaps.includes(cap))writeCaps.push(cap);
+    }
     const auditRead=byKind("auditPage",e.name)[0];
     if(auditRead){
       if(auditRead.capability===read||auditRead.capability===write||
@@ -320,6 +326,8 @@ export function generate(ir, openapi, outDir) {
           op.capability===auditRead?.capability)
           throw Error("Invalid independently authorized detail editor "+op.name);
         if(!writeCaps.includes(op.capability))writeCaps.push(op.capability);
+      }else if(op.behavior.kind==="transition"&&transitionAuthority?.allowed.get(op.name)===op.capability){
+        // Per-operation CAS authority is allowed only for the approved DAG.
       }else if(!reviewedAdjustment&&op.capability!==expected)throw Error("Inconsistent capability on "+op.name);
     }
   }

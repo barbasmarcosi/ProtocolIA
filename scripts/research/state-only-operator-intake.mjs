@@ -19,6 +19,7 @@ function readSafe(p){
 }
 function build(bytes){
  const input=JSON.parse(bytes),ir=composeStateOnlyGraph(input),sourceHash=sha(bytes);
+ const twoRole=ir.schemaVersion==="protocolia-state-operator-ir/v0.4";
  const evidence=["source-sha256:"+sourceHash];
  const item=(id,text,scope,operations)=>({
   id,text,scope,operations,origin:"source_brief_unverified",evidenceRefs:evidence
@@ -53,7 +54,8 @@ function build(bytes){
    catalogSha256:operatorCatalogDigest(),catalog:operatorCatalogSnapshot()})],
   ["protocolia-intake-report.json",json({schemaVersion:"protocolia-intake-report/v0.1",
    status:"PARTIAL_DRAFT_UNVERIFIED",
-   generatorProfile:"state-only-operator-grammar/v0.3",
+   generatorProfile:twoRole?"state-only-operator-grammar/v0.4":"state-only-operator-grammar/v0.3",
+   ...(twoRole?{authorizationProfile:"submit-decide/v1"}:{}),
    sourceSha256:sourceHash,semanticIrSha256:sha(json(ir)),
    operatorCatalogSha256:operatorCatalogDigest(),
    operatorPins:ir.operatorCatalog.pins,
@@ -63,11 +65,12 @@ function build(bytes){
     "A single audited transition operator is admitted; all external effects are forbidden",
     "A finite acyclic one-entity workflow is bounded by reviewed grammar, not arbitrary code",
     "The source is synthetic; no business owner is authenticated",
-    "One entity-level write capability is shared by submit/approve/reject actions"
+    twoRole?"Submit and decide grants are distinct; this is not identity separation-of-duties or owner approval":
+      "One entity-level write capability is shared by submit/approve/reject actions"
    ]})]
  ]);
  files.set("protocolia-intake.lock.json",json({
-  schemaVersion:"protocolia-state-operator-lock/v0.3",
+  schemaVersion:twoRole?"protocolia-state-operator-lock/v0.4":"protocolia-state-operator-lock/v0.3",
   sourceSha256:sourceHash,semanticIrSha256:sha(files.get("semantic-ir.json")),
   operatorCatalogSha256:operatorCatalogDigest(),
   files:Object.fromEntries([...files].map(([name,value])=>[name,sha(value)]).sort((a,b)=>a[0].localeCompare(b[0])))

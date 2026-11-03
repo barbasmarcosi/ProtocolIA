@@ -1,3 +1,4 @@
+import {auditedTransitionAuthority} from "../transition-authority.mjs";
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
 import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
@@ -164,6 +165,11 @@ export function generate(ir,spec,out){
       throw Error("Invalid read/write capabilities");
     if(!reads.includes(read))reads.push(read);
     if(!writes.includes(write))writes.push(write);
+    const transitionAuthority=auditedTransitionAuthority(ir,e,read,write);
+    if(transitionAuthority){
+      for(const cap of [transitionAuthority.submit,transitionAuthority.decide])
+        if(!writes.includes(cap))writes.push(cap);
+    }
     const auditRead=of("auditPage",e.name)[0];
     if(auditRead){
       if(auditRead.capability==="public"||auditRead.capability===read||auditRead.capability===write||
@@ -206,6 +212,9 @@ export function generate(ir,spec,out){
         if(!op.capability||op.capability==="public"||op.capability===read||
           op.capability===auditRead?.capability)throw Error("Unsafe detail editor capability "+op.name);
         if(!writes.includes(op.capability))writes.push(op.capability);
+      }else if(kind==="transition"&&transitionAuthority?.allowed.get(op.name)===op.capability){
+        // The reviewed source-bound submit/decide authority profile is the only
+        // exception to per-entity writer capabilities for transition operations.
       }else if(!ownerPatch&&!reviewedAdjustment&&kind!=="auditPage"&&kind!=="reassignReference"&&kind!=="inboxPage"&&kind!=="ackNotification"&&op.capability!==cap)throw Error("Wrong capability "+op.name);
       if(!/^\/[A-Za-z0-9_/{}/-]+$/.test(op.path)||routeKeys.has(op.method+" "+op.path))
         throw Error("Duplicate/invalid route "+op.name);

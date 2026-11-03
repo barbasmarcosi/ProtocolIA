@@ -16,10 +16,14 @@ const q=JSON.stringify;
 const property=(name,type,opts={})=>({name,type,required:true,nullable:false,...opts});
 const op=(name,kind,entity,path,capability)=>({name,kind,entity,path,capability});
 export function composeStateOnlyGraph(source){
- exact(source,["schemaVersion","namespace","title","profile","entity","operators","operatorVersions"],
+ const twoRole=source?.schemaVersion==="protocolia-operator-assembly/v0.4";
+ exact(source,twoRole?
+  ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions","authorizationProfile"]:
+  ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions"],
   "state-only source");
- ensure(source.schemaVersion==="protocolia-operator-assembly/v0.3"&&
-  source.profile==="state-only","unreviewed source version/profile");
+ ensure((twoRole||source.schemaVersion==="protocolia-operator-assembly/v0.3")&&
+  source.profile==="state-only"&&(!twoRole||source.authorizationProfile==="submit-decide/v1"),
+  "unreviewed source version/profile/authorization policy");
  ensure(entityName(source.namespace)&&source.namespace.endsWith("Lab"),"invalid laboratory namespace");
  ensure(typeof source.title==="string"&&source.title.length>=3&&source.title.length<=120&&
   source.title.trim()===source.title&&!/[\u0000-\u001f\u007f]/.test(source.title),
@@ -40,6 +44,18 @@ export function composeStateOnlyGraph(source){
  ensure(bound(e.identity.maxLength,12,120)&&bound(e.label.maxLength,12,255),
   "length out of range");
  const approved=validateAuditedStateGraph(source.operators,e.status.initial);
+ // Explicit opt-in only. A submitter can move the initial state to review,
+ // while either terminal decision requires a distinct, entity-bound grant.
+ if(twoRole){
+  ensure(source.operators.length===3,"submit-decide requires exactly three audited transitions");
+  const root=source.operators.filter(t=>t.from===e.status.initial);
+  ensure(root.length===1,"review graph needs a single submit edge");
+  const forks=source.operators.filter(t=>t.from===root[0].to);
+  ensure(forks.length===2&&forks.every(t=>t.to!==e.status.initial)&&
+    forks[0].to!==forks[1].to&&
+    source.operators.every(t=>t===root[0]||forks.includes(t)),
+    "decision graph must have two exclusive terminal outcomes");
+ }
  // Prevent generator-owned CRUD/health symbols from being shadowed by transitions.
  const builtIns=new Set(["health","create"+e.name,"get"+e.name,"list"+e.name+"s"]
   .map(x=>x.toLowerCase()));
@@ -48,18 +64,20 @@ export function composeStateOnlyGraph(source){
   builtIns.add(transition.name.toLowerCase());
  }
  const base="/api/"+e.route;
- const capabilities={read:e.name.toLowerCase()+".read",write:e.name.toLowerCase()+".write"};
+ const capabilities={read:e.name.toLowerCase()+".read",write:e.name.toLowerCase()+".write",
+  submit:e.name.toLowerCase()+".submit",decide:e.name.toLowerCase()+".decide"};
  const operations=[
   op("create"+e.name,"create",e.name,base,capabilities.write),
   op("get"+e.name,"get",e.name,base+"/{"+e.identity.name+"}",capabilities.read),
   op("list"+e.name+"s","listPage",e.name,base,capabilities.read),
   ...source.operators.map(t=>({
-   ...op(t.name,"transition",e.name,base+"/{"+e.identity.name+"}/"+t.suffix,capabilities.write),
+   ...op(t.name,"transition",e.name,base+"/{"+e.identity.name+"}/"+t.suffix,
+    twoRole?(t.from===e.status.initial?capabilities.submit:capabilities.decide):capabilities.write),
    field:e.status.name,from:t.from,to:t.to,audit:[e.status.name]
   })),
   op("health","health",e.name,"/health","public")
  ];
- return {schemaVersion:"protocolia-state-operator-ir/v0.3",
+ return {schemaVersion:twoRole?"protocolia-state-operator-ir/v0.4":"protocolia-state-operator-ir/v0.3",
   namespace:source.namespace,title:source.title,profile:source.profile,
   grammarSource:structuredClone(source),operatorCatalog:binding,
   entities:[{name:e.name,view:"Reviewed state items",publicIdentity:e.identity.name,fields:[
