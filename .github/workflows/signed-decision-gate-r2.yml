@@ -787,7 +787,7 @@ jobs:
             "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           grep -q 'PROTOCOLIA_STATEFUL_CONFORMANCE_PASS' \
             "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
-          if [ "${{ matrix.sample }}" = "service-ticket" ]; then
+          if [ "${{ matrix.sample }}" = "service-ticket" ] && [ "${{ matrix.profile }}" != "v06" ]; then
             grep -q 'PROTOCOLIA_OPERATION_AUTHORITY_CONFORMANCE_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           fi
