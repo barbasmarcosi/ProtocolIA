@@ -31,7 +31,7 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
  for(const domain of ["review","service-ticket"]){
   const ir=asCompilerIr(read(domain,"v05"));
   const sql=checkedMakerGuardDdl(ir,ir.entities[0]);
-  assert.equal(sql.length,3);
+  assert.equal(sql.length,4);
   assert.match(sql[0],/CHECK \(\((?:state|phase)='(reported|drafted)'\) = \(protocolia_submitted_by IS NULL\)\)/);
   assert.match(sql[1],/OLD.protocolia_submitted_by IS NOT NULL/);
   assert.match(sql[1],/current_setting\('protocolia.subject',true\)/);
@@ -42,14 +42,17 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   assert.match(sql[1],/NEW.(?:state|phase) IN \('(completed|approved)','(dismissed|rejected)'\)/);
   assert.match(sql[2],/BEFORE INSERT OR UPDATE OR DELETE/);
   assert.match(sql[1],/TG_OP=\x27DELETE\x27/);
-  assert.match(sql[1],/Maker-checker record deletion forbidden/);
+  assert.match(sql[1],/Maker-checker record erasure forbidden/);
   assert.ok(sql.every(x=>!x.includes("DROP TABLE")&&!x.includes("EXECUTE FORMAT")));
   const proof=checkedMakerGuardProof(ir);
   assert.match(proof,/EXCEPTION WHEN check_violation THEN NULL/);
-  assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,5);
+  assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,6);
   assert.match(proof,/protocolia_submitted_by='forged'/);
   assert.match(proof,/DELETE FROM [a-z_]+ WHERE/);
   assert.match(proof,/Direct maker-checker deletion accepted/);
+  assert.match(sql[3],/BEFORE TRUNCATE ON [a-z_]+ FOR EACH STATEMENT/);
+  assert.match(proof,/TRUNCATE TABLE [a-z_]+/);
+  assert.match(proof,/Direct maker-checker truncate accepted/);
   assert.match(proof,/No pending maker-checker row for DB proof/);
  }
 });
