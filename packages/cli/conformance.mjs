@@ -498,7 +498,9 @@ async function runMulti(){
     const transitionPlan=stateOnlyFork?
       [stateOnlyFork.submit,stateOnlyFork.first,stateOnlyFork.second]:allTransitions;
     const checkedFork=!!stateOnlyFork?.first.capability.endsWith(".decide.checked");
-    const checkedPresenter=checkedFork?b64(
+    const combinedFork=checkedFork&&resource.operations.create.capability===
+      e.name.toLowerCase()+".write.tenant";
+    const checkedPresenter=combinedFork?reader:checkedFork?b64(
       process.env.PROTOCOLIA_SCOPED_USERNAME,
       process.env.PROTOCOLIA_SCOPED_PASSWORD):null;
     for(const op of transitionPlan){
@@ -518,7 +520,8 @@ async function runMulti(){
       const stockKey=release?current.data[release.referenceField]:undefined;
       const beforeRelease=release?await run(stockResource,"get",reader,{key:stockKey}):undefined;
       if(release)assert.equal(beforeRelease.status,200);
-      assert.equal((await run(resource,op,reader,{key})).status,403);
+      if(!(combinedFork&&op===stateOnlyFork.submit))
+        assert.equal((await run(resource,op,reader,{key})).status,403);
       assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
       const role=checkedFork&&op===stateOnlyFork.submit?checkedPresenter:writer;
       const results=await Promise.all(Array.from({length:10},()=>run(resource,op,role,{key})));
@@ -635,8 +638,10 @@ async function runMulti(){
         assert.equal(first.capability,second.capability);
         assert.match(first.capability,/^[a-z][a-z0-9]+\.decide(?:\.checked)?$/);
         assert.notEqual(submit.capability,first.capability);
-        const name=process.env.PROTOCOLIA_SCOPED_USERNAME;
-        const password=process.env.PROTOCOLIA_SCOPED_PASSWORD;
+        const name=combinedFork?process.env.PROTOCOLIA_READER_USERNAME:
+          process.env.PROTOCOLIA_SCOPED_USERNAME;
+        const password=combinedFork?process.env.PROTOCOLIA_READER_PASSWORD:
+          process.env.PROTOCOLIA_SCOPED_PASSWORD;
         assert.ok(name&&password&&process.env.PROTOCOLIA_SCOPED_CAPABILITIES,
           "Separated transitions require an isolated scoped test principal");
         submitter=b64(name,password);
@@ -762,14 +767,29 @@ async function runMulti(){
         run(resource,root,peer,{key:foreignKey})));
       assert.equal(own.filter(x=>x.status===200).length,1);
       assert.equal(own.filter(x=>x.status===409).length,9);
-      assert.equal((await run(resource,decision,peer,{key:foreignKey})).status,200);
-      assert.equal((await run(resource,decision,writer,{key:foreignKey})).status,404);
-      assert.equal((await run(resource,"get",peer,{key:foreignKey})).data[stateOnlyFork.field],
-        decision.behavior.to);
-      console.log("PROTOCOLIA_TENANT_STATE_HTTP_CONFORMANCE_PASS "+
-        JSON.stringify({entity:e.name,tenants:2,equalPrivileges:true,
-          crossReadDenied:true,crossListDenied:true,crossTransitionDenied:true,
-          spoofedHeaderDenied:true,concurrentRejected:9}));
+      const betaDecision=await run(resource,decision,peer,{key:foreignKey});
+      if(combinedFork){
+        assert.equal(betaDecision.status,403,
+          "A subject holding both grants cannot decide their own case in Beta");
+        assert.equal((await run(resource,stateOnlyFork.second,peer,{key:foreignKey})).status,403);
+        assert.equal((await run(resource,"get",peer,{key:foreignKey})).data[stateOnlyFork.field],
+          root.behavior.to,"Rejected self-decision cannot mutate Beta state");
+        assert.equal((await run(resource,decision,writer,{key:foreignKey})).status,404);
+        console.log("PROTOCOLIA_TENANT_MAKER_HTTP_CONFORMANCE_PASS "+
+          JSON.stringify({entity:e.name,tenants:2,crossReadDenied:true,
+            crossTransitionDenied:true,spoofedHeaderDenied:true,
+            sameTenantIndependentChecker:true,selfDecisionDeniedInBothTenants:true,
+            concurrentRejected:9}));
+      }else{
+        assert.equal(betaDecision.status,200);
+        assert.equal((await run(resource,decision,writer,{key:foreignKey})).status,404);
+        assert.equal((await run(resource,"get",peer,{key:foreignKey})).data[stateOnlyFork.field],
+          decision.behavior.to);
+        console.log("PROTOCOLIA_TENANT_STATE_HTTP_CONFORMANCE_PASS "+
+          JSON.stringify({entity:e.name,tenants:2,equalPrivileges:true,
+            crossReadDenied:true,crossListDenied:true,crossTransitionDenied:true,
+            spoofedHeaderDenied:true,concurrentRejected:9}));
+      }
     }
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
