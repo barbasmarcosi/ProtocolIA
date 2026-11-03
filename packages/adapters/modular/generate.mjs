@@ -626,7 +626,11 @@ export function generate(ir, openapi, outDir) {
         col+" IS NULL OR "+col+" > "+source+")";
     });
     const versioned=ops.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
-    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    const checked=auditedTransitionAuthority(ir,e,
+      byKind("get",e.name)[0].capability,byKind("create",e.name)[0].capability)?.makerChecker;
+    sql.push("CREATE TABLE "+table+" (\n"+[...columns,...(checked?[
+      "  protocolia_submitted_by VARCHAR(128) CHECK (char_length(btrim(protocolia_submitted_by)) > 0)"
+    ]:[]),...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){
