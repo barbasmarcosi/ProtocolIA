@@ -1530,6 +1530,10 @@ public class DomainRuntime {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Unverified maker-checker identity");
       var p=new MapSqlParameterSource().addValue("id",id).addValue("from",op.fromState())
         .addValue("to",op.toState()).addValue("actor",actor);
+      // The enclosing @Transactional dispatch binds this to the same JDBC
+      // transaction as the guarded UPDATE and audit. Not a user-supplied GUC.
+      jdbc.queryForObject("SELECT set_config('protocolia.subject', :actor, true)",
+        Map.of("actor",actor),String.class);
       int changed=maker?
         jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to, protocolia_submitted_by=:actor WHERE "+
           e.identityColumn()+"=:id AND "+col+"=:from AND protocolia_submitted_by IS NULL",p):
