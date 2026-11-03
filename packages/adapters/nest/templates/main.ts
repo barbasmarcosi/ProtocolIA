@@ -1277,6 +1277,48 @@ class RuntimeService{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    // Opt-in maker-checker profile, gated by a checked decision capability.
+    // Persist the authenticated submitter in the SAME guarded state update.
+    // The checker predicate is a single atomic SQL CAS, not a UI-only check.
+    // Old .decide and entity .write transitions never enter this branch.
+    const prefix=e.name.toLowerCase();
+    const hasCheckedDecision=spec.operations.some(x=>x.entity===e.name&&
+      x.kind==="transition"&&x.capability===prefix+".decide.checked");
+    const isMaker=hasCheckedDecision&&op.capability===prefix+".submit";
+    const isChecker=hasCheckedDecision&&op.capability===prefix+".decide.checked";
+    if(isMaker||isChecker){
+      if(typeof actor!=="string"||!actor.trim()||actor.length>128)
+        throw new Problem(401,"Missing verified transition subject");
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const changed=isMaker?
+          await client.query("UPDATE "+e.table+" SET "+field.column+
+            "=$1, protocolia_submitted_by=$2 WHERE "+e.identityColumn+
+            "=$3 AND "+field.column+"=$4 AND protocolia_submitted_by IS NULL RETURNING "+
+            e.identityColumn,[op.to,actor,key,op.from]):
+          await client.query("UPDATE "+e.table+" SET "+field.column+
+            "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+
+            "=$3 AND protocolia_submitted_by IS NOT NULL AND "+
+            "protocolia_submitted_by<>$4 RETURNING "+e.identityColumn,
+            [op.to,key,op.from,actor]);
+        if(changed.rowCount!==1){
+          const existing=await client.query("SELECT "+field.column+
+            " AS state, protocolia_submitted_by AS maker FROM "+e.table+
+            " WHERE "+e.identityColumn+"=$1",[key]);
+          if(!existing.rowCount)throw new Problem(404,"Not found");
+          if(isChecker&&existing.rows[0].state===op.from&&
+             existing.rows[0].maker===actor)
+            throw new Problem(403,"Submitter cannot decide own case");
+          throw new Problem(409,"Maker-checker transition precondition failed");
+        }
+        await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key);
+    }
     const creator=spec.operations.find(x=>x.entity===e.name&&x.createDetails?.versioned&&
       x.createDetails.closeField===op.field&&x.createDetails.closeState===op.to);
     if(creator){
