@@ -623,10 +623,45 @@ async function runMulti(){
       const alternateBody={...body,[identity]:alternateKey};
       assert.equal((await run(resource,"create",writer,{body:alternateBody})).status,201,
         "A second record must persist for the independent terminal branch");
+      const separate=submit.capability!==resource.operations.create.capability;
+      let submitter=writer;
+      if(separate){
+        assert.match(submit.capability,/^[a-z][a-z0-9]+\.submit$/);
+        assert.equal(first.capability,second.capability);
+        assert.match(first.capability,/^[a-z][a-z0-9]+\.decide$/);
+        assert.notEqual(submit.capability,first.capability);
+        const name=process.env.PROTOCOLIA_SCOPED_USERNAME;
+        const password=process.env.PROTOCOLIA_SCOPED_PASSWORD;
+        assert.ok(name&&password&&process.env.PROTOCOLIA_SCOPED_CAPABILITIES,
+          "Separated transitions require an isolated scoped test principal");
+        submitter=b64(name,password);
+        const me=await fetch(baseUrl+"/api/_protocolia/me",{
+          headers:{Authorization:submitter}});
+        assert.equal(me.status,200,"Scoped presenter authentication must succeed");
+        const limited=await me.json();
+        assert.ok(limited.capabilities.includes(submit.capability));
+        assert.ok(limited.capabilities.includes(resource.operations.get.capability));
+        assert.ok(!limited.capabilities.includes(first.capability));
+        assert.ok(!limited.capabilities.includes(resource.operations.create.capability));
+        assert.equal((await run(resource,"create",submitter,{body:alternateBody})).status,403,
+          "Submitting a workflow must not permit creating a new business object");
+        assert.equal((await run(resource,first,submitter,{key:alternateKey})).status,403,
+          "The submitter must not be allowed to approve a case");
+        assert.equal((await run(resource,second,submitter,{key:alternateKey})).status,403,
+          "The submitter must not be allowed to reject a case");
+      }
       assert.equal((await run(resource,first,writer,{key:alternateKey})).status,409,
         "A draft cannot skip the predecessor state");
-      assert.equal((await run(resource,submit,writer,{key:alternateKey})).status,200,
+      assert.equal((await run(resource,submit,submitter,{key:alternateKey})).status,200,
         "A fresh record must enter the shared predecessor state");
+      if(separate){
+        assert.equal((await run(resource,first,submitter,{key:alternateKey})).status,403);
+        assert.equal((await run(resource,second,submitter,{key:alternateKey})).status,403);
+        console.log("PROTOCOLIA_OPERATION_AUTHORITY_CONFORMANCE_PASS "+JSON.stringify({
+          entity:e.name,submittedBy:"scoped-presenter",submitCapability:submit.capability,
+          decideCapability:first.capability,unauthorizedDecisionsDenied:true
+        }));
+      }
       const race=await Promise.all(Array.from({length:10},()=>
         run(resource,second,writer,{key:alternateKey})));
       assert.equal(race.filter(v=>v.status===200).length,1,
