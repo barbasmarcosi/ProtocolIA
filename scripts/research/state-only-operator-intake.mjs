@@ -19,10 +19,11 @@ function readSafe(p){
 }
 function build(bytes){
  const input=JSON.parse(bytes),ir=composeStateOnlyGraph(input),sourceHash=sha(bytes);
- const tenantState=ir.schemaVersion==="protocolia-state-operator-ir/v0.6";
- const makerChecker=ir.schemaVersion==="protocolia-state-operator-ir/v0.5";
+ const tenantMaker=ir.schemaVersion==="protocolia-state-operator-ir/v0.7";
+ const tenantState=tenantMaker||ir.schemaVersion==="protocolia-state-operator-ir/v0.6";
+ const makerChecker=tenantMaker||ir.schemaVersion==="protocolia-state-operator-ir/v0.5";
  const twoRole=makerChecker||ir.schemaVersion==="protocolia-state-operator-ir/v0.4";
- const authorization=tenantState?"tenant-state/v1":makerChecker?"maker-checker/v1":twoRole?"submit-decide/v1":null;
+ const authorization=tenantMaker?"tenant-maker-checker/v1":tenantState?"tenant-state/v1":makerChecker?"maker-checker/v1":twoRole?"submit-decide/v1":null;
  const evidence=["source-sha256:"+sourceHash];
  const item=(id,text,scope,operations)=>({
   id,text,scope,operations,origin:"source_brief_unverified",evidenceRefs:evidence
@@ -57,7 +58,7 @@ function build(bytes){
    catalogSha256:operatorCatalogDigest(),catalog:operatorCatalogSnapshot()})],
   ["protocolia-intake-report.json",json({schemaVersion:"protocolia-intake-report/v0.1",
    status:"PARTIAL_DRAFT_UNVERIFIED",
-   generatorProfile:tenantState?"state-only-operator-grammar/v0.6":makerChecker?"state-only-operator-grammar/v0.5":twoRole?"state-only-operator-grammar/v0.4":"state-only-operator-grammar/v0.3",
+   generatorProfile:tenantMaker?"state-only-operator-grammar/v0.7":tenantState?"state-only-operator-grammar/v0.6":makerChecker?"state-only-operator-grammar/v0.5":twoRole?"state-only-operator-grammar/v0.4":"state-only-operator-grammar/v0.3",
    ...(authorization?{authorizationProfile:authorization}:{}),
    sourceSha256:sourceHash,semanticIrSha256:sha(json(ir)),
    operatorCatalogSha256:operatorCatalogDigest(),
@@ -68,14 +69,15 @@ function build(bytes){
     "A single audited transition operator is admitted; all external effects are forbidden",
     "A finite acyclic one-entity workflow is bounded by reviewed grammar, not arbitrary code",
     "The source is synthetic; no business owner is authenticated",
-    tenantState?"Tenant isolation is an opt-in single-entity application scope; it does not include DB RLS or maker-checker":
+    tenantMaker?"Tenant and maker-checker compose only for one state-only entity; no DB RLS, production membership validation or audit API scope":
+     tenantState?"Tenant isolation is an opt-in single-entity application scope; it does not include DB RLS or maker-checker":
     makerChecker?"Checked decisions use persisted submitter identity and distinct principal in the generated PostgreSQL runtime, not authenticated owner approval":
     twoRole?"Submit and decide grants are distinct; this is not identity separation-of-duties or owner approval":
       "One entity-level write capability is shared by submit/approve/reject actions"
    ]})]
  ]);
  files.set("protocolia-intake.lock.json",json({
-  schemaVersion:tenantState?"protocolia-state-operator-lock/v0.6":makerChecker?"protocolia-state-operator-lock/v0.5":twoRole?"protocolia-state-operator-lock/v0.4":"protocolia-state-operator-lock/v0.3",
+  schemaVersion:tenantMaker?"protocolia-state-operator-lock/v0.7":tenantState?"protocolia-state-operator-lock/v0.6":makerChecker?"protocolia-state-operator-lock/v0.5":twoRole?"protocolia-state-operator-lock/v0.4":"protocolia-state-operator-lock/v0.3",
   sourceSha256:sourceHash,semanticIrSha256:sha(files.get("semantic-ir.json")),
   operatorCatalogSha256:operatorCatalogDigest(),
   files:Object.fromEntries([...files].map(([name,value])=>[name,sha(value)]).sort((a,b)=>a[0].localeCompare(b[0])))

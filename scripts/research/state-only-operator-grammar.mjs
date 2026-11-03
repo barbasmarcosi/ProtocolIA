@@ -16,8 +16,9 @@ const q=JSON.stringify;
 const property=(name,type,opts={})=>({name,type,required:true,nullable:false,...opts});
 const op=(name,kind,entity,path,capability)=>({name,kind,entity,path,capability});
 export function composeStateOnlyGraph(source){
- const tenantState=source?.schemaVersion==="protocolia-operator-assembly/v0.6";
- const makerChecker=source?.schemaVersion==="protocolia-operator-assembly/v0.5";
+ const tenantMaker=source?.schemaVersion==="protocolia-operator-assembly/v0.7";
+ const tenantState=tenantMaker||source?.schemaVersion==="protocolia-operator-assembly/v0.6";
+ const makerChecker=tenantMaker||source?.schemaVersion==="protocolia-operator-assembly/v0.5";
  const twoRole=makerChecker||source?.schemaVersion==="protocolia-operator-assembly/v0.4";
  exact(source,twoRole||tenantState?
   ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions","authorizationProfile"]:
@@ -25,8 +26,8 @@ export function composeStateOnlyGraph(source){
   "state-only source");
  ensure((twoRole||tenantState||source.schemaVersion==="protocolia-operator-assembly/v0.3")&&
   source.profile==="state-only"&&
-  (!twoRole||source.authorizationProfile===(makerChecker?"maker-checker/v1":"submit-decide/v1"))&&
-  (!tenantState||source.authorizationProfile==="tenant-state/v1"),
+  (!twoRole||source.authorizationProfile===(tenantMaker?"tenant-maker-checker/v1":makerChecker?"maker-checker/v1":"submit-decide/v1"))&&
+  (!tenantState||source.authorizationProfile===(tenantMaker?"tenant-maker-checker/v1":"tenant-state/v1")),
   "unreviewed source version/profile/authorization policy");
  ensure(entityName(source.namespace)&&source.namespace.endsWith("Lab"),"invalid laboratory namespace");
  ensure(typeof source.title==="string"&&source.title.length>=3&&source.title.length<=120&&
@@ -84,7 +85,7 @@ export function composeStateOnlyGraph(source){
   })),
   op("health","health",e.name,"/health","public")
  ];
- return {schemaVersion:tenantState?"protocolia-state-operator-ir/v0.6":
+ return {schemaVersion:tenantMaker?"protocolia-state-operator-ir/v0.7":tenantState?"protocolia-state-operator-ir/v0.6":
     makerChecker?"protocolia-state-operator-ir/v0.5":
     twoRole?"protocolia-state-operator-ir/v0.4":"protocolia-state-operator-ir/v0.3",
   namespace:source.namespace,title:source.title,profile:source.profile,
