@@ -9,6 +9,12 @@ on:
       - 'scripts/research/typed-review-workflow.mjs'
       - 'scripts/research/composable-operator-grammar.mjs'
       - 'scripts/research/operator-catalog-v1.mjs'
+      - 'scripts/research/state-only-operator-grammar.mjs'
+      - 'scripts/research/state-only-operator-intake.mjs'
+      - 'tests/research/state-only-operator-grammar.test.mjs'
+      - 'research/autonomous-engineering/samples/state-only-*.json'
+      - 'examples/vnext/state-only-operators/**'
+      - 'docs/research/autonomous-engineering/P2_STATE_ONLY_OPERATOR.md'
       - 'tests/research/operator-catalog-v1.test.mjs'
       - 'research/autonomous-engineering/samples/composable-equipment-operators-v02.json'
       - 'docs/research/autonomous-engineering/P2_OPERATOR_CATALOG.md'
@@ -644,3 +650,100 @@ jobs:
           grep -q 'PROTOCOLIA_ATOMIC_DEBIT_RACE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
           grep -q 'PROTOCOLIA_COMPENSATING_CONFORMANCE_PASS' "$RUNNER_TEMP/composed-${{ matrix.target }}.log"
           echo "P2_COMPOSABLE_OPERATORS_E2E_PASS ${{ matrix.target }} — pinned v0.2 catalog"
+
+
+  state-only-operator-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+        sample: [review, service-ticket]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Source-validated DAG and pinned state-only operator regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/state-only-operator-grammar.mjs
+          node --check scripts/research/state-only-operator-intake.mjs
+          node --check packages/cli/conformance.mjs
+          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Generate and compile source-bound state-only contract and operator catalog
+        shell: bash
+        env:
+          SAMPLE_NAME: "${{ matrix.sample }}"
+        run: |
+          set -euo pipefail
+          DIR="$(mktemp -d "$PWD/.p2-state-only.XXXXXXXX")"
+          echo "STATE_ONLY_TMP=$DIR" >> "$GITHUB_ENV"
+          SOURCE="research/autonomous-engineering/samples/state-only-$SAMPLE_NAME-v03.json"
+          if [ "$SAMPLE_NAME" = "service-ticket" ]; then
+            EXPECTED_ENTITY=ServiceTicket
+          else
+            EXPECTED_ENTITY=ReviewCase
+          fi
+          node scripts/research/state-only-operator-intake.mjs generate "$SOURCE" "$DIR/contract"
+          node scripts/research/state-only-operator-intake.mjs verify "$SOURCE" "$DIR/contract"
+          ./node_modules/.bin/tsp compile "$DIR/contract"
+          export STATE_ONLY_TMP="$DIR" EXPECTED_ENTITY="$EXPECTED_ENTITY"
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import assert from "node:assert/strict";
+          const base=process.env.STATE_ONLY_TMP+"/contract";
+          const ir=JSON.parse(readFileSync(base+"/semantic-ir.json","utf8"));
+          const compiled=JSON.parse(readFileSync(base+"/tsp-output/@protocolia/compiler/ir.json","utf8"));
+          const catalog=JSON.parse(readFileSync(base+"/operator-catalog.json","utf8"));
+          assert.equal(ir.schemaVersion,"protocolia-state-operator-ir/v0.3");
+          assert.deepEqual(ir.operatorCatalog.pins,{"transition":"state.transition-audited@1"});
+          assert.equal(catalog.catalogSha256,ir.operatorCatalog.catalogSha256);
+          assert.deepEqual(compiled.entities.map(e=>e.name),[process.env.EXPECTED_ENTITY]);
+          const all=compiled.operations.filter(o=>o.behavior.kind==="transition");
+          assert.equal(all.length,3);
+          const transitions=ir.operations.filter(o=>o.kind==="transition");
+          assert.deepEqual(all.map(o=>[o.name,o.behavior.from,o.behavior.to]).sort(),
+            transitions.map(o=>[o.name,o.from,o.to]).sort());
+          assert.ok(all.every(o=>o.behavior.reserve===undefined&&
+            o.behavior.release===undefined&&
+            JSON.stringify(o.behavior.audit)==='["'+ir.grammarSource.entity.status.name+'"]'));
+          JS
+      - name: Project Passport preserves uncertainty without false approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/project-passport.mjs generate \
+            --ir "$STATE_ONLY_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STATE_ONLY_TMP/contract/requirements.json" \
+            --decisions "$STATE_ONLY_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/state-only-passport"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$STATE_ONLY_TMP/contract/tsp-output/@protocolia/compiler/ir.json" \
+            --requirements "$STATE_ONLY_TMP/contract/requirements.json" \
+            --decisions "$STATE_ONLY_TMP/contract/decisions.json" \
+            --out "$RUNNER_TEMP/state-only-passport"
+          grep -q "SO-Q01" "$RUNNER_TEMP/state-only-passport/docs/domain/decisions.md"
+      - name: Generated backend with live PostgreSQL tests of BOTH terminal decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$STATE_ONLY_TMP/contract" --target "${{ matrix.target }}" \
+            --out "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}"
+          npm run app:test -- "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}" \
+            | tee "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_STATE_ONLY_FORK_CONFORMANCE_PASS' \
+            "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          grep -q 'PROTOCOLIA_STATEFUL_CONFORMANCE_PASS' \
+            "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }}"
