@@ -11,6 +11,10 @@ on:
       - 'scripts/research/operator-catalog-v1.mjs'
       - 'scripts/research/state-only-operator-grammar.mjs'
       - 'packages/adapters/transition-authority.mjs'
+      - 'packages/adapters/tenant-state-policy.mjs'
+      - 'tests/research/tenant-state-v06.test.mjs'
+      - 'research/autonomous-engineering/samples/state-only-*-v06.json'
+      - 'docs/research/autonomous-engineering/P2_TENANT_STATE_V06.md'
       - 'packages/adapters/maker-checker-db-guard.mjs'
       - 'tests/research/maker-checker-db-guard.test.mjs'
       - 'docs/research/autonomous-engineering/P2_MAKER_DB_GUARD.md'
@@ -676,6 +680,8 @@ jobs:
           - {target: modular-spring, sample: service-ticket, profile: v04}
           - {target: nestjs, sample: service-ticket, profile: v05}
           - {target: modular-spring, sample: service-ticket, profile: v05}
+          - {target: nestjs, sample: service-ticket, profile: v06}
+          - {target: modular-spring, sample: service-ticket, profile: v06}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -693,13 +699,14 @@ jobs:
           set -euo pipefail
           node --check scripts/research/state-only-operator-grammar.mjs
           node --check packages/adapters/transition-authority.mjs
+          node --check packages/adapters/tenant-state-policy.mjs
           node --check packages/adapters/maker-checker-db-guard.mjs
           node --check packages/adapters/nest/generate.mjs
           node --check packages/adapters/modular/generate.mjs
           node --check packages/cli/compose.mjs
           node --check scripts/research/state-only-operator-intake.mjs
           node --check packages/cli/conformance.mjs
-          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/state-only-maker-checker.test.mjs tests/research/maker-checker-db-guard.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
+          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/state-only-maker-checker.test.mjs tests/research/maker-checker-db-guard.test.mjs tests/research/tenant-state-v06.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Generate and compile source-bound state-only contract and operator catalog
@@ -745,7 +752,7 @@ jobs:
                 prefix+(version==="v0.5"?".decide.checked":".decide")].sort());
           }else{
             const prefix=process.env.EXPECTED_ENTITY.toLowerCase();
-            assert.ok(all.every(o=>o.capability===prefix+".write"));
+            assert.ok(all.every(o=>o.capability===prefix+(version==="v0.6"?".write.tenant":".write")));
           }
           assert.deepEqual(all.map(o=>[o.name,o.behavior.from,o.behavior.to]).sort(),
             transitions.map(o=>[o.name,o.from,o.to]).sort());
@@ -788,6 +795,10 @@ jobs:
             grep -q 'PROTOCOLIA_MAKER_CHECKER_CONFORMANCE_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
             grep -q 'PROTOCOLIA_MAKER_DB_GUARD_PASS' \
+              "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          fi
+          if [ "${{ matrix.profile }}" = "v06" ]; then
+            grep -q 'PROTOCOLIA_TENANT_STATE_HTTP_CONFORMANCE_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           fi
           echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }} — $STATE_ONLY_PROFILE"
