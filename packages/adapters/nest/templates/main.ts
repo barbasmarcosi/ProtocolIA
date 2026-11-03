@@ -540,7 +540,20 @@ class RuntimeService{
   authConfig():typeof this.browserAuth|{mode:"bff";enabled:true}{
     return process.env.PROTOCOLIA_BFF_ENABLED==="true"?{mode:"bff",enabled:true}:this.browserAuth;
   }
-  async login(req:any):Promise<{username:string;capabilities:string[]}>{
+  private tenantApp():boolean{
+    return spec.operations.some(op=>op.kind==="create"&&
+      op.capability===op.entity.toLowerCase()+".write.tenant");
+  }
+  private trustedTenant(raw:unknown):string{
+    if(typeof raw!=="string"||!/^[a-z][a-z0-9_-]{1,63}$/.test(raw))
+      throw new Problem(401,"Verified organization identity required");
+    return raw;
+  }
+  private tenantEntity(e:Entity):boolean{
+    return spec.operations.some(op=>op.entity===e.name&&op.kind==="create"&&
+      op.capability===e.name.toLowerCase()+".write.tenant");
+  }
+  async login(req:any):Promise<{username:string;capabilities:string[];tenant?:string}>{
     if(this.jwtConfig){
       const auth=req.headers.authorization;
       const segments=typeof auth==="string"&&auth.startsWith("Bearer ")?auth.slice(7).split("."):[];
@@ -557,7 +570,8 @@ class RuntimeService{
           subject.length>128||!Array.isArray(raw)||raw.length>16||
           new Set(raw).size!==raw.length||raw.some(v=>typeof v!=="string"||v==="public"||!allowed.has(v)))
           throw Error("Untrusted JWT capability or subject");
-        return {username:subject,capabilities:[...raw].sort()};
+        return {username:subject,capabilities:[...raw].sort(),
+          ...(this.tenantApp()?{tenant:this.trustedTenant(payload.protocolia_tenant)}:{})};
       }catch{throw new Problem(401,"Invalid bearer token");}
     }
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH!=="true")throw new Problem(401,"Authentication required");
@@ -576,9 +590,12 @@ class RuntimeService{
     const scoped=this.scopedUser;
     const limited=!!scoped&&equalSecrets(username,scoped.username)&&equalSecrets(password,scoped.password);
     if(!manager&&!reader&&!limited)throw new Problem(401,"Invalid credentials");
-    if(limited)return {username,capabilities:[...scoped!.capabilities]};
+    if(limited)return {username,capabilities:[...scoped!.capabilities],
+      ...(this.tenantApp()?{tenant:this.trustedTenant(process.env.PROTOCOLIA_TEST_TENANT_SCOPED)}:{})};
     return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])])].sort():
-      [...spec.readCapabilities].sort()};
+      [...spec.readCapabilities].sort(),
+      ...(this.tenantApp()?{tenant:this.trustedTenant(manager?
+        process.env.PROTOCOLIA_TEST_TENANT_MANAGER:process.env.PROTOCOLIA_TEST_TENANT_READER)}:{})};
   }
   async me(req:any,res:any):Promise<void>{
     try{
