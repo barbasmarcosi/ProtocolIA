@@ -38,8 +38,8 @@ export function checkedMakerGuardDdl(ir,e){
   "LANGUAGE plpgsql AS $protocolia_maker_guard$",
   "DECLARE verified_subject TEXT;",
   "BEGIN",
-  "  IF TG_OP='DELETE' THEN",
-  "    RAISE EXCEPTION 'Maker-checker record deletion forbidden' USING ERRCODE='23514';",
+  "  IF TG_OP IN ('DELETE','TRUNCATE') THEN",
+  "    RAISE EXCEPTION 'Maker-checker record erasure forbidden' USING ERRCODE='23514';",
   "  END IF;",
   "  IF TG_OP='INSERT' THEN",
   "    IF NEW."+column+" IS DISTINCT FROM "+initial+" OR",
@@ -82,7 +82,9 @@ export function checkedMakerGuardDdl(ir,e){
     "_maker_state CHECK (("+column+"="+initial+") = (protocolia_submitted_by IS NULL));",
   fn,
   "CREATE TRIGGER "+triggerName+" BEFORE INSERT OR UPDATE OR DELETE ON "+table+
-    " FOR EACH ROW EXECUTE FUNCTION "+functionName+"();"
+    " FOR EACH ROW EXECUTE FUNCTION "+functionName+"();",
+  "CREATE TRIGGER "+triggerName+"_truncate BEFORE TRUNCATE ON "+table+
+    " FOR EACH STATEMENT EXECUTE FUNCTION "+functionName+"();"
  ];
 }
 export function checkedMakerGuardProof(ir){
@@ -122,6 +124,11 @@ export function checkedMakerGuardProof(ir){
   "  BEGIN",
   "    DELETE FROM "+p.table+" WHERE "+p.key+"=target;",
   "    RAISE EXCEPTION 'Direct maker-checker deletion accepted';",
+  "  EXCEPTION WHEN check_violation THEN NULL;",
+  "  END;",
+  "  BEGIN",
+  "    TRUNCATE TABLE "+p.table+";",
+  "    RAISE EXCEPTION 'Direct maker-checker truncate accepted';",
   "  EXCEPTION WHEN check_violation THEN NULL;",
   "  END;",
   "  IF (SELECT "+p.column+" FROM "+p.table+" WHERE "+p.key+"=target)<>original_state THEN",
