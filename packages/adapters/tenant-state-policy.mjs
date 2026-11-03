@@ -64,3 +64,31 @@ export function tenantStateSchemaDdl(ir,e){
     "(protocolia_tenant_id,"+p.identityColumn+");"
  ];
 }
+
+// Separate-session adversarial check: the internal tenant key is immutable
+// even if an accidental second runtime SQL path attempts to update it.
+// Does not make the database connection tenant-isolated (no RLS yet).
+export function tenantStateDbProof(ir){
+ if(!Array.isArray(ir.entities)||ir.entities.length!==1)return null;
+ const p=auditedTenantStatePolicy(ir,ir.entities[0]);if(!p)return null;
+ return [
+  "DO $protocolia_tenant_proof$",
+  "DECLARE id_value TEXT; org_value TEXT;",
+  "BEGIN",
+  "  SELECT "+p.identityColumn+",protocolia_tenant_id INTO id_value,org_value",
+  "    FROM "+p.table+" LIMIT 1;",
+  "  IF id_value IS NULL THEN RAISE EXCEPTION 'Missing tenant row for proof'; END IF;",
+  "  BEGIN",
+  "    UPDATE "+p.table+" SET protocolia_tenant_id='org_attack'",
+  "      WHERE "+p.identityColumn+"=id_value;",
+  "    RAISE EXCEPTION 'Tenant reassignment was accepted';",
+  "  EXCEPTION WHEN check_violation THEN NULL;",
+  "  END;",
+  "  IF (SELECT protocolia_tenant_id FROM "+p.table+
+    " WHERE "+p.identityColumn+"=id_value) IS DISTINCT FROM org_value THEN",
+  "    RAISE EXCEPTION 'Tenant key drifted after denied mutation';",
+  "  END IF;",
+  "END;",
+  "$protocolia_tenant_proof$;"
+ ].join("\n");
+}
