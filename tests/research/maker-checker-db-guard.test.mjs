@@ -48,6 +48,8 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   assert.match(proof,/EXCEPTION WHEN check_violation THEN NULL/);
   assert.equal((proof.match(/EXCEPTION WHEN check_violation/g)||[]).length,5);
   assert.match(proof,/protocolia_submitted_by='forged'/);
+  assert.match(proof,/DELETE FROM [a-z_]+ WHERE/);
+  assert.match(proof,/Direct maker-checker deletion accepted/);
   assert.match(proof,/No pending maker-checker row for DB proof/);
  }
 });
