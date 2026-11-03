@@ -497,6 +497,10 @@ async function runMulti(){
        field:stateField.name}:null;
     const transitionPlan=stateOnlyFork?
       [stateOnlyFork.submit,stateOnlyFork.first,stateOnlyFork.second]:allTransitions;
+    const checkedFork=!!stateOnlyFork?.first.capability.endsWith(".decide.checked");
+    const checkedPresenter=checkedFork?b64(
+      process.env.PROTOCOLIA_SCOPED_USERNAME,
+      process.env.PROTOCOLIA_SCOPED_PASSWORD):null;
     for(const op of transitionPlan){
       // Terminal closure must execute after all dependent resource fixtures have
       // been created and edited. Closing midway would correctly forbid later
@@ -516,7 +520,8 @@ async function runMulti(){
       if(release)assert.equal(beforeRelease.status,200);
       assert.equal((await run(resource,op,reader,{key})).status,403);
       assert.equal((await run(resource,op,writer,{key,body:{unexpected:true}})).status,400);
-      const results=await Promise.all(Array.from({length:10},()=>run(resource,op,writer,{key})));
+      const role=checkedFork&&op===stateOnlyFork.submit?checkedPresenter:writer;
+      const results=await Promise.all(Array.from({length:10},()=>run(resource,op,role,{key})));
       assert.equal(results.filter(x=>x.status===200).length,1);
       assert.equal(results.filter(x=>x.status===409).length,9);
       assert.equal((await run(resource,"get",reader,{key})).data[field.name],op.behavior.to);
@@ -628,7 +633,7 @@ async function runMulti(){
       if(separate){
         assert.match(submit.capability,/^[a-z][a-z0-9]+\.submit$/);
         assert.equal(first.capability,second.capability);
-        assert.match(first.capability,/^[a-z][a-z0-9]+\.decide$/);
+        assert.match(first.capability,/^[a-z][a-z0-9]+\.decide(?:\.checked)?$/);
         assert.notEqual(submit.capability,first.capability);
         const name=process.env.PROTOCOLIA_SCOPED_USERNAME;
         const password=process.env.PROTOCOLIA_SCOPED_PASSWORD;
@@ -672,6 +677,33 @@ async function runMulti(){
         second.behavior.to,"The alternative terminal must persist");
       assert.equal((await run(resource,first,writer,{key:alternateKey})).status,409,
         "Opposite terminal transition is prohibited");
+      if(checkedFork){
+        // A privileged manager can possess BOTH grants, yet cannot decide
+        // the particular row whose submitter identity is that same manager.
+        const maxIdentity=e.fields.find(f=>f.name===identity)?.maxLength??64;
+        const ownSuffix="Maker"+uuid.slice(0,4);
+        const ownKey=String(key).slice(0,maxIdentity-ownSuffix.length)+ownSuffix;
+        assert.notEqual(ownKey,key);
+        const ownBody={...body,[identity]:ownKey};
+        assert.equal((await run(resource,"create",writer,{body:ownBody})).status,201);
+        assert.ok(session.capabilities.includes(submit.capability),
+          "Manager must hold submit grant for self-decision test");
+        assert.ok(session.capabilities.includes(first.capability),
+          "Manager must hold checked decide grant for self-decision test");
+        assert.equal((await run(resource,submit,writer,{key:ownKey})).status,200);
+        assert.equal((await run(resource,first,writer,{key:ownKey})).status,403,
+          "Maker cannot approve own case even with decide capability");
+        assert.equal((await run(resource,second,writer,{key:ownKey})).status,403,
+          "Maker cannot reject own case even with decide capability");
+        assert.equal((await run(resource,"get",reader,{key:ownKey})).data[field],
+          submit.behavior.to,"Rejected self-decisions must leave state unchanged");
+        assert.equal((await run(resource,submit,writer,{key:ownKey})).status,409,
+          "A maker cannot rewrite submitter identity");
+        console.log("PROTOCOLIA_MAKER_CHECKER_CONFORMANCE_PASS "+JSON.stringify({
+          entity:e.name,actorRoles:"both",selfDecisionDenied:true,
+          independentCheckerDecision:true,concurrentRejected:9
+        }));
+      }
       const result={entity:e.name,first:first.behavior.to,second:second.behavior.to,
         concurrentRejected:9};
       console.log("PROTOCOLIA_STATE_ONLY_FORK_CONFORMANCE_PASS "+JSON.stringify(result));
