@@ -38,8 +38,8 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   assert.match(sql[1],/NEW.protocolia_submitted_by=verified_subject/);
   assert.match(sql[1],/verified_subject<>OLD.protocolia_submitted_by/);
   assert.match(sql[1],/NEW.protocolia_submitted_by IS DISTINCT FROM OLD.protocolia_submitted_by/);
-  assert.match(sql[1],/NEW.state IS DISTINCT FROM OLD.state/);
-  assert.match(sql[1],/NEW.state IN \('(completed|approved)','(dismissed|rejected)'\)/);
+  assert.match(sql[1],/NEW.(?:state|phase) IS DISTINCT FROM OLD.(?:state|phase)/);
+  assert.match(sql[1],/NEW.(?:state|phase) IN \('(completed|approved)','(dismissed|rejected)'\)/);
   assert.match(sql[2],/BEFORE INSERT OR UPDATE/);
   assert.ok(sql.every(x=>!x.includes("DROP TABLE")&&!x.includes("EXECUTE FORMAT")));
   const proof=checkedMakerGuardProof(ir);
