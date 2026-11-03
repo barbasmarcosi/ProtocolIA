@@ -957,7 +957,7 @@ class RuntimeService{
         [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
     }
   }
-  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown,tenant?:string):Promise<Record<string,unknown>>{
     // Financial detail rows may only be inserted atomically by their header.
     // A separate child POST would alter the amount after payment initialization.
     if(spec.operations.some(x=>x.createDetails?.childEntity===e.name&&
@@ -1049,6 +1049,13 @@ class RuntimeService{
     const cols=persisted.map(f=>f.column);
     const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
+    if(this.tenantEntity(e)){
+      tenant=this.trustedTenant(tenant);
+      // Hidden server-managed column: neither input validation nor TypeSpec
+      // permits a client-supplied tenant identity.
+      cols.push("protocolia_tenant_id");
+      params.push(tenant);
+    }
     const relation=e.ownerRelation;
     if(relation&&!capabilities.includes(relation.parentReadCapability))
       throw new Problem(403,"Parent read capability required for linking");
@@ -1208,7 +1215,7 @@ class RuntimeService{
       const created=await this.pool.query(insert,insertParams);
       if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
     }
-    return this.row(e,String(input[e.publicIdentity]),actor);
+    return this.row(e,String(input[e.publicIdentity]),actor,tenant);
   }
   private async patchTogether(e:Entity,op:Operation,key:string,body:unknown,
     subject?:string):Promise<Record<string,unknown>>{
@@ -1794,15 +1801,15 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"]);break;
-        case "get":data=await this.row(entity,identity,session.username);break;
+        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"],session.tenant);break;
+        case "get":data=await this.row(entity,identity,session.username,session.tenant);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "sumDetails":data=await this.sumDetails(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "adjustExact":data=await this.adjustExact(entity,identity,req.body,session.username);break;
         case "lookupExactAdjustment":data=await this.lookupExactAdjustment(
           entity,identity,req.params?.adjustmentId,session.username);break;
-        case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
+        case "listPage":data=await this.page(entity,op,req.query??{},session.username,session.tenant);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
