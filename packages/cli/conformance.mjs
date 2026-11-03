@@ -478,11 +478,25 @@ async function runMulti(){
     // The compiler is allowed to sort operations alphabetically; do not
     // interpret the emitted order as business-state ordering. Resolve the
     // dependent transitions of the reviewed case from its source graph.
-    const transitionPlan=e.name==="ReviewCase"?
-      [...(resource.transitions??[])].sort((a,b)=>{
-        const stage={submitReviewCase:0,approveReviewCase:1,rejectReviewCase:2};
-        return (stage[a.name]??99)-(stage[b.name]??99);
-      }):resource.transitions??[];
+    const allTransitions=resource.transitions??[];
+    const stateField=allTransitions.length===3?e.fields.find(f=>
+      f.name===allTransitions[0].behavior.field&&typeof f.initial==="string"):undefined;
+    const roots=stateField?allTransitions.filter(t=>
+      t.behavior.from===stateField.initial&&t.behavior.field===stateField.name):[];
+    const forks=roots.length===1?allTransitions.filter(t=>
+      t.behavior.from===roots[0].behavior.to&&t.behavior.field===stateField.name):[];
+    // Detect a reviewed state-only DAG by structural semantics rather than an
+    // application-specific entity/operation name. Both terminal outcomes must
+    // be challenged on separate database rows, including ten-writer races.
+    const stateOnlyFork=resources.length===1&&!reserve&&roots.length===1&&
+      forks.length===2&&allTransitions.length===3&&
+      !allTransitions.some(t=>t.behavior.reserve||t.behavior.release)&&
+      new Set(forks.map(t=>t.behavior.to)).size===2?
+      {submit:roots[0],first:[...forks].sort((a,b)=>a.name.localeCompare(b.name))[0],
+       second:[...forks].sort((a,b)=>a.name.localeCompare(b.name))[1],
+       field:stateField.name}:null;
+    const transitionPlan=stateOnlyFork?
+      [stateOnlyFork.submit,stateOnlyFork.first,stateOnlyFork.second]:allTransitions;
     for(const op of transitionPlan){
       // Terminal closure must execute after all dependent resource fixtures have
       // been created and edited. Closing midway would correctly forbid later
@@ -590,48 +604,44 @@ async function runMulti(){
       }
     }
 
-    // Source-bounded reviewer state machine: test BOTH mutually exclusive
-    // terminal branches, not merely the first path traversed by the generic
-    // single-record state conformance. No external financial side effects.
-    if(e.name==="ReviewCase"){
-      const transitions=resource.transitions??[];
-      const submit=transitions.find(t=>t.name==="submitReviewCase");
-      const approve=transitions.find(t=>t.name==="approveReviewCase");
-      const reject=transitions.find(t=>t.name==="rejectReviewCase");
-      assert.ok(submit&&approve&&reject,"ReviewCase requires three source-typed transitions");
-      assert.equal(approve.behavior.from,reject.behavior.from);
-      assert.equal(submit.behavior.to,approve.behavior.from);
-      const afterApproved=await run(resource,"get",reader,{key});
-      assert.equal(afterApproved.status,200);
-      assert.equal(afterApproved.data.state,approve.behavior.to);
-      assert.equal((await run(resource,reject,writer,{key})).status,409,
-        "An approved case cannot also become rejected");
+    // Test BOTH terminal decisions for any source-bounded state-only workflow,
+    // including legacy ReviewCase and independently named ServiceTicket.
+    if(stateOnlyFork){
+      const {submit,first,second,field}=stateOnlyFork;
+      assert.equal(first.behavior.from,second.behavior.from);
+      assert.equal(submit.behavior.to,first.behavior.from);
+      const afterFirst=await run(resource,"get",reader,{key});
+      assert.equal(afterFirst.status,200);
+      assert.equal(afterFirst.data[field],first.behavior.to);
+      assert.equal((await run(resource,second,writer,{key})).status,409,
+        "A terminal decision cannot be replaced by the opposite terminal");
       const identityField=e.fields.find(f=>f.name===identity);
       const max=identityField?.maxLength??64;
       const suffix="Alt"+uuid.slice(0,5);
-      assert.ok(max>suffix.length+2,"Review identity too short for branch fixture");
+      assert.ok(max>suffix.length+2,"Identity too short for fork fixture");
       const alternateKey=String(key).slice(0,max-suffix.length)+suffix;
       const alternateBody={...body,[identity]:alternateKey};
       assert.equal((await run(resource,"create",writer,{body:alternateBody})).status,201,
-        "Fork test must create an independent persisted review case");
-      assert.equal((await run(resource,approve,writer,{key:alternateKey})).status,409,
-        "Cannot approve a draft without entering review");
+        "A second record must persist for the independent terminal branch");
+      assert.equal((await run(resource,first,writer,{key:alternateKey})).status,409,
+        "A draft cannot skip the predecessor state");
       assert.equal((await run(resource,submit,writer,{key:alternateKey})).status,200,
-        "Alternate branch must enter review");
+        "A fresh record must enter the shared predecessor state");
       const race=await Promise.all(Array.from({length:10},()=>
-        run(resource,reject,writer,{key:alternateKey})));
+        run(resource,second,writer,{key:alternateKey})));
       assert.equal(race.filter(v=>v.status===200).length,1,
-        "Concurrent rejections must have one state change");
+        "Exactly one concurrent terminal decision may succeed");
       assert.equal(race.filter(v=>v.status===409).length,9,
-        "Remaining rejections must conflict");
-      assert.equal((await run(resource,"get",reader,{key:alternateKey})).data.state,
-        reject.behavior.to,"The alternative decision must persist independently");
-      assert.equal((await run(resource,approve,writer,{key:alternateKey})).status,409,
-        "A rejected case cannot later become approved");
-      console.log("PROTOCOLIA_REVIEW_FORK_CONFORMANCE_PASS "+JSON.stringify({
-        entity:e.name,first:approve.behavior.to,second:reject.behavior.to,
-        concurrentRejected:9
-      }));
+        "The remaining nine concurrent decisions must be rejected");
+      assert.equal((await run(resource,"get",reader,{key:alternateKey})).data[field],
+        second.behavior.to,"The alternative terminal must persist");
+      assert.equal((await run(resource,first,writer,{key:alternateKey})).status,409,
+        "Opposite terminal transition is prohibited");
+      const result={entity:e.name,first:first.behavior.to,second:second.behavior.to,
+        concurrentRejected:9};
+      console.log("PROTOCOLIA_STATE_ONLY_FORK_CONFORMANCE_PASS "+JSON.stringify(result));
+      if(e.name==="ReviewCase")
+        console.log("PROTOCOLIA_REVIEW_FORK_CONFORMANCE_PASS "+JSON.stringify(result));
     }
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),

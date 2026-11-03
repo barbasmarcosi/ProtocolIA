@@ -127,3 +127,42 @@ export function validateTerminalTransitionPrimitives(transitions,initial){
  return {terminalCount:terminal.length,releaseName:released.name,
   states:[...reachable].sort()};
 }
+
+
+// State-only programs pin only the reviewed transition primitive. Pinning the
+// full reserve/release set would misrepresent behaviors absent from the app.
+export function requireStateOnlyOperatorVersions(pins){
+ exact(pins,["transition"],"state-only operator pins");
+ requireValid(pins.transition===OPERATOR_VERSIONS.transition,
+  "unknown or downgraded state transition operator version");
+ return {pins:{transition:OPERATOR_VERSIONS.transition},catalogSha256:operatorCatalogDigest()};
+}
+// The independently audited CAS primitive is usable without a capacity/journal
+// entity. It never admits release, reserve or any external side effect.
+// A source may name operations/stages but cannot alter the state-machine guards.
+export function validateAuditedStateGraph(transitions,initial){
+ requireValid(state(initial),"invalid initial state");
+ requireValid(Array.isArray(transitions)&&transitions.length>=3&&transitions.length<=5,
+  "state-only transition count unsupported");
+ const names=new Set(),suffixes=new Set(),targets=new Set();
+ for(const t of transitions){
+  exact(t,["kind","name","suffix","from","to"],"state-only transition");
+  requireValid(t.kind==="transition"&&name(t.name)&&routeSuffix(t.suffix)&&
+    state(t.from)&&state(t.to)&&t.from!==t.to,"invalid state-only transition");
+  requireValid(!names.has(t.name)&&!suffixes.has(t.suffix),"duplicate operation or route suffix");
+  requireValid(!targets.has(t.to)&&t.to!==initial,"ambiguous join or return to initial state");
+  names.add(t.name);suffixes.add(t.suffix);targets.add(t.to);
+ }
+ const reached=new Set([initial]),remaining=[...transitions];
+ while(remaining.length){
+  const next=remaining.filter(t=>reached.has(t.from)&&!reached.has(t.to));
+  requireValid(next.length>0,"cycle, ambiguous join or unreachable workflow state");
+  for(const edge of next){reached.add(edge.to);remaining.splice(remaining.indexOf(edge),1);}
+ }
+ const leaves=[...reached].filter(s=>!transitions.some(t=>t.from===s));
+ requireValid(leaves.length>=2,"at least two terminal outcomes required");
+ requireValid(transitions.some(t=>t.from===initial)&&
+  transitions.every(t=>t.from===initial||targets.has(t.from)),
+  "missing state root");
+ return {reachable:[...reached].sort(),terminals:leaves.sort()};
+}
