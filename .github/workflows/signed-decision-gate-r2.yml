@@ -11,6 +11,9 @@ on:
       - 'scripts/research/operator-catalog-v1.mjs'
       - 'scripts/research/state-only-operator-grammar.mjs'
       - 'packages/adapters/transition-authority.mjs'
+      - 'packages/adapters/maker-checker-db-guard.mjs'
+      - 'tests/research/maker-checker-db-guard.test.mjs'
+      - 'docs/research/autonomous-engineering/P2_MAKER_DB_GUARD.md'
       - 'tests/research/state-only-maker-checker.test.mjs'
       - 'docs/research/autonomous-engineering/P2_MAKER_CHECKER.md'
       - 'packages/adapters/nest/generate.mjs'
@@ -690,12 +693,13 @@ jobs:
           set -euo pipefail
           node --check scripts/research/state-only-operator-grammar.mjs
           node --check packages/adapters/transition-authority.mjs
+          node --check packages/adapters/maker-checker-db-guard.mjs
           node --check packages/adapters/nest/generate.mjs
           node --check packages/adapters/modular/generate.mjs
           node --check packages/cli/compose.mjs
           node --check scripts/research/state-only-operator-intake.mjs
           node --check packages/cli/conformance.mjs
-          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/state-only-maker-checker.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
+          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/state-only-maker-checker.test.mjs tests/research/maker-checker-db-guard.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Generate and compile source-bound state-only contract and operator catalog
@@ -782,6 +786,8 @@ jobs:
           fi
           if [ "${{ matrix.profile }}" = "v05" ]; then
             grep -q 'PROTOCOLIA_MAKER_CHECKER_CONFORMANCE_PASS' \
+              "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+            grep -q 'PROTOCOLIA_MAKER_DB_GUARD_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           fi
           echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }} — $STATE_ONLY_PROFILE"

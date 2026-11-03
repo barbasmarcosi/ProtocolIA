@@ -1,4 +1,5 @@
 import {auditedTransitionAuthority} from "../transition-authority.mjs";
+import {checkedMakerGuardDdl} from "../maker-checker-db-guard.mjs";
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
 import {providerJournalTruncateUpgradeSql} from "../provider-journal-upgrade.mjs";
@@ -631,6 +632,7 @@ export function generate(ir, openapi, outDir) {
     sql.push("CREATE TABLE "+table+" (\n"+[...columns,...(checked?[
       "  protocolia_submitted_by VARCHAR(128) CHECK (char_length(btrim(protocolia_submitted_by)) > 0)"
     ]:[]),...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    sql.push(...checkedMakerGuardDdl(ir,e));
   }
   for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){
