@@ -710,6 +710,67 @@ async function runMulti(){
       if(e.name==="ReviewCase")
         console.log("PROTOCOLIA_REVIEW_FORK_CONFORMANCE_PASS "+JSON.stringify(result));
     }
+    // P2 tenant-state v0.6: same operation-level business privileges, two
+    // server-bound organization identities. Neither principal may see or
+    // transition the other tenant's rows, even when guessing public IDs.
+    const tenantPrefix=e.name.toLowerCase();
+    const tenantProfile=resources.length===1&&resource.operations.create.capability===
+      tenantPrefix+".write.tenant"&&resource.operations.get.capability===
+      tenantPrefix+".read.tenant";
+    if(tenantProfile){
+      assert.ok(stateOnlyFork,"Tenant profile must have reviewed state-only DAG");
+      const peer=b64(process.env.PROTOCOLIA_SCOPED_USERNAME,
+        process.env.PROTOCOLIA_SCOPED_PASSWORD);
+      const peerSessionResult=await fetch(baseUrl+"/api/_protocolia/me",{
+        headers:{Authorization:peer}});
+      assert.equal(peerSessionResult.status,200);
+      const peerSession=await peerSessionResult.json();
+      const requiredCaps=[tenantPrefix+".read.tenant",tenantPrefix+".write.tenant"];
+      assert.ok(requiredCaps.every(x=>session.capabilities.includes(x)&&
+        peerSession.capabilities.includes(x)),
+        "Cross-org peers must possess identical read/write business grants");
+      const idField=e.fields.find(f=>f.name===identity);
+      const max=idField?.maxLength??64;
+      const suffix="TenantBeta"+uuid.slice(0,5);
+      assert.ok(max>suffix.length+3);
+      const foreignKey=String(key).slice(0,max-suffix.length)+suffix;
+      const foreignBody={...body,[identity]:foreignKey};
+      assert.equal((await run(resource,"create",peer,{body:foreignBody})).status,201,
+        "Second organization can create its own record");
+      assert.equal((await run(resource,"get",peer,{key:foreignKey})).status,200);
+      assert.equal((await run(resource,"get",writer,{key:foreignKey})).status,404,
+        "Alpha must not read Beta's row by a known public identity");
+      assert.equal((await run(resource,"get",peer,{key})).status,404,
+        "Beta must not read Alpha's row by a known public identity");
+      const aPage=await run(resource,"listPage",writer,{query:{limit:"50",offset:"0"}});
+      const bPage=await run(resource,"listPage",peer,{query:{limit:"50",offset:"0"}});
+      assert.equal(aPage.status,200);assert.equal(bPage.status,200);
+      assert.ok(aPage.data.items.every(item=>item[identity]!==foreignKey));
+      assert.ok(bPage.data.items.every(item=>item[identity]!==key));
+      assert.equal(bPage.data.total,1,"B organization must not count A records");
+      assert.equal(bPage.data.items.length,1,"B list must include only B records");
+      const root=stateOnlyFork.submit,decision=stateOnlyFork.first;
+      assert.equal((await run(resource,root,writer,{key:foreignKey})).status,404,
+        "A cannot move B's state even when knowing its ID");
+      assert.equal((await run(resource,decision,peer,{key})).status,404,
+        "B cannot decide A's record");
+      const spoofed=await fetch(baseUrl+
+        resource.operations.get.path.replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g,encodeURIComponent(key)),{
+        headers:{Authorization:peer,"X-ProtocolIA-Tenant":"org_alpha"}});
+      assert.equal(spoofed.status,404,"Untrusted tenant header cannot change server context");
+      const own=await Promise.all(Array.from({length:10},()=>
+        run(resource,root,peer,{key:foreignKey})));
+      assert.equal(own.filter(x=>x.status===200).length,1);
+      assert.equal(own.filter(x=>x.status===409).length,9);
+      assert.equal((await run(resource,decision,peer,{key:foreignKey})).status,200);
+      assert.equal((await run(resource,decision,writer,{key:foreignKey})).status,404);
+      assert.equal((await run(resource,"get",peer,{key:foreignKey})).data[stateOnlyFork.field],
+        decision.behavior.to);
+      console.log("PROTOCOLIA_TENANT_STATE_HTTP_CONFORMANCE_PASS "+
+        JSON.stringify({entity:e.name,tenants:2,equalPrivileges:true,
+          crossReadDenied:true,crossListDenied:true,crossTransitionDenied:true,
+          spoofedHeaderDenied:true,concurrentRejected:9}));
+    }
     for(const f of e.fields.filter(f=>f.reference)){
       const bad={...body,[identity]:("MISSING"+uuid).slice(0,e.fields.find(x=>x.name===identity).maxLength??64),
         [f.name]:"UNMATCHED-"+uuid};
