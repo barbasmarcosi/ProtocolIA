@@ -800,5 +800,7 @@ jobs:
           if [ "${{ matrix.profile }}" = "v06" ]; then
             grep -q 'PROTOCOLIA_TENANT_STATE_HTTP_CONFORMANCE_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+            grep -q 'PROTOCOLIA_TENANT_DB_KEY_IMMUTABLE_PASS' \
+              "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           fi
           echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }} — $STATE_ONLY_PROFILE"
