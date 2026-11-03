@@ -38,6 +38,9 @@ export function checkedMakerGuardDdl(ir,e){
   "LANGUAGE plpgsql AS $protocolia_maker_guard$",
   "DECLARE verified_subject TEXT;",
   "BEGIN",
+  "  IF TG_OP='DELETE' THEN",
+  "    RAISE EXCEPTION 'Maker-checker record deletion forbidden' USING ERRCODE='23514';",
+  "  END IF;",
   "  IF TG_OP='INSERT' THEN",
   "    IF NEW."+column+" IS DISTINCT FROM "+initial+" OR",
   "       NEW.protocolia_submitted_by IS NOT NULL THEN",
@@ -78,7 +81,7 @@ export function checkedMakerGuardDdl(ir,e){
   "ALTER TABLE "+table+" ADD CONSTRAINT ck_"+table+
     "_maker_state CHECK (("+column+"="+initial+") = (protocolia_submitted_by IS NULL));",
   fn,
-  "CREATE TRIGGER "+triggerName+" BEFORE INSERT OR UPDATE ON "+table+
+  "CREATE TRIGGER "+triggerName+" BEFORE INSERT OR UPDATE OR DELETE ON "+table+
     " FOR EACH ROW EXECUTE FUNCTION "+functionName+"();"
  ];
 }
@@ -114,6 +117,11 @@ export function checkedMakerGuardProof(ir){
   "  BEGIN",
   "    UPDATE "+p.table+" SET protocolia_submitted_by=NULL WHERE "+p.key+"=target;",
   "    RAISE EXCEPTION 'Maker erasure accepted';",
+  "  EXCEPTION WHEN check_violation THEN NULL;",
+  "  END;",
+  "  BEGIN",
+  "    DELETE FROM "+p.table+" WHERE "+p.key+"=target;",
+  "    RAISE EXCEPTION 'Direct maker-checker deletion accepted';",
   "  EXCEPTION WHEN check_violation THEN NULL;",
   "  END;",
   "  IF (SELECT "+p.column+" FROM "+p.table+" WHERE "+p.key+"=target)<>original_state THEN",
