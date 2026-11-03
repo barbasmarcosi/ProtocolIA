@@ -32,7 +32,7 @@ test("v0.5 approved workflow has a server-only PostgreSQL CHECK plus transaction
   const ir=asCompilerIr(read(domain,"v05"));
   const sql=checkedMakerGuardDdl(ir,ir.entities[0]);
   assert.equal(sql.length,3);
-  assert.match(sql[0],/CHECK \(\(state='(reported|drafted)'\) = \(protocolia_submitted_by IS NULL\)\)/);
+  assert.match(sql[0],/CHECK \(\((?:state|phase)='(reported|drafted)'\) = \(protocolia_submitted_by IS NULL\)\)/);
   assert.match(sql[1],/OLD.protocolia_submitted_by IS NOT NULL/);
   assert.match(sql[1],/current_setting\('protocolia.subject',true\)/);
   assert.match(sql[1],/NEW.protocolia_submitted_by=verified_subject/);
