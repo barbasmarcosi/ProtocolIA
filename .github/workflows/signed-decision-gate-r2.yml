@@ -10,6 +10,12 @@ on:
       - 'scripts/research/composable-operator-grammar.mjs'
       - 'scripts/research/operator-catalog-v1.mjs'
       - 'scripts/research/state-only-operator-grammar.mjs'
+      - 'packages/adapters/transition-authority.mjs'
+      - 'packages/adapters/nest/generate.mjs'
+      - 'packages/adapters/modular/generate.mjs'
+      - 'packages/cli/compose.mjs'
+      - 'tests/research/state-only-operation-authority.test.mjs'
+      - 'docs/research/autonomous-engineering/P2_OPERATION_AUTHORITY.md'
       - 'scripts/research/state-only-operator-intake.mjs'
       - 'tests/research/state-only-operator-grammar.test.mjs'
       - 'research/autonomous-engineering/samples/state-only-*.json'
@@ -676,9 +682,13 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/research/state-only-operator-grammar.mjs
+          node --check packages/adapters/transition-authority.mjs
+          node --check packages/adapters/nest/generate.mjs
+          node --check packages/adapters/modular/generate.mjs
+          node --check packages/cli/compose.mjs
           node --check scripts/research/state-only-operator-intake.mjs
           node --check packages/cli/conformance.mjs
-          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
+          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Generate and compile source-bound state-only contract and operator catalog
@@ -689,16 +699,19 @@ jobs:
           set -euo pipefail
           DIR="$(mktemp -d "$PWD/.p2-state-only.XXXXXXXX")"
           echo "STATE_ONLY_TMP=$DIR" >> "$GITHUB_ENV"
-          SOURCE="research/autonomous-engineering/samples/state-only-$SAMPLE_NAME-v03.json"
+          PROFILE=v03
           if [ "$SAMPLE_NAME" = "service-ticket" ]; then
             EXPECTED_ENTITY=ServiceTicket
+            PROFILE=v04
           else
             EXPECTED_ENTITY=ReviewCase
           fi
+          echo "STATE_ONLY_PROFILE=$PROFILE" >> "$GITHUB_ENV"
+          SOURCE="research/autonomous-engineering/samples/state-only-$SAMPLE_NAME-$PROFILE.json"
           node scripts/research/state-only-operator-intake.mjs generate "$SOURCE" "$DIR/contract"
           node scripts/research/state-only-operator-intake.mjs verify "$SOURCE" "$DIR/contract"
           ./node_modules/.bin/tsp compile "$DIR/contract"
-          export STATE_ONLY_TMP="$DIR" EXPECTED_ENTITY="$EXPECTED_ENTITY"
+          export STATE_ONLY_TMP="$DIR" EXPECTED_ENTITY="$EXPECTED_ENTITY" EXPECTED_PROFILE="$PROFILE"
           node --input-type=module <<'JS'
           import {readFileSync} from "node:fs";
           import assert from "node:assert/strict";
@@ -706,13 +719,22 @@ jobs:
           const ir=JSON.parse(readFileSync(base+"/semantic-ir.json","utf8"));
           const compiled=JSON.parse(readFileSync(base+"/tsp-output/@protocolia/compiler/ir.json","utf8"));
           const catalog=JSON.parse(readFileSync(base+"/operator-catalog.json","utf8"));
-          assert.equal(ir.schemaVersion,"protocolia-state-operator-ir/v0.3");
+          const version=process.env.EXPECTED_PROFILE==="v04"?"v0.4":"v0.3";
+          assert.equal(ir.schemaVersion,"protocolia-state-operator-ir/"+version);
           assert.deepEqual(ir.operatorCatalog.pins,{"transition":"state.transition-audited@1"});
           assert.equal(catalog.catalogSha256,ir.operatorCatalog.catalogSha256);
           assert.deepEqual(compiled.entities.map(e=>e.name),[process.env.EXPECTED_ENTITY]);
           const all=compiled.operations.filter(o=>o.behavior.kind==="transition");
           assert.equal(all.length,3);
           const transitions=ir.operations.filter(o=>o.kind==="transition");
+          if(version==="v0.4"){
+            const prefix=process.env.EXPECTED_ENTITY.toLowerCase();
+            assert.deepEqual(all.map(o=>o.capability).sort(),
+              [prefix+".submit",prefix+".decide",prefix+".decide"].sort());
+          }else{
+            const prefix=process.env.EXPECTED_ENTITY.toLowerCase();
+            assert.ok(all.every(o=>o.capability===prefix+".write"));
+          }
           assert.deepEqual(all.map(o=>[o.name,o.behavior.from,o.behavior.to]).sort(),
             transitions.map(o=>[o.name,o.from,o.to]).sort());
           assert.ok(all.every(o=>o.behavior.reserve===undefined&&
@@ -746,4 +768,8 @@ jobs:
             "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           grep -q 'PROTOCOLIA_STATEFUL_CONFORMANCE_PASS' \
             "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
-          echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }}"
+          if [ "${{ matrix.sample }}" = "service-ticket" ]; then
+            grep -q 'PROTOCOLIA_OPERATION_AUTHORITY_CONFORMANCE_PASS' \
+              "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          fi
+          echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }} — $STATE_ONLY_PROFILE"
