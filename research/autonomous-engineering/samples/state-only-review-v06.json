@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "protocolia-operator-assembly/v0.6",
+  "namespace": "ReviewWorkflowLab",
+  "title": "Source-assembled ReviewCase workflow — state-only",
+  "profile": "state-only",
+  "entity": {
+    "name": "ReviewCase",
+    "route": "review-cases",
+    "identity": {
+      "name": "caseId",
+      "maxLength": 52
+    },
+    "label": {
+      "name": "summary",
+      "maxLength": 180
+    },
+    "status": {
+      "name": "state",
+      "initial": "drafted"
+    }
+  },
+  "operators": [
+    {
+      "kind": "transition",
+      "name": "submitReviewCase",
+      "suffix": "submit",
+      "from": "drafted",
+      "to": "in_review"
+    },
+    {
+      "kind": "transition",
+      "name": "approveReviewCase",
+      "suffix": "approve",
+      "from": "in_review",
+      "to": "approved"
+    },
+    {
+      "kind": "transition",
+      "name": "rejectReviewCase",
+      "suffix": "reject",
+      "from": "in_review",
+      "to": "rejected"
+    }
+  ],
+  "operatorVersions": {
+    "transition": "state.transition-audited@1"
+  },
+  "authorizationProfile": "tenant-state/v1"
+}
