@@ -76,6 +76,27 @@ export async function composeAction(action,path){
     PROTOCOLIA_MANAGER_PASSWORD:randomBytes(24).toString("hex"),
     PROTOCOLIA_HOST_PORT:String(port),
   };
+  // Opt-in isolated demo presenter for reviewed source-bounded submit/decide
+  // profiles only. No credentials or grants from the consumer's .env are used.
+  // The generated adapters still verify every operation's authoritative grant.
+  const compiled=JSON.parse(readFileSync(join(out,"protocolia-contract-ir.json"),"utf8"));
+  const stateOps=compiled.operations.filter(op=>op.behavior?.kind==="transition");
+  const creator=compiled.operations.find(op=>op.behavior?.kind==="create");
+  const getter=compiled.operations.find(op=>op.behavior?.kind==="get");
+  const submits=stateOps.filter(op=>op.capability?.endsWith(".submit"));
+  const decides=stateOps.filter(op=>op.capability?.endsWith(".decide"));
+  if(compiled.entities.length===1&&stateOps.length===3&&
+    submits.length===1&&decides.length===2&&creator&&getter&&
+    submits[0].entity===creator.entity&&
+    decides.every(op=>op.entity===creator.entity)&&
+    decides.every(op=>op.capability===decides[0].capability)&&
+    submits[0].capability===creator.entity.toLowerCase()+".submit"&&
+    decides[0].capability===creator.entity.toLowerCase()+".decide"){
+    data.PROTOCOLIA_SCOPED_USERNAME="test_submitter";
+    data.PROTOCOLIA_SCOPED_PASSWORD=randomBytes(24).toString("hex");
+    data.PROTOCOLIA_SCOPED_CAPABILITIES=
+      getter.capability+","+submits[0].capability;
+  }
   writeFileSync(envFile,Object.entries(data).map(([k,v])=>k+"="+v).join("\n")+"\n",{mode:0o600});
   const compose=["compose","--project-name",project,"--env-file",envFile];
   const env={...process.env,...data};
