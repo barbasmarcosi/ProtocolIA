@@ -1292,6 +1292,9 @@ class RuntimeService{
       const client=await this.pool.connect();
       try{
         await client.query("BEGIN");
+        // Set a transaction-scoped authenticated subject for the DB trigger;
+        // never a client-provided header. SET LOCAL expires on commit/rollback.
+        await client.query("SELECT set_config('protocolia.subject',$1,true)",[actor]);
         const changed=isMaker?
           await client.query("UPDATE "+e.table+" SET "+field.column+
             "=$1, protocolia_submitted_by=$2 WHERE "+e.identityColumn+
