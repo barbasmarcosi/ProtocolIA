@@ -120,10 +120,26 @@ expect_fail cold_login protocolia_s2c_a_sandbox_login "$pass_a" \
   "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_verified_batch('sandbox','BYPASS','$sha','$(event BYPASS TX-B 0.01)'::jsonb)"
 expect_fail cold_login protocolia_s2c_a_sandbox_login "$pass_a" \
   "SET ROLE protocolia_s2c_runtime; SELECT protocolia_s2c_replay.claim_with_receipt('other','FORGED','$sha','$(event FORGED TX-F 0.01)'::jsonb)"
+# A restored database must retain transactional atomicity: when the second
+# event conflicts with an existing claim, the first event and its audit and
+# batch receipt must all roll back. This is tested after cross-cluster restore,
+# not merely on the original fixture.
+rollback_batch="[$(event COLD-ROLLBACK TX-R 0.01 | sed 's/^\[//;s/\]$//'),$(event ACK-LOST TX-A 0.03 | sed 's/^\[//;s/\]$//')]"
+expect_fail claim_a OT-ROLLBACK "$rollback_batch"
+[[ "$(inspect_a OT-ROLLBACK "$(event COLD-ROLLBACK TX-R 0.01)")" == not_observed ]]
+counts cold_admin 25 5
+[[ "$(cold_admin "$fingerprint_query")" == "$source_fingerprint" ]]
+# The restore must also retain append-only enforcement, including TRUNCATE.
+expect_fail cold_login protocolia_s2c_a_sandbox_login "$pass_a" \
+  "SET ROLE protocolia_s2c_runtime; TRUNCATE protocolia_s2c_replay.audit"
+expect_fail cold_admin "UPDATE protocolia_s2c_replay.audit SET amount_text='9.99' WHERE event_id='ACK-LOST'"
+expect_fail cold_admin "TRUNCATE protocolia_s2c_replay.batch_receipt"
+counts cold_admin 25 5
+[[ "$(cold_admin "$fingerprint_query")" == "$source_fingerprint" ]]
 [[ "$(claim_a OT-COLD "$(event COLD-1 TX-C 0.01)")" == 1 ]]
 [[ "$(inspect_a OT-COLD "$(event COLD-1 TX-C 0.01)")" == committed ]]
 expect_fail claim_a OT-COLD "$(event COLD-1 TX-C 0.01)"
 counts cold_admin 26 6
 counts source_sql 25 5
 [[ "$(source_sql "$fingerprint_query")" == "$source_fingerprint" ]]
-echo "PROTOCOLIA_S2C_PG_COLD_RESTORE_PASS independent_cluster=pass missing_roles_rollback=pass restored=25/25/5 new_write=26/26/6 owner=NOLOGIN tenant_isolation=pass replay=blocked source_unchanged=pass"
+echo "PROTOCOLIA_S2C_PG_COLD_RESTORE_PASS independent_cluster=pass missing_roles_rollback=pass restored=25/25/5 new_write=26/26/6 owner=NOLOGIN tenant_isolation=pass replay=blocked restored_batch_rollback=pass append_only=pass source_unchanged=pass"
