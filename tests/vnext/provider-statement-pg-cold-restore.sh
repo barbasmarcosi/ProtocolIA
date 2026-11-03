@@ -124,7 +124,7 @@ expect_fail cold_login protocolia_s2c_a_sandbox_login "$pass_a" \
 # event conflicts with an existing claim, the first event and its audit and
 # batch receipt must all roll back. This is tested after cross-cluster restore,
 # not merely on the original fixture.
-rollback_batch="[$(event COLD-ROLLBACK TX-R 0.01 | sed 's/^\\[//;s/\\]$//'),$(event ACK-LOST TX-A 0.03 | sed 's/^\\[//;s/\\]$//')]"
+rollback_batch="[$(event COLD-ROLLBACK TX-R 0.01 | sed 's/^\[//;s/\]$//'),$(event ACK-LOST TX-A 0.03 | sed 's/^\[//;s/\]$//')]"
 expect_fail claim_a OT-ROLLBACK "$rollback_batch"
 [[ "$(inspect_a OT-ROLLBACK "$(event COLD-ROLLBACK TX-R 0.01)")" == not_observed ]]
 counts cold_admin 25 5
