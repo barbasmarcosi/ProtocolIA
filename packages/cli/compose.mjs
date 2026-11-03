@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {checkedMakerGuardProof} from "../adapters/maker-checker-db-guard.mjs";
+import {tenantStateDbProof} from "../adapters/tenant-state-policy.mjs";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
@@ -100,6 +101,25 @@ export async function composeAction(action,path){
     data.PROTOCOLIA_SCOPED_CAPABILITIES=
       getter.capability+","+submits[0].capability;
   }
+  const tenantPrefix=creator?.entity?.toLowerCase();
+  const tenantProfile=compiled.entities.length===1&&
+    compiled.operations.length===7&&stateOps.length===3&&
+    creator?.capability===tenantPrefix+".write.tenant"&&
+    getter?.capability===tenantPrefix+".read.tenant"&&
+    compiled.operations.every(op=>op.capability===(["get","listPage"].includes(op.behavior.kind)?
+      tenantPrefix+".read.tenant":op.behavior.kind==="health"?"public":
+      tenantPrefix+".write.tenant"));
+  if(tenantProfile){
+    // Equal business privileges, but verified demo identities bound to
+    // different organizations. Never inferred from user-controlled headers.
+    data.PROTOCOLIA_TEST_TENANT_MANAGER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_READER="org_alpha";
+    data.PROTOCOLIA_TEST_TENANT_SCOPED="org_beta";
+    data.PROTOCOLIA_SCOPED_USERNAME="test_tenant_peer";
+    data.PROTOCOLIA_SCOPED_PASSWORD=randomBytes(24).toString("hex");
+    data.PROTOCOLIA_SCOPED_CAPABILITIES=
+      tenantPrefix+".read.tenant,"+tenantPrefix+".write.tenant";
+  }
   writeFileSync(envFile,Object.entries(data).map(([k,v])=>k+"="+v).join("\n")+"\n",{mode:0o600});
   const compose=["compose","--project-name",project,"--env-file",envFile];
   const env={...process.env,...data};
@@ -129,7 +149,8 @@ export async function composeAction(action,path){
     // Direct SQL adversarial proof against the isolated Docker/PostgreSQL DB,
     // run only after a v0.5 HTTP conformance test has created a pending case.
     // The app and this psql process do NOT share session GUCs.
-    const dbProof=checkedMakerGuardProof(compiled);
+    const makerProof=checkedMakerGuardProof(compiled);
+    const dbProof=makerProof??tenantStateDbProof(compiled);
     if(dbProof){
       const proof=spawnSync("docker",[
         ...compose,"exec","-T","db","psql","-X","-v","ON_ERROR_STOP=1",
@@ -138,9 +159,11 @@ export async function composeAction(action,path){
       if(proof.error)throw proof.error;
       if(proof.status!==0)throw Error("Maker guard DB bypass proof FAILED: "+
         String(proof.stderr??"").slice(-1000));
-      console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
+      if(makerProof)console.log("PROTOCOLIA_MAKER_DB_GUARD_PASS "+
         JSON.stringify({table:compiled.entities[0].name,
           verified:["direct-finalization","maker-reassignment","state-rewind","maker-erasure"]}));
+      else console.log("PROTOCOLIA_TENANT_DB_KEY_IMMUTABLE_PASS "+
+        JSON.stringify({table:compiled.entities[0].name,verified:["tenant-reassignment"]}));
     }
 
   }finally{

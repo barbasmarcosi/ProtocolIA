@@ -283,6 +283,40 @@ public class DomainRuntime {
       .body(Map.of("outcome",outcome));
   }
 
+  // Only a signed resource-server JWT or isolated demo principal grants
+  // a tenant identity. A request header/body/path cannot nominate a tenant.
+  private boolean tenantEntity(Manifest.Entity e){
+    return Manifest.OPS.stream().anyMatch(op->op.entity().equals(e.name())&&
+      op.kind().equals("create")&&
+      op.capability().equals(e.name().toLowerCase(java.util.Locale.ROOT)+".write.tenant"));
+  }
+  private String verifiedTenant(Authentication user){
+    String raw=null;
+    if(user instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)
+      raw=jwt.getToken().getClaimAsString("protocolia_tenant");
+    else if("true".equals(System.getenv("PROTOCOLIA_ALLOW_DEMO_AUTH"))&&user!=null){
+      String name=user.getName();
+      if(name.equals(System.getenv("PROTOCOLIA_MANAGER_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_MANAGER");
+      else if(name.equals(System.getenv("PROTOCOLIA_READER_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_READER");
+      else if(name.equals(System.getenv("PROTOCOLIA_SCOPED_USERNAME")))
+        raw=System.getenv("PROTOCOLIA_TEST_TENANT_SCOPED");
+    }
+    if(raw==null||!raw.matches("[a-z][a-z0-9_-]{1,63}"))
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Verified organization identity required");
+    return raw;
+  }
+  private String currentTenant(Manifest.Entity e){
+    if(!tenantEntity(e))return null;
+    var attrs=org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+    Object tenant=attrs instanceof org.springframework.web.context.request.ServletRequestAttributes data?
+      data.getRequest().getAttribute("protocolia.verifiedTenant"):null;
+    if(!(tenant instanceof String id)||!id.matches("[a-z][a-z0-9_-]{1,63}"))
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Missing verified organization context");
+    return id;
+  }
+
   // Platform-authenticated capability discovery; only server authorities are trusted.
   @GetMapping("/api/_protocolia/me")
   public Map<String, Object> session(Authentication user,HttpServletRequest request) {
@@ -373,6 +407,7 @@ public class DomainRuntime {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     Manifest.Entity entity = Manifest.ENTITIES.stream().filter(e -> e.name().equals(authorized.entity())).findFirst()
         .orElseThrow(() -> new IllegalStateException("Unresolved entity in generated manifest"));
+    if(tenantEntity(entity))request.setAttribute("protocolia.verifiedTenant",verifiedTenant(user));
     Object result;
     switch (matched.kind()) {
       case "create" -> result = create(entity, matched, body, user,request.getHeader("If-Match"),false);
@@ -658,9 +693,12 @@ public class DomainRuntime {
     if (id == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
     if(e.ownerField()!=null && subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
     try {
-      String condition=e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner";
+      String tenant=currentTenant(e);
+      String condition=(e.ownerField()==null?"":" AND "+e.ownerColumn()+"=:owner")+
+        (tenant==null?"":" AND protocolia_tenant_id=:tenant");
       var args=new MapSqlParameterSource().addValue("key",id);
       if(e.ownerField()!=null)args.addValue("owner",subject);
+      if(tenant!=null)args.addValue("tenant",tenant);
       return serialized(jdbc.queryForMap(
           selectSql(e) + " WHERE " + e.identityColumn() + " = :key"+condition,
           args), e);
@@ -1079,6 +1117,13 @@ public class DomainRuntime {
     for (var f : e.fields()) if (!f.computed()) params.addValue(f.name(), sqlValue(f, body.get(f.name())));
     String names = e.fields().stream().filter(f -> !f.computed()).map(Manifest.Field::column).reduce((a,b)->a+","+b).orElseThrow();
     String values = e.fields().stream().filter(f -> !f.computed()).map(f -> ":" + f.name()).reduce((a,b)->a+","+b).orElseThrow();
+    String tenant=currentTenant(e);
+    if(tenant!=null){
+      // The tenant key is not in TypeSpec, body or API DTO.
+      params.addValue("verifiedTenant",tenant);
+      names+=",protocolia_tenant_id";
+      values+=",:verifiedTenant";
+    }
     var relation=e.ownerRelation();
     if(relation!=null){
       if(user.getAuthorities().stream().noneMatch(a->a.getAuthority().equals(relation.parentReadCapability())))
@@ -1122,7 +1167,10 @@ public class DomainRuntime {
       if(subject==null)throw new ResponseStatusException(HttpStatus.FORBIDDEN);
       args.addValue("owner",subject);
     }
-    String predicate=e.ownerField()==null?"":" WHERE "+e.ownerColumn()+"=:owner";
+    String tenant=currentTenant(e);
+    if(tenant!=null)args.addValue("tenant",tenant);
+    String predicate=(e.ownerField()==null?"":" WHERE "+e.ownerColumn()+"=:owner")+
+      (tenant==null?"":(e.ownerField()==null?" WHERE ":" AND ")+"protocolia_tenant_id=:tenant");
     var result=jdbc.queryForList(selectSql(e)+predicate+" ORDER BY "+e.identityColumn()+
       " LIMIT :limit OFFSET :offset",args);
     List<Map<String,Object>> items = result.stream().map(r -> serialized(r, e)).toList();
@@ -1517,6 +1565,19 @@ public class DomainRuntime {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    String tenant=currentTenant(e);
+    if(tenant!=null){
+      var params=new MapSqlParameterSource().addValue("key",id)
+        .addValue("from",op.fromState()).addValue("to",op.toState())
+        .addValue("tenant",tenant);
+      int updated=jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+
+        e.identityColumn()+"=:key AND "+col+"=:from AND protocolia_tenant_id=:tenant",params);
+      if(updated!=1){
+        row(e,id); // NotFound when row is not visible to this verified tenant.
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"Tenant-scoped state conflict");
+      }
+      return row(e,id);
+    }
     // Checked decisions only: the submitter is persisted server-side as part
     // of the guarded transition. A different authenticated subject is required
     // by the same PostgreSQL CAS before any terminal state change is possible.

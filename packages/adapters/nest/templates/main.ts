@@ -540,7 +540,20 @@ class RuntimeService{
   authConfig():typeof this.browserAuth|{mode:"bff";enabled:true}{
     return process.env.PROTOCOLIA_BFF_ENABLED==="true"?{mode:"bff",enabled:true}:this.browserAuth;
   }
-  async login(req:any):Promise<{username:string;capabilities:string[]}>{
+  private tenantApp():boolean{
+    return spec.operations.some(op=>op.kind==="create"&&
+      op.capability===op.entity.toLowerCase()+".write.tenant");
+  }
+  private trustedTenant(raw:unknown):string{
+    if(typeof raw!=="string"||!/^[a-z][a-z0-9_-]{1,63}$/.test(raw))
+      throw new Problem(401,"Verified organization identity required");
+    return raw;
+  }
+  private tenantEntity(e:Entity):boolean{
+    return spec.operations.some(op=>op.entity===e.name&&op.kind==="create"&&
+      op.capability===e.name.toLowerCase()+".write.tenant");
+  }
+  async login(req:any):Promise<{username:string;capabilities:string[];tenant?:string}>{
     if(this.jwtConfig){
       const auth=req.headers.authorization;
       const segments=typeof auth==="string"&&auth.startsWith("Bearer ")?auth.slice(7).split("."):[];
@@ -557,7 +570,8 @@ class RuntimeService{
           subject.length>128||!Array.isArray(raw)||raw.length>16||
           new Set(raw).size!==raw.length||raw.some(v=>typeof v!=="string"||v==="public"||!allowed.has(v)))
           throw Error("Untrusted JWT capability or subject");
-        return {username:subject,capabilities:[...raw].sort()};
+        return {username:subject,capabilities:[...raw].sort(),
+          ...(this.tenantApp()?{tenant:this.trustedTenant(payload.protocolia_tenant)}:{})};
       }catch{throw new Problem(401,"Invalid bearer token");}
     }
     if(process.env.PROTOCOLIA_ALLOW_DEMO_AUTH!=="true")throw new Problem(401,"Authentication required");
@@ -576,9 +590,12 @@ class RuntimeService{
     const scoped=this.scopedUser;
     const limited=!!scoped&&equalSecrets(username,scoped.username)&&equalSecrets(password,scoped.password);
     if(!manager&&!reader&&!limited)throw new Problem(401,"Invalid credentials");
-    if(limited)return {username,capabilities:[...scoped!.capabilities]};
+    if(limited)return {username,capabilities:[...scoped!.capabilities],
+      ...(this.tenantApp()?{tenant:this.trustedTenant(process.env.PROTOCOLIA_TEST_TENANT_SCOPED)}:{})};
     return {username,capabilities:manager?[...new Set([...spec.readCapabilities,...spec.writeCapabilities,...(spec.auditCapabilities??[]),...(spec.assignmentCapabilities??[]),...(spec.fieldReadCapabilities??[])])].sort():
-      [...spec.readCapabilities].sort()};
+      [...spec.readCapabilities].sort(),
+      ...(this.tenantApp()?{tenant:this.trustedTenant(manager?
+        process.env.PROTOCOLIA_TEST_TENANT_MANAGER:process.env.PROTOCOLIA_TEST_TENANT_READER)}:{})};
   }
   async me(req:any,res:any):Promise<void>{
     try{
@@ -683,11 +700,16 @@ class RuntimeService{
       "=$1 AND document_version<2147483647",[id]);
     if(changed.rowCount!==1)throw new Problem(409,"Document version exhausted");
   }
-  private async row(e:Entity,id:string,subject?:string):Promise<Record<string,unknown>>{
+  private async row(e:Entity,id:string,subject?:string,tenant?:string):Promise<Record<string,unknown>>{
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&!subject)throw new Problem(403,"Owner identity is required");
-    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+
-      (owner?" AND "+owner.column+"=$2":""),owner?[id,subject]:[id]);
+    const scoped=this.tenantEntity(e);
+    if(scoped)tenant=this.trustedTenant(tenant);
+    const args:unknown[]=owner?[id,subject]:[id];
+    const clause=(owner?" AND "+owner.column+"=$2":"")+
+      (scoped?" AND protocolia_tenant_id=$"+(args.length+1):"");
+    if(scoped)args.push(tenant);
+    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+clause,args);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
   }
@@ -707,7 +729,7 @@ class RuntimeService{
     if(!result.rows.length)throw new Problem(404,"Parent not found");
     return {totalUnits:String(result.rows[0].totalUnits)};
   }
-  private async page(e:Entity,op:Operation,query:Record<string,unknown>,subject?:string):Promise<unknown>{
+  private async page(e:Entity,op:Operation,query:Record<string,unknown>,subject?:string,tenant?:string):Promise<unknown>{
     if(Object.keys(query).some(k=>!["limit","offset"].includes(k)))throw new Problem(400,"Unknown query");
     function integer(value:unknown,def:number):number{
       if(value===undefined)return def;
@@ -721,11 +743,17 @@ class RuntimeService{
       throw new Problem(400,"Invalid page bounds");
     const owner=e.fields.find(f=>f.ownerManaged);
     if(owner&&!subject)throw new Problem(403,"Owner identity is required");
-    const clause=owner?" WHERE "+owner.column+"=$1":"";
+    const scoped=this.tenantEntity(e);
+    if(scoped)tenant=this.trustedTenant(tenant);
+    const predicates:string[]=[];
+    const args:unknown[]=[];
+    if(owner){args.push(subject);predicates.push(owner.column+"=$"+args.length);}
+    if(scoped){args.push(tenant);predicates.push("protocolia_tenant_id=$"+args.length);}
+    const clause=predicates.length?" WHERE "+predicates.join(" AND "):"";
     const [items,count]=await Promise.all([
       this.pool.query(this.select(e)+clause+" ORDER BY "+e.identityColumn+
-        (owner?" LIMIT $2 OFFSET $3":" LIMIT $1 OFFSET $2"),owner?[subject,limit,offset]:[limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,owner?[subject]:[])
+        " LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,limit,offset]),
+      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,args)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
@@ -929,7 +957,7 @@ class RuntimeService{
         [actor,e.name,key,op.name,field,old==null?null:String(old),next==null?null:String(next)]);
     }
   }
-  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown):Promise<Record<string,unknown>>{
+  private async create(e:Entity,op:Operation,body:unknown,actor:string,capabilities:string[],ifMatch?:unknown,tenant?:string):Promise<Record<string,unknown>>{
     // Financial detail rows may only be inserted atomically by their header.
     // A separate child POST would alter the amount after payment initialization.
     if(spec.operations.some(x=>x.createDetails?.childEntity===e.name&&
@@ -1021,6 +1049,13 @@ class RuntimeService{
     const cols=persisted.map(f=>f.column);
     const params=persisted.map(f=>f.type==="utcDateTime"&&input[f.name]!=null?
       parseTimestamp(input[f.name]):input[f.name]??null);
+    if(this.tenantEntity(e)){
+      tenant=this.trustedTenant(tenant);
+      // Hidden server-managed column: neither input validation nor TypeSpec
+      // permits a client-supplied tenant identity.
+      cols.push("protocolia_tenant_id");
+      params.push(tenant);
+    }
     const relation=e.ownerRelation;
     if(relation&&!capabilities.includes(relation.parentReadCapability))
       throw new Problem(403,"Parent read capability required for linking");
@@ -1180,7 +1215,7 @@ class RuntimeService{
       const created=await this.pool.query(insert,insertParams);
       if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
     }
-    return this.row(e,String(input[e.publicIdentity]),actor);
+    return this.row(e,String(input[e.publicIdentity]),actor,tenant);
   }
   private async patchTogether(e:Entity,op:Operation,key:string,body:unknown,
     subject?:string):Promise<Record<string,unknown>>{
@@ -1273,10 +1308,31 @@ class RuntimeService{
     return this.row(e,key);
   }
   private async transition(e:Entity,op:Operation,key:string,body:unknown,actor:string,
-    ifMatch?:unknown):Promise<Record<string,unknown>>{
+    ifMatch?:unknown,tenant?:string):Promise<Record<string,unknown>>{
     if(body!==undefined&&body!==null&&(!isRecord(body)||Object.keys(body).length!==0))
       throw new Problem(400,"Transition does not accept input");
     const field=e.fields.find(f=>f.name===op.field)!;
+    if(this.tenantEntity(e)){
+      tenant=this.trustedTenant(tenant);
+      const client=await this.pool.connect();
+      try{
+        await client.query("BEGIN");
+        const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
+          "=$1 WHERE "+e.identityColumn+"=$2 AND "+field.column+
+          "=$3 AND protocolia_tenant_id=$4 RETURNING "+e.identityColumn,
+          [op.to,key,op.from,tenant]);
+        if(changed.rowCount!==1){
+          const seen=await client.query("SELECT 1 FROM "+e.table+
+            " WHERE "+e.identityColumn+"=$1 AND protocolia_tenant_id=$2",[key,tenant]);
+          throw new Problem(seen.rowCount?409:404,"Tenant-scoped transition unavailable");
+        }
+        await this.recordAudit(client,e,op,key,actor,
+          {[op.field!]:op.from},{[op.field!]:op.to});
+        await client.query("COMMIT");
+      }catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
+      return this.row(e,key,actor,tenant);
+    }
     // Opt-in maker-checker profile, gated by a checked decision capability.
     // Persist the authenticated submitter in the SAME guarded state update.
     // The checker predicate is a single atomic SQL CAS, not a UI-only check.
@@ -1766,15 +1822,15 @@ class RuntimeService{
       const identity=req.params?.[entity.publicIdentity];
       let data:unknown;
       switch(op.kind){
-        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"]);break;
-        case "get":data=await this.row(entity,identity,session.username);break;
+        case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"],session.tenant);break;
+        case "get":data=await this.row(entity,identity,session.username,session.tenant);break;
         case "sumRelated":data=await this.sumRelated(op,identity);break;
         case "sumDetails":data=await this.sumDetails(op,identity);break;
         case "reconcileExact":data=await this.reconcileExact(op,identity);break;
         case "adjustExact":data=await this.adjustExact(entity,identity,req.body,session.username);break;
         case "lookupExactAdjustment":data=await this.lookupExactAdjustment(
           entity,identity,req.params?.adjustmentId,session.username);break;
-        case "listPage":data=await this.page(entity,op,req.query??{},session.username);break;
+        case "listPage":data=await this.page(entity,op,req.query??{},session.username,session.tenant);break;
         case "queryPage":data=await this.queryPage(entity,op,req.query??{});break;
         case "inboxPage":case "ackNotification":data=await this.inbox(entity,op,req,session.username);break;
         case "auditPage":data=await this.auditPage(entity,identity,op,req.query??{});break;
@@ -1784,7 +1840,7 @@ class RuntimeService{
         case "patchTogether":data=await this.patchTogether(entity,op,identity,req.body,session.username);break;
         case "atomicIncrement":data=await this.increment(entity,op,identity,req.body);break;
         case "transition":data=await this.transition(entity,op,identity,req.body,session.username,
-          req.headers["if-match"]);break;
+          req.headers["if-match"],session.tenant);break;
         case "reassignReference":data=await this.reassignReference(entity,op,identity,req.body,session.username);break;
         case "delete":await this.remove(entity,op,identity,session.username,session.capabilities,
           req.headers["if-match"],req.body);res.status(204).send();return;

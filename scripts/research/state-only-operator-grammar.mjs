@@ -16,15 +16,17 @@ const q=JSON.stringify;
 const property=(name,type,opts={})=>({name,type,required:true,nullable:false,...opts});
 const op=(name,kind,entity,path,capability)=>({name,kind,entity,path,capability});
 export function composeStateOnlyGraph(source){
+ const tenantState=source?.schemaVersion==="protocolia-operator-assembly/v0.6";
  const makerChecker=source?.schemaVersion==="protocolia-operator-assembly/v0.5";
  const twoRole=makerChecker||source?.schemaVersion==="protocolia-operator-assembly/v0.4";
- exact(source,twoRole?
+ exact(source,twoRole||tenantState?
   ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions","authorizationProfile"]:
   ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions"],
   "state-only source");
- ensure((twoRole||source.schemaVersion==="protocolia-operator-assembly/v0.3")&&
+ ensure((twoRole||tenantState||source.schemaVersion==="protocolia-operator-assembly/v0.3")&&
   source.profile==="state-only"&&
-  (!twoRole||source.authorizationProfile===(makerChecker?"maker-checker/v1":"submit-decide/v1")),
+  (!twoRole||source.authorizationProfile===(makerChecker?"maker-checker/v1":"submit-decide/v1"))&&
+  (!tenantState||source.authorizationProfile==="tenant-state/v1"),
   "unreviewed source version/profile/authorization policy");
  ensure(entityName(source.namespace)&&source.namespace.endsWith("Lab"),"invalid laboratory namespace");
  ensure(typeof source.title==="string"&&source.title.length>=3&&source.title.length<=120&&
@@ -46,6 +48,7 @@ export function composeStateOnlyGraph(source){
  ensure(bound(e.identity.maxLength,12,120)&&bound(e.label.maxLength,12,255),
   "length out of range");
  const approved=validateAuditedStateGraph(source.operators,e.status.initial);
+ if(tenantState)ensure(source.operators.length===3,"tenant-state requires three audited transitions");
  // Explicit opt-in only. A submitter can move the initial state to review,
  // while either terminal decision requires a distinct, entity-bound grant.
  if(twoRole){
@@ -66,7 +69,8 @@ export function composeStateOnlyGraph(source){
   builtIns.add(transition.name.toLowerCase());
  }
  const base="/api/"+e.route;
- const capabilities={read:e.name.toLowerCase()+".read",write:e.name.toLowerCase()+".write",
+ const capabilities={read:e.name.toLowerCase()+(tenantState?".read.tenant":".read"),
+  write:e.name.toLowerCase()+(tenantState?".write.tenant":".write"),
   submit:e.name.toLowerCase()+".submit",decide:e.name.toLowerCase()+".decide"};
  const operations=[
   op("create"+e.name,"create",e.name,base,capabilities.write),
@@ -80,7 +84,8 @@ export function composeStateOnlyGraph(source){
   })),
   op("health","health",e.name,"/health","public")
  ];
- return {schemaVersion:makerChecker?"protocolia-state-operator-ir/v0.5":
+ return {schemaVersion:tenantState?"protocolia-state-operator-ir/v0.6":
+    makerChecker?"protocolia-state-operator-ir/v0.5":
     twoRole?"protocolia-state-operator-ir/v0.4":"protocolia-state-operator-ir/v0.3",
   namespace:source.namespace,title:source.title,profile:source.profile,
   grammarSource:structuredClone(source),operatorCatalog:binding,

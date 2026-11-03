@@ -1,4 +1,5 @@
 import {auditedTransitionAuthority} from "../transition-authority.mjs";
+import {auditedTenantStatePolicy,tenantStateSchemaDdl} from "../tenant-state-policy.mjs";
 import {checkedMakerGuardDdl} from "../maker-checker-db-guard.mjs";
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
@@ -292,6 +293,7 @@ export function generate(ir, openapi, outDir) {
     if(!readCaps.includes(read))readCaps.push(read);
     if(!writeCaps.includes(write))writeCaps.push(write);
     const transitionAuthority=auditedTransitionAuthority(ir,e,read,write);
+    auditedTenantStatePolicy(ir,e); // Reject mixed/unreviewed tenant operator grants.
     if(transitionAuthority){
       for(const cap of [transitionAuthority.submit,transitionAuthority.decide])
         if(!writeCaps.includes(cap))writeCaps.push(cap);
@@ -633,6 +635,7 @@ export function generate(ir, openapi, outDir) {
       "  protocolia_submitted_by VARCHAR(128) CHECK (char_length(btrim(protocolia_submitted_by)) > 0)"
     ]:[]),...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
     sql.push(...checkedMakerGuardDdl(ir,e));
+    sql.push(...tenantStateSchemaDdl(ir,e));
   }
   for(const e of entities)sql.push(...uniqueWhenSql(e,ops));
   for(const e of entities)for(const f of e.fields){

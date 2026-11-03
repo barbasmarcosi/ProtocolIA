@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "protocolia-operator-assembly/v0.6",
+  "namespace": "ServiceTicketLab",
+  "title": "Service ticket disposition — source-composed state-only",
+  "profile": "state-only",
+  "entity": {
+    "name": "ServiceTicket",
+    "route": "service-tickets",
+    "identity": {
+      "name": "ticketCode",
+      "maxLength": 65
+    },
+    "label": {
+      "name": "description",
+      "maxLength": 170
+    },
+    "status": {
+      "name": "phase",
+      "initial": "reported"
+    }
+  },
+  "operators": [
+    {
+      "kind": "transition",
+      "name": "triageServiceTicket",
+      "suffix": "triage",
+      "from": "reported",
+      "to": "triaged"
+    },
+    {
+      "kind": "transition",
+      "name": "completeServiceTicket",
+      "suffix": "complete",
+      "from": "triaged",
+      "to": "completed"
+    },
+    {
+      "kind": "transition",
+      "name": "dismissServiceTicket",
+      "suffix": "dismiss",
+      "from": "triaged",
+      "to": "dismissed"
+    }
+  ],
+  "operatorVersions": {
+    "transition": "state.transition-audited@1"
+  },
+  "authorizationProfile": "tenant-state/v1"
+}
