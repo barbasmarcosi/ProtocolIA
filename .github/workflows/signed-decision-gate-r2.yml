@@ -11,6 +11,8 @@ on:
       - 'scripts/research/operator-catalog-v1.mjs'
       - 'scripts/research/state-only-operator-grammar.mjs'
       - 'packages/adapters/transition-authority.mjs'
+      - 'tests/research/state-only-maker-checker.test.mjs'
+      - 'docs/research/autonomous-engineering/P2_MAKER_CHECKER.md'
       - 'packages/adapters/nest/generate.mjs'
       - 'packages/adapters/modular/generate.mjs'
       - 'packages/cli/compose.mjs'
@@ -664,8 +666,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [nestjs, modular-spring]
-        sample: [review, service-ticket]
+        include:
+          - {target: nestjs, sample: review, profile: v03}
+          - {target: modular-spring, sample: review, profile: v03}
+          - {target: nestjs, sample: service-ticket, profile: v04}
+          - {target: modular-spring, sample: service-ticket, profile: v04}
+          - {target: nestjs, sample: service-ticket, profile: v05}
+          - {target: modular-spring, sample: service-ticket, profile: v05}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -688,21 +695,21 @@ jobs:
           node --check packages/cli/compose.mjs
           node --check scripts/research/state-only-operator-intake.mjs
           node --check packages/cli/conformance.mjs
-          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
+          node --test tests/research/state-only-operator-grammar.test.mjs tests/research/state-only-operation-authority.test.mjs tests/research/state-only-maker-checker.test.mjs tests/research/typed-review-workflow.test.mjs tests/research/operator-catalog-v1.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Generate and compile source-bound state-only contract and operator catalog
         shell: bash
         env:
           SAMPLE_NAME: "${{ matrix.sample }}"
+          SAMPLE_PROFILE: "${{ matrix.profile }}"
         run: |
           set -euo pipefail
           DIR="$(mktemp -d "$PWD/.p2-state-only.XXXXXXXX")"
           echo "STATE_ONLY_TMP=$DIR" >> "$GITHUB_ENV"
-          PROFILE=v03
+          PROFILE="$SAMPLE_PROFILE"
           if [ "$SAMPLE_NAME" = "service-ticket" ]; then
             EXPECTED_ENTITY=ServiceTicket
-            PROFILE=v04
           else
             EXPECTED_ENTITY=ReviewCase
           fi
@@ -719,7 +726,7 @@ jobs:
           const ir=JSON.parse(readFileSync(base+"/semantic-ir.json","utf8"));
           const compiled=JSON.parse(readFileSync(base+"/tsp-output/@protocolia/compiler/ir.json","utf8"));
           const catalog=JSON.parse(readFileSync(base+"/operator-catalog.json","utf8"));
-          const version=process.env.EXPECTED_PROFILE==="v04"?"v0.4":"v0.3";
+          const version="v0."+process.env.EXPECTED_PROFILE.slice(-1);
           assert.equal(ir.schemaVersion,"protocolia-state-operator-ir/"+version);
           assert.deepEqual(ir.operatorCatalog.pins,{"transition":"state.transition-audited@1"});
           assert.equal(catalog.catalogSha256,ir.operatorCatalog.catalogSha256);
@@ -727,10 +734,11 @@ jobs:
           const all=compiled.operations.filter(o=>o.behavior.kind==="transition");
           assert.equal(all.length,3);
           const transitions=ir.operations.filter(o=>o.kind==="transition");
-          if(version==="v0.4"){
+          if(version==="v0.4"||version==="v0.5"){
             const prefix=process.env.EXPECTED_ENTITY.toLowerCase();
             assert.deepEqual(all.map(o=>o.capability).sort(),
-              [prefix+".submit",prefix+".decide",prefix+".decide"].sort());
+              [prefix+".submit",prefix+(version==="v0.5"?".decide.checked":".decide"),
+                prefix+(version==="v0.5"?".decide.checked":".decide")].sort());
           }else{
             const prefix=process.env.EXPECTED_ENTITY.toLowerCase();
             assert.ok(all.every(o=>o.capability===prefix+".write"));
@@ -770,6 +778,10 @@ jobs:
             "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           if [ "${{ matrix.sample }}" = "service-ticket" ]; then
             grep -q 'PROTOCOLIA_OPERATION_AUTHORITY_CONFORMANCE_PASS' \
+              "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
+          fi
+          if [ "${{ matrix.profile }}" = "v05" ]; then
+            grep -q 'PROTOCOLIA_MAKER_CHECKER_CONFORMANCE_PASS' \
               "$RUNNER_TEMP/state-only-${{ matrix.sample }}-${{ matrix.target }}.log"
           fi
           echo "P2_STATE_ONLY_E2E_PASS ${{ matrix.sample }} ${{ matrix.target }} — $STATE_ONLY_PROFILE"

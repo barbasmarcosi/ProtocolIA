@@ -487,7 +487,13 @@ export function generate(ir,spec,out){
         col+" IS NULL OR "+col+" > "+source+")";
     });
     const versioned=ir.operations.some(op=>op.entity===e.name&&op.behavior.createDetails?.versioned);
-    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
+    // Persist the maker identity server-side, never exposed as a TypeSpec field.
+    // The only permitted writer is the guarded submit transition.
+    const checked=auditedTransitionAuthority(ir,e,
+      of("get",e.name)[0].capability,of("create",e.name)[0].capability)?.makerChecker;
+    schema.push("CREATE TABLE "+snake(e.name)+" (\n"+[...fields,...(checked?[
+      "  protocolia_submitted_by VARCHAR(128) CHECK (char_length(btrim(protocolia_submitted_by)) > 0)"
+    ]:[]),...(versioned?["  document_version INTEGER NOT NULL DEFAULT 1 CHECK (document_version >= 1)"]:[]),...conditional,...forbidden,...chronological,...compared,...uniqueTogetherSql(e)].join(",\n")+"\n);");
   }
   for(const e of ir.entities)schema.push(...uniqueWhenSql(e,ir.operations));
   for(const e of ir.entities)for(const f of e.fields)if(f.reference){

@@ -16,13 +16,15 @@ const q=JSON.stringify;
 const property=(name,type,opts={})=>({name,type,required:true,nullable:false,...opts});
 const op=(name,kind,entity,path,capability)=>({name,kind,entity,path,capability});
 export function composeStateOnlyGraph(source){
- const twoRole=source?.schemaVersion==="protocolia-operator-assembly/v0.4";
+ const makerChecker=source?.schemaVersion==="protocolia-operator-assembly/v0.5";
+ const twoRole=makerChecker||source?.schemaVersion==="protocolia-operator-assembly/v0.4";
  exact(source,twoRole?
   ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions","authorizationProfile"]:
   ["schemaVersion","namespace","title","profile","entity","operators","operatorVersions"],
   "state-only source");
  ensure((twoRole||source.schemaVersion==="protocolia-operator-assembly/v0.3")&&
-  source.profile==="state-only"&&(!twoRole||source.authorizationProfile==="submit-decide/v1"),
+  source.profile==="state-only"&&
+  (!twoRole||source.authorizationProfile===(makerChecker?"maker-checker/v1":"submit-decide/v1")),
   "unreviewed source version/profile/authorization policy");
  ensure(entityName(source.namespace)&&source.namespace.endsWith("Lab"),"invalid laboratory namespace");
  ensure(typeof source.title==="string"&&source.title.length>=3&&source.title.length<=120&&
@@ -72,12 +74,14 @@ export function composeStateOnlyGraph(source){
   op("list"+e.name+"s","listPage",e.name,base,capabilities.read),
   ...source.operators.map(t=>({
    ...op(t.name,"transition",e.name,base+"/{"+e.identity.name+"}/"+t.suffix,
-    twoRole?(t.from===e.status.initial?capabilities.submit:capabilities.decide):capabilities.write),
+    twoRole?(t.from===e.status.initial?capabilities.submit:
+      makerChecker?capabilities.decide+".checked":capabilities.decide):capabilities.write),
    field:e.status.name,from:t.from,to:t.to,audit:[e.status.name]
   })),
   op("health","health",e.name,"/health","public")
  ];
- return {schemaVersion:twoRole?"protocolia-state-operator-ir/v0.4":"protocolia-state-operator-ir/v0.3",
+ return {schemaVersion:makerChecker?"protocolia-state-operator-ir/v0.5":
+    twoRole?"protocolia-state-operator-ir/v0.4":"protocolia-state-operator-ir/v0.3",
   namespace:source.namespace,title:source.title,profile:source.profile,
   grammarSource:structuredClone(source),operatorCatalog:binding,
   entities:[{name:e.name,view:"Reviewed state items",publicIdentity:e.identity.name,fields:[

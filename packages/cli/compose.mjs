@@ -84,14 +84,16 @@ export async function composeAction(action,path){
   const creator=compiled.operations.find(op=>op.behavior?.kind==="create");
   const getter=compiled.operations.find(op=>op.behavior?.kind==="get");
   const submits=stateOps.filter(op=>op.capability?.endsWith(".submit"));
-  const decides=stateOps.filter(op=>op.capability?.endsWith(".decide"));
+  const decides=stateOps.filter(op=>op.capability?.endsWith(".decide")||
+    op.capability?.endsWith(".decide.checked"));
   if(compiled.entities.length===1&&stateOps.length===3&&
     submits.length===1&&decides.length===2&&creator&&getter&&
     submits[0].entity===creator.entity&&
     decides.every(op=>op.entity===creator.entity)&&
     decides.every(op=>op.capability===decides[0].capability)&&
     submits[0].capability===creator.entity.toLowerCase()+".submit"&&
-    decides[0].capability===creator.entity.toLowerCase()+".decide"){
+    [creator.entity.toLowerCase()+".decide",creator.entity.toLowerCase()+".decide.checked"]
+      .includes(decides[0].capability)){
     data.PROTOCOLIA_SCOPED_USERNAME="test_submitter";
     data.PROTOCOLIA_SCOPED_PASSWORD=randomBytes(24).toString("hex");
     data.PROTOCOLIA_SCOPED_CAPABILITIES=
