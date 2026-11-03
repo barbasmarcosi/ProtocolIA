@@ -392,7 +392,7 @@ public class DomainRuntime {
       case "patchTogether" -> result = patchTogether(entity, matched, publicKey, body, user.getName());
       case "atomicIncrement" -> result = increment(entity, matched, publicKey, body);
       case "transition" -> result = transition(entity, matched, publicKey, body,
-        request.getHeader("If-Match"));
+        request.getHeader("If-Match"),user.getName());
       case "reassignReference" -> result = reassignReference(entity, matched, publicKey, body);
       case "delete" -> result = delete(entity, matched, publicKey, user,
         request.getHeader("If-Match"),body);
@@ -1513,10 +1513,44 @@ public class DomainRuntime {
   }
 
   private Map<String,Object> transition(Manifest.Entity e, Manifest.Op op, String id,
-      Map<String,Object> body,String ifMatch) {
+      Map<String,Object> body,String ifMatch,String actor) {
     if (id == null || (body != null && !body.isEmpty()))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transition does not accept input");
     String col = e.fields().stream().filter(f -> f.name().equals(op.field())).findFirst().orElseThrow().column();
+    // Checked decisions only: the submitter is persisted server-side as part
+    // of the guarded transition. A different authenticated subject is required
+    // by the same PostgreSQL CAS before any terminal state change is possible.
+    String prefix=e.name().toLowerCase(java.util.Locale.ROOT);
+    boolean checked=Manifest.OPS.stream().anyMatch(x->x.entity().equals(e.name())&&
+      x.kind().equals("transition")&&x.capability().equals(prefix+".decide.checked"));
+    boolean maker=checked&&op.capability().equals(prefix+".submit");
+    boolean checker=checked&&op.capability().equals(prefix+".decide.checked");
+    if(maker||checker){
+      if(actor==null||actor.isBlank()||actor.length()>128)
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Unverified maker-checker identity");
+      var p=new MapSqlParameterSource().addValue("id",id).addValue("from",op.fromState())
+        .addValue("to",op.toState()).addValue("actor",actor);
+      int changed=maker?
+        jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to, protocolia_submitted_by=:actor WHERE "+
+          e.identityColumn()+"=:id AND "+col+"=:from AND protocolia_submitted_by IS NULL",p):
+        jdbc.update("UPDATE "+e.table()+" SET "+col+"=:to WHERE "+e.identityColumn()+
+          "=:id AND "+col+"=:from AND protocolia_submitted_by IS NOT NULL AND "+
+          "protocolia_submitted_by<>:actor",p);
+      if(changed!=1){
+        var existing=jdbc.queryForList("SELECT "+col+
+          " AS state, protocolia_submitted_by AS maker FROM "+e.table()+
+          " WHERE "+e.identityColumn()+"=:id",Map.of("id",id));
+        if(existing.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        if(checker&&op.fromState().equals(existing.get(0).get("state"))&&
+          actor.equals(existing.get(0).get("maker")))
+          throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+            "Submitter cannot decide own case");
+        throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "Maker-checker transition precondition failed");
+      }
+      // @Transactional dispatch commits this guarded state + audit together.
+      return row(e,id);
+    }
     var documentCreator=Manifest.OPS.stream().filter(o->o.entity().equals(e.name())&&
       o.createDetails()!=null&&o.createDetails().versioned()&&
       !o.createDetails().closeField().isEmpty()&&
