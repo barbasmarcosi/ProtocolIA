@@ -66,6 +66,12 @@ BEGIN
      pg_has_role(beta_role.oid,owner_oid,'MEMBER') OR
      pg_has_role(alpha_role.oid,beta_role.oid,'MEMBER') OR
      pg_has_role(beta_role.oid,alpha_role.oid,'MEMBER') OR
+     -- A group membership may allow SET ROLE into an untrusted BYPASSRLS,
+     -- table-owning, or CREATEROLE principal. Reject *all* extra memberships.
+     EXISTS(SELECT 1 FROM pg_roles r WHERE r.oid<>alpha_role.oid
+       AND pg_has_role(alpha_role.oid,r.oid,'MEMBER')) OR
+     EXISTS(SELECT 1 FROM pg_roles r WHERE r.oid<>beta_role.oid
+       AND pg_has_role(beta_role.oid,r.oid,'MEMBER')) OR
      has_schema_privilege(alpha,'public','CREATE') OR
      has_schema_privilege(beta,'public','CREATE') THEN
     RAISE EXCEPTION 'Unsafe tenant SQL principal privileges or membership'
