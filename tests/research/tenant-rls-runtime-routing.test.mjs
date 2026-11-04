@@ -44,6 +44,8 @@ test("Spring SQL routing uses verified principal before transaction connection a
    "relforcerowsecurity","audit_rls","member","can_create"]){
   assert.ok(spring.includes(value),"Missing Spring SQL role safeguard: "+value);
  }
+ assert.match(spring,/Manifest\\.OPS\\.size\\(\\)!=6/,
+  "Spring generated manifest omits the separately handled public health op");
  assert.match(springDomain,/static String verifiedTenant\(Authentication user\)/);
  assert.match(springApp,/Tenant SQL routing requires isolated HTTP runtime mode/);
  assert.match(springGen,/TenantSqlRouting\.java/);
