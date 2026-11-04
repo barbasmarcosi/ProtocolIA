@@ -57,7 +57,8 @@ test("candidate explicitly denies privilege escalation and schema reapplication"
  for(const item of ["rolbypassrls","rolsuper","rolcreaterole","rolcreatedb",
   "rolreplication","relrowsecurity","relforcerowsecurity",
   "already exist; refusing implicit overwrite","unreviewed preexisting grant",
-  "RLS privilege postcondition failed","Two distinct explicit safe tenant SQL principals"]){
+  "RLS privilege postcondition failed","Two distinct explicit safe tenant SQL principals",
+  "Reject *all* extra memberships"]){
   assert.ok(sql.includes(item),"Missing SQL security precondition: "+item);
  }
  assert.doesNotMatch(sql,/ALTER TABLE .*DISABLE ROW LEVEL SECURITY/);
