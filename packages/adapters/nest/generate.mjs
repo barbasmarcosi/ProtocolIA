@@ -646,6 +646,8 @@ export function generate(ir,spec,out){
     '      - "127.0.0.1:${PROTOCOLIA_HOST_PORT:-8080}:8080"',
     "    depends_on:","      db:","        condition: service_healthy",
     "    environment:",'      PORT: "8080"',
+    '      PROTOCOLIA_EXECUTION_MODE: ${PROTOCOLIA_EXECUTION_MODE:-legacy}',
+    '      PROTOCOLIA_MIGRATION_HANDOFF_ID: ${PROTOCOLIA_MIGRATION_HANDOFF_ID:-}',
     "      PROTOCOLIA_JDBC_URL: postgresql://db:5432/protocolia",
     '      PROTOCOLIA_JDBC_USER: ${PROTOCOLIA_RUNTIME_DB_USER:-protocolia}',
     '      PROTOCOLIA_JDBC_PASSWORD: ${PROTOCOLIA_RUNTIME_DB_PASSWORD:-${PROTOCOLIA_DB_PASSWORD:?set PROTOCOLIA_DB_PASSWORD}}',
