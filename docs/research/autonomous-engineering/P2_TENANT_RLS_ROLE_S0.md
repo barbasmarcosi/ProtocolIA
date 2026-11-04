@@ -13,7 +13,7 @@ This S0 alternative pins the organization to **the authenticated PostgreSQL LOGI
 Both NestJS and modular Spring generation emit byte-identical `protocolia-tenant-rls-role-candidate.sql` from the same canonical compiled IR, **only** for one audited state-only v0.7 tenant+maker-checker entity with a reviewed seven-operation graph.
 
 - The SQL is **not** appended to NestJS `src/schema.sql` or Spring Flyway `V1__contract_baseline.sql`; it is deliberately never executed during ordinary generation, app boot, automatic migration or deployment.
-- Requires **two separately provisioned LOGIN roles** and a **non-superuser migration owner** owning `public` and the business table; no tenant role may own a schema or table, bypass RLS, create roles/databases, inherit the migration owner or possess `CREATE` on `public`.
+- Requires **two separately provisioned LOGIN roles** and a **non-superuser migration owner** owning `public` and the business table; no tenant role may own a schema or table, bypass RLS, create roles/databases, be a member of any other SQL role (including apparently harmless groups), or possess `CREATE` on `public`.
 - The operator, in one explicit transaction, supplies the two SQL role identifiers, applies the candidate and inserts their authenticated-principal→tenant mapping. The SQL rejects unknown/unsafe identifiers, unreviewed privileges, missing tenant column, mismatched owner, already enabled RLS and reapplication.
 - The business table receives SELECT, INSERT and UPDATE policies using the private lookup function; **FORCE ROW LEVEL SECURITY** is enabled. DELETE, TRUNCATE, TRIGGER and REFERENCES are not granted to the tenant logins. The mapping table is owned exclusively by the migrator.
 - The candidate does **not** alter the maker-checker triggers, issue JWTs, grant per-tenant HTTP authorities, or provide a tenant-aware DB pool.
@@ -25,7 +25,7 @@ The focused GitHub workflow `.github/workflows/p2-tenant-rls-role-candidate.yml`
 2. Starts a brand-new disposable PostgreSQL 16 container **without publishing a network port**, creates non-superuser SQL logins for the migration owner, Alpha, Beta and an unrelated outsider, and runs the generated SQL.
 3. As Alpha, checks own rows visible, Beta rows invisible, no cross-tenant UPDATE/INSERT/reassignment, no DELETE/TRUNCATE, no mapping access or RLS disable, no `SET ROLE` escalation, and spoofed arbitrary `protocolia.tenant` / candidate role settings ineffective.
 4. As Beta, confirms symmetrical isolation and own-tenant insert succeeds; outsider cannot read the protected table or execute the private function.
-5. Checks forced RLS and final database rows from an independent admin session. The script must reject missing operator bindings and replay. Container cleanup is mandatory on success or failure.
+5. Checks forced RLS and final database rows from an independent admin session. The script must reject missing operator bindings, unreviewed group memberships and replay. Container cleanup is mandatory on success or failure.
 
 Only an observed success marker `PROTOCOLIA_ROLE_PINNED_RLS_DB_PROOF_PASS` from the real PostgreSQL job qualifies as a passing database proof; unit tests alone do not.
 
