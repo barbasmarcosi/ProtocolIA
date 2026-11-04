@@ -31,11 +31,21 @@ trap cleanup EXIT
 docker run --rm -d --name "$container" \
   -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=protocolia \
   postgres:16.15-alpine >/dev/null
-for _ in $(seq 1 60); do
-  if docker exec "$container" pg_isready -q -U postgres -d protocolia; then break; fi
+# initdb runs a transient socket-only PostgreSQL server before the final
+# TCP listener. Socket-only pg_isready can report a false ready state.
+ready=false
+for _ in $(seq 1 75); do
+  if docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres -d protocolia; then
+    ready=true
+    break
+  fi
   sleep 1
 done
-docker exec "$container" pg_isready -q -U postgres -d protocolia
+if [[ "$ready" != "true" ]]; then
+  echo "Final PostgreSQL TCP server never became ready" >&2
+  exit 1
+fi
+docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres -d protocolia
 echo "RLS_DB_CONTAINER_READY"
 admin(){ docker exec -i "$container" psql -X -U postgres -d protocolia -v ON_ERROR_STOP=1 -q; }
 owner(){ docker exec -i -e PGPASSWORD="$owner_pwd" "$container" \
