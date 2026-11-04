@@ -635,7 +635,9 @@ export function generate(ir,spec,out){
     "# RLS-S1: only runtime mode, distinct SQL login per organization; no fallback to migration credentials.",
     "PROTOCOLIA_TENANT_SQL_ROUTING=",
     "PROTOCOLIA_TENANT_SQL_ALPHA_USER=","PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD=",
-    "PROTOCOLIA_TENANT_SQL_BETA_USER=","PROTOCOLIA_TENANT_SQL_BETA_PASSWORD=",""
+    "PROTOCOLIA_TENANT_SQL_BETA_USER=","PROTOCOLIA_TENANT_SQL_BETA_PASSWORD=",
+    "# S2 human-jwt-v1: secure four-human SQL LOGIN map injected by operator, not user-controlled.",
+    "PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON=",""
   ].join("\n"));
   write("compose.yaml",[
     "services:","  db:","    image: postgres:16.15-alpine",
@@ -690,6 +692,7 @@ export function generate(ir,spec,out){
     '      PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD: ${PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD:-}',
     '      PROTOCOLIA_TENANT_SQL_BETA_USER: ${PROTOCOLIA_TENANT_SQL_BETA_USER:-}',
     '      PROTOCOLIA_TENANT_SQL_BETA_PASSWORD: ${PROTOCOLIA_TENANT_SQL_BETA_PASSWORD:-}',
+    '      PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON: ${PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON:-}',
     '      PROTOCOLIA_PROVIDER_SANDBOX_ENABLED: ${PROTOCOLIA_PROVIDER_SANDBOX_ENABLED:-false}',
     '      PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX: ${PROTOCOLIA_PROVIDER_SANDBOX_KEY_HEX:-}',
     '      PROTOCOLIA_PROVIDER_SANDBOX_KEYS: ${PROTOCOLIA_PROVIDER_SANDBOX_KEYS:-}',
