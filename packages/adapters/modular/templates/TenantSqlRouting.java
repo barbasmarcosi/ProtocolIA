@@ -36,7 +36,9 @@ public class TenantSqlRouting {
     return value;
   }
   private static boolean reviewedGraph() {
-    if(Manifest.ENTITIES.size()!=1||Manifest.OPS.size()!=7)return false;
+    // Manifest deliberately omits the public health operator; the reviewed
+    // source declares 7 operations, but HTTP routing sees 6 business operations.
+    if(Manifest.ENTITIES.size()!=1||Manifest.OPS.size()!=6)return false;
     var name=Manifest.ENTITIES.get(0).name().toLowerCase(java.util.Locale.ROOT);
     return Manifest.OPS.stream().anyMatch(op->op.kind().equals("create")&&
       op.capability().equals(name+".write.tenant"))&&
