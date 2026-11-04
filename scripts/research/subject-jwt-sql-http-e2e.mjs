@@ -229,6 +229,17 @@ try{
     forgedHeaderDenied:true,unknownSubjectDenied:true,unknownBindingDenied:true,
     expiredJWTDenied:true,concurrentConflicts:7,auditActorCount:4
   }));
+}catch(error){
+  if(dockerReady)try{
+    const wire=run(["logs","--no-color","--tail","160","app"],{timeout:15000});
+    let safe=wire;
+    for(const secret of [...Object.values(passwords),handoff])
+      safe=safe.replaceAll(secret,"[REDACTED]");
+    console.error("S2 JWT "+target+" app startup/runtime diagnostics:",safe.slice(-12000));
+  }catch(logError){
+    console.error("Unable to read disposable S2 app diagnostics",String(logError).slice(0,200));
+  }
+  throw error;
 }finally{
   if(dockerReady)try{run(["down","--volumes","--remove-orphans"],{timeout:120000});}
   catch(e){console.error("Disposable S2 teardown failed",String(e).slice(0,150));process.exitCode=1;}
