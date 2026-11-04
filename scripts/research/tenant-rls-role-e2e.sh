@@ -20,6 +20,11 @@ alpha_pwd="$(openssl rand -hex 24)"
 beta_pwd="$(openssl rand -hex 24)"
 outsider_pwd="$(openssl rand -hex 24)"
 cleanup(){
+  local status=$?
+  if [[ "$status" -ne 0 ]]; then
+    echo "RLS disposable PostgreSQL harness failed (exit $status); server diagnostics:" >&2
+    docker logs --tail 60 "$container" >&2 || true
+  fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -31,6 +36,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker exec "$container" pg_isready -q -U postgres -d protocolia
+echo "RLS_DB_CONTAINER_READY"
 admin(){ docker exec -i "$container" psql -X -U postgres -d protocolia -v ON_ERROR_STOP=1 -q; }
 owner(){ docker exec -i -e PGPASSWORD="$owner_pwd" "$container" \
   psql -X -h 127.0.0.1 -U protocolia_rls_owner -d protocolia -v ON_ERROR_STOP=1 -q; }
@@ -48,6 +54,7 @@ CREATE ROLE protocolia_rls_beta LOGIN NOINHERIT PASSWORD '$beta_pwd';
 CREATE ROLE protocolia_rls_outsider LOGIN NOINHERIT PASSWORD '$outsider_pwd';
 ALTER SCHEMA public OWNER TO protocolia_rls_owner;
 SQL
+echo "RLS_DB_ROLES_PROVISIONED"
 owner <<'SQL'
 CREATE TABLE public.service_ticket (
   ticket_code varchar(65) PRIMARY KEY,
@@ -61,6 +68,7 @@ VALUES ('A001','alpha one','reported','org_alpha'),
        ('A002','alpha two','reported','org_alpha'),
        ('B001','beta one','reported','org_beta');
 SQL
+echo "RLS_DB_SEEDED"
 # Unsafe missing operator roles must fail without leaving any RLS artifacts.
 if owner < "$sql" >/dev/null 2>&1; then
   echo "RLS preflight accepted missing role bindings" >&2
@@ -85,6 +93,7 @@ SQL
     " VALUES ('protocolia_rls_alpha','org_alpha'),('protocolia_rls_beta','org_beta');" \
     "COMMIT;"
 } | owner
+echo "RLS_DB_POLICY_ACTIVATED"
 # A second application MUST reject drift/replay. It cannot weaken existing RLS.
 if {
   printf "%s\n" "BEGIN;" \
