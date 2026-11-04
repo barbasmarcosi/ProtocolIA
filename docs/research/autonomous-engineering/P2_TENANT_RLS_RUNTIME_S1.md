@@ -30,3 +30,12 @@ Spring uses a distinct, non-fallback `AbstractRoutingDataSource` backed by **ind
 Even with approved routing, shared SQL credentials per organization do **not** give cryptographic per-human maker identity proof in PostgreSQL: the `protocolia.subject` transaction variable used by the maker-checker trigger can be set by a compromised role. HTTP authentication and the same-row CAS still enforce maker separation on the vetted execution path; full DB-adversarial maker identity will need a database-issued identity binding or per-subject authority. An SQL principal with INSERT permission can fabricate audit entries **within its own organization**; this profile enforces organization containment, not event nonrepudiation. Superusers, migration owner, backup/restore, key management and compromised tenant SQL credentials are separate threats. Neither SQL RLS nor this adapter route proves IdP organization membership or full tenant join/FK safety.
 
 No production deployment or general multi-tenancy. Keep issue #57 open. This is a bounded incremental experiment.
+
+## S1.1 adversarial startup acceptance
+
+The disposable generated NestJS and Spring HTTP harness now must prove that both runtimes **refuse to start** under two database authority drifts, before testing a restored healthy startup:
+
+1. A migration owner deliberately maps the Beta SQL login to `org_alpha`. The candidate must reject the resulting identity mismatch and remain offline; owner restores the binding afterward.
+2. A migration owner disables RLS on the audit table while business-table RLS stays active. The candidate must refuse startup and remain offline; owner reenables and forces audit RLS afterward.
+
+Both controls require explicit startup-error evidence and a nonresponsive HTTP health route; a slow process without the expected guard failure does **not** pass. Docker containers, roles, credentials and database volumes are removed after testing. The existing positive, real PostgreSQL role-bound HTTP flows must then pass unchanged.

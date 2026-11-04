@@ -123,7 +123,57 @@ INSERT INTO public.protocolia_migration_handoff_v1(image_digest) VALUES ('$hando
 GRANT SELECT ON public.protocolia_migration_handoff_v1 TO protocolia_rls_alpha;
 SQL
 echo "PROTOCOLIA_TENANT_S1_OPERATOR_BOOTSTRAP_PASS $target"
-"${compose[@]}" up --detach --build app >/dev/null
+# Only the disposable app image is built; negative startups NEVER use a
+# migrator or owner credential. A healthy HTTP endpoint is always a failure.
+"${compose[@]}" build app >/dev/null
+refuse_startup(){
+  local scenario="$1"
+  local logs=""
+  local rejected=false
+  "${compose[@]}" up --detach --no-deps --force-recreate app >/dev/null
+  for _ in $(seq 1 45); do
+    if curl --silent --fail --max-time 1 "http://127.0.0.1:$port/health" >/dev/null; then
+      echo "UNSAFE: $target served HTTP with drifted $scenario tenant SQL authority" >&2
+      exit 1
+    fi
+    logs="$("${compose[@]}" logs --no-color --tail 100 app 2>&1 || true)"
+    if grep -Eq "Tenant SQL connection/RLS authority preflight failed|Tenant SQL routing refused unsafe DB identity" <<< "$logs"; then
+      rejected=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$rejected" != "true" ]]; then
+    echo "No explicit fail-closed startup proof for $target / $scenario" >&2
+    echo "$logs" | tail -80 >&2
+    exit 1
+  fi
+  "${compose[@]}" stop app >/dev/null
+  echo "PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS $target $scenario"
+}
+# Adversarial case A: the privately owned SQL principal mapping is corrupt.
+# A mere HTTP WHERE predicate would not detect this; both backends must abort.
+owner <<'SQL'
+UPDATE public.protocolia_rls_principal_tenant SET tenant_id='org_alpha'
+WHERE principal='protocolia_rls_beta';
+SQL
+refuse_startup wrong-tenant-map
+owner <<'SQL'
+UPDATE public.protocolia_rls_principal_tenant SET tenant_id='org_beta'
+WHERE principal='protocolia_rls_beta';
+SQL
+# Adversarial case B: a privileged migration changes a persisted audit policy.
+# Even though business RLS remains active, both HTTP runtimes must refuse boot.
+owner <<'SQL'
+ALTER TABLE public.protocolia_audit_event DISABLE ROW LEVEL SECURITY;
+SQL
+refuse_startup audit-rls-disabled
+owner <<'SQL'
+ALTER TABLE public.protocolia_audit_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.protocolia_audit_event FORCE ROW LEVEL SECURITY;
+SQL
+# Only after restoring both guards should the generated HTTP app start.
+"${compose[@]}" up --detach --no-deps --force-recreate app >/dev/null
 health=false
 for _ in $(seq 1 100); do
   if curl --silent --fail --max-time 2 "http://127.0.0.1:$port/health" >/dev/null; then

@@ -104,6 +104,10 @@ jobs:
             | tee "$RUNNER_TEMP/p2-role-rls-http-nest.log"
           grep -q 'PROTOCOLIA_TENANT_S1_HTTP_POSTGRES_PROOF_PASS nestjs' \
             "$RUNNER_TEMP/p2-role-rls-http-nest.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS nestjs wrong-tenant-map' \
+            "$RUNNER_TEMP/p2-role-rls-http-nest.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS nestjs audit-rls-disabled' \
+            "$RUNNER_TEMP/p2-role-rls-http-nest.log"
       - name: Real generated Spring HTTP with tenant-pinned SQL roles and audit RLS
         shell: bash
         env:
@@ -113,4 +117,8 @@ jobs:
           bash scripts/research/tenant-rls-runtime-e2e.sh "$RLS_TMP/ready-spring" modular-spring \
             | tee "$RUNNER_TEMP/p2-role-rls-http-spring.log"
           grep -q 'PROTOCOLIA_TENANT_S1_HTTP_POSTGRES_PROOF_PASS modular-spring' \
+            "$RUNNER_TEMP/p2-role-rls-http-spring.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS modular-spring wrong-tenant-map' \
+            "$RUNNER_TEMP/p2-role-rls-http-spring.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS modular-spring audit-rls-disabled' \
             "$RUNNER_TEMP/p2-role-rls-http-spring.log"
