@@ -2018,10 +2018,9 @@ async function bootstrap(){
   installBffSecurityHeaders(app);
   app.useStaticAssets(join(process.cwd(),"dist/static"));
   const engine=app.get(RuntimeService);
-  if(execution==="runtime"){
-    await engine.verifyRuntimeReady();
-    await engine.verifyTenantSqlReady();
-  }else await engine.init();
+  if(execution==="runtime")await engine.verifyRuntimeReady();
+  else await engine.init();
+  if(execution==="runtime")await engine.verifyTenantSqlReady();
   await engine.verifyProviderIngress();
   await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");
