@@ -168,6 +168,9 @@ class RuntimeService{
   private readonly tenantSqlContext=new AsyncLocalStorage<Pool>();
   private readonly tenantSqlEnabled:boolean;
   private readonly tenantSqlBeta:Pool|null;
+  private readonly humanSqlEnabled:boolean;
+  private readonly humanSqlPools:Map<string,Pool>;
+  private readonly humanSqlBindings:Array<{tenant:string;subject:string;user:string}>;
   private readonly migrationPool:Pool|null;
   private readonly providerIngressPool:Pool|null;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
@@ -195,8 +198,10 @@ class RuntimeService{
       this.migrationPool=new Pool({connectionString:migration.toString(),max:2});
     }else this.migrationPool=null;
     const routing=process.env.PROTOCOLIA_TENANT_SQL_ROUTING??"";
-    if(!["","alpha-beta-v1"].includes(routing))throw Error("Unsupported tenant SQL routing profile");
+    if(!["","alpha-beta-v1","human-jwt-v1"].includes(routing))
+      throw Error("Unsupported tenant SQL routing profile");
     this.tenantSqlEnabled=routing==="alpha-beta-v1";
+    this.humanSqlEnabled=routing==="human-jwt-v1";
     if(this.tenantSqlEnabled){
       const alphaUser=process.env.PROTOCOLIA_TENANT_SQL_ALPHA_USER??"";
       const alphaPass=process.env.PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD??"";
@@ -223,6 +228,55 @@ class RuntimeService{
         throw Error("Tenant SQL credentials configured without verified routing profile");
       this.tenantSqlBeta=null;
     }
+    this.humanSqlPools=new Map();
+    this.humanSqlBindings=[];
+    if(this.humanSqlEnabled){
+      if(!this.tenantMakerApp()||spec.entities.length!==1||spec.operations.length!==7||
+         process.env.PROTOCOLIA_EXECUTION_MODE!=="runtime"||
+         process.env.PROTOCOLIA_AUTH_MODE!=="jwt"||
+         process.env.PROTOCOLIA_ALLOW_DEMO_AUTH==="true"||
+         process.env.PROTOCOLIA_BFF_ENABLED==="true"||
+         process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"||
+         process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED==="true"||migrationUser||
+         process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER||
+         !process.env.PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON)
+        throw Error("S2 human SQL routing requires reviewed isolated JWT runtime");
+      let entries:unknown;
+      try{entries=JSON.parse(process.env.PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON);}
+      catch{throw Error("Invalid operator-managed S2 human SQL bindings JSON");}
+      if(!Array.isArray(entries)||entries.length!==4)
+        throw Error("S2 must explicitly bind four independent SQL human principals");
+      const users=new Set<string>(),identityKeys=new Set<string>();
+      const counts=new Map<string,number>();
+      let baseMatched=0;
+      for(const raw of entries){
+        if(!isRecord(raw)||Object.keys(raw).sort().join(",")!=="password,subject,tenant,user"||
+           typeof raw.tenant!=="string"||!["org_alpha","org_beta"].includes(raw.tenant)||
+           typeof raw.subject!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_.-]{1,127}$/.test(raw.subject)||
+           typeof raw.user!=="string"||!/^[a-z][a-z0-9_]{1,62}$/.test(raw.user)||
+           typeof raw.password!=="string"||raw.password.length<16||
+           users.has(raw.user)||identityKeys.has(raw.tenant+"|"+raw.subject))
+          throw Error("Invalid or repeated S2 verified SQL subject binding");
+        users.add(raw.user);
+        const key=raw.tenant+"|"+raw.subject;
+        identityKeys.add(key);
+        counts.set(raw.tenant,(counts.get(raw.tenant)??0)+1);
+        const sameBase=decodeURIComponent(connection.username)===raw.user;
+        if(sameBase&&!equalSecrets(decodeURIComponent(connection.password),raw.password))
+          throw Error("S2 base runtime credential is not a bound human principal");
+        const pool=sameBase?this.pool:(()=>{
+          const credential=new URL(source);
+          credential.username=raw.user;credential.password=raw.password;
+          return new Pool({connectionString:credential.toString(),max:5});
+        })();
+        if(sameBase)baseMatched++;
+        this.humanSqlPools.set(key,pool);
+        this.humanSqlBindings.push({tenant:raw.tenant,subject:raw.subject,user:raw.user});
+      }
+      if(baseMatched!==1||counts.get("org_alpha")!==2||counts.get("org_beta")!==2)
+        throw Error("S2 requires two humans per tenant and one bound base SQL role");
+    }else if(process.env.PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON)
+      throw Error("Human SQL credentials configured without S2 JWT routing");
     // Opt-in: HMAC-verified sandbox HTTP must never reuse the ordinary runtime
     // or privileged migrator SQL identity after operator-applied journal ACLs.
     const ingressUser=process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER??"";
@@ -534,6 +588,8 @@ class RuntimeService{
     console.log("PROTOCOLIA_NEST_PROVIDER_INGRESS_PRINCIPAL_READY");
   }
   async closePools():Promise<void>{
+    for(const pool of this.humanSqlPools.values())
+      if(pool!==this.pool)await pool.end();
     if(this.tenantSqlBeta)await this.tenantSqlBeta.end();
     if(this.migrationPool)await this.migrationPool.end();
     if(this.providerIngressPool)await this.providerIngressPool.end();
@@ -588,12 +644,21 @@ class RuntimeService{
     return raw;
   }
   private sqlPool():Pool{
-    if(!this.tenantSqlEnabled)return this.pool;
+    if(!this.tenantSqlEnabled&&!this.humanSqlEnabled)return this.pool;
     const pool=this.tenantSqlContext.getStore();
     if(!pool)throw Error("Tenant SQL query without authenticated routing context");
     return pool;
   }
-  private async withTenantSql<T>(tenant:string|undefined,run:()=>Promise<T>):Promise<T>{
+  private async withTenantSql<T>(tenant:string|undefined,run:()=>Promise<T>,
+    subject?:string):Promise<T>{
+    if(this.humanSqlEnabled){
+      const checked=this.trustedTenant(tenant);
+      if(typeof subject!=="string"||!/^[A-Za-z0-9][A-Za-z0-9_.-]{1,127}$/.test(subject))
+        throw new Problem(403,"Unrecognized authenticated human SQL subject");
+      const human=this.humanSqlPools.get(checked+"|"+subject);
+      if(!human)throw new Problem(403,"No SQL authority for authenticated human");
+      return await this.tenantSqlContext.run(human,run);
+    }
     if(!this.tenantSqlEnabled)return await run();
     const checked=this.trustedTenant(tenant);
     const pool=checked==="org_alpha"?this.pool:
@@ -602,7 +667,7 @@ class RuntimeService{
     return await this.tenantSqlContext.run(pool,run);
   }
   async verifyTenantSqlReady():Promise<void>{
-    if(!this.tenantSqlEnabled)return;
+    if(!this.tenantSqlEnabled&&!this.humanSqlEnabled)return;
     const table=spec.entities[0].table;
     safeIdentifier(table);
     const sql="SELECT session_user AS login,current_user AS principal,"+
@@ -618,6 +683,24 @@ class RuntimeService{
       "has_table_privilege(current_user,'public.protocolia_audit_event','SELECT') AS audit_read,"+
       "EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member "+
       "WHERE r.rolname=current_user) AS member";
+    if(this.humanSqlEnabled){
+      const humanSql=sql.replace("SELECT session_user AS login,",
+        "SELECT public.protocolia_s2_session_subject() AS human,session_user AS login,");
+      for(const binding of this.humanSqlBindings){
+        const pool=this.humanSqlPools.get(binding.tenant+"|"+binding.subject);
+        if(!pool)throw Error("S2 human SQL pool is absent");
+        const result=await pool.query(humanSql),row=result.rows[0];
+        if(result.rowCount!==1||row.login!==binding.user||
+           row.principal!==binding.user||row.tenant!==binding.tenant||
+           row.human!==binding.subject||row.entity_rls!==true||
+           row.audit_rls!==true||row.privileged!==false||
+           row.can_create!==false||row.can_delete!==false||
+           row.audit_read!==false||row.member!==false)
+          throw Error("S2 human SQL connection/subject/RLS authority preflight failed");
+      }
+      console.log("PROTOCOLIA_NEST_S2_HUMAN_SQL_ROUTING_READY");
+      return;
+    }
     for(const [tenant,role,pool] of [
       ["org_alpha",process.env.PROTOCOLIA_TENANT_SQL_ALPHA_USER!,this.pool],
       ["org_beta",process.env.PROTOCOLIA_TENANT_SQL_BETA_USER!,this.tenantSqlBeta!]
@@ -1952,7 +2035,7 @@ class RuntimeService{
         res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
       if(op.kind==="lookupExactAdjustment")res.setHeader("Cache-Control","no-store");
       res.status(["create","adjustExact"].includes(op.kind)?201:200).json(data);
-      });
+      },session.username);
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
         sendProblem(res,new Problem(409,"Referenced resource cannot be deleted"));
