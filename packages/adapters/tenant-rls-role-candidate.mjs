@@ -99,6 +99,23 @@ BEGIN
     RAISE EXCEPTION 'Business table has an unreviewed preexisting grant'
       USING ERRCODE='23514';
   END IF;
+  -- Audit events must follow the same tenant boundary before any application
+  -- SQL principal can use the proposed RLS profile. Existing events require a
+  -- separately reviewed migration/backfill, never an implicit NULL fallback.
+  IF to_regclass('public.protocolia_audit_event') IS NULL OR
+     NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.protocolia_audit_event'::regclass
+       AND relowner=owner_oid AND relkind='r'
+       AND NOT relrowsecurity AND NOT relforcerowsecurity) OR
+     EXISTS (SELECT 1 FROM public.protocolia_audit_event) THEN
+    RAISE EXCEPTION 'Audit table must be empty, owned and not previously protected'
+      USING ERRCODE='23514';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class c,
+      LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE c.oid='public.protocolia_audit_event'::regclass
+      AND a.grantee<>owner_oid) THEN
+    RAISE EXCEPTION 'Audit table has unreviewed grants' USING ERRCODE='23514';
+  END IF;
   IF to_regclass('public.protocolia_rls_principal_tenant') IS NOT NULL OR
      to_regprocedure('public.protocolia_rls_session_tenant()') IS NOT NULL OR
      EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
@@ -126,6 +143,12 @@ AS $protocolia_rls_lookup$
   WHERE principal=session_user::name
 $protocolia_rls_lookup$;
 REVOKE ALL ON FUNCTION public.protocolia_rls_session_tenant() FROM PUBLIC;
+-- Current v0.7 audit rows have no tenant field. This opt-in candidate only
+-- accepts an EMPTY audit table, then sets a database-derived tenant default.
+-- A direct SQL caller cannot choose a different tenant, even on INSERT.
+ALTER TABLE public.protocolia_audit_event
+  ADD COLUMN protocolia_tenant_id VARCHAR(64) NOT NULL
+  DEFAULT public.protocolia_rls_session_tenant();
 DO $protocolia_rls_role_apply$
 DECLARE
   alpha TEXT := current_setting('protocolia.rls_role_alpha',true);
@@ -135,6 +158,9 @@ BEGIN
   EXECUTE format('GRANT EXECUTE ON FUNCTION public.protocolia_rls_session_tenant() TO %I,%I',
     alpha,beta);
   EXECUTE format('GRANT SELECT,INSERT,UPDATE ON public.${table} TO %I,%I',alpha,beta);
+  EXECUTE format('GRANT INSERT ON public.protocolia_audit_event TO %I,%I',alpha,beta);
+  EXECUTE format('GRANT USAGE ON SEQUENCE public.protocolia_audit_event_id_seq TO %I,%I',alpha,beta);
+  EXECUTE format('CREATE POLICY protocolia_rls_audit_insert ON public.protocolia_audit_event FOR INSERT TO %I,%I WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant())',alpha,beta);
   EXECUTE format('CREATE POLICY protocolia_rls_read ON public.${table} FOR SELECT TO %I,%I USING (protocolia_tenant_id=public.protocolia_rls_session_tenant())',
     alpha,beta);
   EXECUTE format('CREATE POLICY protocolia_rls_insert ON public.${table} FOR INSERT TO %I,%I WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant())',
@@ -144,6 +170,8 @@ BEGIN
 END $protocolia_rls_role_apply$;
 ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.${table} FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.protocolia_audit_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.protocolia_audit_event FORCE ROW LEVEL SECURITY;
 -- Fail closed on any accidentally inherited DELETE/TRUNCATE, ownership,
 -- disabled RLS or a second session alias that could bypass this policy.
 DO $protocolia_rls_role_post$
@@ -152,7 +180,10 @@ DECLARE alpha TEXT:=current_setting('protocolia.rls_role_alpha',true);
         role_name TEXT;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.${table}'::regclass
-     AND relrowsecurity AND relforcerowsecurity) THEN
+     AND relrowsecurity AND relforcerowsecurity) OR
+     NOT EXISTS (SELECT 1 FROM pg_class
+       WHERE oid='public.protocolia_audit_event'::regclass
+       AND relrowsecurity AND relforcerowsecurity) THEN
     RAISE EXCEPTION 'RLS policy is not forced' USING ERRCODE='23514';
   END IF;
   FOREACH role_name IN ARRAY ARRAY[alpha,beta] LOOP
@@ -160,6 +191,10 @@ BEGIN
        has_table_privilege(role_name,'public.${table}','TRUNCATE') OR
        has_table_privilege(role_name,'public.${table}','TRIGGER') OR
        has_table_privilege(role_name,'public.${table}','REFERENCES') OR
+       has_table_privilege(role_name,'public.protocolia_audit_event','SELECT') OR
+       has_table_privilege(role_name,'public.protocolia_audit_event','UPDATE') OR
+       has_table_privilege(role_name,'public.protocolia_audit_event','DELETE') OR
+       has_table_privilege(role_name,'public.protocolia_audit_event','TRUNCATE') OR
        has_table_privilege(role_name,'public.protocolia_rls_principal_tenant','SELECT') OR
        has_table_privilege(role_name,'public.protocolia_rls_principal_tenant','UPDATE') THEN
       RAISE EXCEPTION 'RLS privilege postcondition failed for %',role_name
