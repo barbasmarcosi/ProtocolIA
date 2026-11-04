@@ -1,5 +1,6 @@
 import {auditedTransitionAuthority} from "../transition-authority.mjs";
 import {auditedTenantStatePolicy,tenantStateSchemaDdl} from "../tenant-state-policy.mjs";
+import {tenantRlsRoleCandidateSql} from "../tenant-rls-role-candidate.mjs";
 import {checkedMakerGuardDdl} from "../maker-checker-db-guard.mjs";
 import {providerEnvelopeInboxSql} from "../provider-envelope-inbox.mjs";
 import {providerInternalStatementExportSql} from "../provider-statement-export.mjs";
@@ -664,6 +665,9 @@ export function generate(ir, openapi, outDir) {
   write("src/main/resources/db/migration/V1__contract_baseline.sql",
     "-- ProtocolIA schema SHA256 "+signature+" (generated from canonical IR)\n"+
     sql.join("\n")+"\n");
+  const roleRls=tenantRlsRoleCandidateSql(ir);
+  // Operator-only research artifact; never part of Flyway migrations.
+  if(roleRls)write("protocolia-tenant-rls-role-candidate.sql",roleRls);
   if([...exactReconciliations.values()].some(x=>x.unverifiedProofField)) {
     write("protocolia-provider-journal-truncate-upgrade.sql",providerJournalTruncateUpgradeSql());
     write("protocolia-provider-journal-runtime-isolation.sql",providerJournalRuntimeIsolationSql());
