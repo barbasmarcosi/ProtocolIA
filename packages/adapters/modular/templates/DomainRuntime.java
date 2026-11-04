@@ -290,7 +290,7 @@ public class DomainRuntime {
       op.kind().equals("create")&&
       op.capability().equals(e.name().toLowerCase(java.util.Locale.ROOT)+".write.tenant"));
   }
-  private String verifiedTenant(Authentication user){
+  static String verifiedTenant(Authentication user){
     String raw=null;
     if(user instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)
       raw=jwt.getToken().getClaimAsString("protocolia_tenant");

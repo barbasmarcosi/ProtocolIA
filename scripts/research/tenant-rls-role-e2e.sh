@@ -31,11 +31,21 @@ trap cleanup EXIT
 docker run --rm -d --name "$container" \
   -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=protocolia \
   postgres:16.15-alpine >/dev/null
-for _ in $(seq 1 60); do
-  if docker exec "$container" pg_isready -q -U postgres -d protocolia; then break; fi
+# initdb runs a transient socket-only PostgreSQL server before the final
+# TCP listener. Socket-only pg_isready can report a false ready state.
+ready=false
+for _ in $(seq 1 75); do
+  if docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres -d protocolia; then
+    ready=true
+    break
+  fi
   sleep 1
 done
-docker exec "$container" pg_isready -q -U postgres -d protocolia
+if [[ "$ready" != "true" ]]; then
+  echo "Final PostgreSQL TCP server never became ready" >&2
+  exit 1
+fi
+docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres -d protocolia
 echo "RLS_DB_CONTAINER_READY"
 admin(){ docker exec -i "$container" psql -X -U postgres -d protocolia -v ON_ERROR_STOP=1 -q; }
 owner(){ docker exec -i -e PGPASSWORD="$owner_pwd" "$container" \
@@ -62,6 +72,17 @@ CREATE TABLE public.service_ticket (
   phase varchar(32) NOT NULL DEFAULT 'reported',
   protocolia_tenant_id varchar(64) NOT NULL,
   protocolia_submitted_by varchar(128)
+);
+CREATE TABLE public.protocolia_audit_event (
+  id BIGSERIAL PRIMARY KEY,
+  actor varchar(255) NOT NULL,
+  entity_name varchar(128) NOT NULL,
+  resource_id varchar(255) NOT NULL,
+  operation_name varchar(128) NOT NULL,
+  field_name varchar(128) NOT NULL,
+  before_value text,
+  after_value text,
+  occurred_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 INSERT INTO public.service_ticket(ticket_code,description,phase,protocolia_tenant_id)
 VALUES ('A001','alpha one','reported','org_alpha'),
@@ -157,6 +178,21 @@ BEGIN
     RAISE EXCEPTION 'Alpha reassigned tenant';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
+  INSERT INTO public.protocolia_audit_event
+    (actor,entity_name,resource_id,operation_name,field_name,before_value,after_value)
+    VALUES ('alpha-maker','ServiceTicket','A001','submit','phase','reported','pending');
+  BEGIN
+    INSERT INTO public.protocolia_audit_event
+      (actor,entity_name,resource_id,operation_name,field_name,before_value,after_value,protocolia_tenant_id)
+      VALUES ('forged','ServiceTicket','B001','approve','phase','pending','approved','org_beta');
+    RAISE EXCEPTION 'Alpha forged Beta audit';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM (SELECT COUNT(*) FROM public.protocolia_audit_event);
+    RAISE EXCEPTION 'Alpha could read audit rows';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
   BEGIN
     DELETE FROM public.service_ticket WHERE ticket_code='A001';
     RAISE EXCEPTION 'Alpha deleted business record';
@@ -213,6 +249,9 @@ BEGIN
   IF FOUND THEN RAISE EXCEPTION 'Beta updated Alpha'; END IF;
   INSERT INTO public.service_ticket(ticket_code,description,phase,protocolia_tenant_id)
     VALUES ('B002','beta new','reported','org_beta');
+  INSERT INTO public.protocolia_audit_event
+    (actor,entity_name,resource_id,operation_name,field_name,before_value,after_value)
+    VALUES ('beta-maker','ServiceTicket','B002','submit','phase','reported','pending');
   SELECT COUNT(*) INTO n FROM public.service_ticket;
   IF n<>2 THEN RAISE EXCEPTION 'Beta own-tenant INSERT was denied'; END IF;
 END $probe$;
@@ -239,6 +278,14 @@ BEGIN
       AND relrowsecurity AND relforcerowsecurity) THEN
     RAISE EXCEPTION 'RLS was not enabled and forced';
   END IF;
+  IF (SELECT COUNT(*) FROM public.protocolia_audit_event)<>2 OR
+     (SELECT COUNT(DISTINCT protocolia_tenant_id) FROM public.protocolia_audit_event)<>2 OR
+     (SELECT protocolia_tenant_id FROM public.protocolia_audit_event
+       WHERE actor='alpha-maker')<>'org_alpha' OR
+     (SELECT protocolia_tenant_id FROM public.protocolia_audit_event
+       WHERE actor='beta-maker')<>'org_beta' THEN
+    RAISE EXCEPTION 'Audit containment or tenant defaults failed';
+  END IF;
   IF (SELECT COUNT(*) FROM public.service_ticket)<>4 OR
      (SELECT description FROM public.service_ticket WHERE ticket_code='B001')<>'beta one' OR
      (SELECT protocolia_tenant_id FROM public.service_ticket WHERE ticket_code='A001')<>'org_alpha' THEN
@@ -246,4 +293,4 @@ BEGIN
   END IF;
 END $proof$;
 SQL
-echo 'PROTOCOLIA_ROLE_PINNED_RLS_DB_PROOF_PASS {"postgres":"16.15","tenants":2,"separateSqlLogins":true,"denied":["cross-read","cross-update","cross-insert","tenant-reassign","delete","truncate","mapping-read","mapping-update","rls-disable","role-impersonation","guc-spoof"],"preservedRows":4}'
+echo 'PROTOCOLIA_ROLE_PINNED_RLS_DB_PROOF_PASS {"postgres":"16.15","tenants":2,"separateSqlLogins":true,"denied":["cross-read","cross-update","cross-insert","tenant-reassign","delete","truncate","mapping-read","mapping-update","rls-disable","role-impersonation","guc-spoof"],"preservedRows":4,"auditRows":2,"auditRls":true}'

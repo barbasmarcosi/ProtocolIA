@@ -2,6 +2,7 @@ import {Controller,Get,Post,Inject,Injectable,Module,NestModule,RequestMapping,R
 import {NestFactory} from "@nestjs/core";
 import {NestExpressApplication} from "@nestjs/platform-express";
 import {createHash,timingSafeEqual} from "node:crypto";
+import {AsyncLocalStorage} from "node:async_hooks";
 import {createRemoteJWKSet,jwtVerify} from "jose";
 import {existsSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
@@ -164,6 +165,9 @@ function equalSecrets(a:string,b:string):boolean{
 @Injectable()
 class RuntimeService{
   private readonly pool:Pool;
+  private readonly tenantSqlContext=new AsyncLocalStorage<Pool>();
+  private readonly tenantSqlEnabled:boolean;
+  private readonly tenantSqlBeta:Pool|null;
   private readonly migrationPool:Pool|null;
   private readonly providerIngressPool:Pool|null;
   private readonly jwtConfig:{issuer:string;audience:string;verify:ReturnType<typeof createRemoteJWKSet>}|null;
@@ -190,6 +194,35 @@ class RuntimeService{
       migration.password=migrationPassword;
       this.migrationPool=new Pool({connectionString:migration.toString(),max:2});
     }else this.migrationPool=null;
+    const routing=process.env.PROTOCOLIA_TENANT_SQL_ROUTING??"";
+    if(!["","alpha-beta-v1"].includes(routing))throw Error("Unsupported tenant SQL routing profile");
+    this.tenantSqlEnabled=routing==="alpha-beta-v1";
+    if(this.tenantSqlEnabled){
+      const alphaUser=process.env.PROTOCOLIA_TENANT_SQL_ALPHA_USER??"";
+      const alphaPass=process.env.PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD??"";
+      const betaUser=process.env.PROTOCOLIA_TENANT_SQL_BETA_USER??"";
+      const betaPass=process.env.PROTOCOLIA_TENANT_SQL_BETA_PASSWORD??"";
+      if(!this.tenantMakerApp()||spec.entities.length!==1||spec.operations.length!==7||
+         process.env.PROTOCOLIA_EXECUTION_MODE!=="runtime"||
+         process.env.PROTOCOLIA_BFF_ENABLED==="true"||
+         process.env.PROTOCOLIA_ALERT_WORKER_ENABLED==="true"||
+         process.env.PROTOCOLIA_PROVIDER_SANDBOX_ENABLED==="true"||migrationUser||
+         !/^[a-z][a-z0-9_]{1,62}$/.test(alphaUser)||
+         !/^[a-z][a-z0-9_]{1,62}$/.test(betaUser)||
+         alphaUser===betaUser||alphaPass.length<16||betaPass.length<16||
+         decodeURIComponent(connection.username)!==alphaUser||
+         decodeURIComponent(connection.password)!==alphaPass)
+        throw Error("Tenant SQL routing requires exact isolated v0.7 PostgreSQL identities");
+      const beta=new URL(source);
+      beta.username=betaUser;beta.password=betaPass;
+      this.tenantSqlBeta=new Pool({connectionString:beta.toString(),max:8});
+    }else{
+      if(["PROTOCOLIA_TENANT_SQL_ALPHA_USER","PROTOCOLIA_TENANT_SQL_ALPHA_PASSWORD",
+          "PROTOCOLIA_TENANT_SQL_BETA_USER","PROTOCOLIA_TENANT_SQL_BETA_PASSWORD"]
+          .some(key=>(process.env[key]??"")!==""))
+        throw Error("Tenant SQL credentials configured without verified routing profile");
+      this.tenantSqlBeta=null;
+    }
     // Opt-in: HMAC-verified sandbox HTTP must never reuse the ordinary runtime
     // or privileged migrator SQL identity after operator-applied journal ACLs.
     const ingressUser=process.env.PROTOCOLIA_PROVIDER_INGRESS_JDBC_USER??"";
@@ -501,6 +534,7 @@ class RuntimeService{
     console.log("PROTOCOLIA_NEST_PROVIDER_INGRESS_PRINCIPAL_READY");
   }
   async closePools():Promise<void>{
+    if(this.tenantSqlBeta)await this.tenantSqlBeta.end();
     if(this.migrationPool)await this.migrationPool.end();
     if(this.providerIngressPool)await this.providerIngressPool.end();
     await this.pool.end();
@@ -552,6 +586,50 @@ class RuntimeService{
     if(typeof raw!=="string"||!/^[a-z][a-z0-9_-]{1,63}$/.test(raw))
       throw new Problem(401,"Verified organization identity required");
     return raw;
+  }
+  private sqlPool():Pool{
+    if(!this.tenantSqlEnabled)return this.pool;
+    const pool=this.tenantSqlContext.getStore();
+    if(!pool)throw Error("Tenant SQL query without authenticated routing context");
+    return pool;
+  }
+  private async withTenantSql<T>(tenant:string|undefined,run:()=>Promise<T>):Promise<T>{
+    if(!this.tenantSqlEnabled)return await run();
+    const checked=this.trustedTenant(tenant);
+    const pool=checked==="org_alpha"?this.pool:
+      checked==="org_beta"?this.tenantSqlBeta:null;
+    if(!pool)throw new Problem(403,"Organization has no provisioned SQL role");
+    return await this.tenantSqlContext.run(pool,run);
+  }
+  async verifyTenantSqlReady():Promise<void>{
+    if(!this.tenantSqlEnabled)return;
+    const table=spec.entities[0].table;
+    safeIdentifier(table);
+    const sql="SELECT session_user AS login,current_user AS principal,"+
+      "public.protocolia_rls_session_tenant() AS tenant,"+
+      "(SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "+
+      "WHERE oid='public."+table+"'::regclass) AS entity_rls,"+
+      "(SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "+
+      "WHERE oid='public.protocolia_audit_event'::regclass) AS audit_rls,"+
+      "(SELECT rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication "+
+      "FROM pg_roles WHERE rolname=current_user) AS privileged,"+
+      "has_schema_privilege(current_user,'public','CREATE') AS can_create,"+
+      "has_table_privilege(current_user,'public."+table+"','DELETE') AS can_delete,"+
+      "has_table_privilege(current_user,'public.protocolia_audit_event','SELECT') AS audit_read,"+
+      "EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member "+
+      "WHERE r.rolname=current_user) AS member";
+    for(const [tenant,role,pool] of [
+      ["org_alpha",process.env.PROTOCOLIA_TENANT_SQL_ALPHA_USER!,this.pool],
+      ["org_beta",process.env.PROTOCOLIA_TENANT_SQL_BETA_USER!,this.tenantSqlBeta!]
+    ] as const){
+      const result=await pool.query(sql),row=result.rows[0];
+      if(result.rowCount!==1||row.login!==role||row.principal!==role||row.tenant!==tenant||
+         row.entity_rls!==true||row.audit_rls!==true||
+         row.privileged!==false||row.can_create!==false||
+         row.can_delete!==false||row.audit_read!==false||row.member!==false)
+        throw Error("Tenant SQL connection/RLS authority preflight failed");
+    }
+    console.log("PROTOCOLIA_NEST_TENANT_SQL_ROUTING_READY");
   }
   private tenantEntity(e:Entity):boolean{
     return spec.operations.some(op=>op.entity===e.name&&op.kind==="create"&&
@@ -662,7 +740,7 @@ class RuntimeService{
       values.push(id);suffix="_ack($1::text,$2::text,$3::bigint)";
     }
     try{
-      const result=await this.pool.query("SELECT protocolia_inbox_"+e.table+suffix+" AS value",values);
+      const result=await this.sqlPool().query("SELECT protocolia_inbox_"+e.table+suffix+" AS value",values);
       return result.rows[0].value;
     }catch(error){
       const code=(error as {code?:string}).code;
@@ -714,14 +792,14 @@ class RuntimeService{
     const clause=(owner?" AND "+owner.column+"=$2":"")+
       (scoped?" AND protocolia_tenant_id=$"+(args.length+1):"");
     if(scoped)args.push(tenant);
-    const response=await this.pool.query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+clause,args);
+    const response=await this.sqlPool().query(this.select(e)+" WHERE "+e.identityColumn+"=$1"+clause,args);
     if(!response.rows.length)throw new Problem(404,"Not found");
     return response.rows[0];
   }
   private async sumDetails(op:Operation,id:string):Promise<{totalUnits:string}>{
     const plan=op.detailSum;
     if(!plan)throw new Error("Missing generated full detail sum");
-    const result=await this.pool.query(plan.sqlNest,[id]);
+    const result=await this.sqlPool().query(plan.sqlNest,[id]);
     if(!result.rows.length)throw new Problem(404,"Parent not found");
     return {totalUnits:String(result.rows[0].totalUnits)};
   }
@@ -730,7 +808,7 @@ class RuntimeService{
     if(!plan)throw new Error("Missing compiled related aggregate");
     // A single SELECT is an MVCC snapshot of parent plus active children.
     // No JS Number arithmetic, and SQL identifiers are validated by the generator.
-    const result=await this.pool.query(plan.sqlNest,[id]);
+    const result=await this.sqlPool().query(plan.sqlNest,[id]);
     if(!result.rows.length)throw new Problem(404,"Parent not found");
     return {totalUnits:String(result.rows[0].totalUnits)};
   }
@@ -756,9 +834,9 @@ class RuntimeService{
     if(scoped){args.push(tenant);predicates.push("protocolia_tenant_id=$"+args.length);}
     const clause=predicates.length?" WHERE "+predicates.join(" AND "):"";
     const [items,count]=await Promise.all([
-      this.pool.query(this.select(e)+clause+" ORDER BY "+e.identityColumn+
+      this.sqlPool().query(this.select(e)+clause+" ORDER BY "+e.identityColumn+
         " LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,args)
+      this.sqlPool().query("SELECT COUNT(*)::integer AS total FROM "+e.table+clause,args)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
@@ -815,9 +893,9 @@ class RuntimeService{
       if(upper.has(column)&&start>upper.get(column)!)throw new Problem(400,"Inverted query range");
     }
     const [items,count]=await Promise.all([
-      this.pool.query(plan.projection+plan.source+clause+plan.order+
+      this.sqlPool().query(plan.projection+plan.source+clause+plan.order+
         " LIMIT $"+(values.length+1)+" OFFSET $"+(values.length+2),[...values,limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total"+plan.source+clause,values)
+      this.sqlPool().query("SELECT COUNT(*)::integer AS total"+plan.source+clause,values)
     ]);
     return {items:items.rows,total:count.rows[0].total,limit,offset};
   }
@@ -888,7 +966,7 @@ class RuntimeService{
     ];
     const func="protocolia_apply_exact_adjustment_"+e.table;
     try{
-      await this.pool.query("SELECT "+func+
+      await this.sqlPool().query("SELECT "+func+
         "($1,$2,$3::numeric,$4,$5,$6::numeric,$7::numeric,$8::bigint,$9::numeric,$10::bigint)",
         [key,adjustmentId,exactStringFromUnits(units,j.scale),reason,actor,...expected]);
     }catch(error){
@@ -909,7 +987,7 @@ class RuntimeService{
       typeof adjustmentId!=="string"||adjustmentId.length<8||adjustmentId.length>64||
       !adjustmentId.trim())
       throw new Problem(400,"Invalid exact adjustment lookup identity");
-    const result=await this.pool.query(
+    const result=await this.sqlPool().query(
       "SELECT adjustment_id AS \"adjustmentId\",delta::text AS \"delta\",reason,"+
       "'committed'::text AS \"status\" FROM "+j.table+
       " WHERE parent_id=$1 AND adjustment_id=$2 AND actor=$3",[key,adjustmentId,actor]);
@@ -920,7 +998,7 @@ class RuntimeService{
     if(typeof key!=="string")throw new Problem(400,"Invalid reconciliation identity");
     const plan=op.exactReconciliation;
     if(!plan)throw new Error("Missing generated reconciliation plan");
-    const result=await this.pool.query(plan.sqlNest,[key]);
+    const result=await this.sqlPool().query(plan.sqlNest,[key]);
     if(!result.rowCount)throw new Problem(404,"Not found");
     return result.rows[0];
   }
@@ -946,8 +1024,8 @@ class RuntimeService{
       "to_char(occurred_at AT TIME ZONE 'UTC', 'HH24:MI:SS.MS') || 'Z' AS \"occurredAt\" "+
       "FROM protocolia_audit_event WHERE entity_name=$1 AND resource_id=$2";
     const [records,amount]=await Promise.all([
-      this.pool.query(selection+" ORDER BY id DESC LIMIT $3 OFFSET $4",[e.name,key,limit,offset]),
-      this.pool.query("SELECT COUNT(*)::integer AS total FROM protocolia_audit_event "+
+      this.sqlPool().query(selection+" ORDER BY id DESC LIMIT $3 OFFSET $4",[e.name,key,limit,offset]),
+      this.sqlPool().query("SELECT COUNT(*)::integer AS total FROM protocolia_audit_event "+
         "WHERE entity_name=$1 AND resource_id=$2",[e.name,key])
     ]);
     return {items:records.rows,total:amount.rows[0].total,limit,offset};
@@ -1091,7 +1169,7 @@ class RuntimeService{
       if(reservation&&(typeof stock!=="string"||!Number.isInteger(amount)||(amount as number)<1))
         throw new Problem(400,"Invalid reservation input");
       // Audit and domain effects always commit or roll back on the same pinned connection.
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         if(boundedCreator){
@@ -1217,7 +1295,7 @@ class RuntimeService{
         throw error;
       }finally{client.release();}
     }else {
-      const created=await this.pool.query(insert,insertParams);
+      const created=await this.sqlPool().query(insert,insertParams);
       if(relation&&!created.rowCount)throw new Problem(400,"Referenced resource unavailable");
     }
     return this.row(e,String(input[e.publicIdentity]),actor,tenant);
@@ -1236,7 +1314,7 @@ class RuntimeService{
     const values=[...keys.map(name=>input[name]),key];
     if(owner)values.push(subject);
     const assignments=columns.map((column,index)=>column+"=$"+(index+1)).join(",");
-    const updated=await this.pool.query("UPDATE "+e.table+" SET "+
+    const updated=await this.sqlPool().query("UPDATE "+e.table+" SET "+
       assignments+" WHERE "+e.identityColumn+"=$"+(keys.length+1)+
       (owner?" AND "+owner.column+"=$"+(keys.length+2):"")+
       " RETURNING "+e.identityColumn,values);
@@ -1260,7 +1338,7 @@ class RuntimeService{
     const versionedCreator=spec.operations.find(x=>x.createDetails?.versioned&&
       x.createDetails.childEntity===e.name);
     if(audited){
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         let versionedParent:Entity|undefined;
@@ -1294,7 +1372,7 @@ class RuntimeService{
       finally{client.release();}
       return this.row(e,key,subject);
     }
-    const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+
+    const changed=await this.sqlPool().query("UPDATE "+e.table+" SET "+field.column+
       "=$1 WHERE "+e.identityColumn+"=$2"+(owner?" AND "+owner.column+"=$3":"")+
       " RETURNING "+e.identityColumn,owner?[input[op.input!],key,subject]:[input[op.input!],key]);
     if(!changed.rowCount)throw new Problem(404,"Not found");
@@ -1307,7 +1385,7 @@ class RuntimeService{
     if(!Number.isInteger(amount)||(amount as number)<(op.inputMin??1)||
       (amount as number)>(op.inputMax??1000))throw new Problem(400,"Invalid increment");
     const col=e.fields.find(f=>f.name===op.field)!.column;
-    const changed=await this.pool.query("UPDATE "+e.table+" SET "+col+"="+col+"+$1 WHERE "+
+    const changed=await this.sqlPool().query("UPDATE "+e.table+" SET "+col+"="+col+"+$1 WHERE "+
       e.identityColumn+"=$2 AND "+col+"<=2147483647-$1 RETURNING "+e.identityColumn,[amount,key]);
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Integer overflow");}
     return this.row(e,key);
@@ -1322,7 +1400,7 @@ class RuntimeService{
       x.kind==="transition"&&x.capability===prefix+".decide.checked");
     if(this.tenantEntity(e)&&!hasCheckedDecision){
       tenant=this.trustedTenant(tenant);
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         const changed=await client.query("UPDATE "+e.table+" SET "+field.column+
@@ -1351,7 +1429,7 @@ class RuntimeService{
       if(typeof actor!=="string"||!actor.trim()||actor.length>128)
         throw new Problem(401,"Missing verified transition subject");
       const scopedTenant=this.tenantEntity(e)?this.trustedTenant(tenant):null;
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         // Set a transaction-scoped authenticated subject for the DB trigger;
@@ -1393,7 +1471,7 @@ class RuntimeService{
     const creator=spec.operations.find(x=>x.entity===e.name&&x.createDetails?.versioned&&
       x.createDetails.closeField===op.field&&x.createDetails.closeState===op.to);
     if(creator){
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         await this.assertDocumentVersion(client,e,key,ifMatch);
@@ -1411,7 +1489,7 @@ class RuntimeService{
     }
     if(op.reverseBatch){
       const plan=op.reverseBatch;
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         const columns=plan.legs.flatMap(leg=>[
@@ -1463,7 +1541,7 @@ class RuntimeService{
     }
     if(op.reverseUnits){
       const plan=op.reverseUnits;
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         const existing=await client.query("SELECT "+plan.sourceColumn+" AS source,"+
@@ -1500,7 +1578,7 @@ class RuntimeService{
     }
     if(op.exactReverse){
       const plan=op.exactReverse;
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         // Lock the parent and check its current journal *before* the payment
@@ -1533,7 +1611,7 @@ class RuntimeService{
     }
     if(op.release){
       const release=op.release;
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         const result=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
@@ -1560,7 +1638,7 @@ class RuntimeService{
       return this.row(e,key);
     }
     if(op.audit?.length){
-      const client=await this.pool.connect();
+      const client=await this.sqlPool().connect();
       try{
         await client.query("BEGIN");
         const changed=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
@@ -1577,7 +1655,7 @@ class RuntimeService{
       finally{client.release();}
       return this.row(e,key);
     }
-    const changed=await this.pool.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
+    const changed=await this.sqlPool().query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
       e.identityColumn+"=$2 AND "+field.column+"=$3 RETURNING "+e.identityColumn,
       [op.to,key,op.from]);
     if(!changed.rowCount){await this.row(e,key);throw new Problem(409,"Transition precondition failed");}
@@ -1592,7 +1670,7 @@ class RuntimeService{
     validateInput(e,{[field.name]:previous},[field.name],false);
     validateInput(e,{[field.name]:next},[field.name],false);
     if(previous===next)throw new Problem(409,"Relation is unchanged");
-    const client=await this.pool.connect();
+    const client=await this.sqlPool().connect();
     try{
       await client.query("BEGIN");
       const changed=await client.query("UPDATE "+e.table+" SET "+field.column+"=$1 WHERE "+
@@ -1642,7 +1720,7 @@ class RuntimeService{
     }
     const fk=child.fields.find(f=>f.name===plan.parentField);
     if(!fk)throw new Error("Unknown bounded parent FK");
-    const client=await this.pool.connect();
+    const client=await this.sqlPool().connect();
     try{
       await client.query("BEGIN");
       await this.assertDocumentVersion(client,parent,key,ifMatch);
@@ -1683,7 +1761,7 @@ class RuntimeService{
     if(!creator){
       if(op.audit?.length)throw new Error("Nonversioned audited delete is unsupported");
       try{
-        const deleted=await this.pool.query("DELETE FROM "+e.table+
+        const deleted=await this.sqlPool().query("DELETE FROM "+e.table+
           " WHERE "+e.identityColumn+"=$1 RETURNING "+e.identityColumn,[key]);
         if(!deleted.rowCount)throw new Problem(404,"Not found");
       }catch(error){
@@ -1702,7 +1780,7 @@ class RuntimeService{
     const parent=spec.entities.find(x=>x.name===creator.entity);
     const fk=e.fields.find(x=>x.name===plan.parentField);
     if(!parent||!fk)throw new Error("Unresolved versioned detail FK");
-    const client=await this.pool.connect();
+    const client=await this.sqlPool().connect();
     try{
       await client.query("BEGIN");
       const childFk=await client.query("SELECT "+fk.column+" FROM "+e.table+
@@ -1832,6 +1910,7 @@ class RuntimeService{
       const entity=this.entities.get(op.entity);
       if(!entity)throw new Error("Unknown generated entity");
       const identity=req.params?.[entity.publicIdentity];
+      await this.withTenantSql(session.tenant,async()=>{
       let data:unknown;
       switch(op.kind){
         case "create": data=await this.create(entity,op,req.body,session.username,session.capabilities,req.headers["if-match"],session.tenant);break;
@@ -1873,6 +1952,7 @@ class RuntimeService{
         res.setHeader("ETag",'"'+String(data.documentVersion)+'"');
       if(op.kind==="lookupExactAdjustment")res.setHeader("Cache-Control","no-store");
       res.status(["create","adjustExact"].includes(op.kind)?201:200).json(data);
+      });
     }catch(error){
       if(op.kind==="delete"&&(error as {code?:string})?.code==="23503"){
         sendProblem(res,new Problem(409,"Referenced resource cannot be deleted"));
@@ -1940,6 +2020,7 @@ async function bootstrap(){
   const engine=app.get(RuntimeService);
   if(execution==="runtime")await engine.verifyRuntimeReady();
   else await engine.init();
+  if(execution==="runtime")await engine.verifyTenantSqlReady();
   await engine.verifyProviderIngress();
   await installBff(app,engine.bffPool(),engine);
   await app.listen(Number(process.env.PORT??8080),"0.0.0.0");

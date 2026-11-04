@@ -6,10 +6,18 @@ on:
       - 'packages/adapters/tenant-rls-role-candidate.mjs'
       - 'packages/adapters/nest/generate.mjs'
       - 'packages/adapters/modular/generate.mjs'
+      - 'packages/adapters/nest/templates/main.ts'
+      - 'packages/adapters/modular/templates/DomainRuntime.java'
+      - 'packages/adapters/modular/templates/ContractApplication.java'
+      - 'packages/adapters/modular/templates/TenantSqlRouting.java'
+      - 'packages/adapters/modular/templates/compose.yaml'
       - 'scripts/research/tenant-rls-role-candidate.mjs'
       - 'scripts/research/tenant-rls-role-e2e.sh'
+      - 'scripts/research/tenant-rls-runtime-e2e.sh'
       - 'tests/research/tenant-rls-role-candidate.test.mjs'
+      - 'tests/research/tenant-rls-runtime-routing.test.mjs'
       - 'docs/research/autonomous-engineering/P2_TENANT_RLS_ROLE_S0.md'
+      - 'docs/research/autonomous-engineering/P2_TENANT_RLS_RUNTIME_S1.md'
       - '.github/workflows/p2-tenant-rls-role-candidate.yml'
   workflow_dispatch:
 
@@ -23,6 +31,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Source-bound RLS candidate unit and syntax
         shell: bash
         run: |
@@ -30,7 +42,8 @@ jobs:
           node --check packages/adapters/tenant-rls-role-candidate.mjs
           node --check scripts/research/tenant-rls-role-candidate.mjs
           bash -n scripts/research/tenant-rls-role-e2e.sh
-          node --test tests/research/tenant-rls-role-candidate.test.mjs tests/research/tenant-maker-v07.test.mjs
+          bash -n scripts/research/tenant-rls-runtime-e2e.sh
+          node --test tests/research/tenant-rls-role-candidate.test.mjs tests/research/tenant-rls-runtime-routing.test.mjs tests/research/tenant-maker-v07.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Emit canonical v0.7 TypeSpec, compiled IR and both generated RLS candidates
@@ -58,6 +71,13 @@ jobs:
             exit 1
           fi
           echo "PROTOCOLIA_RLS_CANDIDATE_TARGET_PARITY_PASS"
+      - name: Compile generated NestJS and Spring with opt-in SQL routing sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RLS_TMP/nest" && npm install --ignore-scripts --no-audit --no-fund && npm run build)
+          (cd "$RLS_TMP/spring" && mvn --batch-mode --no-transfer-progress -DskipTests package)
+          echo "PROTOCOLIA_TENANT_SQL_ROUTING_TARGET_BUILD_PASS"
       - name: Real disposable PostgreSQL 16 least-privilege SQL adversarial proof
         shell: bash
         env:
@@ -68,3 +88,29 @@ jobs:
             | tee "$RUNNER_TEMP/p2-role-rls.log"
           grep -q 'PROTOCOLIA_ROLE_PINNED_RLS_DB_PROOF_PASS' \
             "$RUNNER_TEMP/p2-role-rls.log"
+      - name: Build independently generated NestJS and Spring application bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- "$RLS_TMP/contract" --target nestjs --out "$RLS_TMP/ready-nest"
+          npm run app:build -- "$RLS_TMP/contract" --target modular-spring --out "$RLS_TMP/ready-spring"
+      - name: Real generated NestJS HTTP with tenant-pinned SQL roles and audit RLS
+        shell: bash
+        env:
+          PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST: 'true'
+        run: |
+          set -euo pipefail
+          bash scripts/research/tenant-rls-runtime-e2e.sh "$RLS_TMP/ready-nest" nestjs \
+            | tee "$RUNNER_TEMP/p2-role-rls-http-nest.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_HTTP_POSTGRES_PROOF_PASS nestjs' \
+            "$RUNNER_TEMP/p2-role-rls-http-nest.log"
+      - name: Real generated Spring HTTP with tenant-pinned SQL roles and audit RLS
+        shell: bash
+        env:
+          PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST: 'true'
+        run: |
+          set -euo pipefail
+          bash scripts/research/tenant-rls-runtime-e2e.sh "$RLS_TMP/ready-spring" modular-spring \
+            | tee "$RUNNER_TEMP/p2-role-rls-http-spring.log"
+          grep -q 'PROTOCOLIA_TENANT_S1_HTTP_POSTGRES_PROOF_PASS modular-spring' \
+            "$RUNNER_TEMP/p2-role-rls-http-spring.log"
