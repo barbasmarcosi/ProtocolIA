@@ -22,6 +22,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 @Configuration(proxyBeanMethods=false)
 @ConditionalOnProperty(name="PROTOCOLIA_TENANT_SQL_ROUTING",havingValue="alpha-beta-v1")
 public class TenantSqlRouting {
+  private HikariDataSource alphaPool;
+  private HikariDataSource betaPool;
+  @jakarta.annotation.PreDestroy
+  public void closePools(){
+    if(alphaPool!=null)alphaPool.close();
+    if(betaPool!=null)betaPool.close();
+  }
   private static String required(String key) {
     String value=System.getenv(key);
     if(value==null||value.isBlank())throw new IllegalStateException(
@@ -76,7 +83,7 @@ public class TenantSqlRouting {
     }
   }
 
-  @Bean(name="dataSource",destroyMethod="close")
+  @Bean(name="dataSource")
   @Primary
   public DataSource dataSource() {
     if(!reviewedGraph()||
@@ -125,6 +132,8 @@ public class TenantSqlRouting {
       router.setTargetDataSources(sources);
       router.setLenientFallback(false);
       router.afterPropertiesSet();
+      this.alphaPool=alpha;
+      this.betaPool=beta;
       System.out.println("PROTOCOLIA_SPRING_TENANT_SQL_ROUTING_READY");
       return router;
     }catch(RuntimeException error){

@@ -45,6 +45,11 @@ public class ContractApplication {
   }
   public static void main(String[] args) throws Exception {
     String mode=System.getenv().getOrDefault("PROTOCOLIA_EXECUTION_MODE", "legacy");
+    String routing=System.getenv().getOrDefault("PROTOCOLIA_TENANT_SQL_ROUTING","");
+    if(!routing.isEmpty()&&!routing.equals("alpha-beta-v1"))
+      throw new IllegalStateException("Unsupported tenant SQL routing profile");
+    if(routing.equals("alpha-beta-v1")&&!mode.equals("runtime"))
+      throw new IllegalStateException("Tenant SQL routing requires isolated HTTP runtime mode");
     if (!mode.equals("legacy") && !mode.equals("migrate") && !mode.equals("runtime"))
       throw new IllegalArgumentException("Unsupported ProtocolIA execution mode");
     if (mode.equals("migrate")) {
