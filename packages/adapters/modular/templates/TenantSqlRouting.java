@@ -86,14 +86,15 @@ public class TenantSqlRouting {
   @Bean(name="dataSource")
   @Primary
   public DataSource dataSource() {
-    if(!reviewedGraph()||
-       !"runtime".equals(System.getenv("PROTOCOLIA_EXECUTION_MODE"))||
-       "true".equals(System.getenv("PROTOCOLIA_BFF_ENABLED"))||
-       "true".equals(System.getenv("PROTOCOLIA_ALERT_WORKER_ENABLED"))||
-       "true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED"))||
-       !System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_JDBC_USER","").isEmpty()||
-       !System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_JDBC_PASSWORD","").isEmpty())
-      throw new IllegalStateException("Tenant SQL routing requires isolated v0.7 HTTP runtime only");
+    String forbidden=!reviewedGraph()?"contract":
+      !"runtime".equals(System.getenv("PROTOCOLIA_EXECUTION_MODE"))?"execution-mode":
+      "true".equals(System.getenv("PROTOCOLIA_BFF_ENABLED"))?"bff":
+      "true".equals(System.getenv("PROTOCOLIA_ALERT_WORKER_ENABLED"))?"worker":
+      "true".equals(System.getenv("PROTOCOLIA_PROVIDER_SANDBOX_ENABLED"))?"provider":
+      !System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_JDBC_USER","").isEmpty()?"migration-user":
+      !System.getenv().getOrDefault("PROTOCOLIA_MIGRATION_JDBC_PASSWORD","").isEmpty()?"migration-secret":"";
+    if(!forbidden.isEmpty())
+      throw new IllegalStateException("Tenant SQL routing requires isolated v0.7 HTTP runtime only: "+forbidden);
     String jdbc=required("PROTOCOLIA_JDBC_URL");
     if(!jdbc.startsWith("jdbc:postgresql://"))
       throw new IllegalStateException("PostgreSQL URL required for tenant SQL routing");
