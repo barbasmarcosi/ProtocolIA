@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real generated HTTP + PostgreSQL role-RLS proof. Disposable Compose only.
 set -euo pipefail
-if [[ "\${PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST:-}" != "true" ]]; then
+if [[ "${PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST:-}" != "true" ]]; then
   echo "Disposable test opt-in required" >&2; exit 2
 fi
 if [[ "$#" -ne 2 || ! -d "$1" || ( "$2" != "nestjs" && "$2" != "modular-spring" ) ]]; then
@@ -64,33 +64,33 @@ cleanup(){
   status=$?
   if [[ "$status" -ne 0 ]]; then
     echo "RLS-S1 $target HTTP proof failed ($status); app logs:" >&2
-    "\${compose[@]}" logs --tail 75 app >&2 || true
-    "\${compose[@]}" logs --tail 45 db >&2 || true
+    "${compose[@]}" logs --tail 75 app >&2 || true
+    "${compose[@]}" logs --tail 45 db >&2 || true
   fi
-  "\${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
 admin(){
-  "\${compose[@]}" exec -T db psql -X -U protocolia -d protocolia -v ON_ERROR_STOP=1 -q
+  "${compose[@]}" exec -T db psql -X -U protocolia -d protocolia -v ON_ERROR_STOP=1 -q
 }
 owner(){
-  "\${compose[@]}" exec -T -e PGPASSWORD="$ownerPassword" db \
+  "${compose[@]}" exec -T -e PGPASSWORD="$ownerPassword" db \
     psql -X -h 127.0.0.1 -U protocolia_rls_owner -d protocolia -v ON_ERROR_STOP=1 -q
 }
 alpha(){
-  "\${compose[@]}" exec -T -e PGPASSWORD="$alphaPassword" db \
+  "${compose[@]}" exec -T -e PGPASSWORD="$alphaPassword" db \
     psql -X -h 127.0.0.1 -U protocolia_rls_alpha -d protocolia -v ON_ERROR_STOP=1 -q
 }
 beta(){
-  "\${compose[@]}" exec -T -e PGPASSWORD="$betaPassword" db \
+  "${compose[@]}" exec -T -e PGPASSWORD="$betaPassword" db \
     psql -X -h 127.0.0.1 -U protocolia_rls_beta -d protocolia -v ON_ERROR_STOP=1 -q
 }
-"\${compose[@]}" config --quiet
-"\${compose[@]}" up --detach db >/dev/null
+"${compose[@]}" config --quiet
+"${compose[@]}" up --detach db >/dev/null
 ready=false
 for _ in $(seq 1 70); do
-  if "\${compose[@]}" exec -T db pg_isready -q -h 127.0.0.1 -U protocolia -d protocolia; then
+  if "${compose[@]}" exec -T db pg_isready -q -h 127.0.0.1 -U protocolia -d protocolia; then
     ready=true; break
   fi
   sleep 1
@@ -123,7 +123,7 @@ INSERT INTO public.protocolia_migration_handoff_v1(image_digest) VALUES ('$hando
 GRANT SELECT ON public.protocolia_migration_handoff_v1 TO protocolia_rls_alpha;
 SQL
 echo "PROTOCOLIA_TENANT_S1_OPERATOR_BOOTSTRAP_PASS $target"
-"\${compose[@]}" up --detach --build app >/dev/null
+"${compose[@]}" up --detach --build app >/dev/null
 health=false
 for _ in $(seq 1 100); do
   if curl --silent --fail --max-time 2 "http://127.0.0.1:$port/health" >/dev/null; then
