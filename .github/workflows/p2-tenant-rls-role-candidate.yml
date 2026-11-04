@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'packages/adapters/tenant-rls-role-candidate.mjs'
+      - 'packages/adapters/subject-role-guard-candidate.mjs'
       - 'packages/adapters/nest/generate.mjs'
       - 'packages/adapters/modular/generate.mjs'
       - 'packages/adapters/nest/templates/main.ts'
@@ -14,8 +15,10 @@ on:
       - 'scripts/research/tenant-rls-role-candidate.mjs'
       - 'scripts/research/tenant-rls-role-e2e.sh'
       - 'scripts/research/tenant-rls-runtime-e2e.sh'
+      - 'scripts/research/subject-role-guard-e2e.sh'
       - 'tests/research/tenant-rls-role-candidate.test.mjs'
       - 'tests/research/tenant-rls-runtime-routing.test.mjs'
+      - 'tests/research/subject-role-guard-candidate.test.mjs'
       - 'docs/research/autonomous-engineering/P2_TENANT_RLS_ROLE_S0.md'
       - 'docs/research/autonomous-engineering/P2_TENANT_RLS_RUNTIME_S1.md'
       - '.github/workflows/p2-tenant-rls-role-candidate.yml'
@@ -40,10 +43,12 @@ jobs:
         run: |
           set -euo pipefail
           node --check packages/adapters/tenant-rls-role-candidate.mjs
+          node --check packages/adapters/subject-role-guard-candidate.mjs
           node --check scripts/research/tenant-rls-role-candidate.mjs
           bash -n scripts/research/tenant-rls-role-e2e.sh
           bash -n scripts/research/tenant-rls-runtime-e2e.sh
-          node --test tests/research/tenant-rls-role-candidate.test.mjs tests/research/tenant-rls-runtime-routing.test.mjs tests/research/tenant-maker-v07.test.mjs
+          bash -n scripts/research/subject-role-guard-e2e.sh
+          node --test tests/research/tenant-rls-role-candidate.test.mjs tests/research/tenant-rls-runtime-routing.test.mjs tests/research/subject-role-guard-candidate.test.mjs tests/research/tenant-maker-v07.test.mjs
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:vnext
       - name: Emit canonical v0.7 TypeSpec, compiled IR and both generated RLS candidates
@@ -64,6 +69,9 @@ jobs:
           node packages/adapters/modular/generate.mjs "$IR" "$OAPI" "$TMP/spring"
           cmp "$TMP/rls.sql" "$TMP/nest/protocolia-tenant-rls-role-candidate.sql"
           cmp "$TMP/rls.sql" "$TMP/spring/protocolia-tenant-rls-role-candidate.sql"
+          cmp "$TMP/nest/protocolia-subject-role-guard-candidate.sql" \
+              "$TMP/spring/protocolia-subject-role-guard-candidate.sql"
+          echo "PROTOCOLIA_S2_HUMAN_SQL_TARGET_PARITY_PASS"
           if grep -E 'ENABLE ROW LEVEL SECURITY|FORCE ROW LEVEL SECURITY' \
                "$TMP/nest/src/schema.sql" \
                "$TMP/spring/src/main/resources/db/migration/V1__contract_baseline.sql"; then
@@ -88,6 +96,19 @@ jobs:
             | tee "$RUNNER_TEMP/p2-role-rls.log"
           grep -q 'PROTOCOLIA_ROLE_PINNED_RLS_DB_PROOF_PASS' \
             "$RUNNER_TEMP/p2-role-rls.log"
+      - name: Real disposable PostgreSQL S2 four-human subject and maker audit proof
+        shell: bash
+        env:
+          PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST: 'true'
+        run: |
+          set -euo pipefail
+          bash scripts/research/subject-role-guard-e2e.sh \
+            "$RLS_TMP/nest/src/schema.sql" \
+            "$RLS_TMP/nest/protocolia-tenant-rls-role-candidate.sql" \
+            "$RLS_TMP/nest/protocolia-subject-role-guard-candidate.sql" \
+            | tee "$RUNNER_TEMP/p2-human-subject.log"
+          grep -q 'PROTOCOLIA_S2_ROLE_PINNED_HUMAN_DB_PROOF_PASS' \
+            "$RUNNER_TEMP/p2-human-subject.log"
       - name: Build independently generated NestJS and Spring application bundles
         shell: bash
         run: |
