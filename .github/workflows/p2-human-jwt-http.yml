@@ -1,0 +1,63 @@
+name: P2 S2.1 signed JWT human SQL HTTP (disposable)
+
+on:
+  pull_request:
+    paths:
+      - 'packages/adapters/nest/templates/main.ts'
+      - 'packages/adapters/modular/templates/HumanSqlRouting.java'
+      - 'packages/adapters/modular/templates/ContractApplication.java'
+      - 'packages/adapters/modular/generate.mjs'
+      - 'packages/adapters/nest/generate.mjs'
+      - 'packages/adapters/modular/templates/compose.yaml'
+      - 'scripts/research/subject-jwt-sql-http-e2e.mjs'
+      - 'tests/research/subject-jwt-sql-routing.test.mjs'
+      - '.github/workflows/p2-human-jwt-http.yml'
+  workflow_dispatch:
+
+jobs:
+  real-human-jwt-postgres:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validate focused S2 source
+        run: |
+          set -euo pipefail
+          node --check scripts/research/subject-jwt-sql-http-e2e.mjs
+          node --test tests/research/subject-jwt-sql-routing.test.mjs tests/research/subject-role-guard-candidate.test.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:vnext
+      - name: Produce canonical TypeSpec and one generated application
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d "$PWD/.p2-s21.XXXXXXXX")"
+          echo "S21_TMP=$TMP" >> "$GITHUB_ENV"
+          node scripts/research/state-only-operator-intake.mjs generate \
+            research/autonomous-engineering/samples/state-only-service-ticket-v07.json "$TMP/contract"
+          node scripts/research/state-only-operator-intake.mjs verify \
+            research/autonomous-engineering/samples/state-only-service-ticket-v07.json "$TMP/contract"
+          npm run app:build -- "$TMP/contract" --target "$TARGET" --out "$TMP/ready"
+          test -f "$TMP/ready/protocolia-subject-role-guard-candidate.sql"
+      - name: Signed JWT four-human HTTP and PostgreSQL proof
+        env:
+          TARGET: ${{ matrix.target }}
+          PROTOCOLIA_ALLOW_DISPOSABLE_DB_TEST: 'true'
+        run: |
+          set -euo pipefail
+          node scripts/research/subject-jwt-sql-http-e2e.mjs "$S21_TMP/ready" "$TARGET" \
+            | tee "$RUNNER_TEMP/p2-s21-$TARGET.log"
+          grep -q 'PROTOCOLIA_S2_JWT_HUMAN_SQL_HTTP_PASS' "$RUNNER_TEMP/p2-s21-$TARGET.log"
