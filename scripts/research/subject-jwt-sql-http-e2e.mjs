@@ -39,7 +39,7 @@ const roles=[
   {tenant:"org_beta",subject:"beta-maker",user:"protocolia_rls_beta",password:passwords.beta},
   {tenant:"org_beta",subject:"beta-checker",user:"protocolia_s2_beta_checker",password:passwords.bc}
 ];
-const handoff=rand();
+const handoff=randomBytes(32).toString("hex");
 const issuer="https://issuer.protocolia.test",audience="protocolia-s2-generated-api";
 const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});
 const publicJwk={...publicKey.export({format:"jwk"}),kid:"p-s2-disposable",alg:"RS256",use:"sig"};
