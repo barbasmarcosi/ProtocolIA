@@ -69,6 +69,25 @@ VALUES ('A001','alpha one','reported','org_alpha'),
        ('B001','beta one','reported','org_beta');
 SQL
 echo "RLS_DB_SEEDED"
+admin <<'SQL'
+CREATE ROLE protocolia_rls_shadow NOLOGIN;
+GRANT protocolia_rls_shadow TO protocolia_rls_alpha;
+SQL
+if {
+  printf "%s\\n" "BEGIN;" \\
+    "SET LOCAL protocolia.rls_role_alpha='protocolia_rls_alpha';" \\
+    "SET LOCAL protocolia.rls_role_beta='protocolia_rls_beta';"
+  cat "$sql"
+  printf "%s\\n" "COMMIT;"
+} | owner >/dev/null 2>&1; then
+  echo "Unexpected membership accepted" >&2
+  exit 1
+fi
+admin <<'SQL'
+REVOKE protocolia_rls_shadow FROM protocolia_rls_alpha;
+DROP ROLE protocolia_rls_shadow;
+SQL
+echo "RLS_DB_MEMBERSHIP_REJECTED"
 # Unsafe missing operator roles must fail without leaving any RLS artifacts.
 if owner < "$sql" >/dev/null 2>&1; then
   echo "RLS preflight accepted missing role bindings" >&2
