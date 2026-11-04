@@ -74,11 +74,11 @@ CREATE ROLE protocolia_rls_shadow NOLOGIN;
 GRANT protocolia_rls_shadow TO protocolia_rls_alpha;
 SQL
 if {
-  printf "%s\\n" "BEGIN;" \\
-    "SET LOCAL protocolia.rls_role_alpha='protocolia_rls_alpha';" \\
+  printf "%s\n" "BEGIN;" \
+    "SET LOCAL protocolia.rls_role_alpha='protocolia_rls_alpha';" \
     "SET LOCAL protocolia.rls_role_beta='protocolia_rls_beta';"
   cat "$sql"
-  printf "%s\\n" "COMMIT;"
+  printf "%s\n" "COMMIT;"
 } | owner >/dev/null 2>&1; then
   echo "Unexpected membership accepted" >&2
   exit 1
