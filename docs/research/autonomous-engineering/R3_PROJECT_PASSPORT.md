@@ -98,3 +98,11 @@ The bundle includes:
 Neither the builder nor the Passport claims that requirements were approved, a natural-language business rule was inferred correctly, the deployment is ready, or independent tests have passed. Without a mapping/decisions file, those facts remain **UNKNOWN**, never fabricated. `--passport` is not a permission for production deployment. The source-copy boundary is local, not cryptographic authentication of the owner.
 
 The R3.1 CI performs unit adversarial checks, a **real NestJS TypeSpec → generated app build**, standalone Passport verification, ownership verification, and a deliberate modified-document rejection. Separate Spring/JWT/PostgreSQL/browser conformance remains required for business correctness; full R4 clean-room handoff is still NOT RUN.
+
+## R4 prerequisite — preserve original editable TypeSpec (2026-11-06)
+
+The initial R3.1 artifact includes portable documentation and a generated app but **not** the editable TypeSpec files. In the R4 prerequisite, `--passport` additionally captures the exact `contracts/**/*.tsp` files and `tspconfig.yaml` in `protocolia-contract-source/`. A separate `protocolia-contract-source.lock.json` binds their hashes to the **pre-build** CLI source digest. The generated app includes a no-dependency `protocolia-contract-source-verify.mjs` and a root `PROJECT_HANDOFF.md`; each joins the app ownership seal.
+
+The new rehydration job copies these source files, and **not the original project**, to a temporary project and rebuilds an application with the pinned local toolchain. The emitted canonical IR and OpenAPI must match byte-for-byte. A second job checks a real modular Spring generated artifact with the same source/Passport verification. See [R4_REHYDRATABLE_SOURCE.md](R4_REHYDRATABLE_SOURCE.md) for the exact capabilities and limits.
+
+This is **not** yet a hidden-project independent-agent handoff, an approved domain change, a populated-database migration, or a supply-chain attestation. Keep issue #106 OPEN and retain evidence-based acceptance gates.
