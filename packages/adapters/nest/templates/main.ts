@@ -663,7 +663,11 @@ class RuntimeService{
       // A compromised client cannot revive a revoked subject with a GUC.
       const authority=await human.query(
         "SELECT public.protocolia_s2_session_subject() AS subject,"+
-        "public.protocolia_rls_session_tenant() AS tenant");
+        "public.protocolia_rls_session_tenant() AS tenant").catch(()=>{
+        // An unreachable/invalid SQL authority service is not a revoked
+        // identity. Still refuse all business SQL, but surface HTTP 503.
+        throw new Problem(503,"SQL authority temporarily unavailable");
+      });
       if(authority.rowCount!==1||authority.rows[0].subject!==subject||
          authority.rows[0].tenant!==checked)
         throw new Problem(403,"Authenticated human SQL authority revoked");

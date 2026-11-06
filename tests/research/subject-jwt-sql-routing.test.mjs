@@ -24,6 +24,7 @@ test("NestJS routes signed HTTP subject and tenant to four preflight-verified lo
     'const authority=await human.query(',
     'public.protocolia_s2_session_subject() AS subject',
     'Authenticated human SQL authority revoked',
+    'new Problem(503,"SQL authority temporarily unavailable")',
     't.tgenabled IN (\'O\',\'A\')',
     't.tgtype=19',
     't.tgtype=7',
@@ -63,7 +64,9 @@ test("Spring binds JDBC routing to SecurityContext signed JwtAuthenticationToken
     'PROTOCOLIA_MIGRATION_JDBC_PASSWORD',
     'PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY',
     'authorizedJwtHumans=Set.copyOf(verifiedHumanPools.keySet())',
-    'permitsVerifiedJwtHuman(Authentication auth)'
+    'permitsVerifiedJwtHuman(Authentication auth)',
+    'throw new AuthorityUnavailableException(sqlFailure)',
+    'static final class AuthorityUnavailableException'
   ])assert.ok(spring.includes(line),"Missing Spring S2 routing guard: "+line);
   assert.match(spring,/if\(!targets\.containsKey\(key\)\)/);
   const security=read("packages/adapters/modular/templates/SecurityConfig.java");
@@ -71,6 +74,8 @@ test("Spring binds JDBC routing to SecurityContext signed JwtAuthenticationToken
   assert.match(security,/humanSql\.getObject\(\)\.permitsVerifiedJwtHuman\(auth\)/);
   assert.match(security,/BearerTokenAuthenticationFilter\.class/);
   assert.match(security,/response\.sendError\(403,"No provisioned SQL authority/);
+  assert.match(security,/catch\(HumanSqlRouting\.AuthorityUnavailableException unavailable\)/);
+  assert.match(security,/response\.sendError\(503,"SQL authority temporarily unavailable"\)/);
   assert.match(spring,/targets\.put\(key,ds\)/);
   assert.match(read("packages/adapters/modular/generate.mjs"),/HumanSqlRouting\.java/);
   assert.match(read("packages/adapters/modular/templates/ContractApplication.java"),/human-jwt-v1/);

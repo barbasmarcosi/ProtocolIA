@@ -292,6 +292,33 @@ try{
     directSqlBusinessWriteDenied:true,directSqlAuditWriteDenied:true,
     healthySubjectsUnaffected:true,operatorReactivationVerified:true
   }));
+  // S2.3 independent failure mode: the operator removes the SQL privilege
+  // needed to check the authority mapping while the processes/JWTs remain
+  // alive. A DB error must yield 503, never masquerade as revocation (403),
+  // and must never allow a business write. Restore the exact grant afterward.
+  const blockedKey="S2Unavailable"+randomBytes(5).toString("hex");
+  psqlAs("protocolia_rls_owner",passwords.owner,
+    "REVOKE EXECUTE ON FUNCTION public.protocolia_s2_session_subject() "+
+    "FROM protocolia_s2_alpha_checker;");
+  assert.equal((await request(get,ac,{key:keyA})).status,503,
+    "SQL authority lookup failure must be 503, not revoked-user 403");
+  assert.equal((await request(list,ac)).status,503,
+    "SQL authority lookup failure must not permit listing");
+  assert.equal((await request(create,ac,{body:createBody(blockedKey)})).status,503,
+    "SQL authority lookup failure must not permit CREATE");
+  assert.equal((await request(get,a,{key:keyA})).status,200,
+    "Other verified SQL humans must remain available");
+  psqlAs("protocolia_rls_owner",passwords.owner,
+    "GRANT EXECUTE ON FUNCTION public.protocolia_s2_session_subject() "+
+    "TO protocolia_s2_alpha_checker;");
+  assert.equal((await request(get,ac,{key:keyA})).status,200,
+    "Restored SQL authority must recover without restarting the app");
+  assert.equal((await request(get,a,{key:blockedKey})).status,404,
+    "Failed authority lookup must not have committed a business record");
+  console.log("PROTOCOLIA_S2_AUTHORITY_LOOKUP_UNAVAILABLE_PASS "+
+    JSON.stringify({target,dbAuthorityQueryFailed:true,denyWithoutWrite:true,
+      http503Not403:true,healthySubjectsUnaffected:true,
+      recoveryWithoutRestart:true}));
   psqlAs("protocolia","",[
     "DO $check$ DECLARE n integer; BEGIN",
     "SELECT count(*) INTO n FROM public.protocolia_audit_event;",
