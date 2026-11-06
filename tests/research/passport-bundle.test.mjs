@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,writeFileSync,readFileSync,rmSync,symlinkSync,existsSync} from "node:fs";
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,existsSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
@@ -23,11 +23,9 @@ function fixture(run){
   const temp=mkdtempSync(join(tmpdir(),"protocolia-bundled-passport-"));
   const app=join(temp,"generated");
   const inputs=join(temp,"input");
-  const fs=(awaitImport=>awaitImport);
   try{
     // A minimal fake app is sufficient for testing the ownership boundary.
     // CI separately uses the actual TypeSpec and generated NestJS pipeline.
-    const {mkdirSync}=requireFs();
     mkdirSync(app);mkdirSync(inputs);
     writeFileSync(join(app,"protocolia-contract-ir.json"),JSON.stringify(ir()));
     writeFileSync(join(app,"protocolia-contract-openapi.json"),"{}");
@@ -35,8 +33,6 @@ function fixture(run){
     return run({temp,app,inputs});
   }finally{rmSync(temp,{recursive:true,force:true});}
 }
-function requireFs(){return {mkdirSync:mkDir};}
-function mkDir(path){const r=spawnSync(process.execPath,["-e","require('node:fs').mkdirSync(process.argv[1])",path]);if(r.status!==0)throw Error("Cannot prepare test folder");}
 const requirements=()=>({schemaVersion:"protocolia-requirements/v1",requirements:[
   {id:"K-01",text:"Products must persist",origin:"source_brief_unverified",
     evidenceRefs:["test-brief"],operations:["createProduct"]}
