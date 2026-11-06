@@ -62,7 +62,7 @@ test("Spring binds JDBC routing to SecurityContext signed JwtAuthenticationToken
     '"jwt".equals(System.getenv("PROTOCOLIA_AUTH_MODE"))',
     'PROTOCOLIA_MIGRATION_JDBC_PASSWORD',
     'PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY',
-    'authorizedJwtHumans=Set.copyOf(targets.keySet().stream()',
+    'authorizedJwtHumans=Set.copyOf(verifiedHumanPools.keySet())',
     'permitsVerifiedJwtHuman(Authentication auth)'
   ])assert.ok(spring.includes(line),"Missing Spring S2 routing guard: "+line);
   assert.match(spring,/if\(!targets\.containsKey\(key\)\)/);
