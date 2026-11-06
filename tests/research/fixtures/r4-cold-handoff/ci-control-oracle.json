@@ -8,8 +8,28 @@
     "nullable": true
   },
   "mustAsk": [
-    "calibration_interval_unspecified",
-    "overdue_action_unspecified"
+    {
+      "id": "calibration_cadence",
+      "terms": [
+        "interval",
+        "frequency",
+        "frecuencia",
+        "periodicidad",
+        "cadence",
+        "cada cuánto"
+      ]
+    },
+    {
+      "id": "overdue_response",
+      "terms": [
+        "overdue",
+        "vencid",
+        "caducad",
+        "expir",
+        "past due",
+        "atrasad"
+      ]
+    }
   ],
   "scope": "CI demo oracle kept out of the participant package. This file is committed in the repository, so it is NOT secret from an agent with repository access. True blinded benchmarking requires storing the oracle outside all participant permissions."
 }
