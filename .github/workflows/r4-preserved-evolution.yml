@@ -1,0 +1,170 @@
+name: R4 source-handoff evolution with preserved PostgreSQL state
+on:
+  pull_request:
+    paths:
+      - 'packages/cli/regeneration.mjs'
+      - 'packages/cli/passport-bundle.mjs'
+      - 'packages/cli/contract-source-snapshot.mjs'
+      - 'scripts/research/r4-evolution-exercise.mjs'
+      - '.github/workflows/r4-preserved-evolution.yml'
+      - 'docs/research/autonomous-engineering/R4_*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-preserved-evolution:
+    name: source handoff + safe schema evolution + persisted rows (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r4-local-disposable-only
+          POSTGRES_DB: protocolia_r4
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d protocolia_r4"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      PROTOCOLIA_ALLOW_DEMO_AUTH: 'true'
+      PROTOCOLIA_READER_USERNAME: reader
+      PROTOCOLIA_READER_PASSWORD: r4-temporary-reader
+      PROTOCOLIA_MANAGER_USERNAME: manager
+      PROTOCOLIA_MANAGER_PASSWORD: r4-temporary-manager
+      PROTOCOLIA_JDBC_USER: postgres
+      PROTOCOLIA_JDBC_PASSWORD: r4-local-disposable-only
+      PORT: '8080'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify real rehydration, additive evolution, data preservation and negative policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          APP="$RUNNER_TEMP/r4-maintained-$TARGET"
+          PROJECT="$(mktemp -d "$GITHUB_WORKSPACE/.r4-contract.XXXXXXXX")"
+          LOG="$RUNNER_TEMP/r4-runtime-$TARGET.log"
+          pid=''
+          stop_app(){
+            if [[ -n "$pid" ]]; then
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+              pid=''
+            fi
+          }
+          cleanup(){
+            local code=$?
+            stop_app
+            if [[ "$code" -ne 0 ]]; then
+              echo 'R4 evolution failed; generated app log follows'
+              tail -n 100 "$LOG" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          start_app(){
+            : > "$LOG"
+            if [[ "$TARGET" == 'nestjs' ]]; then
+              (cd "$APP"; node dist/main.js) >"$LOG" 2>&1 &
+            else
+              java -jar "$APP/target/modular-generated-0.0.1.jar" >"$LOG" 2>&1 &
+            fi
+            pid=$!
+          }
+          if [[ "$TARGET" == 'nestjs' ]]; then
+            export PROTOCOLIA_JDBC_URL="postgresql://127.0.0.1:5432/protocolia_r4"
+          else
+            export PROTOCOLIA_JDBC_URL="jdbc:postgresql://127.0.0.1:5432/protocolia_r4"
+          fi
+
+          # Original app is derived from canonical TypeSpec. No data is seeded
+          # until this generated runtime starts on the real isolated database.
+          npm run app:build -- examples/vnext/taller --target "$TARGET" --out "$APP" --passport
+          cp "$APP/protocolia-build.json" "$RUNNER_TEMP/r4-original-build.json"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$APP/protocolia-contract-source" "$APP/protocolia-contract-source.lock.json"
+          cp -a "$APP/protocolia-contract-source/." "$PROJECT/"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$PROJECT" "$APP/protocolia-contract-source.lock.json"
+
+          start_app
+          node scripts/research/r4-evolution-exercise.mjs seed
+          stop_app
+
+          # The change must start from ONLY the extracted and verified TypeSpec.
+          node scripts/research/r4-evolution-exercise.mjs prepare "$PROJECT"
+          node packages/cli/protocolia.mjs plan "$PROJECT" "$APP" | tee "$RUNNER_TEMP/r4-plan.log"
+          grep -q '"compatible":true' "$RUNNER_TEMP/r4-plan.log"
+          grep -q '"kind":"addField"' "$RUNNER_TEMP/r4-plan.log"
+          node packages/cli/protocolia.mjs evolve "$PROJECT" "$APP"
+
+          # A migration that silently drops the Passport is a regression.
+          test -s "$APP/PROJECT_HANDOFF.md"
+          test -s "$APP/protocolia-contract-source/contracts/main.tsp"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$APP/protocolia-contract-source" "$APP/protocolia-contract-source.lock.json"
+          node "$APP/protocolia-passport-verify.mjs" verify \
+            --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
+          node --input-type=module - "$RUNNER_TEMP/r4-original-build.json" "$APP/protocolia-build.json" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const original=JSON.parse(readFileSync(process.argv[2]));
+          const changed=JSON.parse(readFileSync(process.argv[3]));
+          assert.equal(changed.passport.status,'GENERATED_PORTABLE_INTEGRITY_ONLY');
+          assert.notEqual(original.contractSha256,changed.contractSha256);
+          assert.notEqual(original.irSha256,changed.irSha256);
+          assert.equal(changed.passport.contractSource.contractSha256,changed.contractSha256);
+          NODE
+          node --input-type=module - "$APP" <<'NODE'
+          import {verifyApp} from './packages/cli/ownership.mjs';
+          verifyApp(process.argv[2]);
+          NODE
+
+          start_app
+          node scripts/research/r4-evolution-exercise.mjs verify
+          stop_app
+
+          # Unsupported tightening must be rejected before any migration or
+          # generated-app mutation. The original populated database stays intact.
+          node --input-type=module - "$PROJECT/contracts/main.tsp" <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const path=process.argv[2],src=readFileSync(path,'utf8');
+          assert.equal(src.split('serviceNote?: string | null;').length-1,2);
+          writeFileSync(path,src.replaceAll('serviceNote?: string | null;','serviceNote: string;'));
+          NODE
+          node packages/cli/protocolia.mjs plan "$PROJECT" "$APP" | tee "$RUNNER_TEMP/r4-rejected-plan.log"
+          grep -q '"compatible":false' "$RUNNER_TEMP/r4-rejected-plan.log"
+          if node packages/cli/protocolia.mjs evolve "$PROJECT" "$APP"; then
+            echo 'Breaking TypeSpec evolution was incorrectly accepted' >&2
+            exit 1
+          fi
+          node --input-type=module - "$APP" <<'NODE'
+          import {verifyApp} from './packages/cli/ownership.mjs';
+          verifyApp(process.argv[2]);
+          NODE
+          start_app
+          node scripts/research/r4-evolution-exercise.mjs persist
+          stop_app
+          echo "PROTOCOLIA_R4_PERSISTENT_EVOLUTION_AND_PASSPORT_${TARGET}_PASS"

@@ -435,7 +435,7 @@ function migrations(folder,target){
 function ownedArea(folder,target){
   const trees=target==="nestjs"?[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
-    ["src",new Set(["main.ts","BffSession.ts","BffKeyring.ts","manifest.json","schema.sql","migrations"])]
+    ["src",new Set(["main.ts","BffSession.ts","BffKeyring.ts","ProviderWebhookVerifier.ts","manifest.json","schema.sql","migrations"])]
   ]:[
     ["web",new Set(["src","node_modules","package.json","package-lock.json","index.html","vite.config.mjs"])],
     ["src",new Set(["main"])],
@@ -470,6 +470,7 @@ export async function evolve(action,projectPath,outputPath,options={}){
   const project=resolve(projectPath),out=resolve(outputPath);
   if(!existsSync(join(project,"tspconfig.yaml")))throw Error("Missing source TypeSpec project");
   const oldState=preflight(out);
+  const oldBuild=readJson(join(out,"protocolia-build.json"));
   const oldIr=contractFrom(out);
   const oldOpenApi=readJson(join(out,"protocolia-contract-openapi.json"));
   const repoRoot=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
@@ -518,9 +519,27 @@ export async function evolve(action,projectPath,outputPath,options={}){
   const stage=mkdtempSync(join(parent,".protocolia-stage-"));
   let backup;
   try{
+    // R4: A generated application with a Passport must never silently lose
+    // its contract sources, documentation or unverified declared provenance on
+    // additive evolution. Rebuild the bundle from the NEW canonical TypeSpec,
+    // while keeping earlier claims clearly SELF_DECLARED_UNVERIFIED.
+    const passportArgs=[];
+    if(oldBuild.passport){
+      passportArgs.push("--passport");
+      const claimDir=join(out,"protocolia-passport-inputs");
+      for(const [flag,provided,name] of [
+        ["--passport-requirements",oldBuild.passport.requirementsProvided,"requirements.json"],
+        ["--passport-decisions",oldBuild.passport.decisionsProvided,"decisions.json"]
+      ]){
+        if(!provided)continue;
+        const file=join(claimDir,name);
+        if(!existsSync(file))throw Error("Missing previously bundled Passport source: "+name);
+        passportArgs.push(flag,file);
+      }
+    }
     run(process.execPath,[
       join(repoRoot,"packages/cli/protocolia.mjs"),"build",project,
-      "--target",oldState.target,"--out",stage
+      "--target",oldState.target,"--out",stage,...passportArgs
     ],{cwd:repoRoot});
     const fresh=migrations(stage,oldState.target);
     if(options.requireApproval){

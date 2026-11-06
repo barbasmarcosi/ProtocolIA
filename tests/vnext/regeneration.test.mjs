@@ -119,3 +119,19 @@ test("A5 rejects hidden HTTP DTO/validation drift even when IR is unchanged",()=
   assert.match(validateOpenApiEvolution(oldApi,invisible,oldIr,oldIr,diffContracts(oldIr,oldIr)).join(";"),
     /Undeclared OpenAPI/);
 });
+
+test("R4 verifies all generated Nest security files in the app ownership seal",()=>{
+  const root=fixture();
+  mkdirSync(join(root,"src"),{recursive:true});
+  for(const name of ["main.ts","BffSession.ts","BffKeyring.ts","ProviderWebhookVerifier.ts"])
+    writeFileSync(join(root,"src",name),"export const moduleName = "+JSON.stringify(name)+";");
+  sealApp(root);
+  verifyApp(root);
+  for(const name of ["BffSession.ts","BffKeyring.ts","ProviderWebhookVerifier.ts"]){
+    const path=join(root,"src",name),old=readFileSync(path,"utf8");
+    writeFileSync(path,old+"\\n// injection\\n");
+    assert.throws(()=>verifyApp(root),/Managed files modified/);
+    writeFileSync(path,old);
+    verifyApp(root);
+  }
+});

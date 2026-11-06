@@ -5,7 +5,8 @@ import {existsSync,readFileSync,readdirSync,writeFileSync,statSync} from "node:f
 import {join,relative,sep} from "node:path";
 
 const sources=[
-  "src/main/java","src/main/resources","src/main.ts","src/manifest.json","src/schema.sql","src/migrations","web/src",
+  "src/main/java","src/main/resources","src/main.ts","src/BffSession.ts","src/BffKeyring.ts",
+  "src/ProviderWebhookVerifier.ts","src/manifest.json","src/schema.sql","src/migrations","web/src",
   "pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
   "web/package.json","web/package-lock.json","web/index.html","web/vite.config.mjs",
   "package.json","package-lock.json","tsconfig.json",
