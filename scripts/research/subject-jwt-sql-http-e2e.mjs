@@ -176,7 +176,40 @@ try{
     "image_digest varchar(64) PRIMARY KEY,completed_at timestamptz DEFAULT now());"+
     "INSERT INTO public.protocolia_migration_handoff_v1(image_digest) VALUES ('"+handoff+"');"+
     "GRANT SELECT ON public.protocolia_migration_handoff_v1 TO protocolia_rls_alpha;");
-  run(["up","--detach","--build","app"],{timeout:220000});
+  // A staged app may not serve HTTP with either database identity trigger
+  // disabled. The two failures must be explicit and independent, not a
+  // connectivity timeout or a missing JWT/role.
+  run(["build","app"],{timeout:220000});
+  async function proveTriggerGuardDisabled(label,table,trigger){
+    psqlAs("protocolia_rls_owner",passwords.owner,
+      "ALTER TABLE public."+table+" DISABLE TRIGGER "+trigger+";");
+    run(["up","--detach","--no-deps","--force-recreate","app"],{timeout:45000});
+    let rejected=false;
+    for(let attempt=0;attempt<65;attempt++){
+      const logs=run(["logs","--no-color","--tail","110","app"],{timeout:15000});
+      if(/S2 human SQL connection\/subject\/RLS authority preflight failed|S2 human SQL routing refused unsafe DB identity/.test(logs)){
+        rejected=true;
+        break;
+      }
+      try{
+        const res=await fetch(base+"/health",{signal:AbortSignal.timeout(800)});
+        if(res.status===200)throw Error("UNSAFE S2 startup accepted disabled "+label+" trigger");
+      }catch(error){
+        if(String(error).includes("UNSAFE S2"))throw error;
+      }
+      await new Promise(ok=>setTimeout(ok,500));
+    }
+    assert.ok(rejected,"S2 did not explicitly refuse disabled "+label+" trigger");
+    run(["stop","app"],{timeout:25000});
+    psqlAs("protocolia_rls_owner",passwords.owner,
+      "ALTER TABLE public."+table+" ENABLE TRIGGER "+trigger+";");
+    console.log("PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS "+target+" "+label);
+  }
+  await proveTriggerGuardDisabled("maker","service_ticket",
+    "protocolia_s2_human_service_ticket_trigger");
+  await proveTriggerGuardDisabled("audit","protocolia_audit_event",
+    "protocolia_s2_audit_actor_trigger");
+  run(["up","--detach","--no-deps","--force-recreate","app"],{timeout:45000});
   assert.ok(await waitReady(base+"/health"),"S2 generated JWT app rejected correct SQL principal mapping");
   const a=roles[0],ac=roles[1],b=roles[2],bc=roles[3];
   const create=resource.operations.create,get=resource.operations.get,
