@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // R4.3 externally invoked, fresh-session coding agent.
 // The model has NO repository checkout, shell, browser, oracle or network tools.
-// The runner alone has bounded file operations and a GitHub Models token.
+// The runner alone has bounded file operations and accesses localhost Ollama.
 // One trial, at most 10 model calls; it is never a synthetic reference answer.
 import {createHash} from "node:crypto";
 import {existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,writeFileSync} from "node:fs";
@@ -9,8 +9,8 @@ import {dirname,join,relative,resolve,sep} from "node:path";
 
 const input=resolve(process.argv[2]??"");
 const out=resolve(process.argv[3]??"");
-const model=process.env.R4_MODEL??"openai/gpt-4.1";
-const token=process.env.GITHUB_TOKEN;
+const model=process.env.R4_MODEL??"qwen3:4b-instruct-2507-q4_K_M";
+const inference="http://127.0.0.1:11434/api/chat";
 const MAX_ROUNDS=10,MAX_SOURCE=12000,MAX_DOCUMENT=22000;
 const hash=x=>createHash("sha256").update(x).digest("hex");
 const fail=m=>{throw Error("R4 isolated agent refused: "+m)};
@@ -60,7 +60,6 @@ function verifyPackage(){
     fail("Assessor material in participant package");
   return {lock,files};
 }
-if(!token)fail("Github Models token unavailable (scope models:read required)");
 if(existsSync(out))fail("Output directory must not exist");
 const pack=verifyPackage();
 mkdirSync(join(out,"candidate","contracts"),{recursive:true,mode:0o700});
@@ -137,39 +136,42 @@ let errored=null;
 try{
   for(let i=0;i<MAX_ROUNDS&&!finished;i++){
     rounds++;
-    const request={model,messages,tools,tool_choice:"auto",
-      parallel_tool_calls:false,temperature:0.1,max_tokens:4600};
-    const res=await fetch("https://models.github.ai/inference/chat/completions",{
+    const request={model,messages,tools,stream:false,think:false,
+      options:{temperature:0.1,num_ctx:16384,num_predict:3600},
+      keep_alive:"25m"};
+    const res=await fetch(inference,{
       method:"POST",
-      headers:{"Authorization":"Bearer "+token,
-        "Accept":"application/vnd.github+json",
-        "Content-Type":"application/json",
-        "X-GitHub-Api-Version":"2022-11-28"},
-      body:JSON.stringify(request),signal:AbortSignal.timeout(95000)});
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(request),signal:AbortSignal.timeout(480000)});
     const raw=await res.text();
-    if(!res.ok)fail("GitHub Models API returned HTTP "+res.status+" "+
+    if(!res.ok)fail("Local Ollama returned HTTP "+res.status+" "+
       raw.slice(0,280).replace(/\s+/g," "));
-    const data=JSON.parse(raw);
-    const msg=data.choices?.[0]?.message;
-    if(!msg)fail("Model response missing assistant message");
-    const use=data.usage??{};
-    for(const key of Object.keys(usage))usage[key]+=Number(use[key]??0);
+    let data;
+    try{data=JSON.parse(raw)}
+    catch{fail("Invalid Ollama JSON (HTTP "+res.status+"): "+
+      raw.slice(0,140).replace(/\s+/g," "))}
+    const msg=data.message;
+    if(!msg||msg.role!=="assistant")fail("Local model response missing assistant message");
+    usage.prompt_tokens+=Number(data.prompt_eval_count??0);
+    usage.completion_tokens+=Number(data.eval_count??0);
+    usage.total_tokens+=Number(data.prompt_eval_count??0)+Number(data.eval_count??0);
     const calls=msg.tool_calls??[];
-    audit.push({turn:i+1,finishReason:data.choices?.[0]?.finish_reason,
+    audit.push({turn:i+1,finishReason:data.done_reason??null,
       toolNames:calls.map(c=>c.function?.name),toolCallCount:calls.length});
     if(calls.length>3)fail("Excessive tool calls in one turn");
-    messages.push({role:"assistant",content:msg.content??null,
+    messages.push({role:"assistant",content:msg.content??"",
       ...(calls.length?{tool_calls:calls}:{})});
     if(calls.length===0){
       messages.push({role:"user",content:"Use the exposed tools to save both files. Finish only with finish after check_candidate."});
       continue;
     }
     for(const call of calls){
-      let args;
-      try{args=JSON.parse(call.function.arguments??"{}")}
-      catch{args={}}
+      let args=call.function.arguments??{};
+      if(typeof args==="string"){
+        try{args=JSON.parse(args)}catch{args={}}
+      }
       const reply=perform(call.function.name,args);
-      messages.push({role:"tool",tool_call_id:call.id,content:JSON.stringify(reply)});
+      messages.push({role:"tool",tool_name:call.function.name,content:JSON.stringify(reply)});
     }
   }
   if(!finished)fail("Model did not finish candidate within bounded turns");
@@ -183,13 +185,13 @@ try{
   console.error("PROTOCOLIA_R4_EXTERNAL_AGENT_TRIAL_FAILED "+errored.slice(0,750));
 }finally{
   const metadata={schemaVersion:"r4-external-model-trial/v1",
-    model,provider:"GitHub Models",endpoint:"models.github.ai/inference/chat/completions",
+    model,provider:"Ollama (local CPU)",endpoint:"http://127.0.0.1:11434/api/chat",
     source:"fresh API chat context, no tool access outside immutable handoff",
     complete:finished&&!errored,startedAt:started,completedAt:new Date().toISOString(),
     originalContractSha256:pack.lock.originalContractSha256,
     rounds,usage,audit,error:errored};
   writeFileSync(join(out,"trial-metadata.json"),JSON.stringify(metadata,null,2)+"\n");
-  // Only record tool call names/hashes/usage, not the secret bearer or full
-  // prompt/body. Candidate bytes are a separate output artifact.
+  // Only record tool names and usage, never full prompt/model output payload.
+  // Candidate bytes are preserved as a separate output artifact.
 }
 if(errored)process.exitCode=1;
