@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - 'scripts/research/project-passport.mjs'
+      - 'packages/cli/protocolia.mjs'
+      - 'packages/cli/passport-bundle.mjs'
+      - 'packages/cli/ownership.mjs'
       - 'tests/research/project-passport.test.mjs'
+      - 'tests/research/passport-bundle.test.mjs'
       - 'docs/research/autonomous-engineering/**'
       - '.github/workflows/project-passport-r3.yml'
   workflow_dispatch:
@@ -22,7 +26,9 @@ jobs:
         with:
           node-version: '24'
       - run: node --check scripts/research/project-passport.mjs
-      - run: node --test tests/research/project-passport.test.mjs
+      - run: node --check packages/cli/protocolia.mjs
+      - run: node --check packages/cli/passport-bundle.mjs
+      - run: node --test tests/research/project-passport.test.mjs tests/research/passport-bundle.test.mjs
   real-typespec-ir:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -58,3 +64,42 @@ jobs:
             echo 'Expected integrity verification to fail' >&2
             exit 1
           fi
+
+  real-generated-app-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate real NestJS application with opt-in Passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/r3-generated-app"
+          npm run app:build -- examples/vnext/taller --target nestjs --out "$APP" --passport
+          test -s "$APP/passport/PROJECT_PASSPORT.md"
+          test -s "$APP/passport/docs/traceability.json"
+          node scripts/research/project-passport.mjs verify \
+            --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
+          node --input-type=module -e \
+            'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp(process.argv[1]);' "$APP"
+          node --input-type=module -e \
+            'import {readFileSync} from "node:fs";const m=JSON.parse(readFileSync(process.argv[1]));if(m.passport?.status!=="GENERATED_PORTABLE_INTEGRITY_ONLY"||m.passport.requirementsProvided)process.exit(1);' \
+            "$APP/protocolia-build.json"
+          echo 'PROTOCOLIA_R3_BUNDLED_GENERATED_APP_PASS'
+      - name: Refuse modified bundled Passport under the app ownership seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/r3-generated-app"
+          printf '\\nmodified after build\\n' >> "$APP/passport/docs/domain/entities.md"
+          if node --input-type=module -e \
+            'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp(process.argv[1]);' "$APP"; then
+            echo 'Expected ownership seal to reject modified Passport' >&2
+            exit 1
+          fi
+          echo 'PROTOCOLIA_R3_BUNDLED_PASSPORT_DRIFT_REJECTED'
