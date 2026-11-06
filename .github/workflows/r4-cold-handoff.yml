@@ -1,0 +1,121 @@
+name: R4.3 cold handoff benchmark hygiene and deterministic controls
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/r4-handoff-benchmark.mjs'
+      - 'tests/research/r4-control-fixture.mjs'
+      - 'tests/research/fixtures/r4-cold-handoff/**'
+      - 'docs/research/autonomous-engineering/R4_AGENT_TASK.md'
+      - 'docs/research/autonomous-engineering/R4_COLD_HANDOFF.md'
+      - '.github/workflows/r4-cold-handoff.yml'
+      - 'packages/cli/contract-source-snapshot.mjs'
+      - 'packages/cli/regeneration.mjs'
+      - 'packages/cli/passport-bundle.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  participant-and-heldout-separation:
+    name: portable package + held-out scoring + adversarial controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate evaluation/fixture source syntax
+        run: |
+          node --check scripts/research/r4-handoff-benchmark.mjs
+          node --check tests/research/r4-control-fixture.mjs
+      - name: Produce an original sealed NestJS application with Passport
+        run: npm run app:build -- examples/vnext/taller --target nestjs --out "$RUNNER_TEMP/r4-original" --passport
+      - name: Export a portable participant package with no evaluator or answer
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-handoff-benchmark.mjs package \
+            "$RUNNER_TEMP/r4-original" \
+            tests/research/fixtures/r4-cold-handoff/CHANGE_REQUEST.md \
+            "$RUNNER_TEMP/r4-participant-handoff"
+          node scripts/research/r4-handoff-benchmark.mjs verify \
+            "$RUNNER_TEMP/r4-participant-handoff"
+          test -s "$RUNNER_TEMP/r4-participant-handoff/AGENT_TASK.md"
+          test -s "$RUNNER_TEMP/r4-participant-handoff/protocolia-contract-source/contracts/main.tsp"
+          test ! -e "$RUNNER_TEMP/r4-participant-handoff/ci-control-oracle.json"
+          if grep -R -E -q 'r4-heldout-oracle|ci-control-oracle.json' "$RUNNER_TEMP/r4-participant-handoff"; then
+            echo 'Held-out evaluator metadata leaked to participant' >&2
+            exit 1
+          fi
+          echo 'PROTOCOLIA_R4_PARTICIPANT_PACKAGE_ISOLATED_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-cold-participant-bundle
+          path: ${{ runner.temp }}/r4-participant-handoff/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Require a deterministic reference control to satisfy the separate scorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/research/r4-control-fixture.mjs valid-control \
+            "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-control-valid"
+          node scripts/research/r4-handoff-benchmark.mjs score \
+            "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-control-valid" \
+            tests/research/fixtures/r4-cold-handoff/ci-control-oracle.json
+          echo 'PROTOCOLIA_R4_DETERMINISTIC_SCORER_CONTROL_PASS_NOT_AGENT_EVIDENCE'
+      - name: Reject unsafe submissions and a modified participant package
+        shell: bash
+        run: |
+          set -euo pipefail
+          for scenario in wrong-policy missing-question extra-file missing-field; do
+            node tests/research/r4-control-fixture.mjs "$scenario" \
+              "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-$scenario"
+            if node scripts/research/r4-handoff-benchmark.mjs score \
+              "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-$scenario" \
+              tests/research/fixtures/r4-cold-handoff/ci-control-oracle.json; then
+              echo "Scorer accepted unsafe scenario: $scenario" >&2
+              exit 1
+            fi
+          done
+          cp -a "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-tampered"
+          printf '\nUnauthorized participant change\n' >> "$RUNNER_TEMP/r4-tampered/CHANGE_REQUEST.md"
+          if node scripts/research/r4-handoff-benchmark.mjs verify "$RUNNER_TEMP/r4-tampered"; then
+            echo 'Handoff integrity verifier missed a tamper' >&2
+            exit 1
+          fi
+          echo 'PROTOCOLIA_R4_SEPARATED_SCORER_ADVERSARIAL_CONTROLS_PASS'
+      - name: Verify reference candidate generates both production-target contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE="$(mktemp -d "$GITHUB_WORKSPACE/.r4-control.XXXXXXXX")"
+          cp -R "$RUNNER_TEMP/r4-control-valid/contracts" "$CANDIDATE/"
+          cp "$RUNNER_TEMP/r4-control-valid/tspconfig.yaml" "$CANDIDATE/"
+          for target in nestjs modular-spring; do
+            APP="$RUNNER_TEMP/r4-controlled-app-$target"
+            npm run app:build -- "$CANDIDATE" --target "$target" --out "$APP" --passport
+            node --input-type=module - "$APP" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import {verifyApp} from './packages/cli/ownership.mjs';
+          import assert from 'node:assert/strict';
+          const app=process.argv[2];verifyApp(app);
+          const ir=JSON.parse(readFileSync(join(app,'protocolia-contract-ir.json')));
+          const tool=ir.entities.find(e=>e.name==='Tool');
+          assert.equal(tool.fields.filter(f=>f.name==='calibrationDueAt').length,1);
+          assert.equal(ir.operations.length,6);
+          const field=tool.fields.find(f=>f.name==='calibrationDueAt');
+          assert.equal(field.required,false);assert.equal(field.nullable,true);
+          NODE
+            echo "PROTOCOLIA_R4_CONTROLLED_GENERATION_${target}_PASS"
+          done
+          echo 'PROTOCOLIA_R4_GENERATED_BOTH_TARGETS_CONTROL_ONLY'
