@@ -385,10 +385,18 @@ public class SecurityConfig {
             Authentication auth=org.springframework.security.core.context
                 .SecurityContextHolder.getContext().getAuthentication();
             if(auth instanceof org.springframework.security.oauth2.server.resource
-                .authentication.JwtAuthenticationToken&&auth.isAuthenticated()&&
-               !humanSql.getObject().permitsVerifiedJwtHuman(auth)){
-              response.sendError(403,"No provisioned SQL authority for verified JWT subject");
-              return;
+                .authentication.JwtAuthenticationToken&&auth.isAuthenticated()){
+              final boolean permitted;
+              try{
+                permitted=humanSql.getObject().permitsVerifiedJwtHuman(auth);
+              }catch(HumanSqlRouting.AuthorityUnavailableException unavailable){
+                response.sendError(503,"SQL authority temporarily unavailable");
+                return;
+              }
+              if(!permitted){
+                response.sendError(403,"No provisioned SQL authority for verified JWT subject");
+                return;
+              }
             }
             chain.doFilter(request,response);
           }
