@@ -657,6 +657,16 @@ class RuntimeService{
         throw new Problem(403,"Unrecognized authenticated human SQL subject");
       const human=this.humanSqlPools.get(checked+"|"+subject);
       if(!human)throw new Problem(403,"No SQL authority for authenticated human");
+      // S2.2: consult the private operator-owned mapping on EACH authenticated
+      // HTTP operation, even when the JWT and the SQL pool already exist.
+      // RLS separately enforces the same live state for every data statement.
+      // A compromised client cannot revive a revoked subject with a GUC.
+      const authority=await human.query(
+        "SELECT public.protocolia_s2_session_subject() AS subject,"+
+        "public.protocolia_rls_session_tenant() AS tenant");
+      if(authority.rowCount!==1||authority.rows[0].subject!==subject||
+         authority.rows[0].tenant!==checked)
+        throw new Problem(403,"Authenticated human SQL authority revoked");
       return await this.tenantSqlContext.run(human,run);
     }
     if(!this.tenantSqlEnabled)return await run();

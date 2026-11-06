@@ -116,6 +116,7 @@ CREATE TABLE public.protocolia_s2_principal_subject(
   principal NAME PRIMARY KEY,
   tenant_id VARCHAR(64) NOT NULL,
   subject VARCHAR(128) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   UNIQUE (tenant_id,subject)
 );
 REVOKE ALL ON public.protocolia_s2_principal_subject FROM PUBLIC;
@@ -149,7 +150,8 @@ SET search_path=pg_catalog,public,pg_temp
 AS $protocolia_s2_subject$
   SELECT subject FROM public.protocolia_s2_principal_subject
   WHERE principal=session_user::name AND
-    tenant_id=public.protocolia_rls_session_tenant()
+    tenant_id=public.protocolia_rls_session_tenant() AND
+    active IS TRUE
 $protocolia_s2_subject$;
 REVOKE ALL ON FUNCTION public.protocolia_s2_session_subject() FROM PUBLIC;
 DO $protocolia_s2_grant_subject$
@@ -158,6 +160,25 @@ DECLARE ca TEXT:=current_setting('protocolia.s2_alpha_checker',true);
 BEGIN
   EXECUTE format('GRANT EXECUTE ON FUNCTION public.protocolia_s2_session_subject() TO protocolia_rls_alpha,protocolia_rls_beta,%I,%I',ca,cb);
 END $protocolia_s2_grant_subject$;
+-- S2.2 operator-only live revocation. The private owner changes active;
+-- SQL-login clients have no UPDATE/SELECT grant on that mapping. An already
+-- authenticated, previously pooled subject loses SELECT, INSERT, UPDATE and
+-- audit INSERT on the next PostgreSQL statement. Both the application and
+-- independent DB policies require a still-active human identity.
+ALTER POLICY protocolia_rls_read ON public.${table}
+  USING (protocolia_tenant_id=public.protocolia_rls_session_tenant()
+    AND public.protocolia_s2_session_subject() IS NOT NULL);
+ALTER POLICY protocolia_rls_insert ON public.${table}
+  WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant()
+    AND public.protocolia_s2_session_subject() IS NOT NULL);
+ALTER POLICY protocolia_rls_update ON public.${table}
+  USING (protocolia_tenant_id=public.protocolia_rls_session_tenant()
+    AND public.protocolia_s2_session_subject() IS NOT NULL)
+  WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant()
+    AND public.protocolia_s2_session_subject() IS NOT NULL);
+ALTER POLICY protocolia_rls_audit_insert ON public.protocolia_audit_event
+  WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant()
+    AND public.protocolia_s2_session_subject() IS NOT NULL);
 CREATE FUNCTION public.protocolia_s2_human_${table}_guard()
 RETURNS trigger LANGUAGE plpgsql
 SET search_path=pg_catalog,public,pg_temp

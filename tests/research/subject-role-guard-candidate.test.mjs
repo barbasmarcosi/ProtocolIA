@@ -39,6 +39,11 @@ test("S2 candidate uses authenticated SQL session_user, not a user-controlled GU
       "ALTER POLICY protocolia_rls_audit_insert",
       "CREATE TRIGGER protocolia_s2_audit_actor_trigger",
       "UNIQUE (tenant_id,subject)",
+      "active BOOLEAN NOT NULL DEFAULT TRUE",
+      "active IS TRUE",
+      "ALTER POLICY protocolia_rls_read",
+      "ALTER POLICY protocolia_rls_insert",
+      "WITH CHECK (protocolia_tenant_id=public.protocolia_rls_session_tenant()",
       "S2 must extend only reviewed installed S1 and maker guard"
     ])assert.ok(sql.includes(expected),"Missing S2 principal-binding guarantee "+expected);
     assert.doesNotMatch(sql,/GRANT UPDATE ON public\.protocolia_audit_event/);

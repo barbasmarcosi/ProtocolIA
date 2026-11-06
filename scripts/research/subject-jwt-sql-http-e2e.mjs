@@ -248,6 +248,50 @@ try{
   const pageA=await request(list,a),pageB=await request(list,b);
   assert.equal(pageA.status,200);assert.equal(pageB.status,200);
   assert.equal(pageA.data.total,1);assert.equal(pageB.data.total,1);
+  // S2.2 live revocation: preserve both generated application processes and
+  // their already-opened SQL pools. The original signed JWT remains valid.
+  // Only a privileged migration owner can change the private SQL mapping.
+  psqlAs("protocolia_rls_owner",passwords.owner,
+    "UPDATE public.protocolia_s2_principal_subject SET active=FALSE "+
+    "WHERE principal='protocolia_s2_alpha_checker' AND tenant_id='org_alpha';");
+  assert.equal((await request(get,ac,{key:keyA})).status,403,
+    "Revoked Alpha checker must not read with an unexpired signed JWT");
+  assert.equal((await request(list,ac)).status,403,
+    "Revoked Alpha checker must not enumerate records with cached SQL pool");
+  assert.equal((await request(create,ac,{body:createBody("Blocked"+keyA)})).status,403,
+    "Revoked human must not write with still-authenticated SQL login");
+  assert.equal((await request(get,a,{key:keyA})).status,200,
+    "Unrevoked Alpha maker must retain access");
+  assert.equal((await request(get,bc,{key:keyB})).status,200,
+    "Other organization and independent checker must remain available");
+  psqlAs("protocolia_s2_alpha_checker",passwords.ac,
+    "DO $revoked$ BEGIN "+
+    "IF public.protocolia_s2_session_subject() IS NOT NULL OR "+
+    "(SELECT count(*) FROM public.service_ticket)<>0 THEN "+
+    "RAISE EXCEPTION 'Revoked SQL login can still select business rows'; END IF; "+
+    "BEGIN INSERT INTO public.service_ticket "+
+    "(ticket_code,description,phase,protocolia_tenant_id) "+
+    "VALUES ('S2Revoked','denied','reported','org_alpha'); "+
+    "RAISE EXCEPTION 'Revoked SQL login inserted business row'; "+
+    "EXCEPTION WHEN insufficient_privilege OR check_violation THEN NULL; END; "+
+    "BEGIN INSERT INTO public.protocolia_audit_event "+
+    "(actor,entity_name,resource_id,operation_name,field_name) "+
+    "VALUES ('alpha-checker','ServiceTicket','S2Revoked','denied','phase'); "+
+    "RAISE EXCEPTION 'Revoked SQL login inserted audit row'; "+
+    "EXCEPTION WHEN insufficient_privilege OR check_violation THEN NULL; END; "+
+    "END $revoked$;");
+  psqlAs("protocolia_rls_owner",passwords.owner,
+    "UPDATE public.protocolia_s2_principal_subject SET active=TRUE "+
+    "WHERE principal='protocolia_s2_alpha_checker' AND tenant_id='org_alpha';");
+  assert.equal((await request(get,ac,{key:keyA})).status,200,
+    "Owner reactivation must restore access without restarting the HTTP app");
+  console.log("PROTOCOLIA_S2_LIVE_HUMAN_REVOCATION_PASS "+JSON.stringify({
+    target,revokedSubject:"alpha-checker",jwtUnexpired:true,
+    applicationRestart:false,staleSqlPoolDenied:true,readDenied:true,
+    listDenied:true,writeDenied:true,directSqlReadDenied:true,
+    directSqlBusinessWriteDenied:true,directSqlAuditWriteDenied:true,
+    healthySubjectsUnaffected:true,operatorReactivationVerified:true
+  }));
   psqlAs("protocolia","",[
     "DO $check$ DECLARE n integer; BEGIN",
     "SELECT count(*) INTO n FROM public.protocolia_audit_event;",

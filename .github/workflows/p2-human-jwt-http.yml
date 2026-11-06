@@ -10,6 +10,7 @@ on:
       - 'packages/adapters/nest/generate.mjs'
       - 'packages/adapters/modular/templates/compose.yaml'
       - 'scripts/research/subject-jwt-sql-http-e2e.mjs'
+      - 'packages/adapters/subject-role-guard-candidate.mjs'
       - 'tests/research/subject-jwt-sql-routing.test.mjs'
       - '.github/workflows/p2-human-jwt-http.yml'
   workflow_dispatch:
@@ -61,5 +62,6 @@ jobs:
           node scripts/research/subject-jwt-sql-http-e2e.mjs "$S21_TMP/ready" "$TARGET" \
             | tee "$RUNNER_TEMP/p2-s21-$TARGET.log"
           grep -q 'PROTOCOLIA_S2_JWT_HUMAN_SQL_HTTP_PASS' "$RUNNER_TEMP/p2-s21-$TARGET.log"
+          grep -q "PROTOCOLIA_S2_LIVE_HUMAN_REVOCATION_PASS" "$RUNNER_TEMP/p2-s21-$TARGET.log"
           grep -q "PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS $TARGET maker" "$RUNNER_TEMP/p2-s21-$TARGET.log"
           grep -q "PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS $TARGET audit" "$RUNNER_TEMP/p2-s21-$TARGET.log"
