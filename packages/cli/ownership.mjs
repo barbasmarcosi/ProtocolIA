@@ -11,7 +11,9 @@ const sources=[
   "package.json","package-lock.json","tsconfig.json",
   "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json","protocolia-contract-openapi.json",
   "protocolia-overdue-rules.json","passport","protocolia-passport-inputs",
-  "protocolia-passport-verify.mjs"
+  "protocolia-passport-verify.mjs",
+  "protocolia-contract-source","protocolia-contract-source.lock.json",
+  "protocolia-contract-source-verify.mjs"
 ];
 function walk(root,path,result){
   if(!existsSync(join(root,path)))return;
@@ -56,7 +58,9 @@ export function verifyApp(folder){
     ".env","pom.xml","Dockerfile","compose.yaml",".env.example",".dockerignore",
     "protocolia-generation.json","protocolia-build.json","protocolia-contract-ir.json",
     "protocolia-ownership.json","protocolia-contract-openapi.json","protocolia-overdue-rules.json",
-    "passport","protocolia-passport-inputs","protocolia-passport-verify.mjs"]);
+    "passport","protocolia-passport-inputs","protocolia-passport-verify.mjs",
+    "protocolia-contract-source","protocolia-contract-source.lock.json",
+    "protocolia-contract-source-verify.mjs"]);
   for(const entry of readdirSync(folder,{withFileTypes:true})){
     if(!allowed.has(entry.name)||entry.isSymbolicLink())
       throw Error("Unexpected consumer file outside extensions/: "+entry.name);
