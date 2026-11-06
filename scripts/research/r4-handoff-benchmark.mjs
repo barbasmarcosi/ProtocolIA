@@ -91,6 +91,9 @@ function packaged(source,brief,out){
     writeFileSync(target,realFile(join(app,name)),{flag:"wx"});
   }
   writeFileSync(join(dest,"CHANGE_REQUEST.md"),body,{flag:"wx"});
+  writeFileSync(join(dest,"AGENT_TASK.md"),
+    realFile(join(workspace,"docs/research/autonomous-engineering/R4_AGENT_TASK.md")),
+    {flag:"wx"});
   const hashes=fileDigests(dest);
   const manifest={schemaVersion:"r4-public-handoff/v1",integrity:"sha256-only-not-signed",
     originalContractSha256:build.contractSha256,originalIrSha256:build.irSha256,
