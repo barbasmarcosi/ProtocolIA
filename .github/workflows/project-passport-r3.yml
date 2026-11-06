@@ -142,3 +142,33 @@ jobs:
             exit 1
           fi
           echo 'PROTOCOLIA_R3_BUNDLED_PASSPORT_DRIFT_REJECTED'
+
+  real-spring-source-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate modular Spring app with source-bound Passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/r4-spring-generated"
+          npm run app:build -- examples/vnext/taller --target modular-spring --out "$APP" --passport
+          test -s "$APP/protocolia-contract-source/contracts/main.tsp"
+          test -s "$APP/PROJECT_HANDOFF.md"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$APP/protocolia-contract-source" "$APP/protocolia-contract-source.lock.json"
+          node "$APP/protocolia-passport-verify.mjs" verify \
+            --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
+          node --input-type=module -e \
+            'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp(process.argv[1]);' "$APP"
+          echo 'PROTOCOLIA_R4_SPRING_SOURCE_BUNDLE_PASS'
