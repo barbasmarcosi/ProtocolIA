@@ -1,0 +1,46 @@
+name: R4 original Qwen pilot strict replay
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r4-pilot-negative-replay.yml'
+      - 'scripts/research/r4-pilot-replay.mjs'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-participant-only
+          run-id: 42307290079
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r4-original-participant
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-model-response
+          run-id: 42307290079
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r4-original-candidate
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Score actual archived submission and compile it without altering bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-pilot-replay.mjs \
+            "$RUNNER_TEMP/r4-original-participant" "$RUNNER_TEMP/r4-original-candidate"
