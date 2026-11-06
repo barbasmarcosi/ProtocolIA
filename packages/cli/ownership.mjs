@@ -13,7 +13,7 @@ const sources=[
   "protocolia-overdue-rules.json","passport","protocolia-passport-inputs",
   "protocolia-passport-verify.mjs",
   "protocolia-contract-source","protocolia-contract-source.lock.json",
-  "protocolia-contract-source-verify.mjs"
+  "protocolia-contract-source-verify.mjs","PROJECT_HANDOFF.md"
 ];
 function walk(root,path,result){
   if(!existsSync(join(root,path)))return;
@@ -60,7 +60,7 @@ export function verifyApp(folder){
     "protocolia-ownership.json","protocolia-contract-openapi.json","protocolia-overdue-rules.json",
     "passport","protocolia-passport-inputs","protocolia-passport-verify.mjs",
     "protocolia-contract-source","protocolia-contract-source.lock.json",
-    "protocolia-contract-source-verify.mjs"]);
+    "protocolia-contract-source-verify.mjs","PROJECT_HANDOFF.md"]);
   for(const entry of readdirSync(folder,{withFileTypes:true})){
     if(!allowed.has(entry.name)||entry.isSymbolicLink())
       throw Error("Unexpected consumer file outside extensions/: "+entry.name);
