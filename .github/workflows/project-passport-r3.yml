@@ -6,6 +6,7 @@ on:
       - 'scripts/research/project-passport.mjs'
       - 'packages/cli/protocolia.mjs'
       - 'packages/cli/passport-bundle.mjs'
+      - 'packages/cli/contract-source-snapshot.mjs'
       - 'packages/cli/ownership.mjs'
       - 'tests/research/project-passport.test.mjs'
       - 'tests/research/passport-bundle.test.mjs'
@@ -28,6 +29,7 @@ jobs:
       - run: node --check scripts/research/project-passport.mjs
       - run: node --check packages/cli/protocolia.mjs
       - run: node --check packages/cli/passport-bundle.mjs
+      - run: node --check packages/cli/contract-source-snapshot.mjs
       - run: node --test tests/research/project-passport.test.mjs tests/research/passport-bundle.test.mjs
   real-typespec-ir:
     runs-on: ubuntu-latest
@@ -84,6 +86,10 @@ jobs:
           test -s "$APP/passport/PROJECT_PASSPORT.md"
           test -s "$APP/passport/docs/traceability.json"
           test -s "$APP/protocolia-passport-verify.mjs"
+          test -s "$APP/protocolia-contract-source-verify.mjs"
+          test -s "$APP/protocolia-contract-source.lock.json"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$APP/protocolia-contract-source" "$APP/protocolia-contract-source.lock.json"
           node "$APP/protocolia-passport-verify.mjs" verify \
             --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
           node --input-type=module -e \
@@ -92,6 +98,38 @@ jobs:
             'import {readFileSync} from "node:fs";const m=JSON.parse(readFileSync(process.argv[1]));if(m.passport?.status!=="GENERATED_PORTABLE_INTEGRITY_ONLY"||m.passport.requirementsProvided)process.exit(1);' \
             "$APP/protocolia-build.json"
           echo 'PROTOCOLIA_R3_BUNDLED_GENERATED_APP_PASS'
+      - name: Rehydrate the application from only its bundled TypeSpec source
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/r3-generated-app"
+          # Put only bundled TypeSpec into a new workspace project. The pinned
+          # compiler/adapter toolchain still comes from this source checkout;
+          # original TypeSpec and any conversation are NOT read.
+          NEW_PROJECT="$(mktemp -d "$GITHUB_WORKSPACE/.r4-rehydrate.XXXXXXXX")"
+          cp -R "$APP/protocolia-contract-source/." "$NEW_PROJECT/"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$NEW_PROJECT" "$APP/protocolia-contract-source.lock.json"
+          REBUILT="$RUNNER_TEMP/r4-rebuilt-app"
+          npm run app:build -- "$NEW_PROJECT" --target nestjs --out "$REBUILT" --passport
+          node "$REBUILT/protocolia-contract-source-verify.mjs" verify \
+            "$REBUILT/protocolia-contract-source" "$REBUILT/protocolia-contract-source.lock.json"
+          node --input-type=module - "$APP" "$REBUILT" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          import assert from 'node:assert/strict';
+          const [original,rebuild]=process.argv.slice(2);
+          for(const artifact of ['protocolia-contract-ir.json','protocolia-contract-openapi.json']){
+            assert.deepEqual(readFileSync(join(original,artifact)),
+              readFileSync(join(rebuild,artifact)),artifact+' diverged after handoff');
+          }
+          const first=JSON.parse(readFileSync(join(original,'protocolia-build.json')));
+          const second=JSON.parse(readFileSync(join(rebuild,'protocolia-build.json')));
+          assert.equal(first.contractSha256,second.contractSha256);
+          assert.equal(first.irSha256,second.irSha256);
+          assert.equal(second.passport.contractSource.contractSha256,first.contractSha256);
+          NODE
+          echo 'PROTOCOLIA_R4_SOURCE_REHYDRATION_REBUILD_PASS'
       - name: Refuse modified bundled Passport under the app ownership seal
         shell: bash
         run: |
@@ -104,3 +142,33 @@ jobs:
             exit 1
           fi
           echo 'PROTOCOLIA_R3_BUNDLED_PASSPORT_DRIFT_REJECTED'
+
+  real-spring-source-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate modular Spring app with source-bound Passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/r4-spring-generated"
+          npm run app:build -- examples/vnext/taller --target modular-spring --out "$APP" --passport
+          test -s "$APP/protocolia-contract-source/contracts/main.tsp"
+          test -s "$APP/PROJECT_HANDOFF.md"
+          node "$APP/protocolia-contract-source-verify.mjs" verify \
+            "$APP/protocolia-contract-source" "$APP/protocolia-contract-source.lock.json"
+          node "$APP/protocolia-passport-verify.mjs" verify \
+            --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
+          node --input-type=module -e \
+            'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp(process.argv[1]);' "$APP"
+          echo 'PROTOCOLIA_R4_SPRING_SOURCE_BUNDLE_PASS'
