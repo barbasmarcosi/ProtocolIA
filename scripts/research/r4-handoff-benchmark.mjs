@@ -216,9 +216,19 @@ function score(bundlePath,submissionPath,oraclePath){
     if(oldOps!==newOps)refuse("New or changed operation/authority");
     // The separate request DTO is not part of canonical persistence IR.
     // Require its wire representation to accept the new optional field.
-    const exposed=JSON.stringify(newApi);
-    if(!exposed.includes('"'+oracle.field.name+'"'))refuse(
-      "Missing field in generated wire API");
+    const newSchemas=newApi?.components?.schemas;
+    if(!newSchemas||typeof newSchemas!=="object")refuse(
+      "Candidate OpenAPI has no component schemas");
+    for(const component of [oracle.field.entity,oracle.field.entity+"Request"]){
+      const matches=Object.entries(newSchemas).filter(([name])=>
+        name===component||name.endsWith("."+component));
+      if(matches.length!==1)refuse(
+        "Missing or ambiguous OpenAPI schema for "+component);
+      const schema=matches[0][1];
+      if(!Object.hasOwn(schema.properties??{},oracle.field.name)||
+         (schema.required??[]).includes(oracle.field.name))
+        refuse("New optional field missing in "+component+" wire schema");
+    }
     const original=JSON.stringify(oldApi);
     if(original.includes('"'+oracle.field.name+'"'))
       refuse("Benchmark no longer tests an unseen field");
