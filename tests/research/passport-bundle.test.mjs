@@ -57,6 +57,11 @@ test("opt-in Passport builds immutable source snapshots and seals every doc",()=
   assert.equal(verifyPassport(join(app,"protocolia-contract-ir.json"),join(app,"passport"),reqSnap,decSnap).status,
     "PASS_PORTABLE_INTEGRITY_ONLY");
   assert.match(readFileSync(join(app,"passport/docs/domain/decisions.md"),"utf8"),/What refund policy/);
+  const portable=spawnSync(process.execPath,[join(app,"protocolia-passport-verify.mjs"),
+    "verify","--ir",join(app,"protocolia-contract-ir.json"),"--out",join(app,"passport"),
+    "--requirements",reqSnap,"--decisions",decSnap],{encoding:"utf8"});
+  assert.equal(portable.status,0,portable.stderr);
+  assert.match(portable.stdout,/PASS_PORTABLE_INTEGRITY_ONLY/);
   sealApp(app);verifyApp(app);
   writeFileSync(req,JSON.stringify({...requirements(),requirements:[]}));
   // External files are no longer needed for verification of this app bundle.
@@ -70,6 +75,7 @@ test("Passport is optional and cannot be replaced or silently changed",()=>fixtu
   assert.equal(verifyPassport(join(app,"protocolia-contract-ir.json"),join(app,"passport")).status,
     "PASS_PORTABLE_INTEGRITY_ONLY");
   assert.throws(()=>bundlePassport(app),/replace existing/);
+  assert.equal(existsSync(join(app,"protocolia-passport-verify.mjs")),true);
   sealApp(app);verifyApp(app);
   writeFileSync(join(app,"protocolia-contract-ir.json"),JSON.stringify({...ir(),namespace:"Another"}));
   assert.throws(()=>verifyApp(app),/Managed files modified/);
@@ -97,3 +103,11 @@ test("CLI refuses provenance args without explicit Passport opt-in",()=>{
   assert.equal(result.status,1);
   assert.match(result.stderr,/Passport source options require explicit --passport/);
 });
+
+test("ownership seal detects replacement of the self-contained verifier",()=>fixture(({app})=>{
+  bundlePassport(app);
+  sealApp(app);
+  const tool=join(app,"protocolia-passport-verify.mjs");
+  writeFileSync(tool,readFileSync(tool,"utf8")+"\\n// altered\\n");
+  assert.throws(()=>verifyApp(app),/Managed files modified/);
+}));
