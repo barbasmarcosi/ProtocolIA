@@ -82,8 +82,15 @@ async function ready(){
 }
 async function recoveredReady(){
   for(let i=0;i<95;i++){
-    const r=execute("docker",["exec",restoreName,"psql","-X","-U","protocolia",
-      "-d","protocolia","-At","-c","SELECT 1"],{allowFailure:true,timeout:15000});
+    // The official PostgreSQL image temporarily accepts local connections
+    // during initdb, then restarts. Do not restore until the FINAL service.
+    const logs=execute("docker",["logs",restoreName],{allowFailure:true,timeout:15000});
+    const initialized=logs.status===0&&
+      (String(logs.stderr??"")+String(logs.stdout??""))
+        .includes("PostgreSQL init process complete; ready for start up.");
+    const r=initialized?execute("docker",["exec",restoreName,"psql","-X","-U","protocolia",
+      "-d","protocolia","-At","-c","SELECT 1"],{allowFailure:true,timeout:15000}):
+      {status:1};
     if(r.status===0)return;
     await new Promise(ok=>setTimeout(ok,700));
   }
