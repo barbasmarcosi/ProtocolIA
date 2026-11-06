@@ -83,7 +83,8 @@ jobs:
           npm run app:build -- examples/vnext/taller --target nestjs --out "$APP" --passport
           test -s "$APP/passport/PROJECT_PASSPORT.md"
           test -s "$APP/passport/docs/traceability.json"
-          node scripts/research/project-passport.mjs verify \
+          test -s "$APP/protocolia-passport-verify.mjs"
+          node "$APP/protocolia-passport-verify.mjs" verify \
             --ir "$APP/protocolia-contract-ir.json" --out "$APP/passport"
           node --input-type=module -e \
             'import {verifyApp} from "./packages/cli/ownership.mjs";verifyApp(process.argv[1]);' "$APP"
