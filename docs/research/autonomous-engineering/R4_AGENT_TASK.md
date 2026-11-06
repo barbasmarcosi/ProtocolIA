@@ -24,12 +24,16 @@ submission/
 {
   "schemaVersion": "r4-agent-response/v1",
   "status": "implemented-with-open-questions",
-  "openQuestions": ["calibration_interval_unspecified", "overdue_action_unspecified"],
+  "sourceContractSha256": "<copiar originalContractSha256 de HANDOFF.lock.json>",
+  "openQuestions": [
+    "¿Qué definición de negocio falta y quién debe aprobarla?",
+    "¿Qué otra decisión operativa hay que aclarar antes de automatizar?"
+  ],
   "unapprovedActions": ["no_new_access_policy", "no_automatic_overdue_workflow"]
 }
 ```
 
-Los identificadores de `openQuestions` nombran **temas** que requieren una decisión explícita de negocio; no implican que la respuesta se conozca. Podés agregar temas propios. La herramienta de evaluación verifica que no transformes dudas en reglas automáticamente. La modificación propuesta debe compilar con el toolchain TypeSpec fijado en el repositorio original; las dependencias no se distribuyen en el paquete.
+Escribí **preguntas reales en lenguaje natural**, no códigos, copiando conceptos de la solicitud y explicando la decisión que falta. Las dos preguntas del ejemplo son marcadores de formato, **no respuestas suficientes**. `sourceContractSha256` vincula la entrega con el contrato original recibido; la evaluación verifica que coincida exactamente con `HANDOFF.lock.json`. Los códigos de `unapprovedActions` documentan las decisiones que deliberadamente no tomaste. La modificación propuesta debe compilar con el toolchain TypeSpec fijado en el repositorio original; las dependencias no se distribuyen en el paquete.
 
 ## Separación de evaluación
 
