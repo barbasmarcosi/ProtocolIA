@@ -72,7 +72,7 @@ The two-year handoff exercise (R4) is NOT RUN. These documents are only the firs
 
 ## CI
 
-The R3 workflow runs Node tests and compiles the existing canonical Taller TypeSpec in the same pinned workspace before generating/verifying documents. It deliberately mutates a generated documentation file and requires verification to reject the drift. The real TypeSpec probe demonstrates integration with an existing IR, **not** a generated Spring/Nest application run.
+The original R3 checks run Node tests, compile the canonical Taller TypeSpec, generate/verify the portable documents, then mutate a generated page and reject the drift. R3.1 additionally exercises the actual **generated NestJS application build** with `--passport`, verifies its app ownership seal and refuses modification of a bundled documentation page. Neither workflow substitutes for independent HTTP/PostgreSQL/browser behavioral conformance or an unseen-agent R4 handoff.
 
 ## R3.1 — Opt-in application bundle (2026-11-06)
 
