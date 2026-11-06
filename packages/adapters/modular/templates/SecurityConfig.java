@@ -340,6 +340,7 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain security(HttpSecurity http,
       ObjectProvider<BffSession> sessions,
+      ObjectProvider<HumanSqlRouting> humanSql,
       ObjectProvider<ClientRegistrationRepository> registrations,
       ObjectProvider<OAuth2AuthorizedClientRepository> clients) throws Exception {
     String selected=mode();
@@ -371,6 +372,28 @@ public class SecurityConfig {
         return declared.stream().map(value->(org.springframework.security.core.GrantedAuthority)new SimpleGrantedAuthority((String)value)).toList();
       });
       http.oauth2ResourceServer(o->o.jwt(jwt->jwt.jwtAuthenticationConverter(converter)));
+      if("human-jwt-v1".equals(System.getenv("PROTOCOLIA_TENANT_SQL_ROUTING"))){
+        // JWT verified by Spring Security before selecting any SQL connection.
+        // An unmapped human must be rejected before @Transactional acquisition.
+        http.addFilterAfter(new OncePerRequestFilter(){
+          @Override protected boolean shouldNotFilter(HttpServletRequest request){
+            return !request.getRequestURI().startsWith("/api/");
+          }
+          @Override protected void doFilterInternal(HttpServletRequest request,
+              HttpServletResponse response,FilterChain chain)
+              throws ServletException,IOException{
+            Authentication auth=org.springframework.security.core.context
+                .SecurityContextHolder.getContext().getAuthentication();
+            if(auth instanceof org.springframework.security.oauth2.server.resource
+                .authentication.JwtAuthenticationToken&&auth.isAuthenticated()&&
+               !humanSql.getObject().permitsVerifiedJwtHuman(auth)){
+              response.sendError(403,"No provisioned SQL authority for verified JWT subject");
+              return;
+            }
+            chain.doFilter(request,response);
+          }
+        },BearerTokenAuthenticationFilter.class);
+      }
     }else http.httpBasic(Customizer.withDefaults());
     if(bff){
       BffSession store=sessions.getObject();
