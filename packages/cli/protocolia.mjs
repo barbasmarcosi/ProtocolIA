@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { sealApp } from "./ownership.mjs";
+import { bundlePassport } from "./passport-bundle.mjs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,19 +31,31 @@ function projectDigest(directory){
   return fingerprint.digest("hex");
 }
 function parse(argv){
-  if(argv[0]!=="build"||!argv[1])throw Error("Usage: protocolia build <project> --target <modular-spring|nestjs> --out <directory>");
+  if(argv[0]!=="build"||!argv[1])throw Error("Usage: protocolia build <project> --target <modular-spring|nestjs> --out <directory> [--passport] [--passport-requirements <json>] [--passport-decisions <json>]");
   const options={};
-  for(let i=2;i<argv.length;i+=2){
-    if(!["--target","--out"].includes(argv[i])||!argv[i+1]||options[argv[i]])
-      throw Error("Unexpected or missing option "+argv[i]);
-    options[argv[i]]=argv[i+1];
+  for(let i=2;i<argv.length;i++){
+    const option=argv[i];
+    if(option==="--passport"){
+      if(options[option])throw Error("Duplicate --passport");
+      options[option]=true;
+      continue;
+    }
+    if(!["--target","--out","--passport-requirements","--passport-decisions"].includes(option)||
+       !argv[i+1]||argv[i+1].startsWith("--")||options[option])
+      throw Error("Unexpected or missing option "+option);
+    options[option]=argv[++i];
   }
   if(!["modular-spring","nestjs"].includes(options["--target"])||!options["--out"])
     throw Error("Only explicit --target modular-spring or nestjs is supported");
-  return {project:resolve(argv[1]),out:resolve(options["--out"]),target:options["--target"]};
+  if((options["--passport-requirements"]||options["--passport-decisions"])&&!options["--passport"])
+    throw Error("Passport source options require explicit --passport");
+  return {project:resolve(argv[1]),out:resolve(options["--out"]),target:options["--target"],
+    passport:options["--passport"]===true,
+    passportRequirements:options["--passport-requirements"],
+    passportDecisions:options["--passport-decisions"]};
 }
 function main(){
-  const {project,out,target}=parse(process.argv.slice(2));
+  const {project,out,target,passport,passportRequirements,passportDecisions}=parse(process.argv.slice(2));
   if(!existsSync(join(project,"tspconfig.yaml"))||!existsSync(join(project,"contracts")))
     throw Error("Project requires tspconfig.yaml and contracts/");
   if(out===project||out.startsWith(project+sep))
@@ -99,9 +112,12 @@ function main(){
     typespec:"1.17.0",openapiGenerator:target==="modular-spring"?"7.26.0":null,
     note:"Compiled artifact; HTTP/DB/browser conformance must be tested independently",
   };
-  writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
   cpSync(irPath,join(out,"protocolia-contract-ir.json"),{force:false,errorOnExist:true});
   cpSync(openapiPath,join(out,"protocolia-contract-openapi.json"),{force:false,errorOnExist:true});
+  if(passport){
+    metadata.passport=bundlePassport(out,{requirements:passportRequirements,decisions:passportDecisions});
+  }
+  writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
   const ownership=sealApp(out);
   console.log("PROTOCOLIA_OWNERSHIP_SEALED "+Object.keys(ownership.files).length);
   console.log("PROTOCOLIA_APP_BUILD_SUCCESS "+JSON.stringify({output:out,...metadata}));
