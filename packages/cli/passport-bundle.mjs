@@ -23,7 +23,8 @@ export function bundlePassport(out,{requirements,decisions,project,contractSha25
      names.has("protocolia-passport-verify.mjs")||
      names.has("protocolia-contract-source")||
      names.has("protocolia-contract-source.lock.json")||
-     names.has("protocolia-contract-source-verify.mjs"))
+     names.has("protocolia-contract-source-verify.mjs")||
+     names.has("PROJECT_HANDOFF.md"))
     throw Error("Refusing to replace existing Passport or source files");
   const ir=join(root,"protocolia-contract-ir.json");
   checkedInput(ir,"generated IR");
@@ -67,6 +68,25 @@ export function bundlePassport(out,{requirements,decisions,project,contractSha25
     "contract-source-snapshot.mjs");
   writeFileSync(join(root,"protocolia-contract-source-verify.mjs"),
     checkedInput(sourceVerifier,"TypeSpec source verifier"),{flag:"wx"});
+  writeFileSync(join(root,"PROJECT_HANDOFF.md"),[
+    "# ProtocolIA application handoff","",
+    "This folder contains generated code, canonical contract bytes, and an",
+    "IR-derived Passport. Local SHA-256 consistency is NOT authenticated approval.","",
+    "## Begin without any prior chats","",
+    "1. Read passport/PROJECT_PASSPORT.md and passport/AGENTS.md.",
+    "2. Verify the TypeSpec source: node protocolia-contract-source-verify.mjs verify protocolia-contract-source protocolia-contract-source.lock.json",
+    "3. Verify documents: node protocolia-passport-verify.mjs verify --ir protocolia-contract-ir.json --out passport",
+    "4. For any bundled declarations, pass --requirements protocolia-passport-inputs/requirements.json and/or --decisions protocolia-passport-inputs/decisions.json to the Passport verifier.",
+    "5. Inspect protocolia-contract-source/contracts/*.tsp and tspconfig.yaml.",
+    "6. Copy the contract-source folder to a separate new project, then use a",
+    "   compatible pinned ProtocolIA toolchain to rebuild and test both targets.",
+    "7. Do NOT alter this sealed generated tree in place or call a build a safe",
+    "   database migration. Keep business questions UNKNOWN until approved.",
+    "8. Independently verify HTTP, PostgreSQL, browser, data preservation and",
+    "   migration/rollback before accepting a change or deployment.","",
+    "No production IAM, legal compliance, settlement or independent agent",
+    "performance is attested by these artifacts.",""
+  ].join("\\n"),{flag:"wx"});
   return {
     status:"GENERATED_PORTABLE_INTEGRITY_ONLY",
     irSha256:verified.irSha256,
