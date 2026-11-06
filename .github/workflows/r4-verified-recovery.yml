@@ -1,0 +1,55 @@
+name: R4 verified checkpoint restore and isolated crash drill
+on:
+  pull_request:
+    paths:
+      - 'scripts/research/r4-verified-checkpoint-restore.mjs'
+      - 'scripts/research/r4-evolution-exercise.mjs'
+      - 'packages/cli/database-checkpoint.mjs'
+      - 'packages/cli/database-preflight.mjs'
+      - 'packages/cli/evolution-approval.mjs'
+      - 'packages/cli/regeneration.mjs'
+      - 'packages/cli/ownership.mjs'
+      - '.github/workflows/r4-verified-recovery.yml'
+      - 'docs/research/autonomous-engineering/R4_VERIFIED_RECOVERY.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verified-recovery:
+    name: checkpoint + isolated SQL restore + verified evolution + crash (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check portable verification and guardrail units
+        run: |
+          node --check scripts/research/r4-verified-checkpoint-restore.mjs
+          node --test tests/vnext/database-checkpoint.test.mjs tests/vnext/database-preflight.test.mjs tests/vnext/evolution-approval.test.mjs
+      - name: Build original source-bound generated application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- examples/vnext/taller --target "${{ matrix.target }}" --out "$RUNNER_TEMP/r4-verified-app" --passport
+          test -s "$RUNNER_TEMP/r4-verified-app/PROJECT_HANDOFF.md"
+      - name: Prove sealed real backup, isolated restore, verified SQL and crash recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-verified-checkpoint-restore.mjs "$RUNNER_TEMP/r4-verified-app" "${{ matrix.target }}"
