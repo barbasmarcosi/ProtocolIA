@@ -6,8 +6,8 @@ import {cpSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import {join,resolve} from "node:path";
 
 const [kind,publicBundle,submissionDir]=process.argv.slice(2);
-if(!["valid-control","wrong-policy","missing-question","extra-file","missing-field","wrong-handoff"].includes(kind)||
-   !publicBundle||!submissionDir)throw Error("Usage: r4-control-fixture.mjs valid-control|wrong-policy|missing-question|extra-file|missing-field|wrong-handoff <handoff-dir> <new-submission-dir>");
+if(!["valid-control","wrong-policy","missing-question","extra-file","missing-field","wrong-handoff","entity-only"].includes(kind)||
+   !publicBundle||!submissionDir)throw Error("Usage: r4-control-fixture.mjs valid-control|wrong-policy|missing-question|extra-file|missing-field|wrong-handoff|entity-only <handoff-dir> <new-submission-dir>");
 const src=resolve(publicBundle),dest=resolve(submissionDir);
 if(existsSync(dest))throw Error("Refusing to overwrite control submission");
 mkdirSync(dest);
@@ -18,9 +18,11 @@ const original=readFileSync(path,"utf8");
 const needle="    lastReviewedAt?: utcDateTime | null;";
 assert.equal(original.split(needle).length-1,2,"Expected both entity and input occurrences");
 if(kind!=="missing-field"){
-  const changed=original.replaceAll(needle,
-    "    calibrationDueAt?: utcDateTime | null;\n"+needle);
-  assert.equal(changed.split("calibrationDueAt?: utcDateTime | null;").length-1,2);
+  const updated="    calibrationDueAt?: utcDateTime | null;\n"+needle;
+  const changed=kind==="entity-only"?original.replace(needle,updated):
+    original.replaceAll(needle,updated);
+  assert.equal(changed.split("calibrationDueAt?: utcDateTime | null;").length-1,
+    kind==="entity-only"?1:2);
   writeFileSync(path,kind==="wrong-policy"?
     changed.replace('@capability("inventory.write")','@capability("inventory.read")'):
     changed);
