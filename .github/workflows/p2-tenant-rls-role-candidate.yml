@@ -114,6 +114,8 @@ jobs:
             | tee "$RUNNER_TEMP/p2-human-subject.log"
           grep -q 'PROTOCOLIA_S2_ROLE_PINNED_HUMAN_DB_PROOF_PASS' \
             "$RUNNER_TEMP/p2-human-subject.log"
+          grep -q 'PROTOCOLIA_S2_LIVE_HUMAN_DB_REVOCATION_PASS' \
+            "$RUNNER_TEMP/p2-human-subject.log"
       - name: Build independently generated NestJS and Spring application bundles
         shell: bash
         run: |
@@ -153,6 +155,7 @@ jobs:
           node scripts/research/subject-jwt-sql-http-e2e.mjs "$RLS_TMP/ready-nest" nestjs \
             | tee "$RUNNER_TEMP/p2-s2-jwt-nest.log"
           grep -q 'PROTOCOLIA_S2_JWT_HUMAN_SQL_HTTP_PASS' "$RUNNER_TEMP/p2-s2-jwt-nest.log"
+          grep -q 'PROTOCOLIA_S2_LIVE_HUMAN_REVOCATION_PASS' "$RUNNER_TEMP/p2-s2-jwt-nest.log"
           grep -q 'PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS nestjs maker' "$RUNNER_TEMP/p2-s2-jwt-nest.log"
           grep -q 'PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS nestjs audit' "$RUNNER_TEMP/p2-s2-jwt-nest.log"
       - name: Real JWT S2 four-human Spring HTTP PostgreSQL conformance
@@ -164,6 +167,7 @@ jobs:
           node scripts/research/subject-jwt-sql-http-e2e.mjs "$RLS_TMP/ready-spring" modular-spring \
             | tee "$RUNNER_TEMP/p2-s2-jwt-spring.log"
           grep -q 'PROTOCOLIA_S2_JWT_HUMAN_SQL_HTTP_PASS' "$RUNNER_TEMP/p2-s2-jwt-spring.log"
+          grep -q 'PROTOCOLIA_S2_LIVE_HUMAN_REVOCATION_PASS' "$RUNNER_TEMP/p2-s2-jwt-spring.log"
           grep -q 'PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS modular-spring maker' "$RUNNER_TEMP/p2-s2-jwt-spring.log"
           grep -q 'PROTOCOLIA_S2_HUMAN_SQL_STARTUP_REJECTED_PASS modular-spring audit' "$RUNNER_TEMP/p2-s2-jwt-spring.log"
           grep -q 'PROTOCOLIA_TENANT_S1_STARTUP_REJECTED_PASS modular-spring wrong-tenant-map' \
