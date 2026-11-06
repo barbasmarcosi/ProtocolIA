@@ -1,7 +1,8 @@
 // R3 opt-in: bundle a deterministic Project Passport with a generated app.
 // This creates documentation, not customer approval, runtime authorization or test evidence.
 import {existsSync,lstatSync,readFileSync,readdirSync,mkdirSync,writeFileSync} from "node:fs";
-import {join,resolve} from "node:path";
+import {join,resolve,dirname} from "node:path";
+import {fileURLToPath} from "node:url";
 import {generatePassport,verifyPassport} from "../../scripts/research/project-passport.mjs";
 
 function checkedInput(path,label){
@@ -17,7 +18,8 @@ export function bundlePassport(out,{requirements,decisions}={}){
   if(!existsSync(root)||!lstatSync(root).isDirectory()||lstatSync(root).isSymbolicLink())
     throw Error("Generated application directory required");
   const names=new Set(readdirSync(root));
-  if(names.has("passport")||names.has("protocolia-passport-inputs"))
+  if(names.has("passport")||names.has("protocolia-passport-inputs")||
+     names.has("protocolia-passport-verify.mjs"))
     throw Error("Refusing to replace existing Passport files");
   const ir=join(root,"protocolia-contract-ir.json");
   checkedInput(ir,"generated IR");
@@ -43,6 +45,13 @@ export function bundlePassport(out,{requirements,decisions}={}){
   const verified=verifyPassport(ir,dest,reqPath,decisionPath);
   if(generated.irSha256!==verified.irSha256)
     throw Error("Inconsistent Project Passport generated IR");
+  // The verifier has only Node built-in dependencies. Include the exact
+  // implementation used to check the bundle so the consumer can verify docs
+  // without a ProtocolIA checkout; the outer app seal covers this tool too.
+  const verifier=resolve(dirname(fileURLToPath(import.meta.url)),
+    "../../scripts/research/project-passport.mjs");
+  writeFileSync(join(root,"protocolia-passport-verify.mjs"),
+    checkedInput(verifier,"Passport verifier"),{flag:"wx"});
   return {
     status:"GENERATED_PORTABLE_INTEGRITY_ONLY",
     irSha256:verified.irSha256,
