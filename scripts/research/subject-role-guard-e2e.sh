@@ -233,4 +233,58 @@ BEGIN
   END IF;
 END $verify$;
 SQL
+# Revoke a human without changing the authenticated PostgreSQL LOGIN.
+# The RLS policy must hide preexisting rows and deny new rows on the next
+# statement; a cached live SQL session must never be a permanent capability.
+owner <<'SQL'
+UPDATE public.protocolia_s2_principal_subject
+SET active=FALSE
+WHERE principal='protocolia_s2_alpha_checker' AND tenant_id='org_alpha';
+SQL
+alpha_checker <<'SQL'
+DO $revoked$
+BEGIN
+  IF public.protocolia_s2_session_subject() IS NOT NULL OR
+     (SELECT count(*) FROM public.service_ticket)<>0 THEN
+    RAISE EXCEPTION 'S2 revoked human can still read tenant business rows';
+  END IF;
+  BEGIN
+    INSERT INTO public.service_ticket(ticket_code,description,phase,protocolia_tenant_id)
+      VALUES ('DISABLED','not allowed','reported','org_alpha');
+    RAISE EXCEPTION 'S2 revoked human can still write business rows';
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.protocolia_audit_event
+      (actor,entity_name,resource_id,operation_name,field_name)
+      VALUES ('alpha-checker','ServiceTicket','DISABLED','revoked','phase');
+    RAISE EXCEPTION 'S2 revoked human can still append audit rows';
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN NULL;
+  END;
+END $revoked$;
+SQL
+beta_checker <<'SQL'
+DO $healthy$
+BEGIN
+  IF public.protocolia_s2_session_subject()<>'beta-checker' OR
+     (SELECT count(*) FROM public.service_ticket)<>2 THEN
+    RAISE EXCEPTION 'S2 unrelated active human was incorrectly revoked';
+  END IF;
+END $healthy$;
+SQL
+owner <<'SQL'
+UPDATE public.protocolia_s2_principal_subject
+SET active=TRUE
+WHERE principal='protocolia_s2_alpha_checker' AND tenant_id='org_alpha';
+SQL
+alpha_checker <<'SQL'
+DO $reactivated$
+BEGIN
+  IF public.protocolia_s2_session_subject()<>'alpha-checker' OR
+     (SELECT count(*) FROM public.service_ticket)<>2 THEN
+    RAISE EXCEPTION 'Owner reactivation failed';
+  END IF;
+END $reactivated$;
+SQL
+echo 'PROTOCOLIA_S2_LIVE_HUMAN_DB_REVOCATION_PASS'
 echo 'PROTOCOLIA_S2_ROLE_PINNED_HUMAN_DB_PROOF_PASS {"tenants":2,"sqlLoginSubjects":4,"independentAlphaChecker":true,"independentBetaChecker":true,"forgedMakerGucDenied":true,"forgedCheckerGucDenied":true,"selfApprovalDenied":true,"auditActorSpoofDenied":true,"humanMappingPrivate":true}'
