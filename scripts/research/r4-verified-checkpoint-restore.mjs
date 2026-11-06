@@ -23,7 +23,11 @@ const project="pia_ckpt_"+randomBytes(5).toString("hex");
 const restoreName="pia_r4_restore_"+randomBytes(6).toString("hex");
 const volumeName="pia_r4_volume_"+randomBytes(6).toString("hex");
 const env=join(tmp,"disposable.env"),archive=join(tmp,"checkpoint.dump");
-const report=join(tmp,"rehearsal.json"),source=join(tmp,"extracted-typespec");
+const report=join(tmp,"rehearsal.json");
+ // TypeSpec resolves @protocolia/domain upward from the project. We must
+ // mount the source-only handoff inside the pinned toolchain's workspace,
+ // not /tmp (which has no TypeSpec imports), without copying original inputs.
+ const source=mkdtempSync(join(resolve("."),".r4-verified-contract-"));
 const cli=resolve("packages/cli/protocolia.mjs");
 const exercise=resolve("scripts/research/r4-evolution-exercise.mjs");
 const localEnv={
@@ -134,7 +138,6 @@ try{
   writeFileSync(damaged+".json",readFileSync(archive+".json"),{mode:0o600});
   assert.throws(()=>verifyCheckpoint(damaged),/checksum|format/);
 
-  mkdirSync(source);
   cpSync(join(app,"protocolia-contract-source","contracts"),join(source,"contracts"),{recursive:true});
   cpSync(join(app,"protocolia-contract-source","tspconfig.yaml"),join(source,"tspconfig.yaml"));
   execute(process.execPath,[join(app,"protocolia-contract-source-verify.mjs"),
@@ -228,5 +231,6 @@ try{
     {allowFailure:true,timeout:45000});
   if(sourceStarted)execute("docker",[...compose,"down","--volumes","--remove-orphans"],
     {cwd:app,allowFailure:true,timeout:90000});
+  rmSync(source,{recursive:true,force:true});
   rmSync(tmp,{recursive:true,force:true});
 }
