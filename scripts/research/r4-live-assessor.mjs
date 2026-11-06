@@ -6,8 +6,10 @@ import {spawnSync} from "node:child_process";
 import {cpSync,mkdtempSync,readFileSync,rmSync,existsSync} from "node:fs";
 import {join,resolve} from "node:path";
 
-const [participant,resultDir]=process.argv.slice(2).map(resolve);
-assert.ok(participant&&resultDir);
+const cliArgs=process.argv.slice(2);
+assert.equal(cliArgs.length,2,"Assessor requires participant bundle and candidate result directory");
+const participant=resolve(cliArgs[0]);
+const resultDir=resolve(cliArgs[1]);
 const repo=resolve("."),candidate=join(resultDir,"candidate");
 const manifest=JSON.parse(readFileSync(join(participant,"HANDOFF.lock.json"),"utf8"));
 const trial=JSON.parse(readFileSync(join(resultDir,"trial-metadata.json"),"utf8"));
