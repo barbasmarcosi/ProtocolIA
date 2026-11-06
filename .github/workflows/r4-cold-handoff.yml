@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for scenario in wrong-policy missing-question extra-file missing-field wrong-handoff; do
+          for scenario in wrong-policy missing-question extra-file missing-field wrong-handoff entity-only; do
             node tests/research/r4-control-fixture.mjs "$scenario" \
               "$RUNNER_TEMP/r4-participant-handoff" "$RUNNER_TEMP/r4-$scenario"
             if node scripts/research/r4-handoff-benchmark.mjs score \
