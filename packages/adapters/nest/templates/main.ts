@@ -684,8 +684,29 @@ class RuntimeService{
       "EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member "+
       "WHERE r.rolname=current_user) AS member";
     if(this.humanSqlEnabled){
+      // An RLS check is insufficient if privileged migrations disabled the
+      // independent S2 maker or audit actor trigger. Verify exact enabled
+      // BEFORE ROW events and trusted function owner before serving HTTP.
+      const triggerSql=
+        "EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid "+
+        "JOIN pg_class c ON c.oid=t.tgrelid "+
+        "WHERE c.oid='public."+table+"'::regclass "+
+        "AND t.tgname='protocolia_s2_human_"+table+"_trigger' "+
+        "AND t.tgenabled IN ('O','A') AND t.tgtype=19 "+
+        "AND t.tgqual IS NULL AND NOT t.tgisinternal "+
+        "AND p.proname='protocolia_s2_human_"+table+"_guard' "+
+        "AND p.proowner=c.relowner AND p.pronamespace='public'::regnamespace) AS human_guard,"+
+        "EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid "+
+        "JOIN pg_class c ON c.oid=t.tgrelid "+
+        "WHERE c.oid='public.protocolia_audit_event'::regclass "+
+        "AND t.tgname='protocolia_s2_audit_actor_trigger' "+
+        "AND t.tgenabled IN ('O','A') AND t.tgtype=7 "+
+        "AND t.tgqual IS NULL AND NOT t.tgisinternal "+
+        "AND p.proname='protocolia_s2_audit_actor_guard' "+
+        "AND p.proowner=c.relowner AND p.pronamespace='public'::regnamespace) AS audit_guard,";
       const humanSql=sql.replace("SELECT session_user AS login,",
-        "SELECT public.protocolia_s2_session_subject() AS human,session_user AS login,");
+        "SELECT "+triggerSql+
+        "public.protocolia_s2_session_subject() AS human,session_user AS login,");
       for(const binding of this.humanSqlBindings){
         const pool=this.humanSqlPools.get(binding.tenant+"|"+binding.subject);
         if(!pool)throw Error("S2 human SQL pool is absent");
@@ -693,7 +714,8 @@ class RuntimeService{
         if(result.rowCount!==1||row.login!==binding.user||
            row.principal!==binding.user||row.tenant!==binding.tenant||
            row.human!==binding.subject||row.entity_rls!==true||
-           row.audit_rls!==true||row.privileged!==false||
+           row.audit_rls!==true||row.human_guard!==true||
+           row.audit_guard!==true||row.privileged!==false||
            row.can_create!==false||row.can_delete!==false||
            row.audit_read!==false||row.member!==false)
           throw Error("S2 human SQL connection/subject/RLS authority preflight failed");

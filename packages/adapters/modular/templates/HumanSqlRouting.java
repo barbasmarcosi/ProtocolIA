@@ -80,6 +80,22 @@ public class HumanSqlRouting {
         ResultSet row=statement.executeQuery("SELECT session_user,current_user,"+
           "public.protocolia_rls_session_tenant() AS tenant,"+
           "public.protocolia_s2_session_subject() AS human,"+
+          "EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid "+
+          "JOIN pg_class c ON c.oid=t.tgrelid "+
+          "WHERE c.oid='public."+table+"'::regclass "+
+          "AND t.tgname='protocolia_s2_human_"+table+"_trigger' "+
+          "AND t.tgenabled IN ('O','A') AND t.tgtype=19 "+
+          "AND t.tgqual IS NULL AND NOT t.tgisinternal "+
+          "AND p.proname='protocolia_s2_human_"+table+"_guard' "+
+          "AND p.proowner=c.relowner AND p.pronamespace='public'::regnamespace) AS human_guard,"+
+          "EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid "+
+          "JOIN pg_class c ON c.oid=t.tgrelid "+
+          "WHERE c.oid='public.protocolia_audit_event'::regclass "+
+          "AND t.tgname='protocolia_s2_audit_actor_trigger' "+
+          "AND t.tgenabled IN ('O','A') AND t.tgtype=7 "+
+          "AND t.tgqual IS NULL AND NOT t.tgisinternal "+
+          "AND p.proname='protocolia_s2_audit_actor_guard' "+
+          "AND p.proowner=c.relowner AND p.pronamespace='public'::regnamespace) AS audit_guard,"+
           "(SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "+
           "WHERE oid='public."+table+"'::regclass) AS entity_rls,"+
           "(SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "+
@@ -97,6 +113,8 @@ public class HumanSqlRouting {
          !subject.equals(row.getString("human"))||
          !row.getBoolean("entity_rls")||row.wasNull()||
          !row.getBoolean("audit_rls")||row.wasNull()||
+         !row.getBoolean("human_guard")||row.wasNull()||
+         !row.getBoolean("audit_guard")||row.wasNull()||
          row.getBoolean("can_create")||row.getBoolean("can_delete")||
          row.getBoolean("audit_read")||row.getBoolean("privileged")||
          row.getBoolean("member")||row.next())
