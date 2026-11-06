@@ -30,9 +30,22 @@ import tools.jackson.databind.ObjectMapper;
 @ConditionalOnProperty(name="PROTOCOLIA_TENANT_SQL_ROUTING",havingValue="human-jwt-v1")
 public class HumanSqlRouting {
   private final List<HikariDataSource> pools=new ArrayList<>();
+  // Published only after all four SQL principals pass startup preflight.
+  // Spring Security checks this before @Transactional can acquire JDBC.
+  private volatile Set<String> authorizedJwtHumans=Set.of();
+
+  boolean permitsVerifiedJwtHuman(Authentication auth){
+    if(!(auth instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)||
+       !jwt.isAuthenticated())return false;
+    String tenant=jwt.getToken().getClaimAsString("protocolia_tenant");
+    String subject=jwt.getName();
+    return tenant!=null&&subject!=null&&
+      authorizedJwtHumans.contains(tenant+"|"+subject);
+  }
 
   @jakarta.annotation.PreDestroy
   public void closePools(){
+    authorizedJwtHumans=Set.of();
     for(HikariDataSource pool:pools)pool.close();
     pools.clear();
   }
@@ -171,6 +184,8 @@ public class HumanSqlRouting {
       routing.setTargetDataSources(targets);
       routing.setLenientFallback(false);
       routing.afterPropertiesSet();
+      authorizedJwtHumans=Set.copyOf(targets.keySet().stream()
+        .map(String::valueOf).toList());
       System.out.println("PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY");
       return routing;
     }catch(RuntimeException ex){

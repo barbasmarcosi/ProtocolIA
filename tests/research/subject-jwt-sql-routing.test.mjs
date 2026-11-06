@@ -44,9 +44,16 @@ test("Spring binds JDBC routing to SecurityContext signed JwtAuthenticationToken
     'PROTOCOLIA_S2_HUMAN_SQL_BINDINGS_JSON',
     '"jwt".equals(System.getenv("PROTOCOLIA_AUTH_MODE"))',
     'PROTOCOLIA_MIGRATION_JDBC_PASSWORD',
-    'PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY'
+    'PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY',
+    'authorizedJwtHumans=Set.copyOf(targets.keySet().stream()',
+    'permitsVerifiedJwtHuman(Authentication auth)'
   ])assert.ok(spring.includes(line),"Missing Spring S2 routing guard: "+line);
   assert.match(spring,/if\(!targets\.containsKey\(key\)\)/);
+  const security=read("packages/adapters/modular/templates/SecurityConfig.java");
+  assert.match(security,/ObjectProvider<HumanSqlRouting> humanSql/);
+  assert.match(security,/humanSql\.getObject\(\)\.permitsVerifiedJwtHuman\(auth\)/);
+  assert.match(security,/BearerTokenAuthenticationFilter\.class/);
+  assert.match(security,/response\.sendError\(403,"No provisioned SQL authority/);
   assert.match(spring,/targets\.put\(key,ds\)/);
   assert.match(read("packages/adapters/modular/generate.mjs"),/HumanSqlRouting\.java/);
   assert.match(read("packages/adapters/modular/templates/ContractApplication.java"),/human-jwt-v1/);
