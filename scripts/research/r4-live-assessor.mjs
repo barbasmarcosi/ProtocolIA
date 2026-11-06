@@ -12,7 +12,7 @@ const repo=resolve("."),candidate=join(resultDir,"candidate");
 const manifest=JSON.parse(readFileSync(join(participant,"HANDOFF.lock.json"),"utf8"));
 const trial=JSON.parse(readFileSync(join(resultDir,"trial-metadata.json"),"utf8"));
 assert.equal(trial.schemaVersion,"r4-external-model-trial/v1");
-assert.equal(trial.provider,"GitHub Models");
+assert.equal(trial.provider,"Ollama (local CPU)");
 assert.equal(trial.complete,true,"No independent model submission completed");
 assert.equal(trial.originalContractSha256,manifest.originalContractSha256);
 assert.ok(trial.rounds>=1&&trial.rounds<=10);
