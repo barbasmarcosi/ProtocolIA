@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { sealApp } from "./ownership.mjs";
+import { bundlePassport } from "./passport-bundle.mjs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,7 +115,6 @@ function main(){
   cpSync(irPath,join(out,"protocolia-contract-ir.json"),{force:false,errorOnExist:true});
   cpSync(openapiPath,join(out,"protocolia-contract-openapi.json"),{force:false,errorOnExist:true});
   if(passport){
-    const {bundlePassport}=await import("./passport-bundle.mjs");
     metadata.passport=bundlePassport(out,{requirements:passportRequirements,decisions:passportDecisions});
   }
   writeFileSync(join(out,"protocolia-build.json"),JSON.stringify(metadata,null,2)+"\n");
