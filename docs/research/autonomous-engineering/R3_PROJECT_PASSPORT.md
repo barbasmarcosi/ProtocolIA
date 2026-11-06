@@ -81,16 +81,17 @@ The regular `app:build` command remains unchanged **unless** `--passport` is exp
 ```sh
 npm run app:build -- examples/vnext/taller --target nestjs --out /tmp/taller-app --passport
 
-node scripts/research/project-passport.mjs verify \
+node /tmp/taller-app/protocolia-passport-verify.mjs verify \
   --ir /tmp/taller-app/protocolia-contract-ir.json \
   --out /tmp/taller-app/passport
 ```
 
-Optional externally supplied mapping and decision documents may be provided using `--passport-requirements <requirements.json>` and `--passport-decisions <decisions.json>` **together with** `--passport`. The builder makes byte-for-byte snapshots at `protocolia-passport-inputs/`, so future verification needs the **generated application alone**, not the original ChatGPT session or the original source directory. For mapped inputs, pass `--requirements /tmp/taller-app/protocolia-passport-inputs/requirements.json` and `--decisions /tmp/taller-app/protocolia-passport-inputs/decisions.json` to the standalone verifier.
+Optional externally supplied mapping and decision documents may be provided using `--passport-requirements <requirements.json>` and `--passport-decisions <decisions.json>` **together with** `--passport`. The builder makes byte-for-byte snapshots at `protocolia-passport-inputs/`, so future documentation-integrity verification can run with **the generated application alone**, not the original ChatGPT session, ProtocolIA source checkout or original input directory. This is a self-contained hash comparison, **not** a digital signature or independent proof that the bundled verifier itself was trusted. For mapped inputs, pass `--requirements /tmp/taller-app/protocolia-passport-inputs/requirements.json` and `--decisions /tmp/taller-app/protocolia-passport-inputs/decisions.json` to the standalone verifier.
 
 The bundle includes:
 - `passport/`: deterministic documentation, Mermaid, traceability and unsigned hashes;
 - `protocolia-passport-inputs/` (only when source documents are provided): immutable copies of unverified declarations;
+- `protocolia-passport-verify.mjs`: included dependency-free verifier for use from the generated application;
 - `protocolia-build.json`: opt-in marker and source hash;
 - `protocolia-ownership.json`: SHA-256 digest of **all** Passport files and snapshots, as well as regular generated-code ownership files.
 
