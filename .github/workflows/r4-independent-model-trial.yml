@@ -1,0 +1,133 @@
+name: R4 independent model cold handoff live trial
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/r4-independent-model-trial.yml'
+      - 'scripts/research/r4-github-models-agent.mjs'
+      - 'scripts/research/r4-live-assessor.mjs'
+      - 'docs/research/autonomous-engineering/R4_INDEPENDENT_MODEL_TRIAL.md'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: r4-model-trial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/r4-github-models-cleanroom-trial-20261106')
+    name: Build immutable participant-only package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build original source-bound TypeSpec app and isolate participant handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/r4-github-models-agent.mjs
+          node --check scripts/research/r4-live-assessor.mjs
+          npm run app:build -- examples/vnext/taller --target nestjs --out "$RUNNER_TEMP/r4-pristine" --passport
+          node scripts/research/r4-handoff-benchmark.mjs package \
+            "$RUNNER_TEMP/r4-pristine" \
+            tests/research/fixtures/r4-cold-handoff/CHANGE_REQUEST.md \
+            "$RUNNER_TEMP/r4-participant"
+          node scripts/research/r4-handoff-benchmark.mjs verify "$RUNNER_TEMP/r4-participant"
+          test ! -e "$RUNNER_TEMP/r4-participant/ci-control-oracle.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-bounded-agent-runner
+          path: scripts/research/r4-github-models-agent.mjs
+          retention-days: 14
+          if-no-files-found: error
+
+  independent-model:
+    name: Fresh model with restricted file tools and no repository checkout
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    permissions:
+      actions: read
+      models: read
+      contents: none
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-bounded-agent-runner
+          path: ${{ runner.temp }}/r4-agent-runtime
+      - name: Run one bounded fresh model session with no repo, answer, or oracle
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          R4_MODEL: openai/gpt-4.1
+        run: |
+          set -euo pipefail
+          test ! -d .git
+          test ! -e "$RUNNER_TEMP/r4-participant/ci-control-oracle.json"
+          node "$RUNNER_TEMP/r4-agent-runtime/r4-github-models-agent.mjs" \
+            "$RUNNER_TEMP/r4-participant" "$RUNNER_TEMP/r4-agent-result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4-live-model-response
+          path: ${{ runner.temp }}/r4-agent-result/
+          retention-days: 14
+          if-no-files-found: warn
+
+  assessor:
+    name: Separate scorer with exact source, model trace and both generators
+    needs: [prepare, independent-model]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-model-response
+          path: ${{ runner.temp }}/r4-agent-result
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Score the ACTUAL agent output, not the deterministic fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-live-assessor.mjs \
+            "$RUNNER_TEMP/r4-participant" "$RUNNER_TEMP/r4-agent-result"
