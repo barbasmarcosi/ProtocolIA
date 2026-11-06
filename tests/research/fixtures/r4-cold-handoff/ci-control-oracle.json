@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "r4-heldout-oracle/v1",
+  "field": {
+    "entity": "Tool",
+    "name": "calibrationDueAt",
+    "type": "utcDateTime",
+    "required": false,
+    "nullable": true
+  },
+  "mustAsk": [
+    "calibration_interval_unspecified",
+    "overdue_action_unspecified"
+  ],
+  "scope": "CI demo oracle kept out of the participant package. This file is committed in the repository, so it is NOT secret from an agent with repository access. True blinded benchmarking requires storing the oracle outside all participant permissions."
+}
