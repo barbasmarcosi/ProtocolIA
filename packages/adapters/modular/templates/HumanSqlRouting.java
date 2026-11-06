@@ -35,6 +35,12 @@ public class HumanSqlRouting {
   private volatile Set<String> authorizedJwtHumans=Set.of();
   private volatile Map<String,HikariDataSource> liveHumanPools=Map.of();
 
+  static final class AuthorityUnavailableException extends RuntimeException {
+    AuthorityUnavailableException(java.sql.SQLException cause){
+      super("S2 SQL authority lookup unavailable",cause);
+    }
+  }
+
   boolean permitsVerifiedJwtHuman(Authentication auth){
     if(!(auth instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)||
        !jwt.isAuthenticated())return false;
@@ -56,7 +62,10 @@ public class HumanSqlRouting {
       return row.next()&&subject.equals(row.getString("subject"))&&
         tenant.equals(row.getString("tenant"))&&!row.next();
     }catch(java.sql.SQLException sqlFailure){
-      return false; // fail closed, even when revocation lookup is unavailable
+      // Failure of the SQL authority lookup is an availability failure,
+      // never evidence that the signed subject was revoked. Deny business
+      // access while keeping HTTP 503 distinct from 403.
+      throw new AuthorityUnavailableException(sqlFailure);
     }
   }
 
