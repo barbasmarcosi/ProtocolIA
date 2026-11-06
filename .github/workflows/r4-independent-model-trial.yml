@@ -1,4 +1,4 @@
-name: R4 independent model cold handoff live trial
+name: R4 offline model cold handoff live trial
 on:
   pull_request:
     branches: [main]
@@ -59,10 +59,9 @@ jobs:
     name: Fresh model with restricted file tools and no repository checkout
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 22
+    timeout-minutes: 38
     permissions:
       actions: read
-      models: read
       contents: none
     steps:
       - uses: actions/setup-node@v4
@@ -76,11 +75,30 @@ jobs:
         with:
           name: r4-bounded-agent-runner
           path: ${{ runner.temp }}/r4-agent-runtime
-      - name: Run one bounded fresh model session with no repo, answer, or oracle
+      - name: Install local CPU model runtime without an inference API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://ollama.com/install.sh             --output "$RUNNER_TEMP/r4-install-ollama.sh"
+          sudo sh "$RUNNER_TEMP/r4-install-ollama.sh"
+          if ! curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then
+            (nohup ollama serve >"$RUNNER_TEMP/r4-ollama.log" 2>&1 &)
+          fi
+          ready=0
+          for i in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = 1
+          ollama pull qwen3:4b-instruct-2507-q4_K_M
+          ollama show qwen3:4b-instruct-2507-q4_K_M
+      - name: Run one bounded fresh local model session with no repo, answer or oracle
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          R4_MODEL: openai/gpt-4.1
+          R4_MODEL: qwen3:4b-instruct-2507-q4_K_M
         run: |
           set -euo pipefail
           test ! -d .git
