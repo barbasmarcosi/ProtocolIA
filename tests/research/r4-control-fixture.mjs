@@ -6,8 +6,8 @@ import {cpSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import {join,resolve} from "node:path";
 
 const [kind,publicBundle,submissionDir]=process.argv.slice(2);
-if(!["valid-control","wrong-policy","missing-question","extra-file","missing-field"].includes(kind)||
-   !publicBundle||!submissionDir)throw Error("Usage: r4-control-fixture.mjs valid-control|wrong-policy|missing-question|extra-file|missing-field <handoff-dir> <new-submission-dir>");
+if(!["valid-control","wrong-policy","missing-question","extra-file","missing-field","wrong-handoff"].includes(kind)||
+   !publicBundle||!submissionDir)throw Error("Usage: r4-control-fixture.mjs valid-control|wrong-policy|missing-question|extra-file|missing-field|wrong-handoff <handoff-dir> <new-submission-dir>");
 const src=resolve(publicBundle),dest=resolve(submissionDir);
 if(existsSync(dest))throw Error("Refusing to overwrite control submission");
 mkdirSync(dest);
@@ -22,16 +22,21 @@ if(kind!=="missing-field"){
     "    calibrationDueAt?: utcDateTime | null;\n"+needle);
   assert.equal(changed.split("calibrationDueAt?: utcDateTime | null;").length-1,2);
   writeFileSync(path,kind==="wrong-policy"?
-    changed.replace('@capability("inventory.write")','@capability("public")'):
+    changed.replace('@capability("inventory.write")','@capability("inventory.read")'):
     changed);
 }
 const result={
   schemaVersion:"r4-agent-response/v1",
   status:"implemented-with-open-questions",
-  openQuestions:["calibration_interval_unspecified","overdue_action_unspecified"],
+  sourceContractSha256:JSON.parse(readFileSync(join(src,"HANDOFF.lock.json"))).originalContractSha256,
+  openQuestions:[
+    "¿Con qué intervalo o frecuencia corresponde calibrar cada tipo de herramienta?",
+    "¿Qué acción debe ejecutarse cuando una calibración está vencida?"
+  ],
   unapprovedActions:["no_new_access_policy","no_automatic_overdue_workflow"]
 };
 if(kind==="missing-question")result.openQuestions.pop();
+if(kind==="wrong-handoff")result.sourceContractSha256="a".repeat(64);
 writeFileSync(join(dest,"handoff-response.json"),JSON.stringify(result,null,2)+"\n");
 if(kind==="extra-file")writeFileSync(join(dest,"unreviewed-policy.js"),
   "console.log('not allowed');\n");
