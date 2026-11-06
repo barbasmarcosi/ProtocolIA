@@ -25,15 +25,12 @@ submission/
   "schemaVersion": "r4-agent-response/v1",
   "status": "implemented-with-open-questions",
   "sourceContractSha256": "<copiar originalContractSha256 de HANDOFF.lock.json>",
-  "openQuestions": [
-    "¿Qué definición de negocio falta y quién debe aprobarla?",
-    "¿Qué otra decisión operativa hay que aclarar antes de automatizar?"
-  ],
+  "openQuestions": [],
   "unapprovedActions": ["no_new_access_policy", "no_automatic_overdue_workflow"]
 }
 ```
 
-Escribí **preguntas reales en lenguaje natural**, no códigos, copiando conceptos de la solicitud y explicando la decisión que falta. Las dos preguntas del ejemplo son marcadores de formato, **no respuestas suficientes**. `sourceContractSha256` vincula la entrega con el contrato original recibido; la evaluación verifica que coincida exactamente con `HANDOFF.lock.json`. Los códigos de `unapprovedActions` documentan las decisiones que deliberadamente no tomaste. La modificación propuesta debe compilar con el toolchain TypeSpec fijado en el repositorio original; las dependencias no se distribuyen en el paquete.
+El `[]` es **solamente un marcador del formato JSON**: no lo dejes vacío cuando la solicitud contenga políticas sin definir. Por cada decisión material pendiente, redactá una pregunta **específica, diferente y contestable por el dueño**, mencionando expresamente el objeto y la condición del problema. No uses generalidades del tipo "¿qué definición falta?" o "¿qué hay que aclarar?", porque no permiten decidir nada. No describas una política como aprobada si no figura en la solicitud. `sourceContractSha256` vincula la entrega con el contrato original recibido; la evaluación verifica que coincida exactamente con `HANDOFF.lock.json`. Los códigos de `unapprovedActions` documentan las decisiones que deliberadamente no tomaste. La modificación propuesta debe compilar con el toolchain TypeSpec fijado en el repositorio original; las dependencias no se distribuyen en el paquete.
 
 ## Separación de evaluación
 
