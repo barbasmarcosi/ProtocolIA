@@ -86,7 +86,7 @@ export function bundlePassport(out,{requirements,decisions,project,contractSha25
     "   migration/rollback before accepting a change or deployment.","",
     "No production IAM, legal compliance, settlement or independent agent",
     "performance is attested by these artifacts.",""
-  ].join("\\n"),{flag:"wx"});
+  ].join("\n")+"\n",{flag:"wx"});
   return {
     status:"GENERATED_PORTABLE_INTEGRITY_ONLY",
     irSha256:verified.irSha256,
