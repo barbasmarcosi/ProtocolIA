@@ -33,19 +33,37 @@ public class HumanSqlRouting {
   // Published only after all four SQL principals pass startup preflight.
   // Spring Security checks this before @Transactional can acquire JDBC.
   private volatile Set<String> authorizedJwtHumans=Set.of();
+  private volatile Map<String,HikariDataSource> liveHumanPools=Map.of();
 
   boolean permitsVerifiedJwtHuman(Authentication auth){
     if(!(auth instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken jwt)||
        !jwt.isAuthenticated())return false;
     String tenant=jwt.getToken().getClaimAsString("protocolia_tenant");
     String subject=jwt.getName();
-    return tenant!=null&&subject!=null&&
-      authorizedJwtHumans.contains(tenant+"|"+subject);
+    if(tenant==null||subject==null)return false;
+    String key=tenant+"|"+subject;
+    if(!authorizedJwtHumans.contains(key))return false;
+    HikariDataSource pool=liveHumanPools.get(key);
+    if(pool==null)return false;
+    // Validate current DB-owned mapping on every signed HTTP request, not
+    // just at startup. A previous Hikari login or unexpired JWT is not
+    // authorization after the owner revokes this subject.
+    try(Connection connection=pool.getConnection();
+        Statement statement=connection.createStatement();
+        ResultSet row=statement.executeQuery(
+          "SELECT public.protocolia_s2_session_subject() AS subject,"+
+          "public.protocolia_rls_session_tenant() AS tenant")){
+      return row.next()&&subject.equals(row.getString("subject"))&&
+        tenant.equals(row.getString("tenant"))&&!row.next();
+    }catch(java.sql.SQLException sqlFailure){
+      return false; // fail closed, even when revocation lookup is unavailable
+    }
   }
 
   @jakarta.annotation.PreDestroy
   public void closePools(){
     authorizedJwtHumans=Set.of();
+    liveHumanPools=Map.of();
     for(HikariDataSource pool:pools)pool.close();
     pools.clear();
   }
@@ -202,8 +220,11 @@ public class HumanSqlRouting {
       routing.setTargetDataSources(targets);
       routing.setLenientFallback(false);
       routing.afterPropertiesSet();
-      authorizedJwtHumans=Set.copyOf(targets.keySet().stream()
-        .map(String::valueOf).toList());
+      Map<String,HikariDataSource> verifiedHumanPools=new LinkedHashMap<>();
+      for(var entry:targets.entrySet())
+        verifiedHumanPools.put(String.valueOf(entry.getKey()),(HikariDataSource)entry.getValue());
+      liveHumanPools=Map.copyOf(verifiedHumanPools);
+      authorizedJwtHumans=Set.copyOf(verifiedHumanPools.keySet());
       System.out.println("PROTOCOLIA_SPRING_S2_HUMAN_SQL_ROUTING_READY");
       return routing;
     }catch(RuntimeException ex){
