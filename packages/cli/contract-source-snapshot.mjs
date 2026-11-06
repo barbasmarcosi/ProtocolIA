@@ -23,9 +23,21 @@ function requireFile(path,kind){
 }
 function scan(root){
   requireDirectory(root,"TypeSpec project");
-  const top=readdirSync(root).filter(x=>x!=="tsp-output");
-  if(top.length!==2||!top.includes("contracts")||!top.includes("tspconfig.yaml"))
-    throw Error("TypeSpec handoff requires only contracts/ and tspconfig.yaml");
+  // The canonical CLI fingerprint intentionally covers only contracts/*.tsp
+  // and tspconfig. The workshop sample also has explanatory README/project
+  // metadata, which are not part of that fingerprint or build inputs.
+  const auxiliary=new Set(["tsp-output","README.md","protocolia.project.yaml"]);
+  const top=readdirSync(root);
+  if(!top.includes("contracts")||!top.includes("tspconfig.yaml")||
+     top.some(name=>name!=="contracts"&&name!=="tspconfig.yaml"&&!auxiliary.has(name)))
+    throw Error("Unreviewed TypeSpec project entry");
+  for(const name of top){
+    if(name==="tsp-output"&&existsSync(join(root,name))){
+      requireDirectory(join(root,name),"TypeSpec compiler output");
+    }else if(name==="README.md"||name==="protocolia.project.yaml"){
+      requireFile(join(root,name),"auxiliary TypeSpec metadata");
+    }
+  }
   const result=new Map();
   result.set("tspconfig.yaml",requireFile(join(root,"tspconfig.yaml"),"TypeSpec config"));
   let total=result.get("tspconfig.yaml").length;
