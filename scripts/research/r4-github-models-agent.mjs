@@ -158,7 +158,9 @@ try{
     const calls=msg.tool_calls??[];
     audit.push({turn:i+1,finishReason:data.done_reason??null,
       toolNames:calls.map(c=>c.function?.name),toolCallCount:calls.length});
-    if(calls.length>3)fail("Excessive tool calls in one turn");
+    if(calls.length>12)fail("Excessive tool calls in one turn: "+calls.length);
+    if(audit.reduce((n,entry)=>n+entry.toolCallCount,0)>48)
+      fail("Bounded agent exceeded 48 total file-tool calls");
     messages.push({role:"assistant",content:msg.content??"",
       ...(calls.length?{tool_calls:calls}:{})});
     if(calls.length===0){
