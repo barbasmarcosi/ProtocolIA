@@ -1,4 +1,6 @@
 import test from "node:test";
+import {createHash} from "node:crypto";
+import {verifyContractSource} from "../../packages/cli/contract-source-snapshot.mjs";
 import assert from "node:assert/strict";
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,existsSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -23,14 +25,22 @@ function fixture(run){
   const temp=mkdtempSync(join(tmpdir(),"protocolia-bundled-passport-"));
   const app=join(temp,"generated");
   const inputs=join(temp,"input");
+  const project=join(temp,"source");
   try{
     // A minimal fake app is sufficient for testing the ownership boundary.
     // CI separately uses the actual TypeSpec and generated NestJS pipeline.
-    mkdirSync(app);mkdirSync(inputs);
+    mkdirSync(app);mkdirSync(inputs);mkdirSync(project);mkdirSync(join(project,"contracts"));
+    writeFileSync(join(project,"contracts/main.tsp"),"namespace KioskDomain {}\\n");
+    writeFileSync(join(project,"tspconfig.yaml"),"kind: project\\nentrypoint: contracts/main.tsp\\n");
+    const hash=createHash("sha256");
+    for(const name of ["contracts/main.tsp","tspconfig.yaml"]){
+      hash.update(name);hash.update(readFileSync(join(project,name)));
+    }
+    const options={project,contractSha256:hash.digest("hex")};
     writeFileSync(join(app,"protocolia-contract-ir.json"),JSON.stringify(ir()));
     writeFileSync(join(app,"protocolia-contract-openapi.json"),"{}");
     writeFileSync(join(app,"protocolia-build.json"),"{}");
-    return run({temp,app,inputs});
+    return run({temp,app,inputs,options});
   }finally{rmSync(temp,{recursive:true,force:true});}
 }
 const requirements=()=>({schemaVersion:"protocolia-requirements/v1",requirements:[
@@ -42,11 +52,11 @@ const decisions=()=>({schemaVersion:"protocolia-decision-ledger/v0.1",
   decisions:[{id:"K-Q01",question:"What refund policy?",classification:"material_business",
     state:"unresolved",affectsSupported:false,origin:"agent_assumption",evidenceRefs:[]}]});
 
-test("opt-in Passport builds immutable source snapshots and seals every doc",()=>fixture(({app,inputs})=>{
+test("opt-in Passport builds immutable source snapshots and seals every doc",()=>fixture(({app,inputs,options})=>{
   const req=join(inputs,"requirements.json"),dec=join(inputs,"decisions.json");
   writeFileSync(req,JSON.stringify(requirements()));
   writeFileSync(dec,JSON.stringify(decisions()));
-  const output=bundlePassport(app,{requirements:req,decisions:dec});
+  const output=bundlePassport(app,{...options,requirements:req,decisions:dec});
   assert.equal(output.status,"GENERATED_PORTABLE_INTEGRITY_ONLY");
   assert.equal(output.requirementsProvided,true);
   assert.equal(output.decisionsProvided,true);
@@ -70,29 +80,29 @@ test("opt-in Passport builds immutable source snapshots and seals every doc",()=
   assert.throws(()=>verifyApp(app),/Managed files modified/);
 }));
 
-test("Passport is optional and cannot be replaced or silently changed",()=>fixture(({app})=>{
-  assert.equal(bundlePassport(app).requirementsProvided,false);
+test("Passport is optional and cannot be replaced or silently changed",()=>fixture(({app,options})=>{
+  assert.equal(bundlePassport(app,options).requirementsProvided,false);
   assert.equal(verifyPassport(join(app,"protocolia-contract-ir.json"),join(app,"passport")).status,
     "PASS_PORTABLE_INTEGRITY_ONLY");
-  assert.throws(()=>bundlePassport(app),/replace existing/);
+  assert.throws(()=>bundlePassport(app,options),/replace existing/);
   assert.equal(existsSync(join(app,"protocolia-passport-verify.mjs")),true);
   sealApp(app);verifyApp(app);
   writeFileSync(join(app,"protocolia-contract-ir.json"),JSON.stringify({...ir(),namespace:"Another"}));
   assert.throws(()=>verifyApp(app),/Managed files modified/);
 }));
 
-test("rejects symlinked or invalid source evidence",()=>fixture(({app,inputs})=>{
+test("rejects symlinked or invalid source evidence",()=>fixture(({app,inputs,options})=>{
   const req=join(inputs,"requirements.json"),link=join(inputs,"linked.json");
   writeFileSync(req,JSON.stringify(requirements()));symlinkSync(req,link);
-  assert.throws(()=>bundlePassport(app,{requirements:link}),/Unsafe requirements input file/);
+  assert.throws(()=>bundlePassport(app,{...options,requirements:link}),/Unsafe requirements input file/);
   assert.equal(existsSync(join(app,"passport")),false);
 }));
 
-test("unknown operations cannot be declared verified via bundled requirements",()=>fixture(({app,inputs})=>{
+test("unknown operations cannot be declared verified via bundled requirements",()=>fixture(({app,inputs,options})=>{
   const req=join(inputs,"requirements.json");
   const m=requirements();m.requirements[0].operations=["inventedOperation"];
   writeFileSync(req,JSON.stringify(m));
-  assert.throws(()=>bundlePassport(app,{requirements:req}),/unknown mapped operation/);
+  assert.throws(()=>bundlePassport(app,{...options,requirements:req}),/unknown mapped operation/);
 }));
 
 test("CLI refuses provenance args without explicit Passport opt-in",()=>{
@@ -104,10 +114,40 @@ test("CLI refuses provenance args without explicit Passport opt-in",()=>{
   assert.match(result.stderr,/Passport source options require explicit --passport/);
 });
 
-test("ownership seal detects replacement of the self-contained verifier",()=>fixture(({app})=>{
-  bundlePassport(app);
+test("ownership seal detects replacement of the self-contained verifier",()=>fixture(({app,options})=>{
+  bundlePassport(app,options);
   sealApp(app);
   const tool=join(app,"protocolia-passport-verify.mjs");
   writeFileSync(tool,readFileSync(tool,"utf8")+"\\n// altered\\n");
   assert.throws(()=>verifyApp(app),/Managed files modified/);
+}));
+
+test("TypeSpec source handoff is independently verifiable and can detect drift",()=>fixture(({app,options})=>{
+  const result=bundlePassport(app,options);
+  assert.equal(result.contractSource.contractSha256,options.contractSha256);
+  const source=join(app,"protocolia-contract-source");
+  const lock=join(app,"protocolia-contract-source.lock.json");
+  const tool=join(app,"protocolia-contract-source-verify.mjs");
+  assert.equal(verifyContractSource(source,lock).status,"SOURCE_BYTES_REHYDRATABLE_NOT_ATTESTED");
+  const fresh=spawnSync(process.execPath,[tool,"verify",source,lock],{encoding:"utf8"});
+  assert.equal(fresh.status,0,fresh.stderr);
+  assert.match(fresh.stdout,/SOURCE_BYTES_REHYDRATABLE_NOT_ATTESTED/);
+  sealApp(app);verifyApp(app);
+  writeFileSync(join(source,"contracts/main.tsp"),"namespace Other {}\\n");
+  assert.throws(()=>verifyContractSource(source,lock),/snapshot drift/);
+  assert.throws(()=>verifyApp(app),/Managed files modified/);
+}));
+
+test("TypeSpec snapshot fails closed for symlinks and source drift before copying",()=>fixture(({app,options})=>{
+  const src=join(options.project,"contracts/main.tsp");
+  writeFileSync(src,"namespace EditedSinceBuild {}\\n");
+  assert.throws(()=>bundlePassport(app,options),/changed since build fingerprint/);
+  assert.equal(existsSync(join(app,"protocolia-contract-source")),false);
+}));
+
+test("TypeSpec snapshot refuses unsafe directory entries",()=>fixture(({app,options})=>{
+  const projectFile=join(options.project,"contracts/evil.json");
+  writeFileSync(projectFile,"{}");
+  assert.throws(()=>bundlePassport(app,options),/Only TypeSpec/);
+  assert.equal(existsSync(join(app,"protocolia-contract-source")),false);
 }));
