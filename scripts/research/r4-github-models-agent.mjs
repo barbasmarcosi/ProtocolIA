@@ -137,13 +137,40 @@ try{
   for(let i=0;i<MAX_ROUNDS&&!finished;i++){
     rounds++;
     const request={model,messages,tools,stream:false,think:false,
-      options:{temperature:0.1,num_ctx:16384,num_predict:3600},
+      options:{temperature:0.1,num_ctx:12288,num_predict:2400},
       keep_alive:"25m"};
-    const res=await fetch(inference,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(request),signal:AbortSignal.timeout(480000)});
-    const raw=await res.text();
+    // A full (non-streamed) local CPU response may take several minutes.
+    // The previous uninstrumented run failed at ~7.5 min with "fetch failed".
+    // Bound each attempt but distinguish an Ollama crash from a model failure.
+    // Never log prompt or candidate bytes: only timings and local health.
+    const startedRound=Date.now();
+    console.log("PROTOCOLIA_R4_MODEL_ROUND_START "+JSON.stringify({
+      round:i+1,contextMessages:messages.length,model}));
+    let res,raw;
+    for(let attempt=1;attempt<=2;attempt++){
+      try{
+        res=await fetch(inference,{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(request),signal:AbortSignal.timeout(720000)});
+        raw=await res.text();
+        break;
+      }catch(error){
+        let service="unreachable";
+        try{
+          const health=await fetch("http://127.0.0.1:11434/api/version",{
+            signal:AbortSignal.timeout(3000)});
+          if(health.ok)service="healthy";
+        }catch{}
+        const diagnostic=String(error?.cause?.message??error?.cause?.code??
+          error?.message??error).slice(0,180);
+        console.error("PROTOCOLIA_R4_MODEL_TRANSPORT_ERROR "+JSON.stringify({
+          round:i+1,attempt,elapsedMs:Date.now()-startedRound,
+          localOllama:service,error:diagnostic}));
+        if(attempt===2||service!=="healthy")throw error;
+        await new Promise(resolve=>setTimeout(resolve,1800));
+      }
+    }
     if(!res.ok)fail("Local Ollama returned HTTP "+res.status+" "+
       raw.slice(0,280).replace(/\s+/g," "));
     let data;
@@ -156,6 +183,11 @@ try{
     usage.completion_tokens+=Number(data.eval_count??0);
     usage.total_tokens+=Number(data.prompt_eval_count??0)+Number(data.eval_count??0);
     const calls=msg.tool_calls??[];
+    console.log("PROTOCOLIA_R4_MODEL_ROUND_COMPLETE "+JSON.stringify({
+      round:i+1,elapsedMs:Date.now()-startedRound,
+      promptTokens:Number(data.prompt_eval_count??0),
+      completionTokens:Number(data.eval_count??0),
+      toolNames:calls.map(c=>c.function?.name)}));
     audit.push({turn:i+1,finishReason:data.done_reason??null,
       toolNames:calls.map(c=>c.function?.name),toolCallCount:calls.length});
     if(calls.length>12)fail("Excessive tool calls in one turn: "+calls.length);
@@ -183,7 +215,7 @@ try{
     JSON.stringify({model,rounds,usage,contractSha256:pack.lock.originalContractSha256,
       toolCallCount:audit.reduce((n,x)=>n+x.toolCallCount,0)}));
 }catch(e){
-  errored=String(e.message??e);
+  errored=String(e?.cause?.message??e?.message??e);
   console.error("PROTOCOLIA_R4_EXTERNAL_AGENT_TRIAL_FAILED "+errored.slice(0,750));
 }finally{
   const metadata={schemaVersion:"r4-external-model-trial/v1",
