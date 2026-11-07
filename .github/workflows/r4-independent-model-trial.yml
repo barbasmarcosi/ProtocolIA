@@ -1,0 +1,153 @@
+name: R4 offline model cold handoff live trial
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/r4-independent-model-trial.yml'
+      - 'scripts/research/r4-github-models-agent.mjs'
+      - 'scripts/research/r4-live-assessor.mjs'
+      - 'docs/research/autonomous-engineering/R4_INDEPENDENT_MODEL_TRIAL.md'
+      - 'docs/research/autonomous-engineering/R4_AGENT_TASK.md'
+      - 'scripts/research/r4-verified-checkpoint-restore.mjs'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: r4-model-trial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/r4-cleanroom-live-rebased-20261106')
+    name: Build immutable participant-only package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build original source-bound TypeSpec app and isolate participant handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/research/r4-github-models-agent.mjs
+          node --check scripts/research/r4-live-assessor.mjs
+          npm run app:build -- examples/vnext/taller --target nestjs --out "$RUNNER_TEMP/r4-pristine" --passport
+          node scripts/research/r4-handoff-benchmark.mjs package \
+            "$RUNNER_TEMP/r4-pristine" \
+            tests/research/fixtures/r4-cold-handoff/CHANGE_REQUEST.md \
+            "$RUNNER_TEMP/r4-participant"
+          node scripts/research/r4-handoff-benchmark.mjs verify "$RUNNER_TEMP/r4-participant"
+          test ! -e "$RUNNER_TEMP/r4-participant/ci-control-oracle.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-bounded-agent-runner
+          path: scripts/research/r4-github-models-agent.mjs
+          retention-days: 14
+          if-no-files-found: error
+
+  independent-model:
+    name: Fresh model with restricted file tools and no repository checkout
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 52
+    permissions:
+      actions: read
+      contents: none
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-bounded-agent-runner
+          path: ${{ runner.temp }}/r4-agent-runtime
+      - name: Install local CPU model runtime without an inference API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://ollama.com/install.sh             --output "$RUNNER_TEMP/r4-install-ollama.sh"
+          sudo sh "$RUNNER_TEMP/r4-install-ollama.sh"
+          if ! curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then
+            (nohup ollama serve >"$RUNNER_TEMP/r4-ollama.log" 2>&1 &)
+          fi
+          ready=0
+          for i in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = 1
+          ollama pull qwen3:4b-instruct-2507-q4_K_M >"$RUNNER_TEMP/r4-model-pull.log" 2>&1 || { cat "$RUNNER_TEMP/r4-model-pull.log"; exit 1; }
+          ollama show qwen3:4b-instruct-2507-q4_K_M
+      - name: Run one bounded fresh local model session with no repo, answer or oracle
+        shell: bash
+        env:
+          R4_MODEL: qwen3:4b-instruct-2507-q4_K_M
+        run: |
+          set -euo pipefail
+          test ! -d .git
+          test ! -e "$RUNNER_TEMP/r4-participant/ci-control-oracle.json"
+          node "$RUNNER_TEMP/r4-agent-runtime/r4-github-models-agent.mjs" \
+            "$RUNNER_TEMP/r4-participant" "$RUNNER_TEMP/r4-agent-result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4-live-model-response
+          path: ${{ runner.temp }}/r4-agent-result/
+          retention-days: 14
+          if-no-files-found: warn
+
+  assessor:
+    name: 'Separate assessor: original candidate, both generators, PostgreSQL backup and crash restoration'
+    needs: [prepare, independent-model]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-participant-only
+          path: ${{ runner.temp }}/r4-participant
+      - uses: actions/download-artifact@v4
+        with:
+          name: r4-live-model-response
+          path: ${{ runner.temp }}/r4-agent-result
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Score and DB-upgrade the ACTUAL model output, never the deterministic fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-live-assessor.mjs \
+            "$RUNNER_TEMP/r4-participant" "$RUNNER_TEMP/r4-agent-result"
