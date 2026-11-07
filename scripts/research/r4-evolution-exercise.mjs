@@ -82,6 +82,45 @@ if(mode==="prepare"){
     assert.equal(row.serviceNote??null,serviceNote);
   }
   console.log("PROTOCOLIA_R4_POST_RESTART_PERSISTENT_DATA_PASS");
+}else if(mode==="verify-calibration"){
+  await waitForHealthy();
+  for(const [code,name,quantity] of [
+    ["R4-T1","Torque wrench",7],["R4-T2","Diagnostic probe",11]
+  ]){
+    const old=await call("reader","GET","/api/tools/"+code,undefined,200);
+    assert.equal(old.name,name);assert.equal(old.quantity,quantity);
+    assert.equal(old.calibrationDueAt??null,null);
+  }
+  const due="2032-04-13T12:00:00Z";
+  const added=await call("manager","POST","/api/tools",{
+    code:"R4-T3",name:"Current clamp",quantity:4,calibrationDueAt:due
+  },201);
+  assert.equal(Date.parse(added.calibrationDueAt),Date.parse(due),
+    "New UTC calibration date was not returned by the generated application");
+  const changed=await call("manager","PATCH","/api/tools/R4-T1/quantity",
+    {amount:2},200);
+  assert.equal(changed.quantity,9);
+  await call("reader","POST","/api/tools",{
+    code:"R4-NO",name:"Unauthorized",quantity:1,calibrationDueAt:due
+  },403);
+  await call("manager","POST","/api/tools",{
+    code:"R4-T2",name:"Duplicate",quantity:1,calibrationDueAt:due
+  },409);
+  console.log("PROTOCOLIA_R4_AGENT_AUTHORED_CALIBRATION_RUNTIME_PASS");
+}else if(mode==="persist-calibration"){
+  await waitForHealthy();
+  const rows=[
+    ["R4-T1","Torque wrench",9,null],
+    ["R4-T2","Diagnostic probe",11,null],
+    ["R4-T3","Current clamp",4,"2032-04-13T12:00:00Z"]
+  ];
+  for(const [code,name,quantity,due] of rows){
+    const row=await call("reader","GET","/api/tools/"+code,undefined,200);
+    assert.equal(row.name,name);assert.equal(row.quantity,quantity);
+    if(due===null)assert.equal(row.calibrationDueAt??null,null);
+    else assert.equal(Date.parse(row.calibrationDueAt),Date.parse(due));
+  }
+  console.log("PROTOCOLIA_R4_AGENT_AUTHORED_CALIBRATION_RESTART_PASS");
 }else{
-  throw Error("Usage: r4-evolution-exercise.mjs prepare|seed|verify|persist [project]");
+  throw Error("Usage: r4-evolution-exercise.mjs prepare|seed|verify|persist|verify-calibration|persist-calibration [project]");
 }
