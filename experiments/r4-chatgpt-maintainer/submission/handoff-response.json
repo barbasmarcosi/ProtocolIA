@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "r4-agent-response/v1",
+  "status": "implemented-with-open-questions",
+  "sourceContractSha256": "bae595d2927ecd8baa21147023f9c3c6d0514abba77e2aeb0b94c77f58d04077",
+  "openQuestions": [
+    "¿Con qué frecuencia o intervalo de uso/calendario debe calibrarse cada tipo de herramienta, y quién aprueba ese criterio?",
+    "¿Qué acción debe tomarse cuando la fecha de calibración de una herramienta está vencida: solo avisar, impedir su uso o permitir una excepción autorizada?"
+  ],
+  "unapprovedActions": [
+    "no_new_access_policy",
+    "no_automatic_overdue_workflow"
+  ]
+}
