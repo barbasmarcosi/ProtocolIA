@@ -1,0 +1,66 @@
+name: R4 agent-authored calibration maintenance with verified PostgreSQL upgrade
+on:
+  pull_request:
+    paths:
+      - 'experiments/r4-chatgpt-maintainer/**'
+      - 'scripts/research/r4-evolution-exercise.mjs'
+      - 'scripts/research/r4-verified-checkpoint-restore.mjs'
+      - '.github/workflows/r4-agent-authored-calibration.yml'
+      - 'docs/research/autonomous-engineering/R4_CHATGPT_MAINTENANCE.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  agent-authored-verification:
+    name: real source upgrade, persisted rows, isolation and recovery (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [nestjs, modular-spring]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'modular-spring'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify test and maintainer source syntax
+        run: |
+          node --check scripts/research/r4-evolution-exercise.mjs
+          node --check scripts/research/r4-verified-checkpoint-restore.mjs
+      - name: Build original generated app with source-bound Passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run app:build -- examples/vnext/taller \
+            --target "${{ matrix.target }}" \
+            --out "$RUNNER_TEMP/r4-chatgpt-original" --passport
+      - name: Build fresh participant package, then score EXACT ChatGPT-authored source and policy response
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-handoff-benchmark.mjs package \
+            "$RUNNER_TEMP/r4-chatgpt-original" \
+            tests/research/fixtures/r4-cold-handoff/CHANGE_REQUEST.md \
+            "$RUNNER_TEMP/r4-chatgpt-participant"
+          node scripts/research/r4-handoff-benchmark.mjs score \
+            "$RUNNER_TEMP/r4-chatgpt-participant" \
+            experiments/r4-chatgpt-maintainer/submission \
+            tests/research/fixtures/r4-cold-handoff/ci-control-oracle.json
+      - name: Seed real PostgreSQL, checkpoint, rehearse exact TypeSpec SQL, verified evolve, crash-restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/research/r4-verified-checkpoint-restore.mjs \
+            "$RUNNER_TEMP/r4-chatgpt-original" "${{ matrix.target }}" \
+            --submission experiments/r4-chatgpt-maintainer/submission
