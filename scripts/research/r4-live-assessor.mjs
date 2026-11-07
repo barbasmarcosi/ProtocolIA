@@ -58,6 +58,22 @@ try{
     const {verifyApp}=await import("../../packages/cli/ownership.mjs");
     verifyApp(app);
     console.log("PROTOCOLIA_R4_EXTERNAL_MODEL_GENERATED_"+target+"_PASS");
+    // A successful TypeSpec compilation alone does not prove the generated
+    // application can safely evolve a POPULATED database. Reuse the exact
+    // verified R4.2 checkpoint/preflight/crash drill on the model's bytes.
+    // The scored candidate is passed unchanged; this script never writes a
+    // golden answer or reconstructs an expected solution.
+    const original=join(process.env.RUNNER_TEMP??"/tmp",
+      "r4-independent-source-app-"+target);
+    assert.equal(existsSync(original),false,"Fresh original app path required");
+    run(process.execPath,[join(repo,"packages/cli/protocolia.mjs"),
+      "build",join(repo,"examples/vnext/taller"),
+      "--target",target,"--out",original,"--passport"]);
+    const runtime=run(process.execPath,
+      [join(repo,"scripts/research/r4-verified-checkpoint-restore.mjs"),
+        original,target,"--submission",candidate],1200000);
+    assert.match(runtime,/PROTOCOLIA_R4_AGENT_AUTHORED_CANDIDATE_VERIFIED_SQL_RESTORE_PASS/);
+    console.log("PROTOCOLIA_R4_EXTERNAL_MODEL_POPULATED_DATABASE_"+target+"_PASS");
   }
 }finally{rmSync(dir,{recursive:true,force:true})}
-console.log("PROTOCOLIA_R4_REAL_FRESH_MODEL_COMPILED_BOTH_ADAPTERS_PASS");
+console.log("PROTOCOLIA_R4_REAL_FRESH_MODEL_COMPILED_MIGRATED_AND_RECOVERED_BOTH_ADAPTERS_PASS");
