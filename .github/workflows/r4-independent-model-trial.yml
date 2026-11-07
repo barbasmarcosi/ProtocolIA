@@ -7,6 +7,8 @@ on:
       - 'scripts/research/r4-github-models-agent.mjs'
       - 'scripts/research/r4-live-assessor.mjs'
       - 'docs/research/autonomous-engineering/R4_INDEPENDENT_MODEL_TRIAL.md'
+      - 'docs/research/autonomous-engineering/R4_AGENT_TASK.md'
+      - 'scripts/research/r4-verified-checkpoint-restore.mjs'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -14,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/r4-github-models-cleanroom-trial-20261106')
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/r4-cleanroom-live-rebased-20261106')
     name: Build immutable participant-only package
     runs-on: ubuntu-24.04
     timeout-minutes: 18
@@ -59,7 +61,7 @@ jobs:
     name: Fresh model with restricted file tools and no repository checkout
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 38
+    timeout-minutes: 52
     permissions:
       actions: read
       contents: none
@@ -93,7 +95,7 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
-          ollama pull qwen3:4b-instruct-2507-q4_K_M
+          ollama pull qwen3:4b-instruct-2507-q4_K_M >"$RUNNER_TEMP/r4-model-pull.log" 2>&1 || { cat "$RUNNER_TEMP/r4-model-pull.log"; exit 1; }
           ollama show qwen3:4b-instruct-2507-q4_K_M
       - name: Run one bounded fresh local model session with no repo, answer or oracle
         shell: bash
@@ -114,10 +116,10 @@ jobs:
           if-no-files-found: warn
 
   assessor:
-    name: Separate scorer with exact source, model trace and both generators
+    name: Separate assessor: original candidate, both generators, PostgreSQL backup and crash restoration
     needs: [prepare, independent-model]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 65
     permissions:
       actions: read
       contents: read
@@ -143,7 +145,7 @@ jobs:
           name: r4-live-model-response
           path: ${{ runner.temp }}/r4-agent-result
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Score the ACTUAL agent output, not the deterministic fixture
+      - name: Score and DB-upgrade the ACTUAL model output, never the deterministic fixture
         shell: bash
         run: |
           set -euo pipefail
