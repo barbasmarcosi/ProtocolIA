@@ -4,6 +4,7 @@
 // The runner alone has bounded file operations and accesses localhost Ollama.
 // One trial, at most 10 model calls; it is never a synthetic reference answer.
 import {createHash} from "node:crypto";
+import {request as httpRequest} from "node:http";
 import {existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,writeFileSync} from "node:fs";
 import {dirname,join,relative,resolve,sep} from "node:path";
 
@@ -11,6 +12,9 @@ const input=resolve(process.argv[2]??"");
 const out=resolve(process.argv[3]??"");
 const model=process.env.R4_MODEL??"qwen3:4b-instruct-2507-q4_K_M";
 const inference="http://127.0.0.1:11434/api/chat";
+// Node global fetch uses Undici's default 300s response-headers timeout,
+// independently of AbortSignal.timeout(...). CPU inference of a full source
+// file may exceed that deadline. Use native node:http with a stated bound.
 const MAX_ROUNDS=10,MAX_SOURCE=12000,MAX_DOCUMENT=22000;
 const hash=x=>createHash("sha256").update(x).digest("hex");
 const fail=m=>{throw Error("R4 isolated agent refused: "+m)};
@@ -146,6 +150,35 @@ const messages=[
   {role:"system",content:"You are a newly initialized independent TypeSpec maintainer. You have no earlier conversations or repository access. Your entire working context consists ONLY of participant handoff files accessible through read_file. Do not guess material business policies. The supplied instructions may be incomplete: disclose unknowns. You may edit only the candidate files with write_candidate; no shell, GitHub, browser, terminal or network tools exist. Read the task, source, and relevant Passport before changing anything. Preserve all unauthorized behavior. Finish by calling finish. Never claim a human approved something."},
   {role:"user",content:"Cold handoff. Start by reading AGENT_TASK.md, CHANGE_REQUEST.md, and protocolia-contract-source/contracts/main.tsp, then relevant Passport docs as helpful. Deliver a complete replacement TypeSpec under contracts/main.tsp plus handoff-response.json. Original contract SHA-256: "+pack.lock.originalContractSha256+". Available participant file names (the oracle is NOT provided): "+names.join(", ")+". You have at most "+MAX_ROUNDS+" model turns."}
 ];
+async function callLocalOllama(payload){
+  const bytes=Buffer.from(JSON.stringify(payload),"utf8");
+  return await new Promise((resolve,reject)=>{
+    const req=httpRequest(inference,{
+      method:"POST",
+      headers:{"Content-Type":"application/json",
+        "Content-Length":String(bytes.length)},
+      signal:AbortSignal.timeout(720000)
+    },res=>{
+      const chunks=[];let count=0;
+      res.on("data",chunk=>{
+        count+=chunk.length;
+        if(count>1024*1024){
+          req.destroy(Error("Local model response exceeds 1 MiB"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end",()=>resolve({
+        status:res.statusCode??0,
+        ok:(res.statusCode??0)>=200&&(res.statusCode??0)<300,
+        raw:Buffer.concat(chunks).toString("utf8")
+      }));
+      res.on("error",reject);
+    });
+    req.on("error",reject);
+    req.end(bytes);
+  });
+}
 const started=new Date().toISOString();
 let errored=null;
 try{
@@ -155,8 +188,10 @@ try{
       options:{temperature:0.1,num_ctx:12288,num_predict:2400},
       keep_alive:"25m"};
     // A full (non-streamed) local CPU response may take several minutes.
-    // The previous uninstrumented run failed at ~7.5 min with "fetch failed".
-    // Bound each attempt but distinguish an Ollama crash from a model failure.
+    // The last documented attempt failed twice on Undici's implicit 300s
+    // "Headers Timeout Error" even though our AbortSignal allowed 720s.
+    // Bound each node:http attempt and distinguish a transport issue from
+    // an actual model reasoning or semantic failure.
     // Never log prompt or candidate bytes: only timings and local health.
     const startedRound=Date.now();
     console.log("PROTOCOLIA_R4_MODEL_ROUND_START "+JSON.stringify({
@@ -164,11 +199,9 @@ try{
     let res,raw;
     for(let attempt=1;attempt<=2;attempt++){
       try{
-        res=await fetch(inference,{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(request),signal:AbortSignal.timeout(720000)});
-        raw=await res.text();
+        const reply=await callLocalOllama(request);
+        res=reply;
+        raw=reply.raw;
         break;
       }catch(error){
         let service="unreachable";
