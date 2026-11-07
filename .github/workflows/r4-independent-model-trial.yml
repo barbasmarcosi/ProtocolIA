@@ -116,7 +116,7 @@ jobs:
           if-no-files-found: warn
 
   assessor:
-    name: Separate assessor: original candidate, both generators, PostgreSQL backup and crash restoration
+    name: 'Separate assessor: original candidate, both generators, PostgreSQL backup and crash restoration'
     needs: [prepare, independent-model]
     runs-on: ubuntu-24.04
     timeout-minutes: 65
