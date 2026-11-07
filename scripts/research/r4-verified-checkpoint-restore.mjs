@@ -13,6 +13,12 @@ import {verifyCheckpoint} from "../../packages/cli/database-checkpoint.mjs";
 
 const app=resolve(process.argv[2]??"");
 const target=process.argv[3];
+// A caller may point to a separately authored, scored TypeSpec submission.
+// Default mode retains the original scripted R4.2 regression unchanged.
+const submission=process.argv.length===6&&process.argv[4]==="--submission"?
+  resolve(process.argv[5]):null;
+if(process.argv.length!==4&&!submission)
+  throw Error("Usage: r4-verified-checkpoint-restore.mjs <app> <target> [--submission <scored-source>]");
 assert.ok(["nestjs","modular-spring"].includes(target),"Expected generated target");
 const beforeBuild=JSON.parse(readFileSync(join(app,"protocolia-build.json"),"utf8"));
 assert.equal(beforeBuild.target,target);
@@ -106,7 +112,8 @@ const recoveredRows=()=>docker("exec",restoreName,"psql","-X","-U","protocolia",
 const recoveredColumn=()=>docker("exec",restoreName,"psql","-X","-U","protocolia",
   "-d","protocolia","-At","-c",
   "SELECT count(*) FROM information_schema.columns "+
-  "WHERE table_schema='public' AND table_name='tool' AND column_name='service_note'");
+  "WHERE table_schema='public' AND table_name='tool' AND column_name='"+(
+    submission?"calibration_due_at":"service_note")+"'");
 let sourceStarted=false,restoredCreated=false,volumeCreated=false;
 try{
   dc("config","--quiet");
@@ -142,7 +149,20 @@ try{
   cpSync(join(app,"protocolia-contract-source","tspconfig.yaml"),join(source,"tspconfig.yaml"));
   execute(process.execPath,[join(app,"protocolia-contract-source-verify.mjs"),
     "verify",source,join(app,"protocolia-contract-source.lock.json")]);
-  execute(process.execPath,[exercise,"prepare",source]);
+  if(submission){
+    // Test exactly the maintainer-authored contract, without generating an
+    // expected answer from the fixture. The separate scorer already checks
+    // the SHA-bound policy response, operation authority and request DTO.
+    const candidateConfig=readFileSync(join(submission,"tspconfig.yaml"));
+    assert.deepEqual(candidateConfig,readFileSync(join(source,"tspconfig.yaml")),
+      "Submitted toolchain configuration changed");
+    rmSync(join(source,"contracts"),{recursive:true});
+    cpSync(join(submission,"contracts"),join(source,"contracts"),{recursive:true});
+    assert.ok(readFileSync(join(source,"contracts/main.tsp"),"utf8")
+      .includes("calibrationDueAt?: utcDateTime | null;"));
+  }else{
+    execute(process.execPath,[exercise,"prepare",source]);
+  }
 
   const preflight=protocol("db:preflight",source,app,"--checkpoint",archive,"--report",report);
   assert.match(preflight,/PROTOCOLIA_DB_PREFLIGHT_PASS/);
@@ -181,13 +201,21 @@ try{
   // exact container/volume identity. Schema migrates on next app startup.
   dc("up","--detach","--build","--no-deps","app");
   await ready();
-  execute(process.execPath,[exercise,"verify"],{envVars:localEnv});
+  execute(process.execPath,[exercise,
+    submission?"verify-calibration":"verify"],{envVars:localEnv});
   const afterRows=tableRows();
   assert.equal(afterRows,
     "R4-T1:Torque wrench:9\nR4-T2:Diagnostic probe:11\nR4-T3:Current clamp:4");
   assert.equal(dc("ps","--quiet","db"),dbId);
-  assert.equal(dbQuery("SELECT service_note FROM tool WHERE code='R4-T3'"),
-    "Verified after handoff");
+  if(submission){
+    assert.equal(dbQuery("SELECT count(*) FROM tool WHERE code='R4-T3' "+
+      "AND calibration_due_at=TIMESTAMPTZ '2032-04-13T12:00:00Z'"),"1");
+    assert.equal(dbQuery("SELECT count(*) FROM tool WHERE code IN ('R4-T1','R4-T2') "+
+      "AND calibration_due_at IS NULL"),"2");
+  }else{
+    assert.equal(dbQuery("SELECT service_note FROM tool WHERE code='R4-T3'"),
+      "Verified after handoff");
+  }
 
   // Restore the PRE-UPGRADE checkpoint into a separate, network-disabled
   // database with its own volume. Never restore into the source Compose DB.
@@ -216,9 +244,12 @@ try{
   assert.equal(recoveredColumn(),"0");
   assert.equal(dc("ps","--quiet","db"),dbId);
   assert.equal(tableRows(),afterRows,"Recovery drill changed source DB");
-  execute(process.execPath,[exercise,"persist"],{envVars:localEnv});
+  execute(process.execPath,[exercise,
+    submission?"persist-calibration":"persist"],{envVars:localEnv});
   verifyPortable();
-  console.log("PROTOCOLIA_R4_VERIFIED_CHECKPOINT_ISOLATED_RESTORE_CRASH_PASS "+
+  console.log((submission?
+    "PROTOCOLIA_R4_AGENT_AUTHORED_CANDIDATE_VERIFIED_SQL_RESTORE_PASS ":
+    "PROTOCOLIA_R4_VERIFIED_CHECKPOINT_ISOLATED_RESTORE_CRASH_PASS ")+
     JSON.stringify({target,checkpointSha256:verified.archiveSha256,
       originalRows:evidence.rowsChecked,isolatedPreflight:true,
       verifiedEvolution:true,passportPreserved:true,
