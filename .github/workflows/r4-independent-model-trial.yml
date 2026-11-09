@@ -81,7 +81,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location https://ollama.com/install.sh             --output "$RUNNER_TEMP/r4-install-ollama.sh"
+          # External Ollama distribution occasionally returns transient HTTP 5xx
+          # before any model trial has begun. Retry the *download only*, not a
+          # failed model answer. Never accept an empty/invalid install script.
+          curl --fail --silent --show-error --location \
+            --retry 4 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 120 \
+            https://ollama.com/install.sh \
+            --output "$RUNNER_TEMP/r4-install-ollama.sh"
+          test -s "$RUNNER_TEMP/r4-install-ollama.sh"
+          sh -n "$RUNNER_TEMP/r4-install-ollama.sh"
           sudo sh "$RUNNER_TEMP/r4-install-ollama.sh"
           if ! curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then
             (nohup ollama serve >"$RUNNER_TEMP/r4-ollama.log" 2>&1 &)
@@ -95,7 +104,19 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
-          ollama pull qwen3:4b-instruct-2507-q4_K_M >"$RUNNER_TEMP/r4-model-pull.log" 2>&1 || { cat "$RUNNER_TEMP/r4-model-pull.log"; exit 1; }
+          pulled=0
+          for attempt in 1 2 3; do
+            if timeout 480 ollama pull qwen3:4b-instruct-2507-q4_K_M >"$RUNNER_TEMP/r4-model-pull.log" 2>&1; then
+              pulled=1
+              break
+            fi
+            echo "R4_OLLAMA_PULL_RETRY attempt=$attempt" >&2
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          if [ "$pulled" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/r4-model-pull.log" >&2
+            exit 1
+          fi
           ollama show qwen3:4b-instruct-2507-q4_K_M
       - name: Run one bounded fresh local model session with no repo, answer or oracle
         shell: bash
