@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "r4-frozen-model-artifact/v1",
+  "source": "GitHub Actions r4-live-model-response, unmodified archive contents",
+  "sourceRunId": 42329470874,
+  "sourceArtifactId": 13557256844,
+  "sourceArchiveSha256": "4bfb0c9517df055752d71b9f89d4078996c80d411256249df9e413a3e5affb55",
+  "sourceBranchHead": "017af78d3f3c6eb2090bbdf317b0c8b3ce795e73",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "outcome": "INCOMPLETE_HANDOFF_PROTOCOL_BUT_CANDIDATE_FILES_WRITTEN",
+  "originalContractSha256": "bae595d2927ecd8baa21147023f9c3c6d0514abba77e2aeb0b94c77f58d04077",
+  "observed": {
+    "rounds": 10,
+    "promptTokens": 47462,
+    "completionTokens": 2379,
+    "tools": [
+      "read_file",
+      "write_candidate",
+      "check_candidate"
+    ],
+    "finishToolInvoked": false
+  },
+  "categories": {
+    "technical": "PENDING_REAL_DB_REPLAY",
+    "businessOracle": "UNACCEPTED_KNOWN_LEXICAL_GAP",
+    "agentProtocol": "FAIL"
+  },
+  "warning": "This is retrospective forensic evidence. Do not claim the original model completed its submission, passed hidden business-policy scoring, or ran PostgreSQL in the failed job."
+}

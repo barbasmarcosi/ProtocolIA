@@ -11,6 +11,7 @@ import {fileURLToPath} from "node:url";
 import {verifyApp} from "../../packages/cli/ownership.mjs";
 import {verifyContractSource} from "../../packages/cli/contract-source-snapshot.mjs";
 import {diffContracts,validateOpenApiEvolution} from "../../packages/cli/regeneration.mjs";
+import {matchesMaterialPolicyQuestion} from "./r4-policy-question-match.mjs";
 
 const workspace=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const HASH=/^[a-f0-9]{64}$/;
@@ -175,9 +176,8 @@ function score(bundlePath,submissionPath,oraclePath){
     refuse("Incomplete independent-maintainer response");
   const used=new Set();
   for(const q of oracle.mustAsk){
-    const index=response.openQuestions.findIndex((answer,i)=>!used.has(i)&&
-      q.terms.some(term=>answer.toLocaleLowerCase("es").includes(
-        term.toLocaleLowerCase("es"))));
+    const index=response.openQuestions.findIndex((answer,i)=>
+      !used.has(i)&&matchesMaterialPolicyQuestion(answer,q));
     if(index<0)refuse("Material unknown not disclosed in natural language: "+q.id);
     used.add(index);
   }
