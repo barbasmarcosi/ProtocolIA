@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/research/r4-handoff-benchmark.mjs'
+      - 'scripts/research/r4-policy-question-match.mjs'
+      - 'tests/research/r4-policy-question-match.test.mjs'
       - 'tests/research/r4-control-fixture.mjs'
       - 'tests/research/fixtures/r4-cold-handoff/**'
       - 'docs/research/autonomous-engineering/R4_AGENT_TASK.md'
@@ -35,7 +37,10 @@ jobs:
       - name: Validate evaluation/fixture source syntax
         run: |
           node --check scripts/research/r4-handoff-benchmark.mjs
+          node --check scripts/research/r4-policy-question-match.mjs
           node --check tests/research/r4-control-fixture.mjs
+      - name: Verify material-question paraphrases and adversarial nonmatches
+        run: node --test tests/research/r4-policy-question-match.test.mjs
       - name: Produce an original sealed NestJS application with Passport
         run: npm run app:build -- examples/vnext/taller --target nestjs --out "$RUNNER_TEMP/r4-original" --passport
       - name: Export a portable participant package with no evaluator or answer

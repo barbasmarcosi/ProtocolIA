@@ -14,7 +14,7 @@ The locked provenance record specifies the source run, artifact ID, source contr
 
 The genuine Qwen candidate adds `calibrationDueAt?: utcDateTime | null` to both entity and request model without altering operation capabilities. It asks (in English) about tool-specific calibration intervals and what to do when the due date is **exceeded**. The latter question expresses the missing overdue rule but does not contain any of the scorer's fixed substrings (e.g. `overdue`, `expired`); consequently, the existing `r4-handoff-benchmark score` returns a **negative result**. This is a demonstrable *lexical blind spot* in the scorer, **not proof of owner-approved policy or a full semantic-pass certificate**.
 
-Changing the held-out oracle after reading this answer would introduce hindsight leakage. Therefore the frozen replay **expects** that exact negative result and refuses to silently reinterpret it as an accepted blind trial. The unanswered policy remains unanswered.
+Changing the held-out oracle after reading this answer would introduce hindsight leakage. The original lexical rejection is **historical evidence and remains unchanged**. On 2026-11-09, the separate policy-question matcher was extended to recognize a due-date-exceeded event in a calibration decision, with both positive and adversarial unit tests; the oracle file was not modified. The forensic replay now checks the *original v1 keyword-only rejection* explicitly, then records any acceptance by the corrected scorer as a **new retrospective interpretation only**. The original model run still failed its `finish` protocol. No owner answered the policy questions, and this re-evaluation is not a new, prospective blind agent success.
 
 ## Genuine technical verification, separate from full acceptance
 
@@ -22,7 +22,7 @@ The [`r4-qwen-forensic-replay.yml`](../../.github/workflows/r4-qwen-forensic-rep
 
 1. Reconstruct the unchanged original app with a source-bound Passport.
 2. Verify the precise original ZIP SHA-256, exact filename list, model metadata, visible tool calls, and **absence of a `finish` call**.
-3. Recreate the original 20-file participant handoff and require the historical lexical scorer to reject the original text exactly as recorded, without altering it.
+3. Recreate the original 20-file participant handoff; reproduce the historical v1 keyword-only rejection from frozen terms, then independently exercise the updated scorer without changing the candidate, business oracle, or historical failure label.
 4. Feed **only the genuine model-authored TypeSpec** to `r4-verified-checkpoint-restore.mjs --submission`. The script takes a custom-format `pg_dump` from a populated old database, verifies its seal, rehearses the precise additive migration on a network-disabled PostgreSQL, tests forged-report refusal, runs `evolve:verified`, preserves old records and original DB identity, checks real HTTP authorization/duplicate/stock behavior and persisted calibration timestamp, and restores an unchanged old-schema checkpoint into a separate network-disabled volume followed by a forced crash/restart.
 
 When green, this may support the narrow statement: **the failed-to-finish Qwen model nonetheless authored TypeSpec that safely evolved a disposable PostgreSQL application for both targets**. It cannot prove the agent closed a handoff, that the business oracle approved its answer, or that it could maintain an unfamiliar system after years.
