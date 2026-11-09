@@ -79,15 +79,23 @@ try{
   const participant=join(tmp,"source-bound-participant");
   call(process.execPath,["scripts/research/r4-handoff-benchmark.mjs","package",
     original,"tests/research/fixtures/r4-cold-handoff/CHANGE_REQUEST.md",participant]);
+  // Reproduce the ORIGINAL v1 keyword-only rejection independently of the
+  // evolving scorer. Preserve the observed failure even after correcting it.
+  assert.equal(provenance.categories.businessOracle,"UNACCEPTED_KNOWN_LEXICAL_GAP");
+  const legacyOverdueWords=["overdue","vencid","caducad","expir","past due","atrasad"];
+  assert.equal(answer.openQuestions.some(q=>legacyOverdueWords.some(term=>
+    q.toLocaleLowerCase("es").includes(term))),false,
+    "Frozen answer must still demonstrate the historical lexical blind spot");
+  console.log("PROTOCOLIA_R4_HISTORICAL_QWEN_LEXICAL_REJECTION_PRESERVED");
+
+  // A v2 scorer result is a RETROSPECTIVE re-evaluation, never a rewrite of
+  // the historical run's rejected score or missing finish call.
   const scorer=call(process.execPath,["scripts/research/r4-handoff-benchmark.mjs",
     "score",participant,candidate,
     "tests/research/fixtures/r4-cold-handoff/ci-control-oracle.json"],
-    {allowFailure:true,timeout:180000});
-  assert.notEqual(scorer.status,0,
-    "This forensic replay must not silently reclassify the original rejected response as an accepted blind result");
-  assert.match((scorer.stderr??"")+(scorer.stdout??""),
-    /Material unknown not disclosed in natural language: overdue_response/);
-  console.log("PROTOCOLIA_R4_ORIGINAL_QWEN_LEXICAL_POLICY_ORACLE_REJECTION_PRESERVED");
+    {timeout:180000});
+  assert.match(scorer.stdout,/PROTOCOLIA_R4_SUBMISSION_SEMANTICALLY_ACCEPTED/);
+  console.log("PROTOCOLIA_R4_UPDATED_SCORER_RETROSPECTIVE_ACCEPTANCE_ONLY");
 
   // The model-written CONTRACT itself may be safe although the finish protocol
   // failed and the keyword oracle rejected a legitimate English paraphrase.

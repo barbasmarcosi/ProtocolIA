@@ -4,6 +4,9 @@ on:
     paths:
       - 'experiments/r4-frozen-qwen-20261107/**'
       - 'scripts/research/r4-qwen-forensic-replay.mjs'
+      - 'scripts/research/r4-policy-question-match.mjs'
+      - 'tests/research/r4-policy-question-match.test.mjs'
+      - 'scripts/research/r4-handoff-benchmark.mjs'
       - '.github/workflows/r4-qwen-forensic-replay.yml'
       - 'docs/research/autonomous-engineering/R4_QWEN_FORENSIC_REPLAY.md'
       - 'scripts/research/r4-verified-checkpoint-restore.mjs'
@@ -35,8 +38,11 @@ jobs:
           java-version: '21'
           cache: maven
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Check frozen replay source
-        run: node --check scripts/research/r4-qwen-forensic-replay.mjs
+      - name: Check frozen replay and language matching
+        run: |
+          node --check scripts/research/r4-qwen-forensic-replay.mjs
+          node --check scripts/research/r4-policy-question-match.mjs
+          node --test tests/research/r4-policy-question-match.test.mjs
       - name: Generate pristine real source-bound application
         shell: bash
         run: |
